@@ -8,6 +8,7 @@ version: 1.0
 # Set the version of Python and other tools you might need
 build:
   tools:
+    os: "ubuntu-22.04"
     python: "3.8"
 
 # Build documentation in the docs/ directory with Sphinx
