@@ -26,7 +26,7 @@ for path in paths:
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = ['sphinx.ext.autodoc', 'sphinx_gallery.gen_gallery', 'sphinx_codeautolink']
+extensions = ['sphinx.ext.autodoc', 'sphinx_gallery.gen_gallery']
 
 # ToDo: Complete list of mock imports
 autodoc_mock_imports = ['mpl_toolkits.axes_grid1' 'scipy', 'matplotlib', 'cv2', 'time', 'torchmin', 'checkerboard']
