@@ -17,36 +17,39 @@ The gradient for the conjugate gradient minimisation is calculated using PyTorch
 automatic differentiation capabilities.
 
 Functions to characterise the beam profile and the constant phase at the SLM are
-provided. These measurements are cruicial for accurate experimental results.
+provided. These measurements are crucial for accurate experimental results.
 
 We employed a `feedback algorithm <https://dx.doi.org/10.1088/0953-4075/48/11/115303>`_ and model pixel
 crosstalk on the SLM to further reduce experimental errors in the light potentials.
+
+.. autofunction:: hologradpy.torch_functions.fft
+   :noindex:
 
 .. note::
    This package works best with a Nvidia GPU to run the phase retrieval algorithm.
 
 .. warning::
-   This documentation is work in progress - refer to the example scripts and the
-   programmer reference to get started.
+   This documentation is work in progress - refer to the example scripts to get started.
 
-
-
-User Guide
-==========
 
 .. toctree::
-   :maxdepth: 2
+   :caption: User Guide
 
    install
    auto_examples/index
 
-Programmer Reference
---------------------
-
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
+   :caption: Reference
 
    api
+
+.. toctree::
+   :hidden:
+   :caption: Links
+
+   ↪ Publication <https://doi.org/10.1038/s41598-023-30296-6>
+   ↪ GitHub <https://github.com/paul-schroff/hologradpy>
 
 Indices and tables
 ==================

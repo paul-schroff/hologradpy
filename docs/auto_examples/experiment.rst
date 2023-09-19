@@ -30,7 +30,7 @@ your own hardware.
 
     import time
     import numpy as np
-    from src.hologradpy import hardware as hw
+    from hologradpy import hardware as hw
 
     # These modules are only needed for our camera and SLM drivers
     import cv2 as cv

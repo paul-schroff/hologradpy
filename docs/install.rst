@@ -7,10 +7,9 @@ Installation
 ============
 
 Download this package and ``cd`` into the folder containing the ``setup.py`` file.
-Then, in your virtual conda environment, type ::
+Then, in your virtual conda environment, run the command ::
 
    pip install -e .
 
-and press enter.
 All required python packages should install automatically.
 To run PyTorch on a GPU, you have to install CUDA.

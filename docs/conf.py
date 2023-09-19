@@ -19,23 +19,33 @@ release = '1.0'
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 # sys.path.insert(0, os.path.abspath('../hologradpy/'))
-paths = ['../..', '../../hologradpy', ]
+paths = ['..', '../hologradpy']
 for path in paths:
     sys.path.insert(0, os.path.abspath(path))
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = ['sphinx.ext.autodoc', 'sphinx_gallery.gen_gallery']
+extensions = ['sphinx.ext.autodoc', 'sphinx.ext.autosummary', 'sphinx.ext.intersphinx', 'sphinx_gallery.gen_gallery', ]
+
 
 # ToDo: Complete list of mock imports
 autodoc_mock_imports = ['mpl_toolkits.axes_grid1' 'scipy', 'matplotlib', 'cv2', 'time', 'torchmin', 'checkerboard']
 autodoc_member_order = 'bysource'
 autoclass_content = 'both'
+add_module_names = False
+
+autosummary_generate = True
+
+intersphinx_mapping = {
+    'numpy': ('https://numpy.org/doc/stable/', None),
+    'matplotlib': ('https://matplotlib.org/stable/', None),
+}
 
 sphinx_gallery_conf = {
     'examples_dirs': '../examples',   # path to your example scripts
     'gallery_dirs': 'auto_examples',  # path to where to save gallery generated output
+    'reference_url': {'hologradpy': None},
 }
 
 templates_path = ['_templates']
