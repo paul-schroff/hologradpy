@@ -7,6 +7,7 @@ author_email = "paul.schroff@strath.ac.uk"
 description = ("Module to holographically generete light "
                "potentials of arbitrary shape using a "
                "phase-modulating spatial light modulator (SLM).")
+py_modules = ['hologradpy']
 requirements = [
     'numpy',
     'scipy',
@@ -21,4 +22,5 @@ setup(name=name,
       author=author,
       author_email=author_email,
       description=description,
+      py_modules=py_modules,
       install_requires=requirements,)
