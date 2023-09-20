@@ -1,5 +1,7 @@
 :orphan:
 
+.. _Examples:
+
 Example scripts
 ===============
 

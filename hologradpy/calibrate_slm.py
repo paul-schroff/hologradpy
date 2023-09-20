@@ -205,15 +205,15 @@ def measure_slm_intensity(slm_disp_obj, cam_obj, pms_obj, aperture_number, apert
     np.save(path + '//i_rec', i_rec)
     np.save(path + '//i_fit_slm', i_fit_slm)
     np.save(path + '//popt_slm', popt_slm)
-    return path
+    return path + '//i_rec'
 
 
 def measure_slm_wavefront(slm_disp_obj, cam_obj, pms_obj, aperture_number, aperture_width, img_size, exp_time, spot_pos,
-                          n_avg=10, benchmark=False, phi_load_path=None, roi_min_x=16, roi_min_y=16, roi_n=8):
+                          n_avg_frames=10, benchmark=False, phi_load_path=None, roi_min_x=16, roi_min_y=16, roi_n=8):
     """
     This function measures the constant phase at the SLM by displaying a sequence of rectangular phase masks on the SLM.
-    Read the SI of https://doi.org/10.1038/s41598-023-30296-6 for details.
-    Todo: Improve documentation.
+    This scheme was adapted from this Phillip Zupancic's work (https://doi.org/10.1364/OE.24.013881). For details of our
+    implementation, read the SI of https://doi.org/10.1038/s41598-023-30296-6.
 
     :param slm_disp_obj: Instance of your own subclass of ``hardware.SlmBase``.
     :param cam_obj: Instance of your own subclass of ``hardware.CameraBase``.
@@ -223,7 +223,14 @@ def measure_slm_wavefront(slm_disp_obj, cam_obj, pms_obj, aperture_number, apert
     :param img_size: Width of the roi in the camera image [camera pixels].
     :param exp_time: Exposure time.
     :param spot_pos: x/y position of the diffraction spot in th computational Fourier plane [Fourier pixels].
-    :return: Measured constant phase at the SLM.
+    :param n_avg_frames: Number of camera frames to average per shot.
+    :param bool benchmark: Load previously measured constant phase and display it on the SLM to check for flatness.
+    :param phi_load_path: Path to previously measured constant phase.
+    :param roi_min_x: Aperture column number to display the first phase mask.
+    :param roi_min_y: Aperture row number to display the first phase mask.
+    :param roi_n: Number of apertures to display (roi_n * roi_n), starting at roi_min_x, roi_min_y.
+
+    :return: Path to measured constant phase at the SLM.
     """
     
     roi_mem = cam_obj.roi
@@ -261,13 +268,14 @@ def measure_slm_wavefront(slm_disp_obj, cam_obj, pms_obj, aperture_number, apert
     slm_disp_obj.display(phi_int)
 
     cam_obj.start()
-    img_exp_check = cam_obj.get_image(exp_time)
+    measure_slm_wavefront.img_exposure_check = cam_obj.get_image(exp_time)
     cam_obj.stop()
 
     # Load measured laser intensity profile
-    i_rec = np.load(pms_obj.i_path)
-    i_laser = pt.load_filter_upscale(i_rec, npix, 1, filter_size=pms_obj.i_filter_size)
-    i_laser = np.pad(i_laser, ((0, 0), (128, 128)))
+    laser_intensity_measured = np.load(pms_obj.i_path)
+    laser_intensity_upscaled = pt.load_filter_upscale(laser_intensity_measured, npix, 1,
+                                                      filter_size=pms_obj.i_filter_size)
+    laser_intensity_upscaled = np.pad(laser_intensity_upscaled, ((0, 0), (border_x, border_x)))
 
     # Find Camera position with respect to SLM
     popt_clb, img_cal = find_camera_position(slm_disp_obj, cam_obj, pms_obj, lin_phase, exp_time=exp_time / 20,
@@ -288,7 +296,8 @@ def measure_slm_wavefront(slm_disp_obj, cam_obj, pms_obj, aperture_number, apert
     roi_cam = [w_cam, h_cam, offset_x, offset_y]
 
     # Take camera images
-    p_max = np.sum(i_laser[slm_idx[0][n_centre]:slm_idx[1][n_centre], slm_idx[2][n_centre]:slm_idx[3][n_centre]])
+    p_max = np.sum(laser_intensity_upscaled[slm_idx[0][n_centre]:slm_idx[1][n_centre],
+                   slm_idx[2][n_centre]:slm_idx[3][n_centre]])
 
     norm = np.zeros(roi_n ** 2)
     img = np.zeros((img_size, img_size, roi_n ** 2))
@@ -296,18 +305,18 @@ def measure_slm_wavefront(slm_disp_obj, cam_obj, pms_obj, aperture_number, apert
     dt = np.zeros(roi_n ** 2)
     aperture_width_adj = np.zeros(roi_n ** 2)
 
-    n_img = int(2 * n_avg * roi_n ** 2)
+    n_img = int(2 * n_avg_frames * roi_n ** 2)
     cam_obj.roi = roi_cam
     cam_obj.start(n_img)
-    test = np.copy(zeros_full)
+    aperture_coverage = np.copy(zeros_full)
     for i in range(roi_n ** 2):
         t_start = time.time()
         ii = idx[i]
         idx_0, idx_1 = np.unravel_index(ii, phi_load.shape)
 
-        norm[i] = p_max / np.sum(i_laser[slm_idx[0][ii]:slm_idx[1][ii], slm_idx[2][ii]:slm_idx[3][ii]])
+        norm[i] = p_max / np.sum(laser_intensity_upscaled[slm_idx[0][ii]:slm_idx[1][ii], slm_idx[2][ii]:slm_idx[3][ii]])
         masked_phase = np.copy(zeros_full)
-        test_now = np.copy(zeros_full)
+        aperture_coverage_now = np.copy(zeros_full)
         aperture_width_tar = np.sqrt(aperture_width ** 2 * norm[i])
         pad = int((aperture_width_tar - aperture_width) // 2)
         aperture_width_adj[i] = aperture_width + 2 * pad
@@ -318,14 +327,14 @@ def measure_slm_wavefront(slm_disp_obj, cam_obj, pms_obj, aperture_number, apert
         masked_phase[slm_idx[0][n_centre]:slm_idx[1][n_centre], slm_idx[2][n_centre]:slm_idx[3][n_centre]] = \
             slm_phase[slm_idx[0][n_centre]:slm_idx[1][n_centre], slm_idx[2][n_centre]:slm_idx[3][n_centre]]
 
-        test_now[slm_idx[0][ii] - pad:slm_idx[1][ii] + pad, slm_idx[2][ii] - pad:slm_idx[3][ii] + pad] = 1
-        test += test_now
+        aperture_coverage_now[slm_idx[0][ii] - pad:slm_idx[1][ii] + pad, slm_idx[2][ii] - pad:slm_idx[3][ii] + pad] = 1
+        aperture_coverage += aperture_coverage_now
 
         slm_disp_obj.display(np.remainder(masked_phase, 2 * np.pi))
         if i == 0:
             time.sleep(2 * slm_disp_obj.delay)
 
-        img_avg = hw.get_image_avg(cam_obj, exp_time, n_avg)
+        img_avg = hw.get_image_avg(cam_obj, exp_time, n_avg_frames)
 
         img[:, :, i] = np.copy(img_avg)
         aperture_power[i] = np.mean(img[:, :, i]) * aperture_width ** 2 / aperture_width_adj[i] ** 2
@@ -344,7 +353,8 @@ def measure_slm_wavefront(slm_disp_obj, cam_obj, pms_obj, aperture_number, apert
     np.save(path + '/img', img)
 
     plt.figure()
-    plt.imshow(test)
+    plt.imshow(aperture_coverage)
+    plt.title('Coverage of sub-apertures on the SLM')
 
     # Fit sine to images
     fit_sine = ft.FitSine(fl, pms_obj.k)
@@ -421,4 +431,4 @@ def measure_slm_wavefront(slm_disp_obj, cam_obj, pms_obj, aperture_number, apert
     np.save(path + '//t', t)
     np.save(path + '//popt_sv', popt_sv)
     np.save(path + '//perr_sv', perr_sv)
-    return path
+    return path + '//dphi_uw'
