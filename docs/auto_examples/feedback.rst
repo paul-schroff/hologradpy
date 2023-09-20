@@ -210,11 +210,11 @@ supplementary information of our publication for details.
 
     if measure_slm_intensity is True:
         i_path = clb.measure_slm_intensity(slm_disp_obj, cam_obj, pms_obj, 30, 32, 10000, 256, 300)
-        pms_obj.i_path = i_path + '//i_rec.npy'
+        pms_obj.i_path = i_path
     if measure_slm_phase is True:
         phi_path = clb.measure_slm_wavefront(slm_disp_obj, cam_obj, pms_obj, 30, 16, 64, 40000, 256, roi_min_x=2,
                                              roi_min_y=2, roi_n=26)
-        pms_obj.phi_path = phi_path + '//dphi_uw.npy'
+        pms_obj.phi_path = phi_path
 
 .. GENERATED FROM PYTHON SOURCE LINES 139-143
 
