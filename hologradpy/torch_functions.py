@@ -260,7 +260,7 @@ class VirtualSlm(nn.Module):
         else:
             self.kernel_ct = torch.tensor(kernel_ct, dtype=dtype_r).to(device).unsqueeze(0).unsqueeze(0)
         if e_slm is None:
-            self.e_slm = torch.ones((self.npix_pad * self.pix_res, self.npix_pad * self.pix_res))
+            e_slm = torch.ones((self.npix_pad * self.pix_res, self.npix_pad * self.pix_res))
         self.e_slm = torch.tensor(e_slm, dtype=dtype_c).to(device)
 
         if slm_mask is None:
