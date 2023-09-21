@@ -19,21 +19,21 @@ release = '1.0'
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 # sys.path.insert(0, os.path.abspath('../hologradpy/'))
-paths = ['.', '..', '../hologradpy']
+paths = ['..']
 for path in paths:
     sys.path.insert(0, os.path.abspath(path))
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = ['sphinx.ext.autodoc', 'autoapi.extension', 'sphinx.ext.intersphinx', 'sphinx_gallery.gen_gallery', ]
-
+extensions = ['autoapi.extension', 'sphinx.ext.intersphinx', 'sphinx_gallery.gen_gallery', ]
+# 'sphinx.ext.autodoc',
 
 # ToDo: Complete list of mock imports
 autodoc_mock_imports = ['mpl_toolkits.axes_grid1' 'scipy', 'matplotlib', 'cv2', 'time', 'torchmin', 'checkerboard']
-autodoc_member_order = 'bysource'
-autoclass_content = 'both'
-add_module_names = False
+# autodoc_member_order = 'bysource'
+# autoclass_content = 'both'
+# add_module_names = False
 
 autoapi_dirs = ['../hologradpy']
 

@@ -47,7 +47,6 @@ potentials.
 
    install
    auto_examples/index
-   api
 
 .. toctree::
    :hidden:
