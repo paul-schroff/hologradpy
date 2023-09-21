@@ -1,9 +1,3 @@
 sphinx_rtd_theme
 sphinx-gallery
-numpy
-scipy
-matplotlib
-torch
-pytorch-minimize
-opencv-python
-checkerboard
+sphinx-autoapi

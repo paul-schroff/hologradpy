@@ -26,7 +26,7 @@ for path in paths:
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = ['sphinx.ext.autodoc', 'sphinx.ext.intersphinx', 'sphinx_gallery.gen_gallery', ]
+extensions = ['sphinx.ext.autodoc', 'autoapi.extension', 'sphinx.ext.intersphinx', 'sphinx_gallery.gen_gallery', ]
 
 
 # ToDo: Complete list of mock imports
@@ -34,6 +34,8 @@ autodoc_mock_imports = ['mpl_toolkits.axes_grid1' 'scipy', 'matplotlib', 'cv2', 
 autodoc_member_order = 'bysource'
 autoclass_content = 'both'
 add_module_names = False
+
+autoapi_dirs = ['../hologradpy']
 
 intersphinx_mapping = {
     'numpy': ('https://numpy.org/doc/stable/', None),

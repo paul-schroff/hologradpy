@@ -1,0 +1,7 @@
+numpy
+scipy
+matplotlib
+torch
+pytorch-minimize
+opencv-python
+checkerboard
