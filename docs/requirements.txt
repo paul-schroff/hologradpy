@@ -1,3 +1,9 @@
 sphinx_rtd_theme
 sphinx-gallery
-https://github.com/paul-schroff/hologradpy/tree/main
+numpy
+scipy
+matplotlib
+torch
+pytorch-minimize
+opencv-python
+checkerboard
