@@ -253,8 +253,8 @@ phi, img, M, T, [rmse, psnr], [rmse_conv_sv, rmse_pred_conv_sv, eff_conv_sv, n_c
 #
 # .. image:: images/fb0.png
 #
-# The experimental errors in the camera image are greatly reduced after 10 camera feedback iterations with 50 CG
-# iterations each:
+# Here, we only show the region on the camera. The experimental errors in the camera image are greatly reduced after 10
+# camera feedback iterations with 50 CG iterations each:
 #
 # .. image:: images/fb15.png
 

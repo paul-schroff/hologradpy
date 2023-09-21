@@ -366,8 +366,8 @@ taken:
 
 .. image:: images/fb0.png
 
-The experimental errors in the camera image are greatly reduced after 10 camera feedback iterations with 50 CG
-iterations each:
+Here, we only show the region on the camera. The experimental errors in the camera image are greatly reduced after 10
+camera feedback iterations with 50 CG iterations each:
 
 .. image:: images/fb15.png
 
