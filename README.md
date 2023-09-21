@@ -1,4 +1,6 @@
 # HoloGradPy
+<a href="https://www.gnu.org/licenses/lgpl-3.0.en.html"><img alt="License: LGPL v3" src="https://img.shields.io/badge/License-LGPL_v3-blue.svg"></a>
+
 Package to holographically generete light potentials of arbitrary shape using a phase-modulating spatial light modulator (SLM).
 
 This package has been created in the course of Paul Schroff's PhD at the University of Strathclyde in the research group of Stefan Kuhr.
