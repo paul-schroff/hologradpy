@@ -14,7 +14,7 @@ The results in our publication were generated using this code.
 
 **Cite as** 
 
-If you are using this code, please cite our publication:
+If you are using this package, please cite our publication:
 
 P. Schroff, A. La Rooij, E. Haller, S. Kuhr,
 Accurate holographic light potentials using pixel crosstalk modelling.
