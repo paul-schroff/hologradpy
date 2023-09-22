@@ -18,7 +18,6 @@ release = '1.0'
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
-# sys.path.insert(0, os.path.abspath('../hologradpy/'))
 paths = ['..']
 for path in paths:
     sys.path.insert(0, os.path.abspath(path))
@@ -27,13 +26,6 @@ for path in paths:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = ['autoapi.extension', 'sphinx.ext.intersphinx', 'sphinx_gallery.gen_gallery', ]
-# 'sphinx.ext.autodoc',
-
-# ToDo: Complete list of mock imports
-autodoc_mock_imports = ['mpl_toolkits.axes_grid1' 'scipy', 'matplotlib', 'cv2', 'time', 'torchmin', 'checkerboard']
-# autodoc_member_order = 'bysource'
-# autoclass_content = 'both'
-# add_module_names = False
 
 autoapi_dirs = ['../hologradpy']
 
@@ -50,7 +42,6 @@ sphinx_gallery_conf = {
 
 templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
-
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
