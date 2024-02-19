@@ -8,7 +8,7 @@ import scipy
 import scipy.optimize as opt
 
 
-def tilt(xy, *args):
+def tilt(xy, *args, mask=None):
     """
     Fit function containing the first three Zernike polynomials of the form z = c0 + c1 * x + c2 * y + c3 * 2xy.
 
@@ -16,24 +16,34 @@ def tilt(xy, *args):
     :param args: Vector of length 4, containing Zernike coefficients.
     :return: First 3 Zernike polynomials.
     """
+    if mask is None:
+        mask = np.ones_like(xy[0])
+
     x, y = xy
     c = np.array(args)
     arr = c[0] + c[1] * x + c[2] * y + c[3] * 2 * x * y
-    return arr
+    return arr * mask
 
 
-def remove_tilt(img):
+def remove_tilt(img, mask=None):
     """
     This function removes fits the first three Zernike polynomials (Piston and tilt) to an image and subtracts the
     fitted function from the original image.
     :param ndarray img: Input image.
+    :param ndarray mask: Binary mask in which to remove tilt.
     :return: Image without tilt.
     """
+    if mask is None:
+        mask = np.ones_like(img)
+
+    def tilt_mask(xy, *args):
+        return tilt(xy, *args, mask=mask)
+
     x_, y_ = pt.make_grid(img)
     xdata = np.vstack((x_.ravel(), y_.ravel()))
     p0 = np.zeros(4)
 
-    p_opt, p_cov = opt.curve_fit(tilt, xdata, img.ravel(), p0)
+    p_opt, p_cov = opt.curve_fit(tilt_mask, xdata, img.ravel(), p0)
     img_tilt = np.reshape(tilt(xdata, *p_opt), img.shape)
     return img - img_tilt
 
