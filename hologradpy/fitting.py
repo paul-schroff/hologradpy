@@ -34,7 +34,7 @@ def remove_tilt(img, mask=None):
     :return: Image without tilt.
     """
     if mask is None:
-        mask = np.ones_like(img)
+        mask = np.ones_like(img.ravel())
 
     def tilt_mask(xy, *args):
         return tilt(xy, *args, mask=mask)
