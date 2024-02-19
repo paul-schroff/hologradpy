@@ -70,7 +70,7 @@ def ifft(e_in, shift=True, norm=None):
     :return: IFFT of ``e_in``.
     """
     if shift is True:
-        e_out = torch.fft.ifftshift(torch.fft.ifft2(torch.fft.fftshift(e_in)), norm=norm)
+        e_out = torch.fft.ifftshift(torch.fft.ifft2(torch.fft.fftshift(e_in), norm=norm))
     else:
         e_out = torch.fft.ifft2(e_in, norm=norm)
     return e_out
