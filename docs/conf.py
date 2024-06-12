@@ -43,6 +43,10 @@ sphinx_gallery_conf = {
 templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
+latex_elements = {
+  'extraclassoptions': 'openany,oneside'
+}
+
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
