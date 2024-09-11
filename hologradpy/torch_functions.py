@@ -270,7 +270,8 @@ class VirtualSlm(nn.Module):
         self.pad = self.pix_res * (self.npix_pad - self.npix) // 2
         self.counter = 0
         self.phi_disp = torch.zeros_like(self.phi, dtype=dtype_r)
-        torch.cuda.empty_cache()
+        if device == 'cuda':
+            torch.cuda.empty_cache()
 
     def set_phi(self, new_phi):
         """
@@ -531,9 +532,12 @@ class PhaseRetrieval:
         print('\nMaximum iteration number : {0}'.format(self.n_iter))
         print("Calculation start : %s\n" % date)
 
-        start = torch.cuda.Event(enable_timing=True)
-        end = torch.cuda.Event(enable_timing=True)
-        start.record()
+        if self.slm_obj.device == 'cuda':
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
+        else:
+            start = time.time()
 
         if self.optim_type == 'cg':
             def closure():
@@ -554,15 +558,20 @@ class PhaseRetrieval:
                 loss.backward(retain_graph=True)
                 self.optimizer.step()
 
-        end.record()
-        torch.cuda.synchronize()
-        runtime = start.elapsed_time(end) / 1e3
+        if self.slm_obj.device == 'cuda':
+            end.record()
+            torch.cuda.synchronize()
+            runtime = start.elapsed_time(end) / 1e3
+        else:
+            end = time.time()
+            runtime = end - start
 
         print('Ran for %.3fs' % runtime)
         print('Ran for %.0f min and %.3fs' % (runtime // 60, runtime % 60))
 
         # Tidy up to save GPU memory
-        torch.cuda.empty_cache()
+        if self.slm_obj.device == 'cuda':
+            torch.cuda.empty_cache()
         return self.phi, (np.asarray(self.eta_pred), np.asarray(self.eff_pred))
 
 
@@ -722,7 +731,8 @@ def camera_calibration(slm_obj, slm_disp_obj, cam_obj, pms_obj, save=None, exp_t
         np.save(path + '//itf', itf)
         np.save(path + '//imgCaltf', imgCaltf)
 
-    torch.cuda.empty_cache()
+    if slm_obj.device == 'cuda':
+        torch.cuda.empty_cache()
     return tf, itf
 
 
