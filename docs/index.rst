@@ -9,6 +9,9 @@ HoloGradPy Documentation
 HoloGradPy provides functionality to holographically generate light potentials of
 arbitrary shape using a phase-modulating SLM
 (see `our publication <https://doi.org/10.1038/s41598-023-30296-6>`_).
+Additional SLM calibration methods based on 
+`more recent work <https://doi.org/10.1364/OE.539548>`_ will soon be added to this 
+package.
 
 Author
 ******
