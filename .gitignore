@@ -3,3 +3,9 @@
 
 # Sphinx documentation
 docs/_build/
+
+docs/auto_examples/searchindex.bak
+docs/auto_examples/searchindex.dat
+docs/auto_examples/searchindex.dir
+
+hologradpy.egg-info/
