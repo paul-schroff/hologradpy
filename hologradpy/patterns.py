@@ -1,10 +1,11 @@
 """
-This module contains utility functions for array manipulation and functions to create binary masks, intensity and
-phase patterns of various shapes.
+This module contains utility functions for array manipulation and functions to 
+create binary masks, intensity and phase patterns of various shapes.
 
-The :py:class:`Hologram` class provides arrays needed for the CG minimisation: The target light
-potential and the signal region, the measured constant SLM phase and intensity at the required resolution, and
-the initial SLM phase guess to start the CG minimisation.
+The :py:class:`Hologram` class provides arrays needed for the CG minimisation: 
+The target light potential and the signal region, the measured constant SLM 
+phase and intensity at the required resolution, and the initial SLM phase guess
+to start the CG minimisation.
 """
 
 import numpy as np
@@ -16,7 +17,8 @@ import cv2 as cv
 # Utility functions for array manipulation
 def make_grid(im, scale=None):
     """
-    Return a xy meshgrid based in an input array, im, ranging from -scal * im.shape[0] // 2 to scal * im.shape[0] // 2.
+    Return a xy meshgrid based in an input array, im, ranging from -scal * 
+    im.shape[0] // 2 to scal * im.shape[0] // 2.
 
     :param im: Input array.
     :param scale: Optional scaling factor.
@@ -27,14 +29,16 @@ def make_grid(im, scale=None):
     h, w = im.shape
     y_lim, x_lim = h // 2, w // 2
     
-    x, y = np.linspace(-x_lim * scale, x_lim * scale, w), np.linspace(-y_lim * scale, y_lim * scale, h)
+    x = np.linspace(-x_lim * scale, x_lim * scale, w)
+    y = np.linspace(-y_lim * scale, y_lim * scale, h)
     x, y = np.meshgrid(x, y)
     return x, y
 
 
 def pixel_corr(img, x, y):
     """
-    Replace a pixel value with coordinates x and y by the mean value of its 3x3 neighbourhood.
+    Replace a pixel value with coordinates x and y by the mean value of its 3x3
+    neighbourhood.
 
     :param img: Input image.
     :param x: x-coordinate of pixel.
@@ -106,14 +110,15 @@ def crop_to_mask(img, mask):
     idx_max_0 = np.max(np.argwhere(mask > 0)[:, 0])
     idx_max_1 = np.max(np.argwhere(mask > 0)[:, 1])
     idx = [idx_min_0, idx_max_0, idx_min_1, idx_max_1]
-    pad = ((idx_min_0, img.shape[0] - idx_max_0), (idx_min_1, img.shape[1] - idx_max_1))
+    pad = ((idx_min_0, img.shape[0] - idx_max_0),
+           (idx_min_1, img.shape[1] - idx_max_1))
     return img[idx[0]:idx[1], idx[2]:idx[3]], [pad, idx]
 
 
 def load_filter_upscale(path, npx, pix_res, crop=None, filter_size=None):
     """
-    Loads a 2D numpy array and crops its edges. A uniform filter is applied to the cropped image before it is upscaled
-    using Lanczos interpolation.
+    Loads a 2D numpy array and crops its edges. A uniform filter is applied to 
+    the cropped image before it is upscaled using Lanczos interpolation.
 
     :param path: Numpy array or path to numpy array.
     :param npx: Number of SLM pixels.
@@ -135,14 +140,23 @@ def load_filter_upscale(path, npx, pix_res, crop=None, filter_size=None):
     res = out.shape[0]
     pix = int(np.round(npx / (res + 2)))
     if crop == 0:
-        out = scipy.ndimage.uniform_filter(out, size=filter_size, mode='nearest')
-        out = cv.resize(out, (npx * pix_res, npx * pix_res), interpolation=cv.INTER_LANCZOS4)
+        out = scipy.ndimage.uniform_filter(out,
+                                           size=filter_size, mode='nearest')
+        out = cv.resize(out,
+                        (npx * pix_res, npx * pix_res),
+                        interpolation=cv.INTER_LANCZOS4)
     else:
         out = out[crop // pix:-crop // pix, crop // pix:-crop // pix]
-        out = scipy.ndimage.uniform_filter(out, size=filter_size, mode='nearest')
-        out = cv.resize(out, ((npx - 2 * crop) * pix_res, (npx - 2 * crop) * pix_res),
+        out = scipy.ndimage.uniform_filter(out,
+                                           size=filter_size,
+                                           mode='nearest')
+        out = cv.resize(out,
+                        ((npx - 2 * crop) * pix_res,
+                         (npx - 2 * crop) * pix_res),
                         interpolation=cv.INTER_LANCZOS4)
-        out = np.pad(out, ((crop * pix_res, crop * pix_res), (crop * pix_res, crop * pix_res)))
+        out = np.pad(out,
+                     ((crop * pix_res, crop * pix_res),
+                      (crop * pix_res, crop * pix_res)))
     return out
 
 
@@ -161,7 +175,8 @@ def rect_mask(im, dx, dy, w, h):
     height, width = im.shape
     y_grid, x_grid = np.ogrid[-height // 2:height // 2, -width // 2:width // 2]
     
-    idx = (x_grid - dx > -w // 2) & (x_grid - dx < w // 2) & (y_grid - dy > -h // 2) & (y_grid - dy < h // 2)
+    idx = ((x_grid - dx > -w // 2) & (x_grid - dx < w // 2) & 
+           (y_grid - dy > -h // 2) & (y_grid - dy < h // 2))
     mask = np.zeros_like(im)
     mask[idx] = 1
     return mask
@@ -242,7 +257,8 @@ def gaussian(x, y, dx, dy, sig_x, sig_y=None, a=1, c=0):
     if sig_y is None:
         sig_y = sig_x
 
-    return a * np.exp(-0.5 * ((x - dx) ** 2 / sig_x ** 2 + (y - dy) ** 2 / sig_y ** 2)) + c
+    return (a * np.exp(-0.5 * ((x - dx) ** 2 / sig_x ** 2 + 
+                               (y - dy) ** 2 / sig_y ** 2)) + c)
 
 
 def super_gaussian(x, y, dx, dy, nx, ny, sig_x, sig_y, a=1, c=0):
@@ -261,7 +277,8 @@ def super_gaussian(x, y, dx, dy, nx, ny, sig_x, sig_y, a=1, c=0):
     :param c: Offset.
     :return: 2D super-Gaussian.
     """
-    return a * np.exp(-2 * (np.abs(x - dx) / sig_x) ** nx) * np.exp(-2 * (np.abs(y - dy) / sig_y) ** ny) + c
+    return (a * np.exp(-2 * (np.abs(x - dx) / sig_x) ** nx) *
+            np.exp(-2 * (np.abs(y - dy) / sig_y) ** ny) + c)
 
 
 def gauss_array(im, nx, ny, dx, dy, d, sigma):
@@ -285,7 +302,11 @@ def gauss_array(im, nx, ny, dx, dy, d, sigma):
     
     for i in range(nx):
         for j in range(ny):
-            a = a + gaussian(x, y, j * d - wy // 2 - dy, i * d - wx // 2 - dx, sigma)
+            a = a + gaussian(x,
+                             y,
+                             j * d - wy // 2 - dy,
+                             i * d - wx // 2 - dx,
+                             sigma)
     return a
 
 
@@ -302,7 +323,8 @@ def ring_gauss(x, y, dx, dy, r, w, a=1):
     :param a: Amplitude.
     :return: Ring with Gaussian profile.
     """
-    return a * np.exp(-2 * (np.sqrt((x - dx) ** 2 + (y - dy) ** 2) - r) ** 2 / w ** 2)
+    return (a * np.exp(-2 * (np.sqrt((x - dx) ** 2 +
+                                     (y - dy) ** 2) - r) ** 2 / w ** 2))
 
 
 def checkerboard(npx, dx, dy, rows, columns, square_size):
@@ -327,8 +349,9 @@ def checkerboard(npx, dx, dy, rows, columns, square_size):
 
 def fringes_wavefront(x, y, dx, dy, k, f, phi, a, b):
     """
-    Standing wave interference pattern on the camera caused by two patches on the SLM seperated by dx and dy.
-    Equation adapted from https://doi.org/10.1364/OE.24.013881.
+    Standing wave interference pattern on the camera caused by two patches on 
+    the SLM seperated by dx and dy. Equation adapted from 
+    https://doi.org/10.1364/OE.24.013881.
 
     :param x: X meshgrid.
     :param y: Y meshgrid.
@@ -343,7 +366,9 @@ def fringes_wavefront(x, y, dx, dy, k, f, phi, a, b):
     """
     gamma_x = np.arctan(dx / (np.abs(f) + 1e-12))  # x component of angle between reference and sample beam
     gamma_y = np.arctan(dy / (np.abs(f) + 1e-12))  # y component of angle between reference and sample beam
-    i_out = a ** 2 + b ** 2 + 2 * a * b * np.cos(k * (np.sin(gamma_x) * x + np.sin(gamma_y) * y) + phi)
+    i_out = (a ** 2 + b ** 2 + 
+             2 * a * b * np.cos(k * (np.sin(gamma_x) * x + 
+                                     np.sin(gamma_y) * y) + phi))
     return i_out
 
 
@@ -422,15 +447,18 @@ def doublet(x, y, k, n1, n2, r1, r2, r3, dx=None, dy=None):
         dx = 0
     if dy is None:
         dy = 0
-    delta1 = -r1 * (1 - np.sqrt(1 - ((x - dx) ** 2 + (y - dy) ** 2) / r1 ** 2)) + r2 * (1 - np.sqrt(1 - ((x - dx) ** 2 + (y - dy) ** 2) / r2 ** 2))
-    delta2 = r3 * (1 - np.sqrt(1 - ((x - dx) ** 2 + (y - dy) ** 2) / r3 ** 2)) - r2 * (1 - np.sqrt(1 - ((x - dx) ** 2 + (y - dy) ** 2) / r2 ** 2))
+    delta1 = (-r1 * (1 - np.sqrt(1 - ((x - dx) ** 2 + (y - dy) ** 2) / r1 ** 2))
+              + r2 * (1 - np.sqrt(1 - ((x - dx) ** 2 + (y - dy) ** 2) / r2 ** 2)))
+    delta2 = (r3 * (1 - np.sqrt(1 - ((x - dx) ** 2 + (y - dy) ** 2) / r3 ** 2))
+              - r2 * (1 - np.sqrt(1 - ((x - dx) ** 2 + (y - dy) ** 2) / r2 ** 2)))
     return k * ((n1 - 1) * delta1 + (n2 - 1) * delta2)
 
 
 def slm_phase_doublet(dx, dy, k, xf, yf, z1, z2, fl, n1, n2, r1, r2, r3):
     """
-    Models the phase difference in the wavefront measurement caused by the doublet lens and an out-of-focus camera
-    placement (see equation S8 in the supplementary information of https://doi.org/10.1038/s41598-023-30296-6).
+    Models the phase difference in the wavefront measurement caused by the 
+    doublet lens and an out-of-focus camera placement (see equation S8 in the 
+    supplementary information of https://doi.org/10.1038/s41598-023-30296-6).
 
     :param dx: X-position of sample patch [m].
     :param dy: Y-position of sample patch [m].
@@ -470,7 +498,8 @@ def slm_phase_doublet(dx, dy, k, xf, yf, z1, z2, fl, n1, n2, r1, r2, r3):
 
 def pixel_ct_kernel(slm_pitch, pix_res, extent, m, sigma):
     """
-    2D blurring kernel to model pixel crosstalk on the SLM (see https://doi.org/10.1186/s41476-021-00174-7).
+    2D blurring kernel to model pixel crosstalk on the SLM (see 
+    https://doi.org/10.1186/s41476-021-00174-7).
 
     :param slm_pitch: Pixel pitch of SLM [m].
     :param pix_res: Up-scaling factor (computational pixels per SLM pixel).
@@ -483,7 +512,8 @@ def pixel_ct_kernel(slm_pitch, pix_res, extent, m, sigma):
     f_max = 1 / (slm_pitch * extent)                        # Largest spatial frequency of crosstalk kernel
     k = np.arange(-n_kernel / 2, n_kernel / 2, 1) * f_max   # Spatial frequncies of crosstalk kernel
     kx, ky = np.meshgrid(k, k)
-    h = np.exp(-((np.abs(kx)) / sigma) ** m) * np.exp(-((np.abs(ky)) / sigma) ** m)
+    h = (np.exp(-((np.abs(kx)) / sigma) ** m) * 
+         np.exp(-((np.abs(ky)) / sigma) ** m))
     kernel = np.abs(np.fft.fftshift(np.fft.ifft2(h)))
     return kernel / np.sum(kernel)
 
@@ -491,8 +521,9 @@ def pixel_ct_kernel(slm_pitch, pix_res, extent, m, sigma):
 # Vortex detection
 def vortex_field(img, m, x, y):
     """
-    Creates the phase of a vortex field of charge ``m`` at positions ``x`` and ``y`` . The origin of the coordinate
-    system is in the top-left corner of ``img`` .
+    Creates the phase of a vortex field of charge ``m`` at positions ``x``
+    and ``y`` . The origin of the coordinate system is in the top-left corner
+    of ``img`` .
 
     :param img: 2D array with size of desired output.
     :param m: Vector of vortex charge (1 or -1).
@@ -513,7 +544,8 @@ def vortex_field(img, m, x, y):
 
 def detect_vortices(n_pix, e_holo, i_tar, threshold=None):
     """
-    This function detects the positions and charges of optical vortices in an electric field.
+    This function detects the positions and charges of optical vortices in an
+    electric field.
     Todo: Tidy up this function and improve documentation.
 
     :param n_pix: Number of pixels.
@@ -529,12 +561,15 @@ def detect_vortices(n_pix, e_holo, i_tar, threshold=None):
     tar_res = i_tar.shape[0]
     n_pix = n_pix // 2
 
-    e_crop = e_holo[tar_res // 2 - n_pix:tar_res // 2 + n_pix, tar_res // 2 - n_pix:tar_res // 2 + n_pix]
-    i_tar_crop = i_tar[tar_res//2 - n_pix:tar_res//2 + n_pix, tar_res//2 - n_pix:tar_res//2 + n_pix]
+    e_crop = e_holo[tar_res // 2 - n_pix:tar_res // 2 + n_pix,
+                    tar_res // 2 - n_pix:tar_res // 2 + n_pix]
+    i_tar_crop = i_tar[tar_res//2 - n_pix:tar_res//2 + n_pix,
+                       tar_res//2 - n_pix:tar_res//2 + n_pix]
     i_tar_crop = i_tar_crop / np.max(np.sqrt(i_tar_crop))
     e_phi = e_crop / np.max(np.abs(e_crop)) / np.sqrt(i_tar_crop)
     roi = i_tar > (threshold * np.max(i_tar))
-    roi = roi[tar_res//2 - n_pix:tar_res//2 + n_pix, tar_res//2 - n_pix:tar_res//2 + n_pix]
+    roi = roi[tar_res//2 - n_pix:tar_res//2 + n_pix,
+              tar_res//2 - n_pix:tar_res//2 + n_pix]
 
     phi = np.angle(e_crop)
     phi_crop = phi * roi
@@ -556,7 +591,8 @@ def detect_vortices(n_pix, e_holo, i_tar, threshold=None):
     for i in range(idx[0].size):
         nbrs = phi[idx[0][i] - 1, idx[1][i] - 1:idx[1][i] + 2]
         nbrs = np.append(nbrs, phi[idx[0][i], idx[1][i] + 1])
-        nbrs = np.append(nbrs, np.flip(phi[idx[0][i] + 1, idx[1][i] - 1:idx[1][i] + 2]))
+        nbrs = np.append(nbrs, np.flip(phi[idx[0][i] + 1,
+                                           idx[1][i] - 1:idx[1][i] + 2]))
         nbrs = np.append(nbrs, phi[idx[0][i], idx[1][i] - 1])
         nbrs = np.append(nbrs, nbrs[0])
         nbrs_diff = np.diff(nbrs)
@@ -579,7 +615,8 @@ def detect_vortices(n_pix, e_holo, i_tar, threshold=None):
     for i in range(n_vtx):
         idx_label = np.argwhere(labelled_mask == i + 1)
         vtx[i, :2] = np.mean(idx_label, axis=0)
-        idx_charge = np.argwhere((idx_filt[0] == idx_label[0, 0]) & (idx_filt[1] == idx_label[0, 1]))
+        idx_charge = np.argwhere((idx_filt[0] == idx_label[0, 0]) &
+                                 (idx_filt[1] == idx_label[0, 1]))
         vtx[i, -1] = charge_filt[idx_charge]
 
     print('Number of detected vortices:', n_vtx)
@@ -595,15 +632,31 @@ class Hologram:
         - the measured constant SLM phase and intensity at the required resolution
         - and the initial SLM phase guess to start the phase retrieval.
 
-    Some patterns, including the patterns from our publication (https://doi.org/10.1038/s41598-023-30296-6), are
-    pre-defined here. Feel free to define your own patterns, you don't have to use this class to do this.
+    Some patterns, including the patterns from our publication 
+    (https://doi.org/10.1038/s41598-023-30296-6), are pre-defined here. Feel 
+    free to define your own patterns, you don't have to use this class to do
+    this.
 
     Todo: Tidy up this class and improve documentation.
     """
-    def __init__(self, slm_disp_obj, pms_obj, name, npix, npix_pad=None, pix_res=1, phase_guess_type='random',
-                 linear_phase=None, quadratic_phase=None, slm_field_type='guess', propagation_type='fft',
-                 target_position=None, target_width=None, target_blur=None,
-                 checkerboard_rows=8, checkerboard_columns=10, checkerboard_square_size=32):
+    def __init__(self, 
+                 slm_disp_obj,
+                 pms_obj,
+                 name,
+                 npix,
+                 npix_pad=None,
+                 pix_res=1,
+                 phase_guess_type='random',
+                 linear_phase=None,
+                 quadratic_phase=None,
+                 slm_field_type='guess',
+                 propagation_type='fft',
+                 target_position=None, 
+                 target_width=None,
+                 target_blur=None,
+                 checkerboard_rows=8,
+                 checkerboard_columns=10,
+                 checkerboard_square_size=32):
         """
         Initialisation.
 
@@ -678,9 +731,11 @@ class Hologram:
         self.quad_phase = quadratic_phase
         self.slm_field_type = slm_field_type
         self.prop = propagation_type
-        self.img_pitch_fft = pms_obj.wavelength * pms_obj.fl / (slm_disp_obj.pitch * 2 * self.npix)
+        self.img_pitch_fft = (pms_obj.wavelength * pms_obj.fl /
+                              (slm_disp_obj.pitch * 2 * self.npix))
         if self.prop == 'asm':
-            self.asm_corr = 0.5 * self.img_pitch_fft / (slm_disp_obj.pitch / self.pix_res)
+            self.asm_corr = (0.5 * self.img_pitch_fft / 
+                             (slm_disp_obj.pitch / self.pix_res))
         elif self.prop == 'fft':
             self.asm_corr = 1
 
@@ -697,19 +752,29 @@ class Hologram:
         self.tar_blur = target_blur * self.asm_corr
 
         if self.slm_field_type == 'guess':
-            i_slm = gaussian(slm_disp_obj.meshgrid_slm[0], slm_disp_obj.meshgrid_slm[1], 0, 0,
+            i_slm = gaussian(slm_disp_obj.meshgrid_slm[0],
+                             slm_disp_obj.meshgrid_slm[1],
+                             0,
+                             0,
                              pms_obj.beam_diameter / 4)
             phi_slm_native = np.zeros_like(i_slm)
             i_slm = load_filter_upscale(i_slm, self.npix, self.pix_res)
             phi_slm = np.zeros_like(i_slm)
         if self.slm_field_type == 'measured':
-            i_slm = load_filter_upscale(pms_obj.i_path, self.npix, self.pix_res, crop=pms_obj.crop,
+            i_slm = load_filter_upscale(pms_obj.i_path,
+                                        self.npix, self.pix_res,
+                                        crop=pms_obj.crop,
                                         filter_size=pms_obj.i_filter_size)
             if np.min(i_slm) < 0:
                 i_slm -= np.min(i_slm)
-            phi_slm = load_filter_upscale(pms_obj.phi_path, self.npix, self.pix_res, crop=pms_obj.crop,
+            phi_slm = load_filter_upscale(pms_obj.phi_path,
+                                          self.npix, self.pix_res,
+                                          crop=pms_obj.crop,
                                           filter_size=pms_obj.phi_filter_size)
-            phi_slm_native = load_filter_upscale(pms_obj.phi_path, self.npix, 1, crop=pms_obj.crop,
+            phi_slm_native = load_filter_upscale(pms_obj.phi_path,
+                                                 self.npix,
+                                                 1,
+                                                 crop=pms_obj.crop,
                                                  filter_size=pms_obj.phi_filter_size)
 
         self.phi_slm = phi_slm
@@ -721,44 +786,92 @@ class Hologram:
 
         # Initial SLM phase-guess
         if self.guess_type == 'guess':
-            self.phi_init = np.remainder(init_phase(self.slm_ones, slm_disp_obj, pms_obj, self.lin_phase,
-                                                    self.quad_phase) - self.phi_slm_native, slm_disp_obj.max_phase)
+            self.phi_init = np.remainder((init_phase(self.slm_ones,
+                                                    slm_disp_obj,
+                                                    pms_obj,
+                                                    self.lin_phase,
+                                                    self.quad_phase) 
+                                          - self.phi_slm_native),
+                                         slm_disp_obj.max_phase)
         elif self.guess_type == 'constant':
-            self.phi_init = np.zeros((self.npix, self.npix)) - self.phi_slm_native
+            self.phi_init = (np.zeros((self.npix, self.npix)) 
+                             - self.phi_slm_native)
         elif self.guess_type == 'load':
             self.phi_init = scipy.io.loadmat('phi.mat')
             self.phi_init = self.phi_init['phi']
         elif self.guess_type == 'random':
             np.random.seed(0)
-            self.phi_init = np.random.uniform(low=0, high=2 * np.pi, size=(self.npix, self.npix))
+            self.phi_init = np.random.uniform(low=0,
+                                              high=2 * np.pi,
+                                              size=(self.npix, self.npix))
 
         # Target intensity and signal region
         if self.name == 'disc':
-            self.sig_mask = circ_mask(self.tar_ones, self.mask_pos, self.mask_pos, self.tar_width / 2)
-            a_tar_mask = circ_mask(self.tar_ones, self.mask_pos, self.mask_pos, self.tar_width / 2 - self.tar_width / 4)
+            self.sig_mask = circ_mask(self.tar_ones,
+                                      self.mask_pos,
+                                      self.mask_pos,
+                                      self.tar_width / 2)
+            a_tar_mask = circ_mask(self.tar_ones,
+                                   self.mask_pos,
+                                   self.mask_pos,
+                                   self.tar_width / 2 - self.tar_width / 4)
             a_tar = scipy.ndimage.gaussian_filter(a_tar_mask, self.tar_blur)
         if self.name == 'super_gauss':
-            self.sig_mask = circ_mask(self.tar_ones, self.mask_pos, self.mask_pos, self.tar_width / 2)
+            self.sig_mask = circ_mask(self.tar_ones,
+                                      self.mask_pos,
+                                      self.mask_pos,
+                                      self.tar_width / 2)
             x, y = make_grid(self.tar_ones)
             a_tar = np.sqrt(
-                super_gaussian(x, y, self.mask_pos, self.mask_pos, 10, 2, self.tar_width / 4, self.tar_width / 16))
+                super_gaussian(x,
+                               y,
+                               self.mask_pos,
+                               self.mask_pos,
+                               10,
+                               2,
+                               self.tar_width / 4,
+                               self.tar_width / 16))
         if self.name == 'ring_gauss':
-            self.sig_mask = circ_mask(self.tar_ones, self.mask_pos, self.mask_pos, self.tar_width / 2)
+            self.sig_mask = circ_mask(self.tar_ones,
+                                      self.mask_pos,
+                                      self.mask_pos,
+                                      self.tar_width / 2)
             x, y = make_grid(self.tar_ones)
-            a_tar = ring_gauss(x, y, self.mask_pos, self.mask_pos, self.tar_width / 4, 15)
+            a_tar = ring_gauss(x,
+                               y,
+                               self.mask_pos,
+                               self.mask_pos,
+                               self.tar_width / 4,
+                               15)
             a_tar = np.sqrt(a_tar ** 2 / np.max(a_tar ** 2) * 0.9 + 0.1)
         elif self.name == 'spot_array':
-            self.sig_mask = rect_mask(self.tar_ones, self.mask_pos, self.mask_pos, 270 * self.asm_corr,
+            self.sig_mask = rect_mask(self.tar_ones,
+                                      self.mask_pos,
+                                      self.mask_pos,
+                                      270 * self.asm_corr,
                                       270 * self.asm_corr)
-            cropped_array, [pad, idx] = crop_to_mask(self.tar_ones, self.sig_mask)
-            a_tar = gauss_array(cropped_array, 14, 14, 0, 0, 15 * self.asm_corr, 4 * self.asm_corr)
+            cropped_array, [pad, idx] = crop_to_mask(self.tar_ones,
+                                                     self.sig_mask)
+            a_tar = gauss_array(cropped_array,
+                                14,
+                                14,
+                                0,
+                                0,
+                                15 * self.asm_corr,
+                                4 * self.asm_corr)
             a_tar = np.pad(a_tar, pad)
             a_tar = a_tar / np.max(a_tar)
             a_tar = (a_tar + 0.5) * self.sig_mask
         elif self.name == 'harm_conf':
-            self.sig_mask = circ_mask(self.tar_ones, self.mask_pos, self.mask_pos, 200 * self.asm_corr)
+            self.sig_mask = circ_mask(self.tar_ones,
+                                      self.mask_pos,
+                                      self.mask_pos,
+                                      200 * self.asm_corr)
             x, y = make_grid(self.tar_ones)
-            a_tar_mask = circ_mask(self.tar_ones, self.mask_pos, self.mask_pos, 140 * self.asm_corr)
+            a_tar_mask = circ_mask(self.tar_ones,
+                                   self.mask_pos,
+                                   self.mask_pos,
+                                   140 * self.asm_corr)
             a_tar = gaussian(x, y, self.mask_pos, self.mask_pos, 600, 600)
             a_tar = a_tar * a_tar_mask
             mask = a_tar > 0
@@ -768,43 +881,84 @@ class Hologram:
             a_tar[mask] += np.max(a_tar[mask])
             a_tar = scipy.ndimage.gaussian_filter(a_tar, 2)
         elif self.name == 'square':
-            self.sig_mask = rect_mask(self.tar_ones, self.mask_pos, self.mask_pos, self.tar_width, self.tar_width)
-            a_tar_mask = rect_mask(self.tar_ones, self.mask_pos, self.mask_pos, self.tar_width / 2, self.tar_width / 2)
-            a_tar = scipy.ndimage.gaussian_filter(a_tar_mask, self.tar_blur * self.asm_corr)
+            self.sig_mask = rect_mask(self.tar_ones,
+                                      self.mask_pos,
+                                      self.mask_pos,
+                                      self.tar_width,
+                                      self.tar_width)
+            a_tar_mask = rect_mask(self.tar_ones,
+                                   self.mask_pos,
+                                   self.mask_pos,
+                                   self.tar_width / 2,
+                                   self.tar_width / 2)
+            a_tar = scipy.ndimage.gaussian_filter(a_tar_mask,
+                                                  (self.tar_blur
+                                                   * self.asm_corr))
         elif self.name == 'rectangle':
-            a_tar_mask = rect_mask(self.tar_ones, self.mask_pos, self.mask_pos + 1, 5 * self.tar_width, self.tar_width)
-            a_tar = scipy.ndimage.gaussian_filter(a_tar_mask, self.tar_blur * self.asm_corr)
+            a_tar_mask = rect_mask(self.tar_ones,
+                                   self.mask_pos,
+                                   self.mask_pos + 1,
+                                   5 * self.tar_width,
+                                   self.tar_width)
+            a_tar = scipy.ndimage.gaussian_filter(a_tar_mask,
+                                                  (self.tar_blur
+                                                   * self.asm_corr))
             self.sig_mask = ((a_tar ** 2) > (0.1 * np.max(a_tar ** 2))) + 0.0
         elif self.name == 'checkerboard':
             self.cb_square_size = int(checkerboard_square_size * self.asm_corr)
             self.cb_m = checkerboard_columns
             self.cb_n = checkerboard_rows
-            self.sig_mask = rect_mask(self.tar_ones, self.mask_pos, self.mask_pos,
-                                      (self.cb_m + 4) * self.cb_square_size, (self.cb_n + 4) * self.cb_square_size)
-            i_tar = checkerboard(self.tar_res, self.mask_pos, self.mask_pos, self.cb_m, self.cb_n, self.cb_square_size)
-            i_tar = scipy.ndimage.gaussian_filter(i_tar * 255, self.tar_blur * self.asm_corr)
+            self.sig_mask = rect_mask(self.tar_ones,
+                                      self.mask_pos,
+                                      self.mask_pos,
+                                      (self.cb_m + 4) * self.cb_square_size,
+                                      (self.cb_n + 4) * self.cb_square_size)
+            i_tar = checkerboard(self.tar_res,
+                                 self.mask_pos,
+                                 self.mask_pos,
+                                 self.cb_m,
+                                 self.cb_n,
+                                 self.cb_square_size)
+            i_tar = scipy.ndimage.gaussian_filter(i_tar * 255,
+                                                  self.tar_blur * self.asm_corr)
             a_tar = np.sqrt(i_tar)
         elif self.name == 'duke':
             # Photograph taken from Ed O’Keeffe Photography.
             img_size = 400
-            self.sig_mask = rect_mask(self.tar_ones, self.mask_pos, self.mask_pos, img_size, img_size)
-            a_tar = cv.cvtColor(cv.imread('./data/duke.jpg'), cv.COLOR_BGR2GRAY)
+            self.sig_mask = rect_mask(self.tar_ones,
+                                      self.mask_pos,
+                                      self.mask_pos,
+                                      img_size,
+                                      img_size)
+            a_tar = cv.cvtColor(cv.imread('./data/duke.jpg'),
+                                cv.COLOR_BGR2GRAY)
             a_tar = a_tar[a_tar.shape[0] - a_tar.shape[1]:-1, 1:-1]
-            a_tar = cv.resize(a_tar, (img_size, img_size), interpolation=cv.INTER_LANCZOS4)
+            a_tar = cv.resize(a_tar, (img_size, img_size),
+                              interpolation=cv.INTER_LANCZOS4)
             a_tar = a_tar.astype('float64')
             a_tar = scipy.ndimage.gaussian_filter(a_tar, 1)
-            a_tar = np.pad(a_tar, ((npix//2 + (npix//2 - img_size) // 2, npix + (npix//2 - img_size) // 2),
-                                   (npix//2 + (npix//2 - img_size) // 2, npix + (npix//2 - img_size) // 2))) / np.max(a_tar)
+            a_tar = (np.pad(a_tar,
+                            ((npix//2 + (npix//2 - img_size) // 2,
+                              npix + (npix//2 - img_size) // 2),
+                             (npix//2 + (npix//2 - img_size) // 2,
+                              npix + (npix//2 - img_size) // 2)))
+                     / np.max(a_tar))
         elif self.name == 'or_gate':
-            self.sig_mask = rect_mask(self.tar_ones, self.mask_pos, self.mask_pos, 400, 400)
-            img = np.sqrt(cv.cvtColor(cv.imread('../../targets/transistor_target.bmp'), cv.COLOR_BGR2GRAY))
+            self.sig_mask = rect_mask(self.tar_ones,
+                                      self.mask_pos,
+                                      self.mask_pos,
+                                      400,
+                                      400)
+            img = np.sqrt(cv.cvtColor(cv.imread('../../targets/transistor_target.bmp'),
+                                      cv.COLOR_BGR2GRAY))
             img_shape = img.shape
             a_tar = img.astype('float64')
-            a_tar = np.pad(a_tar,
-                           (((self.tar_res - img_shape[0]) // 2 + self.mask_pos,
-                             (self.tar_res - img_shape[0]) // 2 - self.mask_pos),
-                            ((self.tar_res - img_shape[1]) // 2 + self.mask_pos,
-                             (self.tar_res - img_shape[1]) // 2 - self.mask_pos))) / np.max(a_tar)
+            a_tar = (np.pad(a_tar,
+                            (((self.tar_res - img_shape[0]) // 2 + self.mask_pos,
+                              (self.tar_res - img_shape[0]) // 2 - self.mask_pos),
+                             ((self.tar_res - img_shape[1]) // 2 + self.mask_pos,
+                              (self.tar_res - img_shape[1]) // 2 - self.mask_pos)))
+                     / np.max(a_tar))
 
 
         # Normalise target intensity
