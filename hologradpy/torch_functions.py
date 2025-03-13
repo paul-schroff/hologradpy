@@ -9,6 +9,7 @@ from torch import Tensor as tt
 import torch.nn as nn
 import torchmin
 import numpy as np
+from numpy.typing import NDArray
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from . import patterns as pt
@@ -24,27 +25,26 @@ torch.use_deterministic_algorithms(True, warn_only=True)
 
 torch.pi = torch.acos(torch.zeros(1)).item() * 2
 
+#TODO: Ensure character count is less than 79 characters
 
-def check_device(verbose=None):
+def check_device(verbose: bool = False) -> str:
     """
     Check if GPU is available.
 
     :param bool verbose: Verbose output?
     :return: 'cuda' if GPU available, otherwise 'cpu'.
     """
-    if verbose is None:
-        verbose = False
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    if verbose is True:
+    if verbose:
         print(f'Using {device} device')
     return device
 
 
-def gpu_to_numpy(gpu_tensor):
+def gpu_to_numpy(gpu_tensor: torch.Tensor) -> np.ndarray:
     return gpu_tensor.clone().cpu().detach().numpy()
 
 
-def fft(e_in, shift=True, norm=None):
+def fft(e_in: torch.Tensor, shift: bool = True, norm: str = None) -> torch.Tensor:
     """
     Performs the FFT.
 
@@ -54,13 +54,14 @@ def fft(e_in, shift=True, norm=None):
     :return: FFT of ``e_in``.
     """
     if shift is True:
-        e_out = torch.fft.fftshift(torch.fft.fft2(torch.fft.ifftshift(e_in), norm=norm))
+        e_out = torch.fft.fftshift(torch.fft.fft2(torch.fft.ifftshift(e_in), 
+                                                  norm=norm))
     else:
         e_out = torch.fft.fft2(e_in, norm=norm)
     return e_out
 
 
-def ifft(e_in, shift=True, norm=None):
+def ifft(e_in: torch.Tensor, shift: bool = True, norm: str = None) -> torch.Tensor:
     """
     Performs the IFFT.
 
@@ -70,16 +71,17 @@ def ifft(e_in, shift=True, norm=None):
     :return: IFFT of ``e_in``.
     """
     if shift is True:
-        e_out = torch.fft.ifftshift(torch.fft.ifft2(torch.fft.fftshift(e_in), norm=norm))
+        e_out = torch.fft.ifftshift(torch.fft.ifft2(torch.fft.fftshift(e_in), 
+                                                    norm=norm))
     else:
         e_out = torch.fft.ifft2(e_in, norm=norm)
     return e_out
 
 
-def asm(e_in, e_lens, theta1, theta2=None, shift=True):
+def asm(e_in: torch.Tensor, e_lens: torch.Tensor, theta1: torch.Tensor, theta2: torch.Tensor = None, shift: bool = True) -> torch.Tensor:
     """
-    Performs the angular spectrum method (ASM) twice, from the SLM to the Fourier lens and from the Fourier lens to the
-    camera.
+    Performs the angular spectrum method (ASM) twice, from the SLM to the 
+    Fourier lens and from the Fourier lens to the camera.
 
     :param e_in: Electric field at the SLM.
     :param e_lens: Electric field of the lens (phase and aperture).
@@ -98,12 +100,24 @@ def asm(e_in, e_lens, theta1, theta2=None, shift=True):
 
 class ASM:
     """
-    This class models the propagation of light from the SLM to the Fourier lens and from the Fourier lens to the image
-    plane using the angular spectrum method. The lens is modelled as a doublet. The ASM wavefront correction is also
-    calculated in this class.
+    This class models the propagation of light from the SLM to the Fourier 
+    lens and from the Fourier lens to the image plane using the angular 
+    spectrum method. The lens is modelled as a doublet. The ASM wavefront 
+    correction is also calculated in this class.
     """
-    def __init__(self, slm_disp_obj, pms_obj, pix_res, npix_tot, pd1, pd2, extent_lens, xf, shift=False,
-                 precision='single', device='cuda'):
+    def __init__(self,
+                 slm_disp_obj: hw.SlmBase, 
+                 pms_obj: hw.ParamsBase, 
+                 pix_res: int, 
+                 npix_tot: int, 
+                 pd1: float, 
+                 pd2: float, 
+                 extent_lens: float, 
+                 xf: float, 
+                 shift: bool = False, 
+                 precision: str = 'single', 
+                 device: str = 'cuda'
+    ):
         """
         The lens function, propagation phase factor for the ASM and the ASM wavefront correction are calculated here.
 
@@ -165,7 +179,7 @@ class ASM:
                                          pms_obj.r1, pms_obj.r2, pms_obj.r3)
         self.phi_corr = ft.remove_tilt(phi_corr)
 
-    def forward(self, e_in):
+    def forward(self, e_in: torch.Tensor) -> torch.Tensor:
         """
         This function performs the simulation.
 
@@ -179,9 +193,24 @@ class VirtualSlm(nn.Module):
     """
     This class models pixel crosstalk on the SLM and the propagation of light from the SLM to the camera.
     """
-    def __init__(self, slm_disp_obj, pms_obj, phi, npix_pad, npix=None, e_slm=None, kernel_ct=None, pix_res=None,
-                 propagation_type='fft', extent_lens=None, pd1=None, pd2=None, xf=None, device='cpu', slm_mask=None,
-                 precision=None, fft_shift=True):
+    def __init__(self, 
+                 slm_disp_obj: hw.SlmBase, 
+                 pms_obj: hw.ParamsBase, 
+                 phi: NDArray[np.float_], 
+                 npix_pad: int, 
+                 npix: int | None = None, 
+                 e_slm: NDArray[np.float_] | None = None, 
+                 kernel_ct: NDArray[np.float_] | None = None, 
+                 pix_res: int | None = None,
+                 propagation_type: str = 'fft', 
+                 extent_lens: float | None = None, 
+                 pd1: float | None = None, 
+                 pd2: float | None = None, 
+                 xf: float | None = None, 
+                 device: str = 'cpu', 
+                 slm_mask: NDArray[np.float_] | None = None,
+                 precision: str | None = None, 
+                 fft_shift: bool = True):
         """
         :param slm_disp_obj: Object created by a subclass of :py:class:`hardware.SlmBase`
         :param pms_obj: Object created by a subclass of :py:class:`hardware.ParamsBase`
@@ -255,36 +284,21 @@ class VirtualSlm(nn.Module):
             npix = phi.shape[0]
         self.npix = npix
         self.propagation_type = propagation_type
-        if kernel_ct is None:
-            self.kernel_ct = None
-        else:
-            self.kernel_ct = torch.tensor(kernel_ct, dtype=dtype_r).to(device).unsqueeze(0).unsqueeze(0)
-        if e_slm is None:
-            e_slm = torch.ones((self.npix_pad * self.pix_res, self.npix_pad * self.pix_res))
-        self.e_slm = torch.tensor(e_slm, dtype=dtype_c).to(device)
-
-        if slm_mask is None:
-            slm_mask = np.ones((self.npix, self.npix))
-        self.slm_mask = torch.tensor(slm_mask, dtype=dtype_r).to(device)
-
-        self.pad = self.pix_res * (self.npix_pad - self.npix) // 2
-        self.counter = 0
-        self.phi_disp = torch.zeros_like(self.phi, dtype=dtype_r)
         if device == 'cuda':
             torch.cuda.empty_cache()
 
-    def set_phi(self, new_phi):
+    def set_phi(self, new_phi: NDArray[np.float_]) -> None:
         """
         Set SLM phase from numpy array.
 
-        :param ndarray new_phi: SLM phase [rad].
+        :param new_phi: SLM phase [rad].
         """
         if self.precision == 'double':
             self.phi.data = torch.tensor(new_phi, dtype=torch.float64).to(self.device)
         else:
             self.phi.data = torch.tensor(new_phi, dtype=torch.float32).to(self.device)
 
-    def forward(self):
+    def forward(self) -> torch.Tensor:
         """
         Model the SLM and simulate the propagation of light from the SLM plane to the image plane. This method is used
         by gradient-based optimizers.
@@ -329,7 +343,7 @@ class VirtualSlm(nn.Module):
         return x
 
 
-def rms(signal, i_target, i_out, frac):
+def rms(signal: torch.Tensor, i_target: torch.Tensor, i_out: torch.Tensor, frac: float) -> torch.Tensor:
     """
     Calculate normalised root-mean-squared error between two images inside a region of interest. Only pixels which are
     brighter than ``frac * np.max(i_target_norm)`` are taken into account, where ``i_target_norm`` is the normalised
@@ -354,7 +368,7 @@ def rms(signal, i_target, i_out, frac):
     return n
 
 
-def eff(signal, i_out):
+def eff(signal: torch.Tensor, i_out: torch.Tensor) -> torch.Tensor:
     """
     Calculates the predicted efficiency of a light potential by dividing the pixel sum in the signal region by
     the pixel sum in the entire pattern.
@@ -366,7 +380,7 @@ def eff(signal, i_out):
     return tt.sum(signal * i_out) / tt.sum(i_out)
 
 
-def loss_fn_fid(e_out, i_tar, phi_tar, signal):
+def loss_fn_fid(e_out: torch.Tensor, i_tar: torch.Tensor, phi_tar: torch.Tensor, signal: torch.Tensor) -> torch.Tensor:
     """
     Phase and amplitude cost function from https://doi.org/10.1364/OE.25.011692.
 
@@ -383,7 +397,7 @@ def loss_fn_fid(e_out, i_tar, phi_tar, signal):
     return 1e12 * (1 - overlap) ** 2
 
 
-def loss_fn_amp(e_out, i_tar, signal):
+def loss_fn_amp(e_out: torch.Tensor, i_tar: torch.Tensor, signal: torch.Tensor) -> torch.Tensor:
     """
     Amplitude-only cost function from https://doi.org/10.1364/OE.22.026548.
 
@@ -402,8 +416,9 @@ class PhaseRetrieval:
     This function calculates the SLM phase pattern for a given target light potential in the image plane using conjugate
     gradient minimisation or stochastic gradient descent (Adam).
     """
-    def __init__(self, slm_obj, n_iter=10, i_tar=None, phi_tar=None, signal_region=None, save=False, n_save=10,
-                 loss_type='amp', optim_type='cg'):
+    def __init__(self, slm_obj: VirtualSlm, n_iter: int = 10, i_tar: NDArray[np.float_] = None, phi_tar: NDArray[np.float_] = None, 
+                 signal_region: NDArray[np.float_] = None, save: bool = False, n_save: int = 10, loss_type: str = 'amp', 
+                 optim_type: str = 'cg'):
         """
         :param slm_obj: Virtual SLM object created by :py:class:`VirtualSlm`.
         :param n_iter: Number of iterations.
@@ -467,7 +482,7 @@ class PhaseRetrieval:
         self.optimizer = None
         self.set_optimizer()
 
-    def set_target(self, target):
+    def set_target(self, target: NDArray[np.float_]) -> None:
         """
         Sets the target light potential.
 
@@ -478,7 +493,7 @@ class PhaseRetrieval:
         if self.fft_shift is False and self.slm_obj.propagation_type == 'fft':
             self.i_tar_t = torch.fft.ifftshift(self.i_tar_t)
 
-    def set_optimizer(self):
+    def set_optimizer(self) -> None:
         """
         Sets the optimisation algorithm based on ``self.optim_type``.
         """
@@ -488,7 +503,7 @@ class PhaseRetrieval:
         elif self.optim_type == 'adam':
             self.optimizer = torch.optim.Adam(self.slm_obj.parameters(), lr=0.01)
 
-    def loss_fn(self, e_out):
+    def loss_fn(self, e_out: torch.Tensor) -> torch.Tensor:
         """
         Defines the loss function based on ``self.loss_type``.
 
@@ -500,7 +515,7 @@ class PhaseRetrieval:
         elif self.loss_type == 'fid':
             return loss_fn_fid(e_out, self.i_tar_t, self.phi_tar_t, self.signal_t)
 
-    def callback(self, x):
+    def callback(self, x: torch.Tensor) -> None:
         """
         This function is called after every iteration of the optimisation. It saves intermediate SLM phase patterns and
         the electric field in the image plane if ``save=True``. The progress of the optimisation is printed after every
@@ -516,7 +531,7 @@ class PhaseRetrieval:
         print('CG iteration #', self.callback_counter, 'Cost:', self.loss, 'Cost function evaluations:',
               self.closure_counter)
 
-    def retrieve_phase(self):
+    def retrieve_phase(self) -> tuple[NDArray[np.float_], tuple[NDArray[np.float_], NDArray[np.float_]]]:
         """
         Performs phase retrieval algorithm.
 
@@ -575,8 +590,9 @@ class PhaseRetrieval:
         return self.phi, (np.asarray(self.eta_pred), np.asarray(self.eff_pred))
 
 
-def camera_calibration(slm_obj, slm_disp_obj, cam_obj, pms_obj, save=None, exp_time=None, checkerboard_rows=None,
-                       checkerboard_columns=None, checkerboard_square_size=None, linear_phase=None):
+def camera_calibration(slm_obj: VirtualSlm, slm_disp_obj: hw.SlmBase, cam_obj: hw.CameraBase, pms_obj: hw.ParamsBase, 
+                       save: bool = False, exp_time: int = 180, checkerboard_rows: int = 9, checkerboard_columns: int = 7, 
+                       checkerboard_square_size: int = 16, linear_phase: np.ndarray = None) -> tuple[np.ndarray, np.ndarray]:
     """
     This function performs the camera calibration to obtain the coordinate transform between
     the camera image and the computational image plane. To do this, an SLM phase pattern is calculated for a
@@ -590,27 +606,16 @@ def camera_calibration(slm_obj, slm_disp_obj, cam_obj, pms_obj, save=None, exp_t
     :param pms_obj: Object created by a subclass of :py:class:`hardware.ParamsBase`.
     :param bool save: Save data?
     :param exp_time: Exposure time.
-    :param checkerboard_rows:
-    :param checkerboard_columns:
-    :param checkerboard_square_size:
-    :param linear_phase:
-    :return:
+    :param checkerboard_rows: Number of rows in the checkerboard.
+    :param checkerboard_columns: Number of columns in the checkerboard.
+    :param checkerboard_square_size: Size of the checkerboard squares.
+    :param linear_phase: Linear phase array.
+    :return: Affine transform matrix and its inverse.
     """
-    if save is None:
-        save = False
-    if checkerboard_rows is None:
-        checkerboard_rows = 9
-    if checkerboard_columns is None:
-        checkerboard_columns = 7
-    if checkerboard_square_size is None:
-        checkerboard_square_size = int(16)
-    checkerboard_square_size = int(checkerboard_square_size)
     if linear_phase is None:
         linear_phase = np.array([-slm_obj.npix // 4, -slm_obj.npix // 4])
 
     n_iter = 50
-    if exp_time is None:
-        exp_time = 180
     n_img = 10
 
     # Initial Guess
@@ -716,7 +721,7 @@ def camera_calibration(slm_obj, slm_disp_obj, cam_obj, pms_obj, save=None, exp_t
                  cornersT[:, 1] + slm_obj.npix_pad * slm_obj.pix_res // 2 - n_crop, 'r+')
     axs3[1].set_title('Transformed Camera Image')
 
-    if save is True:
+    if save:
         date_saved = time.strftime('%y-%m-%d_%H-%M-%S', time.localtime())
         path = pms_obj.data_path + date_saved + '_' + 'torch_camcal'
         os.mkdir(path)
@@ -736,9 +741,11 @@ def camera_calibration(slm_obj, slm_disp_obj, cam_obj, pms_obj, save=None, exp_t
     return tf, itf
 
 
-def camera_feedback(phase_retrieval_obj, slm_disp_obj, cam_obj, tf, itf, iter_fb=1, iter_cg=None, detect_vortices=False,
-                    threshold_vtx=0.2, n_save=10, n_avg=10, exp_time=1000, fb_blur=0, alpha=None, convergence=False,
-                    iter_convergence=None, path=None):
+def camera_feedback(phase_retrieval_obj: PhaseRetrieval, slm_disp_obj: hw.SlmBase, cam_obj: hw.CameraBase, 
+                    tf: NDArray[np.float_], itf: NDArray[np.float_], iter_fb: int = 1, iter_cg: list[int] | None = None, 
+                    detect_vortices: bool = False, threshold_vtx: float = 0.2, n_save: int = 10, n_avg: int = 10, 
+                    exp_time: int = 1000, fb_blur: int = 0, alpha: list[float] | None = None, convergence: bool = False, 
+                    iter_convergence: list[int] | None = None, path: str | None = None) -> tuple[NDArray[np.float_], NDArray[np.float_], NDArray[np.float_], NDArray[np.float_], list[NDArray[np.float_]], list[list[NDArray[np.float_]]]]:
     """
     This function implements a camera feedback algorithm to reduce experimental errors in the light potentials
     (see `<https://dx.doi.org/10.1088/0953-4075/48/11/115303>`_).
