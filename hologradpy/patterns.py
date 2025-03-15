@@ -180,7 +180,7 @@ def load_filter_upscale(path: str,
 # Binary masks
 def rect_mask(im: NDArray[np.float_],
               dx: int,
-              dy: int
+              dy: int,
               w: int,
               h: int
               ) -> NDArray[np.float_]:
@@ -271,7 +271,7 @@ def circ_mask_xy(x: NDArray[np.float_],
     """
     idx = (x - dx) ** 2 + (y - dy) ** 2 < r ** 2
     if sparse:
-        mask = np.zeros((max(x.shape), max(x.shape)])
+        mask = np.zeros((max(x.shape), max(x.shape)))
     else:
         mask = np.zeros_like(x)
     mask[idx] = 1
