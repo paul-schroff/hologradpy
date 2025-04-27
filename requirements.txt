@@ -3,5 +3,7 @@ scipy
 matplotlib
 torch
 pytorch-minimize
+torchkbnufft
 opencv-python
 checkerboard
+slmsuite
