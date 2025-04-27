@@ -3,7 +3,7 @@ This module contains functions for curve fitting.
 """
 
 import numpy as np
-from . import patterns as pt
+from .. import patterns as pt
 import scipy
 import scipy.optimize as opt
 
