@@ -22,8 +22,8 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from hologradpy import patterns as p
-from hologradpy import error_metrics as m
-from hologradpy import calibrate_slm as clb
+from hologradpy.analysis import error_metrics as m
+from hologradpy.calibration import calibrate_slm as clb
 from hologradpy import torch_functions as tfn
 
 from examples.experiment import Params, Camera, SlmDisp
