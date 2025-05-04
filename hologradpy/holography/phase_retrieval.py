@@ -25,6 +25,7 @@ from .loss_functions import (
     eff
 )
 
+# TODO: Move to a more sensible location.
 class Timer:
     def __init__(self, use_cuda: bool = False, verbose: bool = False) -> None:
         """Timer class to measure elapsed time for CUDA and non-CUDA 
