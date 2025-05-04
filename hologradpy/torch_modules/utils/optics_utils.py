@@ -1,7 +1,6 @@
 from __future__ import annotations
 import torch
 
-# %% Phase function(s)
 def lens_phase(
         x: torch.Tensor,
         y: torch.Tensor,
@@ -9,6 +8,20 @@ def lens_phase(
         wavenumber:float
     ) -> torch.Tensor:
     return -0.5 * wavenumber / focal_length * (x ** 2 + y ** 2)
+
+def gaussian_beam_intensity(
+        x: torch.Tensor,
+        y: torch.Tensor,
+        beam_radius: float,
+        shift_x: float = 0.0,
+        shift_y: float = 0.0,
+        intensity: float = 1.0,
+        offset: float = 0.0
+    ) -> torch.Tensor:
+    """Gaussian beam with given radius and center."""
+    return intensity * torch.exp(
+        - 2 * ((x - shift_x) ** 2 + (y - shift_y) ** 2) / (beam_radius ** 2)
+        ) + offset
 
 # %% Binary aperture functions
 def rect_mask(
@@ -32,4 +45,5 @@ def circular_mask(
         shift_y: float = 0.0
     ) -> torch.Tensor[torch.bool]:
     """Create a circular mask with a given radius and center."""
-    return ((x - shift_x) ** 2 + (y - shift_y) ** 2) ** 0.5 < radius  
+    return ((x - shift_x) ** 2 + (y - shift_y) ** 2) ** 0.5 < radius
+
