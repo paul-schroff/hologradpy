@@ -12,19 +12,25 @@ from .utils.optics_utils import lens_phase, circular_mask
 from .utils.tensor_utils import unsqueeze_to
 from .propagators import PropagatorBase
 
+from slmsuite.hardware.slms.slm import SLM
 
 class SpatialLightModulator(PropagatorBase):
     def __init__(
             self: SpatialLightModulator,
-            init_phase: torch.Tensor,
-            pixel_pitch: float,
+            slm_hardware: SLM,
+            init_phase: torch.Tensor | None = None,
         ) -> None:
         
         super().__init__(
-            init_phase.shape[-2:],
-            (pixel_pitch, pixel_pitch)
+            slm_hardware.shape,
+            (slm_hardware.pitch_um * 1e-6, slm_hardware.pitch_um * 1e-6)
         )
         
+        if init_phase is None:
+            init_phase = torch.zeros(
+                slm_hardware.shape, dtype=self.dtype, device=self.device
+            )
+
         # Phase parameter requires gradient only in inference mode
         self.phase = nn.Parameter(
             torch.tensor(init_phase, self.dtype, self.device),
@@ -74,9 +80,9 @@ class ConstantSLMField(PropagatorBase):
         return (input_field * amplitude * torch.exp(1j * phase)).squeeze()
     
 
-class PartialAffineTranform(PropagatorBase):
+class PartialAffineTransform(PropagatorBase):
     def __init__(
-            self: PartialAffineTranform,
+            self: PartialAffineTransform,
             resolution_in: tuple[int, int],
             pixel_pitch_in: float,
             resolution_out: tuple[int, int],  
@@ -114,11 +120,11 @@ class PartialAffineTranform(PropagatorBase):
         self.affine_matrix = self.get_affine_matrix()
     
     @property
-    def pixel_size_out(self: PartialAffineTranform) -> tuple[float, float]:
+    def pixel_size_out(self: PartialAffineTransform) -> tuple[float, float]:
         return tuple(self.pixel_size_in[i] / self.scale[i] for i in range(2))
     
     @property
-    def resolution_out(self: PartialAffineTranform) -> tuple[int, int]:
+    def resolution_out(self: PartialAffineTransform) -> tuple[int, int]:
         return self._resolution_out
     
     def get_affine_matrix(self) -> torch.Tensor:
@@ -128,7 +134,7 @@ class PartialAffineTranform(PropagatorBase):
                                    self.angle.unsqueeze(0))
     
     def forward(
-            self: PartialAffineTranform,
+            self: PartialAffineTransform,
             input_field: torch.Tensor
         ) -> torch.Tensor:
         """Applies partial affine transformation to input_field."""
