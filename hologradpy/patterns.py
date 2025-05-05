@@ -132,7 +132,7 @@ def load_filter_upscale(path: str,
                         pix_res: int,
                         crop: int | None = None,
                         filter_size: int | None = None
-                        ) -> NDArray[np.float]:
+                        ) -> NDArray[np.float_]:
     """
     Loads a 2D numpy array and crops its edges. A uniform filter is applied to 
     the cropped image before it is upscaled using Lanczos interpolation.
