@@ -14,9 +14,12 @@ from .tensor_utils import unsqueeze_to
 
 #%% Utility functions
 
-def get_spatial_grid(resolution: Tensor,
-                     pixel_size: Tensor,
+def get_spatial_grid(resolution: tuple[int, int],
+                     pixel_size: tuple[float, float],
                      device: str) -> Tuple[Tensor, Tensor]:
+    resolution = torch.tensor(resolution, device=device)
+    pixel_size = torch.tensor(pixel_size, device=device)
+    
     spatial_extent = resolution * pixel_size
 
     coordinates_x = (torch.arange(-resolution[1] // 2,
@@ -30,9 +33,12 @@ def get_spatial_grid(resolution: Tensor,
                      spatial_extent[0] / resolution[0])
     return torch.meshgrid(coordinates_x, coordinates_y, indexing='xy')
 
-def get_frequency_grid(resolution: Tensor,
-                       pixel_size: Tensor,
+def get_frequency_grid(resolution: tuple[int, int],
+                       pixel_size: tuple[float, float],
                        device) -> Tuple[Tensor, Tensor]:
+    resolution = torch.tensor(resolution, device=device)
+    pixel_size = torch.tensor(pixel_size, device=device)
+
     frequency_extent = 2 * torch.pi / pixel_size
 
     frequencies_x = (torch.arange(-resolution[1] // 2,
