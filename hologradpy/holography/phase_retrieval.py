@@ -10,7 +10,10 @@ import torch.nn as nn
 
 import torchmin
 
+from .utils import Timer
+
 from ..torch_modules.optical_systems import (
+    SlmCameraBase,
     VirtualSlm,
 )
 
@@ -19,72 +22,21 @@ from ..torch_modules.utils.tensor_utils import (
 )
 
 from .loss_functions import (
-    loss_fn_amp,
-    loss_fn_fid,
+    LossFunctionIntensityMSE,
     rms,
     eff
 )
 
-# TODO: Move to a more sensible location.
-class Timer:
-    def __init__(self, use_cuda: bool = False, verbose: bool = False) -> None:
-        """Timer class to measure elapsed time for CUDA and non-CUDA 
-        operations."""
-        self.elapsed_time: float = None
-        self.use_cuda: bool = use_cuda
-        self.verbose: bool = verbose
-
-        if use_cuda:
-            self.start_event = None
-            self.stop_event = None
-        else:
-            self.start_time: float = None
-            self.stop_time: float = None
-
-    def start(self):
-        if self.use_cuda:
-            self.start_event = torch.cuda.Event(enable_timing=True)
-            self.stop_event = torch.cuda.Event(enable_timing=True)
-            self.start_event.record()
-
-        self.start_time = time.time()
-
-        if self.verbose:
-            date = time.strftime('%d-%m-%y__%H-%M-%S', time.localtime())
-            print("Calculation start: %s\n" % date)
-
-    def stop(self):
-        if self.start_time is None:
-            raise ValueError("Timer has not been started.")
-
-        self.stop_time = time.time()
-
-        if self.use_cuda:
-            self.stop_event.record()
-            torch.cuda.synchronize()
-            self.elapsed_time = (
-                self.start_event.elapsed_time(self.stop_event) / 1e3
-            )
-        else:
-            self.elapsed_time = self.stop_time - self.start_time
-
-        if self.verbose:
-            print(f'Ran for {(self.elapsed_time // 60):.0f} minutes and ' +
-                  f'{(self.elapsed_time % 60):.2f} seconds.')
-        
-        return self.elapsed_time
-
-
 class PhaseRetrievalBase:
     def __init__(
             self: PhaseRetrievalBase,
-            slm_model: nn.Module,
+            slm_model: SlmCameraBase,
             optimizer: torch.optim.Optimizer,
             loss_function: Callable,
             target: NDArray,
             signal_region: NDArray,
     ) -> None:
-        self.slm_model = slm_model
+        self.slm_model: SlmCameraBase = slm_model
         self.optimizer = optimizer
         self.loss_function = loss_function
         self.target = target
@@ -111,6 +63,74 @@ class PhaseRetrievalBase:
     def save_results(self) -> None:
         pass
 
+# TODO: Add error metrics
+# TODO: Add saving functionality
+class CGPhaseRetrieval:
+    def __init__(
+            self: CGPhaseRetrieval,
+            model: SlmCameraBase,
+            target: torch.Tensor,
+            signal_region: torch.Tensor,
+            init_slm_phase: torch.Tensor,
+            device: str = 'cpu',
+    ) -> None:
+        self.model: SlmCameraBase = model
+        self.target: torch.Tensor = target
+        self.signal_region: torch.Tensor = signal_region
+        self.device: str = device
+        use_cuda = 'cuda' in device
+
+        self.model.slm.phase.data = init_slm_phase
+
+        for name, parameter in self.model.named_parameters():
+            if name == 'slm.phase':
+                parameter.requires_grad = True
+            else:
+                parameter.requires_grad = False
+            print(name, parameter.requires_grad)
+
+        self.loss_function = LossFunctionIntensityMSE(
+            target_intensity=self.target,
+            signal_mask=self.signal_region
+        )
+
+        self.timer = Timer(use_cuda=use_cuda, verbose=True)
+
+        self.iteration: int = 0
+
+    def set_optimizer(self, number_of_iterations: int, **kwargs):
+        self.optimizer = torchmin.Minimizer(
+            self.model.parameters(),
+            method='cg',
+            max_iter=number_of_iterations,
+            disp=1,
+            callback=self.callback,
+            **kwargs
+        )
+
+    def callback(self, _):
+        print(f'Iteration {self.iteration}.')
+        self.iteration += 1
+
+    def closure(self):
+        self.optimizer.zero_grad()
+        loss = self.loss_function.loss(self.model())
+        print(f'Loss: {loss.item()}')
+        return loss
+
+    def retrieve_phase(
+            self: CGPhaseRetrieval,
+            number_of_iterations: int = 10,
+        ) -> torch.Tensor:
+        self.timer.start()
+        self.set_optimizer(number_of_iterations)
+        self.optimizer.step(self.closure)
+        self.timer.stop()
+        
+        if 'cuda' in self.device:
+            torch.cuda.empty_cache()
+        return self.model.slm.phase.detach()
+    
 
 class PhaseRetrieval:
     """
@@ -233,7 +253,7 @@ class PhaseRetrieval:
         :return: Loss value.
         """
         if self.loss_type == 'amp':
-            return loss_fn_amp(e_out, self.i_tar_t, self.signal_t)
+            return loss_function_intensity_mse(e_out, self.i_tar_t, self.signal_t)
         elif self.loss_type == 'fid':
             return loss_fn_fid(
                 e_out,
