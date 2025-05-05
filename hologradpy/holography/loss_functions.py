@@ -1,50 +1,127 @@
 import torch
 import torch.nn as nn
 
-def loss_fn_fid(
-        e_out: torch.Tensor,
-        i_tar: torch.Tensor,
-        phi_tar: torch.Tensor,
-        signal: torch.Tensor
-    ) -> torch.Tensor:
-    """
-    Phase and amplitude cost function from
-    https://doi.org/10.1364/OE.25.011692.
+class LossFunctionBase:
+    def __init__(self) -> None:
+        """Base class for loss functions."""
+        pass
 
-    :param e_out: Electric field at the image plane.
-    :param i_tar: Target intensity pattern.
-    :param phi_tar: Target phase pattern.
-    :param signal: Binary mask containing signal region.
-    :return: Cost.
-    """
-    a_out = e_out.abs()
-    phi_out = e_out.angle()
-    overlap = torch.sum(
-        signal * a_out * torch.sqrt(i_tar) * torch.cos(phi_out - phi_tar)
-    )
-    overlap = (
-        overlap / (torch.sqrt(torch.sum(i_tar) * torch.sum((a_out * signal) ** 2)))
-    )
-    return 1e12 * (1 - overlap) ** 2
+    def loss(self, electric_field: torch.Tensor) -> torch.Tensor:
+        """ Calculate the loss based on the electric field.
+
+        Parameters
+        ----------
+        electric_field : torch.Tensor
+            Electric field at the image plane.
+        
+        returns
+        -------
+        torch.Tensor
+            Cost.
+        """
+        raise NotImplementedError("Loss function not implemented.")
 
 
-def loss_fn_amp(
-        e_out: torch.Tensor,
-        i_tar: torch.Tensor,
-        signal: torch.Tensor
-    ) -> torch.Tensor:
-    """
-    Amplitude-only cost function from https://doi.org/10.1364/OE.22.026548.
+class LossFunctionIntensityMSE(LossFunctionBase):
+    def __init__(
+            self,
+            target_intensity: torch.Tensor,
+            signal_mask: torch.Tensor,
+            steepness: float = 1e12
+        ) -> None:
+        """ Amplitude-only cost function from 
+        https://doi.org/10.1364/OE.22.026548.
 
-    :param e_out: Electric field at the image plane.
-    :param i_tar: Target intensity pattern.
-    :param signal: Binary mask containing signal region.
-    :return: Cost.
-    """
-    mse = nn.MSELoss(reduction='sum')
-    i_out = torch.abs(e_out) ** 2
-    return 5e11 * mse(i_out * signal / torch.sum(i_out * signal), i_tar)
+        Parameters
+        ----------
+        target_intensity : torch.Tensor
+            Target intensity pattern.
+        signal_mask : torch.Tensor
+            Binary mask containing signal region.
+        steepness : float, optional
+            Steepness of the cost function, by default 1e12.
+        """
+        self.mse = nn.MSELoss(reduction='sum')
+        self.signal_mask = signal_mask
+        self.steepness = steepness
+        
+        target_intensity = target_intensity * signal_mask
+        target_intensity /= target_intensity.sum()
 
+        self.target_intensity = target_intensity
+    
+    def loss(self, electric_field: torch.Tensor) -> torch.Tensor:
+        """ Calculate the loss based on the electric field.
+
+        Parameters
+        ----------
+        electric_field : torch.Tensor
+            Electric field at the image plane.
+        
+        returns
+        -------
+        torch.Tensor
+            Cost.
+        """
+        intensity_out = torch.abs(electric_field) ** 2 * self.signal_mask
+        intensity_out = intensity_out / intensity_out.sum()
+        return self.steepness * self.mse(intensity_out, self.target_intensity)
+
+
+class LossFunctionFidelity(LossFunctionBase):
+    def __init__(
+            self,
+            target_intensity: torch.Tensor,
+            target_phase: torch.Tensor,
+            signal_mask: torch.Tensor,
+            steepness: float = 1e12
+        ) -> None:
+        """ Phase and amplitude cost function from 
+        https://doi.org/10.1364/OE.25.011692.
+
+        Parameters
+        ----------
+        target_intensity : torch.Tensor
+            Target intensity pattern.
+        target_phase : torch.Tensor
+            Target phase pattern.
+        signal_mask : torch.Tensor
+            Binary mask containing signal region.
+        steepness : float, optional
+            Steepness of the cost function, by default 1e12.
+        """
+        self.steepness = steepness
+        self.signal_mask = signal_mask
+        self.target_intensity = target_intensity * signal_mask
+        self.target_amplitude = self.target_intensity.sqrt()
+        self.target_phase = target_phase * signal_mask
+
+    def loss(self, electric_field: torch.Tensor) -> torch.Tensor:
+        """ Calculate the loss based on the electric field.
+
+        Parameters
+        ----------
+        electric_field : torch.Tensor
+            Electric field at the image plane.
+        
+        returns
+        -------
+        torch.Tensor
+            Cost.
+        """
+        amplitude_out = electric_field.abs()
+        phase_out = electric_field.angle()
+
+        overlap = (
+            self.signal_mask * amplitude_out * self.target_amplitude *
+            (phase_out - self.target_phase).cos()
+        ).sum()
+        overlap /= (
+            self.target_intensity.sum() * 
+            (amplitude_out * self.signal_mask) ** 2
+        ).sqrt().sum()
+
+        return self.steepness * (1 - overlap) ** 2
 
 def rms(
     signal: torch.Tensor,
@@ -75,7 +152,6 @@ def rms(
     n = ((i_out_w_norm - i_target_w_norm) / i_target_w_norm) ** 2
     n = torch.sqrt(torch.mean(n))
     return n
-
 
 def eff(signal: torch.Tensor, i_out: torch.Tensor) -> torch.Tensor:
     """
