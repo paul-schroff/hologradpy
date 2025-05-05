@@ -1,3 +1,4 @@
+from collections import OrderedDict
 import torch
 from torch import Tensor as tt
 import torch.nn as nn
@@ -5,8 +6,110 @@ import numpy as np
 from numpy.typing import NDArray
 from .. import hardware as hw
 
+from slmsuite.hardware.slms.slm import SLM
+from slmsuite.hardware.cameras.camera import Camera
+
 from .utils.fourier_utils import fft_2d as fft
 from ..torch_functions import ASM
+
+from .propagators import (
+    FourierLensFft
+)
+
+from .elements import (
+    ConstantSLMField,
+    SpatialLightModulator,
+    PartialAffineTransform,
+)
+
+
+class SlmCameraBase(nn.Module):
+    """
+    This class models the SLM and the camera in a virtual optical system.
+    It is used to simulate the propagation of light from the SLM to the camera.
+    """
+    def __init__(
+            self,
+            slm_device: SLM,
+            init_slm_phase: torch.Tensor | None = None,
+            device: str = 'cpu',
+        ) -> None:
+        super().__init__()
+
+        self.device = device
+
+        # Create the SLM module
+        self.slm: SpatialLightModulator = SpatialLightModulator(
+            slm_device=slm_device,
+            init_phase=init_slm_phase,
+            device=self.device,
+        )
+    
+    def forward(self) -> torch.Tensor:
+        raise NotImplementedError("The forward method must be implemented in "\
+        "subclasses.")
+
+
+class SlmFftAffine(SlmCameraBase):
+    def __init__(
+            self,
+            slm_device: SLM,
+            camera_device: Camera,
+            focal_length: float,
+            constant_field_slm: torch.Tensor,
+            init_slm_phase: torch.Tensor | None = None,
+            padded_resolution: tuple[int, int] = (2048, 2048),
+            device: str = 'cpu',
+    ) -> None:
+        
+        super().__init__(slm_device, init_slm_phase, device=device)
+
+        # Create constant field module
+        self.constant_field = ConstantSLMField(
+            init_field=constant_field_slm,
+            pixel_pitch=slm_device.pitch_um * 1e-6,
+            device=self.device,
+        )
+
+        # Create the Fourier lens module
+        self.fourier_lens = FourierLensFft(
+            focal_length=focal_length,
+            wavelength=slm_device.wav_um * 1e-6,
+            resolution_in=slm_device.shape,
+            pixel_pitch_in=slm_device.pitch_um[0] * 1e-6,
+            padded_resolution=padded_resolution,
+            device=self.device,
+        )
+
+        # Calculate scaling factor for the affine transform
+        scale = tuple(
+            self.fourier_lens.pixel_size_out[i] / 
+            (camera_device.pitch_um[i] * 1e-6) for i in range(2)
+        )[::-1]
+
+        shift = tuple(
+            (camera_device.shape[i] - self.fourier_lens.resolution_out[i] * 
+             scale[i]) / 2 for i in range(2)
+        )[::-1]
+        # Create the affine transform module
+        self.affine_transform = PartialAffineTransform(
+            resolution_in=self.fourier_lens.padded_resolution,
+            pixel_pitch_in=self.fourier_lens.pixel_size_out[0],
+            resolution_out=camera_device.shape,
+            scale=scale,
+            shift=shift,
+            angle=0,
+            device=self.device,
+            verbose=False,
+        )
+    
+    def forward(self) -> torch.Tensor:
+        out = self.slm()
+        out = self.constant_field(out)
+        out = self.fourier_lens(out)
+        out = self.affine_transform(out)
+        return out
+
 
 class VirtualSlm(nn.Module):
     """
@@ -186,4 +289,4 @@ class VirtualSlm(nn.Module):
         elif self.propagation_type == 'asm':
             x = self.asm_obj.forward(x)
         self.counter += 1
-        return x
+        re
