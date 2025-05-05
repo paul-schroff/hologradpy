@@ -1,9 +1,9 @@
 from .calibration import calibrate_slm
 from .analysis import error_metrics, fitting
-from .holography import holography, phase_retrieval, loss_functions
+from .holography import phase_retrieval, loss_functions, camera_feedback
 from .torch_modules import (
+    elements,
     propagators,
-    planar_modules,
     optical_systems,
     pixel_crosstalk,
 )
