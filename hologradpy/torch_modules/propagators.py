@@ -27,18 +27,19 @@ from .utils.fourier_utils import (
 class PropagatorBase(nn.Module):
     dtype = torch.float32
     wavelength: float
-    device: str = "cpu"
 
     def __init__(
             self: PropagatorBase,
             resolution_in: tuple[int, int],
             pixel_size_in: tuple[float, float],
+            device: str = "cpu"
         ) -> None:
         
         super().__init__()
 
         self.resolution_in = resolution_in
         self.pixel_size_in = pixel_size_in
+        self.device = device
 
         self.spatial_extent_in = tuple(
             self.resolution_in[i] * self.pixel_size_in[i]
@@ -93,6 +94,7 @@ class FourierLensFft(PropagatorBase):
             pixel_pitch_in: float,
             padded_resolution: tuple[int, int] = None,
             fft_kwargs: dict = {},
+            device: str = "cpu",
         ) -> None:
 
         self.focal_length = focal_length
@@ -102,16 +104,20 @@ class FourierLensFft(PropagatorBase):
         if padded_resolution is None:
             padded_resolution = tuple(2 * resolution_in[i] for i in range(2))
         self.padded_resolution = padded_resolution
+        self.padded_spatial_extent = tuple(
+            self.padded_resolution[i] * pixel_pitch_in for i in range(2)
+        )
 
         super().__init__(
             resolution_in = resolution_in,
             pixel_size_in = (pixel_pitch_in, pixel_pitch_in),
+            device=device,
         )
 
     @property
     def pixel_size_out(self: FourierLensFft) -> tuple[float, float]:
         return tuple(
-            self.wavelength * self.focal_length / self.spatial_extent_in[i]
+            self.wavelength * self.focal_length / self.padded_spatial_extent[i]
             for i in range(2)
         )
     
@@ -139,6 +145,7 @@ class FourierLensNufft(PropagatorBase):
             shift: tuple[float, float] = (0, 0),
             angle: float = 0,
             nufft_kwargs: dict = {},
+            device: str = "cpu",
         ) -> None:
         self.focal_length = focal_length
         self.resolution_out = resolution_out
@@ -162,6 +169,7 @@ class FourierLensNufft(PropagatorBase):
         super().__init__(
             resolution_in = resolution_in,
             pixel_size_in = (pixel_pitch_in, pixel_pitch_in),
+            device=device,
         )
 
         self.eps = torch.finfo(self.dtype).eps
@@ -262,6 +270,7 @@ class AngularSpectrumMethod(PropagatorBase):
             pixel_pitch_in: float,
             padded_resolution: tuple[int, int] | None = None,
             fft_kwargs: dict = {},
+            device: str = "cpu",
         ) -> None:
         self.propagation_distance = propagation_distance
 
@@ -276,6 +285,7 @@ class AngularSpectrumMethod(PropagatorBase):
         super().__init__(
             resolution_in = resolution_in,
             pixel_size_in = (pixel_pitch_in, pixel_pitch_in),
+            device=device,
         )
 
         self.frequency_grid = get_frequency_grid(
