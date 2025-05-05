@@ -17,32 +17,35 @@ from slmsuite.hardware.slms.slm import SLM
 class SpatialLightModulator(PropagatorBase):
     def __init__(
             self: SpatialLightModulator,
-            slm_hardware: SLM,
+            slm_device: SLM,
             init_phase: torch.Tensor | None = None,
+            device: str = 'cpu',
         ) -> None:
         
         super().__init__(
-            slm_hardware.shape,
-            (slm_hardware.pitch_um * 1e-6, slm_hardware.pitch_um * 1e-6)
+            slm_device.shape,
+            (slm_device.pitch_um * 1e-6, slm_device.pitch_um * 1e-6),
+            device=device,
         )
         
         if init_phase is None:
             init_phase = torch.zeros(
-                slm_hardware.shape, dtype=self.dtype, device=self.device
+                slm_device.shape, dtype=self.dtype, device=self.device
             )
 
         # Phase parameter requires gradient only in inference mode
         self.phase = nn.Parameter(
-            torch.tensor(init_phase, self.dtype, self.device),
-            requires_grad = not self.training
+            torch.tensor(init_phase, dtype=self.dtype, device=self.device),
+            requires_grad=not self.training
         )
         
     def forward(
             self: SpatialLightModulator, 
-            phase: torch.Tensor
+            phase: torch.Tensor | None = None
         ) -> torch.Tensor:
         
-        self.phase.data = phase
+        if phase is not None:
+            self.phase.data = phase
         phase = unsqueeze_to(self.phase, 3)
         
         return torch.exp(1j * phase).squeeze()
@@ -53,19 +56,29 @@ class ConstantSLMField(PropagatorBase):
             self: ConstantSLMField,
             init_field: torch.Tensor[torch.complex],
             pixel_pitch: float,
+            device: str = 'cpu',
         ) -> None:
 
         super().__init__(
             init_field.shape[-2:],
-            (pixel_pitch, pixel_pitch)
+            (pixel_pitch, pixel_pitch),
+            device=device,
         )
         self.phase = nn.Parameter(
-            torch.tensor(init_field.angle(), self.dtype, self.device),
+            torch.tensor(
+                init_field.angle(),
+                dtype=self.dtype,
+                device=self.device
+            ),
             requires_grad = self.training
         )
         
         self.amplitude = nn.Parameter(
-            torch.tensor(init_field.abs(), self.dtype, self.device),
+            torch.tensor(
+                init_field.abs(),
+                dtype=self.dtype,
+                device=self.device
+            ),
             requires_grad = self.training
         )
 
@@ -90,6 +103,7 @@ class PartialAffineTransform(PropagatorBase):
             shift: tuple[float, float] = (0, 0),
             angle: float = 0.0,
             verbose: bool = True,
+            device: str = 'cpu',
         ) -> None:
         self.scale = scale
         self.shift = shift
@@ -97,26 +111,33 @@ class PartialAffineTransform(PropagatorBase):
         self._resolution_out = resolution_out
         self.verbose = verbose
 
-        super().__init__(resolution_in, (pixel_pitch_in, pixel_pitch_in))
+        super().__init__(
+            resolution_in,
+            (pixel_pitch_in, pixel_pitch_in),
+            device=device,
+        )
 
         self.scale = nn.Parameter(
-            torch.tensor(scale, self.dtype, self.device),
-            requires_grad = self.training
+            torch.tensor(scale, dtype=self.dtype, device=self.device),
+            requires_grad = True
         )
 
         # Shift from the center of the in pixels
         self.shift = nn.Parameter(
-            torch.tensor(shift, self.dtype, self.device),
-            requires_grad = self.training
+            torch.tensor(shift, dtype=self.dtype, device=self.device),
+            requires_grad = True
         )
 
         # Rotation angle in radians
         self.angle = nn.Parameter(
-            torch.tensor(angle, self.dtype, self.device),
-            requires_grad = self.training
+            torch.tensor(angle, dtype=self.dtype, device=self.device),
+            requires_grad = True
         )
 
-        self.center = torch.tensor([0.0, 0.0], device=self.device)
+        self.center = nn.Parameter(
+            torch.tensor([0.0, 0.0], dtype=self.dtype, device=self.device),
+            requires_grad = False
+        )
         self.affine_matrix = self.get_affine_matrix()
     
     @property
@@ -170,6 +191,7 @@ class SimpleLens(PropagatorBase):
             wavelength: float,
             resolution_in: tuple[int, int],
             pixel_pitch_in: float,
+            device: str = 'cpu',
         ) -> None:
         self.focal_length = focal_length
         self.wavelength = wavelength
@@ -179,6 +201,7 @@ class SimpleLens(PropagatorBase):
             wavelength = wavelength,
             resolution_in = resolution_in,
             pixel_size_in = (pixel_pitch_in, pixel_pitch_in),
+            device = device,
         )
 
         spatial_grid = self.get_spatial_grid_input()
