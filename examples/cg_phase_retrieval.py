@@ -5,7 +5,7 @@ from hologradpy.holography.phase_retrieval import CGPhaseRetrieval
 from hologradpy.torch_modules.utils.optics_utils import (
     gaussian_beam_intensity,
     lens_phase,
-    rect_mask,
+    rectangular_mask,
 )
 from hologradpy.torch_modules.utils.fourier_utils import get_spatial_grid
 from hologradpy.torch_modules.utils.tensor_utils import (
@@ -85,7 +85,7 @@ camera_grid = slm_camera_module.affine_transform.get_spatial_grid_output()
 
 top_hat_width = 200e-6
 top_hat_height = 200e-6
-target_top_hat = rect_mask(*camera_grid, top_hat_width, top_hat_height) + 0.0
+target_top_hat = rectangular_mask(*camera_grid, top_hat_width, top_hat_height) + 0.0
 signal_region = torch.ones_like(camera_grid[0])
 
 plt.figure()
@@ -101,7 +101,7 @@ phase_retrieval = CGPhaseRetrieval(
     init_slm_phase=init_slm_phase,
 )
 
-phase = phase_retrieval.retrieve_phase(100)
+phase = phase_retrieval.retrieve_phase(200)
 intensity_out = torch.abs(phase_retrieval.model()) ** 2
 
 # %% Plotting the results
