@@ -3,14 +3,20 @@ This module contains functions for curve fitting.
 """
 
 import numpy as np
+from numpy.typing import NDArray
 from .. import patterns as pt
 import scipy
 import scipy.optimize as opt
 
 
-def tilt(xy, *args, mask=None):
+def tilt(
+    xy: tuple[NDArray, NDArray],
+    *args: float,
+    mask: NDArray | None = None
+) -> NDArray:
     """
-    Fit function containing the first three Zernike polynomials of the form z = c0 + c1 * x + c2 * y + c3 * 2xy.
+    Fit function containing the first three Zernike polynomials of the form
+    z = c0 + c1 * x + c2 * y + c3 * 2xy.
 
     :param xy: x, y coordinate vectors.
     :param args: Vector of length 4, containing Zernike coefficients.
@@ -25,9 +31,13 @@ def tilt(xy, *args, mask=None):
     return arr * mask
 
 
-def remove_tilt(img, mask=None):
+def remove_tilt(
+    img: NDArray,
+    mask: NDArray | None = None
+) -> NDArray:
     """
-    This function removes fits the first three Zernike polynomials (Piston and tilt) to an image and subtracts the
+    This function removes fits the first three Zernike polynomials (Piston and
+    tilt) to an image and subtracts the
     fitted function from the original image.
     :param ndarray img: Input image.
     :param ndarray mask: Binary mask in which to remove tilt.
@@ -36,7 +46,7 @@ def remove_tilt(img, mask=None):
     if mask is None:
         mask = np.ones_like(img)
 
-    def tilt_mask(xy, *args):
+    def tilt_mask(xy: tuple[NDArray, NDArray], *args: float) -> NDArray:
         return tilt(xy, *args, mask=mask.ravel())
 
     x_, y_ = pt.make_grid(img)
@@ -48,7 +58,10 @@ def remove_tilt(img, mask=None):
     return img - img_tilt
 
 
-def gaussian(xy, *args):
+def gaussian(
+    xy: tuple[NDArray, NDArray],
+    *args: float
+) -> NDArray:
     """
     Gaussian fit function.
 
@@ -61,9 +74,20 @@ def gaussian(xy, *args):
     return arr
 
 
-def fit_gaussian(img, dx=None, dy=None, sig_x=15, sig_y=15, a=None, c=0, blur_width=10, xy=None):
+def fit_gaussian(
+    img: NDArray,
+    dx: float | None = None,
+    dy: float | None = None,
+    sig_x: float = 15,
+    sig_y: float = 15,
+    a: float | None = None,
+    c: float = 0,
+    blur_width: float = 10,
+    xy: tuple[NDArray, NDArray] | None = None
+) -> tuple[NDArray, NDArray]:
     """
-    Fits a 2D Gaussian to an image. The image s blurred using a Gaussian filer before fitting.
+    Fits a 2D Gaussian to an image. The image s blurred using a Gaussian filter 
+    before fitting.
 
     :param img: Input image.
     :param dx: X-offset of Gaussian [px].
@@ -99,24 +123,38 @@ def fit_gaussian(img, dx=None, dy=None, sig_x=15, sig_y=15, a=None, c=0, blur_wi
 
 class FitSine:
     """
-    This class is used in the wavefront measurement to fit a 2D sine to the interference pattern on the camera. The
-    distance between the sample and reference patch can be set by calling the method set_dx_dy.
+    This class is used in the wavefront measurement to fit a 2D sine to the 
+    interference pattern on the camera. The distance between the sample and 
+    reference patch can be set by calling the method set_dx_dy.
     """
-    def __init__(self, fl, k, dx=None, dy=None):
+
+    def __init__(
+            self,
+            fl: float,
+            k: float,
+            dx: float | None = None,
+            dy: float | None = None
+        ) -> None:
         """
         Initialises the class by defining fixed parameters.
 
         :param fl: Focal length of the Fourier lens [m].
         :param k: Wavenumber [rad/m].
-        :param dx: Separation between the reference and the sampling patch along x.
-        :param dy: Separation between the reference and the sampling patch along y.
+        :param dx: Separation between the reference and the sampling patch 
+            along x.
+        :param dy: Separation between the reference and the sampling patch 
+            along y.
         """
         self.fl = fl
         self.dx = dx
         self.dy = dy
         self.k = k
 
-    def set_dx_dy(self, dx, dy):
+    def set_dx_dy(
+            self,
+            dx: float,
+            dy: float
+        ) -> None:
         """
         Method to set parameters dx and dy.
         :param dx: New dx.
@@ -125,7 +163,11 @@ class FitSine:
         self.dx = dx
         self.dy = dy
 
-    def fit_sine(self, xy, *args):
+    def fit_sine(
+            self,
+            xy: tuple[NDArray, NDArray],
+            *args: object
+        ) -> NDArray:
         """
         Method to perform 2D sine fit.
         :param xy: x, y coordinate vectors.
@@ -133,5 +175,12 @@ class FitSine:
         :return: 2D sine.
         """
         x, y = xy
-        arr = pt.fringes_wavefront(x, y, self.dx, self.dy, self.k, self.fl, *args)
-        return arr
+        return pt.fringes_wavefront(
+            x,
+            y,
+            self.dx,
+            self.dy,
+            self.k,
+            self.fl,
+            *args
+        )
