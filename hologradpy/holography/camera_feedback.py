@@ -22,7 +22,7 @@ from ..torch_modules.utils.tensor_utils import (
 from ..torch_modules.optical_systems import VirtualSlm
 from .phase_retrieval import PhaseRetrieval
 from .. import patterns as pt
-from .. import hardware as hw
+from ..hardware import hardware as hw
 from ..analysis import error_metrics as m
 
 

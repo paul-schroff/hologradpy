@@ -7,7 +7,7 @@ import time
 import numpy as np
 from .. import patterns as pt
 from ..analysis import fitting as ft
-from .. import hardware as hw
+from ..hardware import hardware as hw
 from ..analysis import error_metrics as m
 import scipy.optimize as opt
 import matplotlib.pyplot as plt

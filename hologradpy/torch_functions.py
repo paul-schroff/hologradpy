@@ -16,7 +16,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from . import patterns as pt
 from .analysis import fitting as ft
 from .analysis import error_metrics as m
-from . import hardware as hw
+from .hardware import hardware as hw
 import cv2 as cv
 from checkerboard import detect_checkerboard
 from scipy import ndimage

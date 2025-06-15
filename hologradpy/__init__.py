@@ -12,6 +12,6 @@ from .torch_modules.utils import (
     optics_utils,
     fourier_utils,
 )
-from . import hardware
+from .hardware import hardware
 from . import patterns
 from . import torch_functions
