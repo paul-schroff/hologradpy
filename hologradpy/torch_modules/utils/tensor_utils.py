@@ -43,12 +43,20 @@ def pad_to_shape_2D(input: torch.Tensor,
         pad = (pad_w, pad_w, pad_h, pad_h)
         return torch.nn.functional.pad(input, pad)
 
-def crop_to_shape_2D(input: torch.Tensor,
-                     target_shape: tuple[int, int]
-                     ) -> torch.Tensor:
+def crop_to_shape_2D(
+        input: torch.Tensor | NDArray,
+        target_shape: tuple[int, int]
+    ) -> torch.Tensor | NDArray:
     input_shape = input.shape[-2:]
     crop_h = (input_shape[0] - target_shape[0]) // 2
     crop_w = (input_shape[1] - target_shape[1]) // 2
     return input[...,
                  crop_h:input_shape[0] - crop_h,
                  crop_w:input_shape[1] - crop_w]
+
+def crop_to_roi(
+        input: torch.Tensor | NDArray,
+        roi: tuple[int, int, int, int]
+    ) -> torch.Tensor | NDArray:
+    x, width, y, height = roi
+    return input[..., y:y + height, x:x + width]
