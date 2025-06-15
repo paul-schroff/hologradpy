@@ -2,6 +2,9 @@
 """
 from __future__ import annotations
 
+import numpy as np
+from numpy.typing import NDArray
+
 import torch
 import torch.nn as nn
 
@@ -14,40 +17,59 @@ from .propagators import PropagatorBase
 
 from slmsuite.hardware.slms.slm import SLM
 
-class SpatialLightModulator(PropagatorBase):
+class VirtualSLM(PropagatorBase):
     def __init__(
-            self: SpatialLightModulator,
-            slm_device: SLM,
+            self: VirtualSLM,
+            slm: SLM,
             init_phase: torch.Tensor | None = None,
             device: str = 'cpu',
         ) -> None:
+
+        self.slm: SLM = slm
         
         super().__init__(
-            slm_device.shape,
-            (slm_device.pitch_um * 1e-6, slm_device.pitch_um * 1e-6),
+            self.slm.shape,
+            (self.slm.pitch_um[0] * 1e-6, self.slm.pitch_um[1] * 1e-6),
             device=device,
         )
         
         if init_phase is None:
             init_phase = torch.zeros(
-                slm_device.shape, dtype=self.dtype, device=self.device
+                slm.shape, dtype=self.dtype, device=self.device
             )
 
-        # Phase parameter requires gradient only in inference mode
         self.phase = nn.Parameter(
             torch.tensor(init_phase, dtype=self.dtype, device=self.device),
-            requires_grad=not self.training
+            requires_grad=True
         )
+    
+    def set_phase(self, phase: torch.Tensor | NDArray) -> None:
+        if phase.shape != self.slm.shape:
+            raise ValueError(
+                f"Phase shape {phase.shape} does not match SLM shape "
+                + f"{self.slm.shape}."
+            )
+        
+        if isinstance(phase, np.ndarray):
+            self.phase.data = torch.tensor(
+                phase,
+                dtype=self.phase.dtype,
+                device=self.phase.device
+            )
+        else:
+            self.phase.data = phase.to(
+                dtype=self.phase.dtype,
+                device=self.phase.device
+            )
         
     def forward(
-            self: SpatialLightModulator, 
+            self: VirtualSLM, 
             phase: torch.Tensor | None = None
         ) -> torch.Tensor:
         
         if phase is not None:
-            self.phase.data = phase
+            self.set_phase(phase)
         phase = unsqueeze_to(self.phase, 3)
-        
         return torch.exp(1j * phase).squeeze()
 
 

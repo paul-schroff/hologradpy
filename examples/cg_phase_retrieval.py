@@ -12,13 +12,13 @@ from hologradpy.torch_modules.utils.tensor_utils import (
     check_device,
     gpu_to_numpy,
 )
-from hologradpy.torch_modules.optical_systems import SlmFftAffine
+from hologradpy.torch_modules.optical_systems import SLMFFTAffine
+from hologradpy.torch_modules.elements import VirtualSLM
 
 from slmsuite.hardware.slms.slm import SLM
 from slmsuite.hardware.cameras.simulated import SimulatedCamera as Camera
 
 import torch
-import torch.nn as nn
 
 # %% Set up the SLM and camera devices
 device = check_device(verbose=True)
@@ -28,6 +28,8 @@ slm = SLM(
     wav_um=0.670,
     pitch_um=12.5,
 )
+
+virtual_slm = VirtualSLM(slm, device='cpu')
 
 camera = Camera(
     slm=slm,
@@ -61,18 +63,17 @@ init_slm_phase = lens_phase(
     wavenumber=2 * torch.pi / (slm.wav_um * 1e-6),
 ).to(torch.float32)
 
-slm_camera_module = SlmFftAffine(
-    slm_device=slm,
-    camera_device=camera,
+slm_camera_module = SLMFFTAffine(
+    virtual_slm=virtual_slm,
+    camera=camera,
     focal_length=focal_length,
     constant_field_slm=slm_field,
-    init_slm_phase=init_slm_phase,
     padded_resolution=padded_resolution,
     device=device,
 )
 
 # %% Plot initial simulated output
-init_electric_field = slm_camera_module()
+init_electric_field = slm_camera_module(init_slm_phase)
 init_intensity = torch.abs(init_electric_field) ** 2
 
 plt.figure()
@@ -95,7 +96,7 @@ plt.colorbar(label='Intensity (a.u.)')
 
 # %% Setting up the phase retrieval module
 phase_retrieval = CGPhaseRetrieval(
-    model=slm_camera_module,
+    slm_camera_model=slm_camera_module,
     target=target_top_hat,
     signal_region=signal_region,
     init_slm_phase=init_slm_phase,

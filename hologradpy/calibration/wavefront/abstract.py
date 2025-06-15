@@ -5,7 +5,7 @@ from slmsuite.hardware.slms.slm import SLM
 from slmsuite.hardware.cameras.camera import Camera
 
 from ...torch_modules.elements import (
-    SpatialLightModulator,
+    VirtualSLM,
     ConstantSLMField,
 )
 
@@ -25,7 +25,7 @@ class WavefrontCalibratorBase:
         self.camera: Camera = camera
         self.slm : SLM = slm
         self.device = device
-        self.virtual_slm: SpatialLightModulator = SpatialLightModulator(
+        self.virtual_slm: VirtualSLM = VirtualSLM(
             self.slm,
             device = self.device
         )    

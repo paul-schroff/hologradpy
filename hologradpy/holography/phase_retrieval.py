@@ -6,14 +6,12 @@ import numpy as np
 from numpy.typing import NDArray
 
 import torch
-import torch.nn as nn
-
 import torchmin
 
 from .utils import Timer
 
 from ..torch_modules.optical_systems import (
-    SlmCameraBase,
+    SLMCameraModel,
     VirtualSlm,
 )
 
@@ -29,21 +27,22 @@ from .loss_functions import (
 
 class PhaseRetrievalBase:
     def __init__(
-            self: PhaseRetrievalBase,
-            slm_model: SlmCameraBase,
-            optimizer: torch.optim.Optimizer,
-            loss_function: Callable,
-            target: NDArray,
-            signal_region: NDArray,
+            self,
+            slm_camera_model: SLMCameraModel,
+            device: str = 'cpu',
     ) -> None:
-        self.slm_model: SlmCameraBase = slm_model
-        self.optimizer = optimizer
-        self.loss_function = loss_function
-        self.target = target
-        self.signal_region = signal_region
+        self.slm_camera_model: SLMCameraModel = slm_camera_model
+        self.device: str = device
     
     def set_optimizer(self):
         pass
+
+    def set_gradient_requirements(self) -> None:
+        for name, parameter in self.slm_camera_model.named_parameters():
+            if name == 'virtual_slm.phase':
+                parameter.requires_grad = True
+            else:
+                parameter.requires_grad = False
 
     def set_target(self, target: NDArray) -> None:
         pass
@@ -65,24 +64,25 @@ class PhaseRetrievalBase:
 
 # TODO: Add error metrics
 # TODO: Add saving functionality
-class CGPhaseRetrieval:
+class CGPhaseRetrieval(PhaseRetrievalBase):
     def __init__(
-            self: CGPhaseRetrieval,
-            model: SlmCameraBase,
+            self,
+            slm_camera_model: SLMCameraModel,
             target: torch.Tensor,
             signal_region: torch.Tensor,
             init_slm_phase: torch.Tensor,
             device: str = 'cpu',
     ) -> None:
-        self.model: SlmCameraBase = model
+        
+        super().__init__(slm_camera_model, device)
         self.target: torch.Tensor = target
         self.signal_region: torch.Tensor = signal_region
         self.device: str = device
         use_cuda = 'cuda' in device
 
-        self.model.slm.phase.data = init_slm_phase
+        self.slm_camera_model.virtual_slm.set_phase(init_slm_phase)
 
-        for name, parameter in self.model.named_parameters():
+        for name, parameter in self.slm_camera_model.named_parameters():
             if name == 'slm.phase':
                 parameter.requires_grad = True
             else:
@@ -99,14 +99,22 @@ class CGPhaseRetrieval:
         self.iteration: int = 0
 
     def set_optimizer(self, number_of_iterations: int, **kwargs):
+        self.set_gradient_requirements()
         self.optimizer = torchmin.Minimizer(
-            self.model.parameters(),
-            method='cg',
+            self.slm_camera_model.parameters(),
+            method="cg",
             max_iter=number_of_iterations,
             disp=1,
             callback=self.callback,
-            **kwargs
+            **kwargs,
         )
+    
+    def set_gradient_requirements(self) -> None:
+        for name, parameter in self.slm_camera_model.named_parameters():
+            if name == 'virtual_slm.phase':
+                parameter.requires_grad = True
+            else:
+                parameter.requires_grad = False
 
     def callback(self, _):
         print(f'Iteration {self.iteration}.')
@@ -114,7 +122,7 @@ class CGPhaseRetrieval:
 
     def closure(self):
         self.optimizer.zero_grad()
-        loss = self.loss_function.loss(self.model())
+        loss = self.loss_function.loss(self.slm_camera_model())
         print(f'Loss: {loss.item()}')
         return loss
 
@@ -129,7 +137,7 @@ class CGPhaseRetrieval:
         
         if 'cuda' in self.device:
             torch.cuda.empty_cache()
-        return self.model.slm.phase.detach()
+        return self.slm_camera_model.virtual_slm.phase.detach()
     
 
 class PhaseRetrieval:
