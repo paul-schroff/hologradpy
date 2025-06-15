@@ -39,8 +39,8 @@ def linear_phase(
                     'Focal length must be provided when tilt_units is '
                     '"metres".'
                 )
-            slope_x = tilt_x / focal_length
-            slope_y = tilt_y / focal_length
+            slope_x = focal_length / tilt_x
+            slope_y = focal_length / tilt_y
         case 'lines_per_mm':
             raise NotImplementedError('lines_per_mm not implemented yet')
     return slope_x * x + slope_y * y
