@@ -2,13 +2,13 @@ from typing import Type, Literal
 
 import numpy as np
 import torch
-
+import copy
 from slmsuite.hardware.cameras.camera import Camera
 
-from ...hardware.slms import SimulatedSLMTorch
+from . import SimulatedSLMTorch
 
-from ...torch_modules.optical_systems import SLMCameraModel, SLMFFTAffine
-from ...torch_modules.utils.tensor_utils import gpu_to_numpy, crop_to_roi
+from ..torch_modules.optical_systems import SLMCameraModel, SLMFFTAffine
+from ..torch_modules.utils.tensor_utils import gpu_to_numpy, crop_to_roi
 
 
 class SimulatedCameraTorch(Camera):
@@ -59,10 +59,21 @@ class SimulatedCameraTorch(Camera):
     
     def set_woi(self, woi: tuple[int, int, int, int] | None = None) -> None:
         """Set the region of interest (WOI) for the camera."""
+        if woi is None:
+            woi = (0, self.shape[1], 0, self.shape[0])
         self.woi = woi
         
     def close(self) -> None:
         torch.cuda.empty_cache()
+    
+    def autoexposure(self, *args, **kwargs):
+        # TODO: Ideally, self.autoexposure should work with self.woi, this is 
+        # just a temporary workaround.
+        stored_woi = copy.deepcopy(self.woi)
+        self.set_woi(None)
+        output = super().autoexposure(*args, **kwargs)
+        self.set_woi(stored_woi)
+        return output
 
     def _get_image_hw(
         self,

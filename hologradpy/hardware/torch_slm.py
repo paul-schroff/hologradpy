@@ -1,9 +1,9 @@
 import torch
 from numpy.typing import NDArray
 
-from . import SLM
+from slmsuite.hardware.slms.slm import SLM
 
-from ...torch_modules.elements import VirtualSLM
+from ..torch_modules.elements import VirtualSLM
 
 class SimulatedSLMTorch(SLM):
     def __init__(
@@ -33,5 +33,7 @@ class SimulatedSLMTorch(SLM):
             device=torch_device,
         )
     
-    def _set_phase_hw(self, phase: NDArray | torch.Tensor) -> None:
-        self.virtual_slm.set_phase(phase)
+    def _set_phase_hw(self, grayscales: NDArray | torch.Tensor) -> None:
+        self.virtual_slm.set_phase(
+            grayscales / self.bitresolution * 2 * torch.pi
+        )
