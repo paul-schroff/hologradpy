@@ -12,11 +12,10 @@ import torchkbnufft as tkbn
 
 from .tensor_utils import unsqueeze_to
 
-#%% Utility functions
-
+# %% Utility functions
 def get_spatial_grid(resolution: tuple[int, int],
                      pixel_size: tuple[float, float],
-                     device: str) -> Tuple[Tensor, Tensor]:
+                     device: str = 'cpu') -> Tuple[Tensor, Tensor]:
     resolution = torch.tensor(resolution, device=device)
     pixel_size = torch.tensor(pixel_size, device=device)
     
@@ -35,7 +34,7 @@ def get_spatial_grid(resolution: tuple[int, int],
 
 def get_frequency_grid(resolution: tuple[int, int],
                        pixel_size: tuple[float, float],
-                       device) -> Tuple[Tensor, Tensor]:
+                       device: str = 'cpu') -> Tuple[Tensor, Tensor]:
     resolution = torch.tensor(resolution, device=device)
     pixel_size = torch.tensor(pixel_size, device=device)
 

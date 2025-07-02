@@ -422,37 +422,3 @@ def checkerboard(npx: int,
     pad_w = (npx - cb_w) // 2
     pad_h = (npx - cb_h) // 2
     return np.pad(cb, ((pad_w+dx, pad_w-dx), (pad_h+dy, pad_h-dy)))
-
-
-def fringes_wavefront(x: NDArray[np.float_], 
-                      y: NDArray[np.float_], 
-                      dx: float, 
-                      dy: float, 
-                      k: float, 
-                      f: float, 
-                      phi: float, 
-                      a: float, 
-                      b: float
-                      ) -> NDArray[np.float_]:
-    """
-    Standing wave interference pattern on the camera caused by two patches on 
-    the SLM seperated by dx and dy. Equation adapted from 
-    https://doi.org/10.1364/OE.24.013881.
-
-    :param x: X meshgrid.
-    :param y: Y meshgrid.
-    :param dx: Separation between reference and sample patch along x [m].
-    :param dy: Separation between reference and sample patch along y [m].
-    :param k: Wavenumber [rad/m].
-    :param f: Focal length of Fourier lens [m].
-    :param phi: Phase difference between reference and sample patches (see paper above) [rad].
-    :param a: Amplitude on reference patch.
-    :param b: Amplitude on sample patch.
-    :return: Interference pattern.
-    """
-    gamma_x = np.arctan(dx / (np.abs(f) + 1e-12))  # x component of angle between reference and sample beam
-    gamma_y = np.arctan(dy / (np.abs(f) + 1e-12))  # y component of angle between reference and sample beam
-    i_out = (a ** 2 + b ** 2 + 
-             2 * a * b * np.cos(k * (np.sin(gamma_x) * x + 
-                                     np.sin(gamma_y) * y) + phi))
-    return i_out

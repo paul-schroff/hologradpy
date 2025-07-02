@@ -1,6 +1,9 @@
 import os
 import time
 
+import numpy as np
+from numpy.typing import NDArray
+
 from slmsuite.hardware.slms.slm import SLM
 from slmsuite.hardware.cameras.camera import Camera
 
@@ -8,6 +11,8 @@ from ...torch_modules.elements import (
     VirtualSLM,
     ConstantSLMField,
 )
+
+from ...analysis.fitting import fit_gaussian_beam_intensity
 
 
 class WavefrontCalibratorBase:
@@ -39,31 +44,34 @@ class WavefrontCalibratorBase:
             "The calibrate method should be implemented in the derived class."
         )
     
-    def fit_gaussian_beam(self):
-        # Fit Gaussian to measured intensity
-        # extent_slm = (
-        #     slm_disp_obj.slm_size[0] + aperture_width * slm_disp_obj.pitch
-        # ) / 2
-        # x_fit = np.linspace(-extent_slm, extent_slm, aperture_number)
-        # x_fit, y_fit = np.meshgrid(x_fit, x_fit)
-        # sig_x, sig_y = pms_obj.beam_diameter, pms_obj.beam_diameter
-        # popt_slm, perr_slm = ft.fit_gaussian(
-        #     superpixel_intensity,
-        #     dx=0,
-        #     dy=0,
-        #     sig_x=sig_x,
-        #     sig_y=sig_y,
-        #     xy=[x_fit, y_fit]
-        # )
-
-        # i_fit_slm = pt.gaussian(
-        #     slm_disp_obj.meshgrid_slm[0],
-        #     slm_disp_obj.meshgrid_slm[1],
-        #     *popt_slm
-        # )
-        raise NotImplementedError(
-            "The fit_gaussian_beam method is not implemented yet."
+    def fit_gaussian_beam(
+            self,
+            measured_intensity: NDArray[np.float_],
+        ) -> tuple[float, float, float]:
+        """ Fit a Gaussian beam to the measured intensity.
+        Args:
+            measured_intensity (NDArray[np.float_]): The measured intensity 
+                from the camera.
+        Returns:
+            tuple[float, float, float]: The fitted beam radius and shifts in 
+                x and y.
+        """
+        beam_radius_guess = (
+            min(self.slm.shape) * self.slm.pitch_um[0] * 1e-6 / 2
         )
+        
+        popt, _ = fit_gaussian_beam_intensity(
+            *self.virtual_slm.get_spatial_grid_input(),
+            measured_intensity,
+            beam_radius_guess,
+            blur_sigma=10
+        )
+
+        beam_radius = popt[0]
+        shift_x = popt[1]
+        shift_y = popt[2]
+        
+        return beam_radius, shift_x, shift_y
     
     def save(self, slm_field: ConstantSLMField, save_path: str):
         """

@@ -1,13 +1,32 @@
 """
 This module contains functions for curve fitting.
 """
+from typing import Callable, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
 from .. import patterns as pt
-import scipy
-import scipy.optimize as opt
+from scipy.ndimage import gaussian_filter
+from scipy.optimize import curve_fit
 
+from ..torch_modules.utils.optics_utils import gaussian_beam_intensity
+
+def curve_fit_2d(
+        x: NDArray,
+        y: NDArray,
+        data: NDArray,
+        func: Callable[[NDArray, NDArray, Sequence[float]], NDArray],
+        *args,
+        **kwargs
+    ) -> tuple[NDArray, NDArray]:
+    x_data = np.vstack((x.ravel(), y.ravel()))
+
+    def func_flat(x_data_flat, *params):
+        x_flat, y_flat = x_data_flat
+        return func(x_flat, y_flat, *params)
+    
+    popt, pcov = curve_fit(func_flat, x_data, data.ravel(), *args, **kwargs)
+    return popt, pcov
 
 def tilt(
     xy: tuple[NDArray, NDArray],
@@ -53,7 +72,7 @@ def remove_tilt(
     xdata = np.vstack((x_.ravel(), y_.ravel()))
     p0 = np.zeros(4)
 
-    p_opt, p_cov = opt.curve_fit(tilt_mask, xdata, img.ravel(), p0)
+    p_opt, p_cov = curve_fit(tilt_mask, xdata, img.ravel(), p0)
     img_tilt = np.reshape(tilt(xdata, *p_opt), img.shape)
     return img - img_tilt
 
@@ -73,114 +92,118 @@ def gaussian(
     arr = pt.gaussian(x, y, *args)
     return arr
 
+def interferometric_fringes(
+    x: NDArray[np.float_],
+    y: NDArray[np.float_],
+    separation_x: float,
+    separation_y: float,
+    wavenumber: float,
+    focal_length: float,
+    phase: float,
+    amplitude: float,
+) -> NDArray[np.float_]:
+    """Interference pattern on the camera caused by two superpixels 
+    on the SLM seperated by separation_x and separation_y. Equation adapted 
+    from https://doi.org/10.1364/OE.24.013881.
 
-def fit_gaussian(
-    img: NDArray,
-    dx: float | None = None,
-    dy: float | None = None,
-    sig_x: float = 15,
-    sig_y: float = 15,
-    a: float | None = None,
-    c: float = 0,
-    blur_width: float = 10,
-    xy: tuple[NDArray, NDArray] | None = None
-) -> tuple[NDArray, NDArray]:
+    Args:
+        x (NDArray[np.float_]): x coordinates.
+        y (NDArray[np.float_]): y coordinates.
+        separation_x (float): Separation between two superpixels along x.
+        separation_y (float): Separation between two superpixels along y.
+        wavenumber (float): Wavenumber of the light.
+        focal_length (float): Focal length of the Fourier lens.
+        phase (float): Phase difference between the two superpixels.
+        amplitude_a (float): Amplitude due to superpixel a.
+        amplitude_b (float): Amplitude due to superpixel b.
+    Returns:
+        NDArray[np.float_]: Interference pattern on the camera.
     """
-    Fits a 2D Gaussian to an image. The image s blurred using a Gaussian filter 
-    before fitting.
+    angle_x = np.arctan(separation_x / focal_length)
+    angle_y = np.arctan(separation_y / focal_length)
 
-    :param img: Input image.
-    :param dx: X-offset of Gaussian [px].
-    :param dy: Y-offset of Gaussian [px].
-    :param sig_x: X-width of Gaussian [px].
-    :param sig_y: -width of Gaussian [px].
-    :param a: Amplitude.
-    :param c: Offset.
-    :param blur_width: Width of Gaussian blurring kernel [px].
-    :param xy: X, Y meshgrid. If not specified, pixel coordinates are used.
-    :return: Fitting parameters, parameter errors.
-    """
-    if xy is None:
-        x, y = pt.make_grid(img)
-    else:
-        x, y = xy
-    x_data = np.vstack((x.ravel(), y.ravel()))
-    img_blur = scipy.ndimage.gaussian_filter(img, blur_width)
-    if dx is None or dy is None:
-        dy, dx = np.unravel_index(np.argmax(img_blur), img.shape)
-        dx -= img.shape[1] / 2
-        dy -= img.shape[0] / 2
-    if a is None:
-        a = np.max(img_blur)
-    # Define initial parameter guess.
-    p0 = [(dx, dy, sig_x, sig_y, a, c)]
-    popt, pcov = opt.curve_fit(gaussian, x_data, img.ravel(), p0, maxfev=10000)
-
-    # Calculate errors
-    perr = np.sqrt(np.diag(pcov))
-    return popt, perr
-
-
-class FitSine:
-    """
-    This class is used in the wavefront measurement to fit a 2D sine to the 
-    interference pattern on the camera. The distance between the sample and 
-    reference patch can be set by calling the method set_dx_dy.
-    """
-
-    def __init__(
-            self,
-            fl: float,
-            k: float,
-            dx: float | None = None,
-            dy: float | None = None
-        ) -> None:
-        """
-        Initialises the class by defining fixed parameters.
-
-        :param fl: Focal length of the Fourier lens [m].
-        :param k: Wavenumber [rad/m].
-        :param dx: Separation between the reference and the sampling patch 
-            along x.
-        :param dy: Separation between the reference and the sampling patch 
-            along y.
-        """
-        self.fl = fl
-        self.dx = dx
-        self.dy = dy
-        self.k = k
-
-    def set_dx_dy(
-            self,
-            dx: float,
-            dy: float
-        ) -> None:
-        """
-        Method to set parameters dx and dy.
-        :param dx: New dx.
-        :param dy: New dy.
-        """
-        self.dx = dx
-        self.dy = dy
-
-    def fit_sine(
-            self,
-            xy: tuple[NDArray, NDArray],
-            *args: object
-        ) -> NDArray:
-        """
-        Method to perform 2D sine fit.
-        :param xy: x, y coordinate vectors.
-        :param args: Args passed to patterns.fringes_wavefront
-        :return: 2D sine.
-        """
-        x, y = xy
-        return pt.fringes_wavefront(
-            x,
-            y,
-            self.dx,
-            self.dy,
-            self.k,
-            self.fl,
-            *args
+    intesity = (
+        2 * amplitude ** 2 
+        + 2 * amplitude ** 2 * np.cos(
+            wavenumber * (np.sin(angle_x) * x + np.sin(angle_y) * y) + phase
         )
+    )
+    return intesity
+
+
+def fit_gaussian_beam_intensity(
+        x: NDArray,
+        y: NDArray,
+        data: NDArray,
+        beam_radius_guess: float,
+        blur_sigma: float = 10
+        ) -> tuple[NDArray[np.float_], NDArray[np.float_]]:
+    
+    data_blurred = gaussian_filter(data, blur_sigma)
+    index = np.unravel_index(np.argmax(data_blurred), data.shape)
+    p0 = (beam_radius_guess, x[index], y[index], np.max(data), 0)
+    
+    popt, pcov = curve_fit_2d(
+        x,
+        y,
+        data,
+        gaussian_beam_intensity,
+        p0=p0,
+    )
+    return popt, pcov
+
+def fit_interferometric_fringes(
+        x: NDArray,
+        y: NDArray,
+        data: NDArray,
+        separation_x: float,
+        separation_y: float,
+        wavenumber: float,
+        focal_length: float,
+        phase_guess: float = 0,
+        amplitude_guess: float = 1,
+        max_iterations: int = 10000,
+        ) -> tuple[NDArray[np.float_], NDArray[np.float_]]:
+    """Fit the interference pattern on the camera caused by two superpixels 
+    on the SLM separated by separation_x and separation_y. Equation adapted
+    from https://doi.org/10.1364/OE.24.013881.
+    Args:
+        x (NDArray): x coordinates.
+        y (NDArray): y coordinates.
+        data (NDArray): Interference pattern on the camera.
+        separation_x (float): Separation between two superpixels along x.
+        separation_y (float): Separation between two superpixels along y.
+        wavenumber (float): Wavenumber of the light.
+        focal_length (float): Focal length of the Fourier lens.
+        phase_guess (float, optional): Phase difference between the two 
+            superpixels. Defaults to 0.
+        amplitude_guess (float, optional): Amplitude due to superpixel a. 
+            Defaults to 1.
+    Returns:
+        tuple[NDArray[np.float_], NDArray[np.float_]]: Fitting parameters
+            (phase, amplitude) and covariance matrix.
+    """
+    def fit_function(x_, y_, phase, amplitude):
+        return interferometric_fringes(
+            x_,
+            y_,
+            separation_x,
+            separation_y,
+            wavenumber,
+            focal_length,
+            phase,
+            amplitude
+        )
+    p0 = (phase_guess, amplitude_guess)
+    bounds = ((-np.pi, 0), (np.pi, np.inf))
+    popt, pcov = curve_fit_2d(
+        x,
+        y,
+        data,
+        fit_function,
+        p0=p0, 
+        bounds=bounds,
+        maxfev=max_iterations
+    )
+    return popt, pcov
+
