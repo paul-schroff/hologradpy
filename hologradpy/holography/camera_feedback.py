@@ -16,10 +16,10 @@ import torch
 from slmsuite.hardware.cameras.camera import Camera
 from slmsuite.hardware.slms.slm import SLM
 
-from ..torch_modules.utils.tensor_utils import (
+from ..propagation.utils.tensor_utils import (
     gpu_to_numpy
 )
-from ..torch_modules.optical_systems import VirtualSlm
+from ..propagation.optical_systems import VirtualSlm
 from .phase_retrieval import PhaseRetrieval
 from .. import patterns as pt
 from ..hardware import hardware as hw

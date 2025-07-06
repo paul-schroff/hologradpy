@@ -7,8 +7,8 @@ from slmsuite.hardware.cameras.camera import Camera
 
 from . import SimulatedSLMTorch
 
-from ..torch_modules.optical_systems import SLMCameraModel, SLMFFTAffine
-from ..torch_modules.utils.tensor_utils import gpu_to_numpy, crop_to_roi
+from ..propagation.optical_systems import SLMCameraModel, SLMFFTAffine
+from ..propagation.utils.tensor_utils import gpu_to_numpy, crop_to_roi
 
 
 class SimulatedCameraTorch(Camera):

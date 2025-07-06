@@ -1,0 +1,1 @@
+# TODO: Implement camera feedback base class.

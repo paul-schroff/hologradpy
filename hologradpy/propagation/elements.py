@@ -13,7 +13,7 @@ from kornia.geometry import warp_perspective
 
 from .utils.optics_utils import lens_phase, circular_mask
 from .utils.tensor_utils import unsqueeze_to
-from .propagators import PropagatorBase
+from .propagators.abstract import PropagatorBase
 
 from slmsuite.hardware.slms.slm import SLM
 

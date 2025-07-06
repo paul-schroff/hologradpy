@@ -1,6 +1,5 @@
 from __future__ import annotations
 import time
-from typing import Callable
 
 import numpy as np
 from numpy.typing import NDArray
@@ -8,137 +7,12 @@ from numpy.typing import NDArray
 import torch
 import torchmin
 
-from .utils import Timer
+from ..propagation.optical_systems import VirtualSlm
 
-from ..torch_modules.optical_systems import (
-    SLMCameraModel,
-    VirtualSlm,
-)
+from ..propagation.utils.tensor_utils import gpu_to_numpy
 
-from ..torch_modules.utils.tensor_utils import (
-    gpu_to_numpy,
-)
+from .loss_functions import rms, eff
 
-from .loss_functions import (
-    LossFunctionIntensityMSE,
-    rms,
-    eff
-)
-
-class PhaseRetrievalBase:
-    def __init__(
-            self,
-            slm_camera_model: SLMCameraModel,
-            device: str = 'cpu',
-    ) -> None:
-        self.slm_camera_model: SLMCameraModel = slm_camera_model
-        self.device: str = device
-    
-    def set_optimizer(self):
-        pass
-
-    def set_gradient_requirements(self) -> None:
-        for name, parameter in self.slm_camera_model.named_parameters():
-            if name == 'virtual_slm.phase':
-                parameter.requires_grad = True
-            else:
-                parameter.requires_grad = False
-
-    def set_target(self, target: NDArray) -> None:
-        pass
-
-    def set_loss_function(self, loss_function: Callable) -> None:
-        pass
-
-    def callback(self) -> None:
-        pass
-
-    def retrieve_phase(
-            self,
-            number_of_iterations: int = 10,
-        )-> NDArray:
-        pass
-
-    def save_results(self) -> None:
-        pass
-
-# TODO: Add error metrics
-# TODO: Add saving functionality
-class CGPhaseRetrieval(PhaseRetrievalBase):
-    def __init__(
-            self,
-            slm_camera_model: SLMCameraModel,
-            target: torch.Tensor,
-            signal_region: torch.Tensor,
-            init_slm_phase: torch.Tensor,
-            device: str = 'cpu',
-    ) -> None:
-        
-        super().__init__(slm_camera_model, device)
-        self.target: torch.Tensor = target
-        self.signal_region: torch.Tensor = signal_region
-        self.device: str = device
-        use_cuda = 'cuda' in device
-
-        self.slm_camera_model.virtual_slm.set_phase(init_slm_phase)
-
-        for name, parameter in self.slm_camera_model.named_parameters():
-            if name == 'slm.phase':
-                parameter.requires_grad = True
-            else:
-                parameter.requires_grad = False
-            print(name, parameter.requires_grad)
-
-        self.loss_function = LossFunctionIntensityMSE(
-            target_intensity=self.target,
-            signal_mask=self.signal_region
-        )
-
-        self.timer = Timer(use_cuda=use_cuda, verbose=True)
-
-        self.iteration: int = 0
-
-    def set_optimizer(self, number_of_iterations: int, **kwargs):
-        self.set_gradient_requirements()
-        self.optimizer = torchmin.Minimizer(
-            self.slm_camera_model.parameters(),
-            method="cg",
-            max_iter=number_of_iterations,
-            disp=1,
-            callback=self.callback,
-            **kwargs,
-        )
-    
-    def set_gradient_requirements(self) -> None:
-        for name, parameter in self.slm_camera_model.named_parameters():
-            if name == 'virtual_slm.phase':
-                parameter.requires_grad = True
-            else:
-                parameter.requires_grad = False
-
-    def callback(self, _):
-        print(f'Iteration {self.iteration}.')
-        self.iteration += 1
-
-    def closure(self):
-        self.optimizer.zero_grad()
-        loss = self.loss_function.loss(self.slm_camera_model())
-        print(f'Loss: {loss.item()}')
-        return loss
-
-    def retrieve_phase(
-            self: CGPhaseRetrieval,
-            number_of_iterations: int = 10,
-        ) -> torch.Tensor:
-        self.timer.start()
-        self.set_optimizer(number_of_iterations)
-        self.optimizer.step(self.closure)
-        self.timer.stop()
-        
-        if 'cuda' in self.device:
-            torch.cuda.empty_cache()
-        return self.slm_camera_model.virtual_slm.phase.detach()
-    
 
 class PhaseRetrieval:
     """

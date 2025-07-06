@@ -10,13 +10,13 @@ from hologradpy.calibration import (
     get_diffraction_spot_position
 )
 
-from hologradpy.torch_modules.optical_systems import SLMFFTAffine
+from hologradpy.propagation.optical_systems import SLMFFTAffine
 
-from hologradpy.torch_modules.utils.optics_utils import (
+from hologradpy.propagation.utils.optics_utils import (
     gaussian_beam_intensity,
     linear_phase
 )
-from hologradpy.torch_modules.utils.tensor_utils import (
+from hologradpy.propagation.utils.tensor_utils import (
     check_device,
     gpu_to_numpy
 )

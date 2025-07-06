@@ -58,28 +58,24 @@ def fft_2d(input: Tensor,
            fft_shift: bool = True
            ) -> Tensor:
     if fft_shift is True:
-        return torch.fft.fftshift(
-            torch.fft.fftn(
-                torch.fft.ifftshift(input, dim=(-1, -2)),
-                norm=norm,
-                dim=(-1, -2)),
-            dim=(-1, -2))
+        return fftshift(
+            fftn(ifftshift(input, dim=(-1, -2)), norm=norm, dim=(-1, -2)),
+            dim=(-1, -2)
+        )
     else:
-        return torch.fft.fftn(input, norm=norm, dim=(-1, -2))
+        return fftn(input, norm=norm, dim=(-1, -2))
     
 def ifft_2d(input: Tensor,
             norm: Literal['backward', 'forward', 'ortho'] = 'backward',
             fft_shift: bool = True
             ) -> Tensor:
     if fft_shift is True:
-        return torch.fft.ifftshift(
-            torch.fft.ifftn(
-                torch.fft.fftshift(input, dim=(-1, -2)),
-                norm=norm,
-                dim=(-1, -2)),
-            dim=(-1, -2))
+        return ifftshift(
+            ifftn(fftshift(input, dim=(-1, -2)), norm=norm, dim=(-1, -2)),
+            dim=(-1, -2)
+        )
     else:
-        return torch.fft.ifftn(input, norm=norm, dim=(-1, -2))
+        return ifftn(input, norm=norm, dim=(-1, -2))
     
 # %% Base classes
 class FourierBase(nn.Module):

@@ -2,18 +2,17 @@
 import matplotlib.pyplot as plt
 
 from hologradpy.holography.phase_retrieval import CGPhaseRetrieval
-from hologradpy.torch_modules.utils.optics_utils import (
+from hologradpy.propagation.utils.optics_utils import (
     gaussian_beam_intensity,
     lens_phase,
     rectangular_mask,
 )
-from hologradpy.torch_modules.utils.fourier_utils import get_spatial_grid
-from hologradpy.torch_modules.utils.tensor_utils import (
+from hologradpy.propagation.utils.tensor_utils import (
     check_device,
     gpu_to_numpy,
 )
-from hologradpy.torch_modules.optical_systems import SLMFFTAffine
-from hologradpy.torch_modules.elements import VirtualSLM
+from hologradpy.propagation.optical_systems import SLMFFTAffine
+from hologradpy.propagation.elements import VirtualSLM
 
 from slmsuite.hardware.slms.slm import SLM
 from slmsuite.hardware.cameras.simulated import SimulatedCamera as Camera
@@ -42,12 +41,7 @@ beam_radius = 4e-3 # beam radius in mm
 focal_length = 250e-3 # focal length in mm
 padded_resolution = (2048, 2048) # padded resolution for the FFT
 
-slm_grid = get_spatial_grid(
-    torch.tensor(slm.shape),
-    torch.tensor(slm.pitch_um * 1e-6),
-    device=device
-)
-
+slm_grid = virtual_slm.get_spatial_grid_input()
 slm_intensity = gaussian_beam_intensity(*slm_grid, beam_radius=beam_radius)
 slm_field = slm_intensity + 0j
 
@@ -102,8 +96,8 @@ phase_retrieval = CGPhaseRetrieval(
     init_slm_phase=init_slm_phase,
 )
 
-phase = phase_retrieval.retrieve_phase(200)
-intensity_out = torch.abs(phase_retrieval.model()) ** 2
+phase = phase_retrieval.retrieve_phase(100)
+intensity_out = torch.abs(phase_retrieval.slm_camera_model()) ** 2
 
 # %% Plotting the results
 plt.figure()
