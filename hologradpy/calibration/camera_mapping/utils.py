@@ -1,24 +1,20 @@
-from typing import Literal
 import numpy as np
 from numpy.typing import NDArray
-import torch
-
-import matplotlib.pyplot as plt
 
 from slmsuite.hardware.slms.slm import SLM
 from slmsuite.hardware.cameras.camera import Camera
 
-from ..torch_modules.utils.optics_utils import (
-    rectangular_mask,
+from ...propagation.utils.optics_utils import (
     circular_mask,
     linear_phase,
     focal_spot_radius
 )
 
-from ..analysis.fitting import fit_gaussian_beam_intensity
-from ..torch_modules.utils.fourier_utils import get_spatial_grid
-from .. torch_modules.utils.tensor_utils import gpu_to_numpy
+from ...analysis.fitting import fit_gaussian_beam_intensity
+from ...propagation.utils.fourier_utils import get_spatial_grid
+from ...propagation.utils.tensor_utils import gpu_to_numpy
 
+# TODO: Reformat docstrings.
 def get_diffraction_spot_position(
     slm: SLM,
     camera: Camera,
@@ -34,27 +30,26 @@ def get_diffraction_spot_position(
     aperture on the SLM containing a linear phase gradient. The position of the 
     spot is found by fitting a Gaussian to the camera image.
 
-    Parameters
-    ----------
-    slm : SLM
-        Instance of your SLM subclass.
-    camera : Camera
-        Instance of your camera subclass.
-    linear_phase_tilt : tuple[float, float]
-        x and y gradient of the linear phase.
-    exposure_time : float | None
-        Exposure time in seconds. If None, the camera will perform autoexposure.
-    slm_mask_diameter : float | None
-        Diameter of the circular aperture in meters. If None, the diameter is 
-        set to the size of the SLM.
-    camera_roi_size : tuple[int, int] | None
-        Width and height of the region of interest on the camera to remove 
-        the zeroth-order diffraction spot. If None, the size is set to the 
-        camera size.
-    Returns
-    -------
-    tuple[float, float]
-        x and y coordinates of the spot on the camera.   
+    Args:
+        slm : SLM
+            Instance of your SLM subclass.
+        camera : Camera
+            Instance of your camera subclass.
+        linear_phase_tilt : tuple[float, float]
+            x and y gradient of the linear phase.
+        exposure_time : float | None
+            Exposure time in seconds. If None, the camera will perform 
+            autoexposure.
+        slm_mask_diameter : float | None
+            Diameter of the circular aperture in meters. If None, the diameter
+            is set to the size of the SLM.
+        camera_roi_size : tuple[int, int] | None
+            Width and height of the region of interest on the camera to remove 
+            the zeroth-order diffraction spot. If None, the size is set to the 
+            camera size.
+    Returns:
+        tuple[float, float]
+            x and y coordinates of the spot on the camera.   
     """
     if slm_mask_diameter is None:
         slm_mask_diameter = min(slm.shape) * slm.pitch_um[0] * 1e-6
