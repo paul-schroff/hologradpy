@@ -42,8 +42,10 @@ class AngularSpectrumMethod(PropagatorBase):
             self.padded_resolution, self.pixel_size_in, device=self.device
         )
 
-        self.phase_factor = self.get_phase_factor(self.propagation_distance).to(
-            corresponding_complex_dtype(self.dtype)
+        self.phase_factor = (
+            self.get_phase_factor(self.propagation_distance).to(
+                corresponding_complex_dtype(self.dtype)
+            )
         )
 
     @property
@@ -58,19 +60,16 @@ class AngularSpectrumMethod(PropagatorBase):
         self: AngularSpectrumMethod, propagation_distance: float
     ) -> torch.Tensor:
         return torch.exp(
-            1j
-            * propagation_distance
-            * torch.sqrt(
-                (
-                    self.wavenumber**2
-                    - self.frequency_grid[0] ** 2
-                    - self.frequency_grid[1] ** 2
-                    + 0j
-                )
+            1j * propagation_distance * 
+            torch.sqrt(
+                self.wavenumber ** 2 - self.frequency_grid[0] ** 2 
+                 - self.frequency_grid[1] ** 2 + 0j
             )
         )
 
-    def forward(self: AngularSpectrumMethod, input_field: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self: AngularSpectrumMethod, input_field: torch.Tensor
+    ) -> torch.Tensor:
         input_field = unsqueeze_to(input_field, 3)
         phase_factor = unsqueeze_to(self.phase_factor, 3)
 
