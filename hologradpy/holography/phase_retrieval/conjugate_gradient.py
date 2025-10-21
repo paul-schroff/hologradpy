@@ -3,17 +3,16 @@ from __future__ import annotations
 import torch
 import torchmin
 
+from .abstract import PhaseRetrieverBase
+
 from ..utils import Timer
+from ..loss_functions import LossIntensityMSE
 
 from ...propagation.optical_systems import SLMCameraModel
 
-from .abstract import PhaseRetrievalBase
-from ..loss_functions import LossFunctionIntensityMSE
-
-
-# TODO: Add error metrics
+# TODO: Add convergence error metrics
 # TODO: Add saving functionality
-class CGPhaseRetrieval(PhaseRetrievalBase):
+class CGPhaseRetriever(PhaseRetrieverBase):
     def __init__(
         self,
         slm_camera_model: SLMCameraModel,
@@ -30,14 +29,7 @@ class CGPhaseRetrieval(PhaseRetrievalBase):
 
         self.slm_camera_model.virtual_slm.set_phase(init_slm_phase)
 
-        for name, parameter in self.slm_camera_model.named_parameters():
-            if name == "slm.phase":
-                parameter.requires_grad = True
-            else:
-                parameter.requires_grad = False
-            print(name, parameter.requires_grad)
-
-        self.loss_function = LossFunctionIntensityMSE(
+        self.loss_function = LossIntensityMSE(
             target_intensity=self.target, signal_mask=self.signal_region
         )
 
@@ -45,23 +37,18 @@ class CGPhaseRetrieval(PhaseRetrievalBase):
 
         self.iteration: int = 0
 
-    def set_optimizer(self, number_of_iterations: int, **kwargs):
-        self.set_gradient_requirements()
+    def set_optimizer(
+            self,
+            number_of_iterations: int,
+            method: str = "cg"
+        ) -> None:
         self.optimizer = torchmin.Minimizer(
             self.slm_camera_model.parameters(),
-            method="cg",
+            method=method,
             max_iter=number_of_iterations,
             disp=1,
             callback=self.callback,
-            **kwargs,
         )
-
-    def set_gradient_requirements(self) -> None:
-        for name, parameter in self.slm_camera_model.named_parameters():
-            if name == "virtual_slm.phase":
-                parameter.requires_grad = True
-            else:
-                parameter.requires_grad = False
 
     def callback(self, _):
         print(f"Iteration {self.iteration}.")
@@ -69,19 +56,23 @@ class CGPhaseRetrieval(PhaseRetrievalBase):
 
     def closure(self):
         self.optimizer.zero_grad()
-        loss = self.loss_function.loss(self.slm_camera_model())
+        electric_field = self.slm_camera_model()
+        loss = self.loss_function.loss(electric_field)
         print(f"Loss: {loss.item()}")
         return loss
 
     def retrieve_phase(
-        self: CGPhaseRetrieval,
+        self: CGPhaseRetriever,
         number_of_iterations: int = 10,
+        parameter_name: str = "virtual_slm.phase",
+        method: str = "cg",
     ) -> torch.Tensor:
         self.timer.start()
-        self.set_optimizer(number_of_iterations)
+        self.set_gradient_requirements(parameter_name)
+        self.set_optimizer(number_of_iterations, method=method)
         self.optimizer.step(self.closure)
         self.timer.stop()
 
         if "cuda" in self.device:
             torch.cuda.empty_cache()
-        return self.slm_camera_model.virtual_slm.phase.detach()
+        return self.slm_camera_model.virtual_slm.get_displayed_phase()
