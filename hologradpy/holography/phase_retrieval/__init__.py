@@ -1,5 +1,7 @@
-from .conjugate_gradient import CGPhaseRetrieval
+from .conjugate_gradient import CGPhaseRetriever
+from .zernike import ZernikePhaseRetriever
 
 __all__ = [
-    "CGPhaseRetrieval",
+    "CGPhaseRetriever",
+    "ZernikePhaseRetriever",
 ]
