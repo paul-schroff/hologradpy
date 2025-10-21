@@ -42,14 +42,34 @@ class PropagatorBase(nn.Module):
 
     @property
     def spatial_extent_out(self: PropagatorBase) -> tuple[float, float]:
-        return tuple(self.resolution_out[i] * self.pixel_size_out[i] for i in range(2))
+        return tuple(
+            self.resolution_out[i] * self.pixel_size_out[i] for i in range(2)
+            )
 
     def get_spatial_grid_input(
         self: PropagatorBase,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        return get_spatial_grid(self.resolution_in, self.pixel_size_in, self.device)
+        return get_spatial_grid(
+            self.resolution_in, self.pixel_size_in, self.device
+            )
 
     def get_spatial_grid_output(
         self: PropagatorBase,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        return get_spatial_grid(self.resolution_out, self.pixel_size_out, self.device)
+        return get_spatial_grid(
+            self.resolution_out, self.pixel_size_out, self.device
+            )
+    
+    def forward() -> torch.Tensor:
+        """Simulates the propagation of light between two planes."""
+        raise NotImplementedError(
+            "Each subclass should implements its own forward method."
+        )
+    
+    def inverse() -> torch.Tensor:
+        """This method should implement the inverse propagation of light.
+        This is especially useful for iterative Fourier transform algorithms.
+        """
+        raise NotImplementedError(
+            "Each subclass should implements its own inverse method."
+        )
