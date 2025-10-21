@@ -81,9 +81,11 @@ class SimulatedCameraTorch(Camera):
         backend: Literal["numpy", "torch"] = "numpy",
     ) -> torch.Tensor:
         """Get an image from the camera hardware."""
-
         intensity = self.slm_camera_model().abs() ** 2
-        intensity = crop_to_roi(intensity, self.woi)
+
+        roi = (self.woi[2], self.woi[2] + self.woi[3],
+               self.woi[0], self.woi[0] + self.woi[1])
+        intensity = crop_to_roi(intensity, roi)
 
         if backend == "numpy":
             return gpu_to_numpy(intensity).astype(self.dtype)
