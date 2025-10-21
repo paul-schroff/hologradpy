@@ -1,12 +1,14 @@
 from collections import OrderedDict
 import torch
 
-from ..propagators import FourierLensFft
-from ..elements import ConstantSLMField, VirtualSLM, PartialAffineTransform
+from ..propagators import FourierLensFFT
+from ..elements import ConstantSLMField, PartialAffineTransform
+from ..virtual_slms.abstract import VirtualSLM
 
 from slmsuite.hardware.cameras.camera import Camera
 
 from .abstract import SLMCameraModel
+
 
 class SLMFFTAffine(SLMCameraModel):
     def __init__(
@@ -26,13 +28,14 @@ class SLMFFTAffine(SLMCameraModel):
         )
 
         # Create the Fourier lens module
-        fourier_lens = FourierLensFft(
+        fourier_lens = FourierLensFFT(
             focal_length=focal_length,
             wavelength=virtual_slm.slm.wav_um * 1e-6,
             resolution_in=virtual_slm.slm.shape,
             pixel_pitch_in=virtual_slm.slm.pitch_um[0] * 1e-6,
             padded_resolution=padded_resolution,
             device=device,
+            fft_kwargs={"norm": "ortho"},
         )
 
         # Calculate scaling factor and shift for the affine transformation
@@ -67,6 +70,3 @@ class SLMFFTAffine(SLMCameraModel):
                 ("affine_transform", affine_transform),
             ])
         )
-
-    def forward(self, phase: torch.Tensor | None = None) -> torch.Tensor:
-        return super().forward(phase)
