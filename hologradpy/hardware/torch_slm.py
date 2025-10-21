@@ -3,7 +3,7 @@ from numpy.typing import NDArray
 
 from slmsuite.hardware.slms.slm import SLM
 
-from ..propagation.elements import VirtualSLM
+from ..propagation.virtual_slms.abstract import VirtualSLM
 
 class SimulatedSLMTorch(SLM):
     def __init__(
