@@ -4,36 +4,66 @@ from typing import Literal, TypeVar
 from numpy.typing import NDArray
 import torch
 
+from .fourier_utils import get_spatial_grid
+from .tensor_utils import unsqueeze_to
+
 from array_api_compat import array_namespace
 
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
+TiltUnits = Literal["degrees", "radians", "metres", "lines_per_mm"]
+CurvatureUnits = Literal[
+        "radians_per_pixel_squared", "radians_per_metre_squared"
+    ]
 
 
+# %% Phase functions
 def lens_phase(
-    x: torch.Tensor, y: torch.Tensor, focal_length: float, wavenumber: float
-) -> torch.Tensor:
-    return -0.5 * wavenumber / focal_length * (x**2 + y**2)
+    x: ArrayLike, y: ArrayLike, focal_length: float, wavenumber: float
+) -> ArrayLike:
+    """Calculates the phase of an ideal lens on a 2D grid.
+
+    Args:
+        x (ArrayLike): X coordinates.
+        y (ArrayLike): Y coordinates.
+        focal_length (float): Focal length of the lens.
+        wavenumber (float): Wavenumber of the light.
+
+    Returns:
+        ArrayLike: Lens phase.
+    """
+    return -0.5 * wavenumber / focal_length * (x ** 2 + y ** 2)
 
 
-# TODO: Sanity check this function
 def linear_phase(
-    x: torch.Tensor,
-    y: torch.Tensor,
+    x: ArrayLike,
+    y: ArrayLike,
     tilt_x: float,
     tilt_y: float,
-    tilt_units: Literal[
-        "degrees",
-        "radians",
-        "metres",
-        "lines_per_mm",
-    ] = "metres",
+    tilt_units: TiltUnits = "metres",
     wavenumber: float | None = None,
     focal_length: float | None = None,
-) -> torch.Tensor:
+) -> ArrayLike:
+    """Calculates a linear phase on a 2D grid.
+
+    Args:
+        x (ArrayLike): X coordinates.
+        y (ArrayLike): Y coordinates.
+        tilt_x (float): Tilt in the x direction.
+        tilt_y (float): Tilt in the y direction.
+        tilt_units (TiltUnits, optional): Units for tilt. Defaults to "metres".
+        wavenumber (float | None, optional): Wavenumber required if 
+            `tilt_units` is "degrees", "radians", or "metres". Defaults to 
+            None.
+        focal_length (float | None, optional): Focal length required if 
+            `tilt_units` is "metres". Defaults to None.
+    Returns:
+        ArrayLike: Linear phase.
+    """
+    xp = array_namespace(x, y)
     match tilt_units:
         case "degrees":
-            slope_x = torch.tan(tilt_x) * wavenumber
-            slope_y = torch.tan(tilt_y) * wavenumber
+            slope_x = xp.tan(tilt_x) * wavenumber
+            slope_y = xp.tan(tilt_y) * wavenumber
         case "radians":
             slope_x = tilt_x * wavenumber
             slope_y = tilt_y * wavenumber
@@ -49,22 +79,79 @@ def linear_phase(
     return slope_x * x + slope_y * y
 
 
-# TODO: Sanity check this function
 def quadratic_phase(
-    x: torch.Tensor,
-    y: torch.Tensor,
+    x: ArrayLike,
+    y: ArrayLike,
     curvature: float,
-    aspect_ratio: float = 1.0,
-    curvature_units: Literal[
-        "radians_per_pixel_squared", "radians_per_metre_squared"
-    ] = "radians_per_metre_squared",
-) -> torch.Tensor:
+    aspect_ratio: float = 0.5,
+    curvature_units: CurvatureUnits = "radians_per_metre_squared",
+) -> ArrayLike:
+    """Calculates a quadratic phase with some `curvature` and an 
+    `aspect_ratio` on a 2D grid.
+
+    Args:
+        x (ArrayLike): X coordinates.
+        y (ArrayLike): Y coordinates.
+        curvature (float): Curvature for quadratic phase.
+        aspect_ratio (float, optional): Aspect ratio for quadratic phase. 
+            Defaults to 0.5.
+        curvature_units (CurvatureUnits, optional): Units for curvature.
+            Defaults to "radians_per_metre_squared".
+    Returns:
+        ArrayLike: Quadratic phase.    
+    """
     if curvature_units == "radians_per_pixel_squared":
         x = x / (x.max() - x.min()) * x.shape[1]
         y = y / (y.max() - y.min()) * y.shape[0]
-    return 4 * curvature * (aspect_ratio * y**2 + (1 - aspect_ratio) * x**2)
+    return (
+        4 * curvature * (aspect_ratio * y ** 2 + (1 - aspect_ratio) * x ** 2)
+    )
 
 
+def analytic_phase_guess(
+    x: ArrayLike,
+    y: ArrayLike,
+    tilt_x: float,
+    tilt_y: float,
+    curvature: float,
+    aspect_ratio: float = 0.5,
+    tilt_units: TiltUnits = "metres",
+    curvature_units: CurvatureUnits = "radians_per_metre_squared",
+    wavenumber: float | None = None,
+    focal_length: float | None = None
+) -> ArrayLike:
+    """Calculates a combined linear and quadratic phase term.
+    
+    Args:
+        x (ArrayLike): X coordinates.
+        y (ArrayLike): Y coordinates.
+        tilt_x (float): Tilt in the x direction.
+        tilt_y (float): Tilt in the y direction.
+        curvature (float): Curvature for quadratic phase.
+        aspect_ratio (float, optional): Aspect ratio for quadratic phase. 
+            Defaults to 0.5.
+        tilt_units (TiltUnits, optional): Units for tilt. Defaults to "metres".
+        curvature_units (CurvatureUnits, optional): Units for curvature.
+            Defaults to "radians_per_metre_squared".
+        wavenumber (float | None, optional): Wavenumber for linear phase.
+            Required if tilt_units is "degrees", "radians", or "metres".
+            Defaults to None.
+        focal_length (float | None, optional): Focal length for linear phase.
+            Required if tilt_units is "metres". Defaults to None.
+    
+    Returns:
+        ArrayLike: Combined linear and quadratic phase.
+    """
+    linear_phase_term = linear_phase(
+        x, y, tilt_x, tilt_y, tilt_units, wavenumber, focal_length
+        )
+    quadratic_phase_term = quadratic_phase(
+        x, y, curvature, aspect_ratio, curvature_units
+        )
+    return linear_phase_term + quadratic_phase_term
+
+
+# %% Intensity distributions
 def gaussian_beam_intensity(
     x: ArrayLike,
     y: ArrayLike,
@@ -75,34 +162,46 @@ def gaussian_beam_intensity(
     offset: float = 0.0,
 ) -> ArrayLike:
     xp = array_namespace(x, y)
-    """Gaussian beam with given radius and center."""
+    """Gaussian beam intensity on a 2D grid with given radius and center.
+    
+    Args:
+        x (ArrayLike): X coordinates.
+        y (ArrayLike): Y coordinates.
+        beam_radius (float): Radius of the beam.
+        shift_x (float, optional): X shift of the beam center. Defaults to 0.0.
+        shift_y (float, optional): Y shift of the beam center. Defaults to 0.0.
+        intensity (float, optional): Peak intensity of the beam. Defaults to 
+            1.0.
+        offset (float, optional): Offset added to the intensity. Defaults to 
+            0.0.
+
+    Returns:
+        ArrayLike: Gaussian beam intensity.
+    """
     return (
-        intensity
-        * xp.exp(-2 * ((x - shift_x) ** 2 + (y - shift_y) ** 2) / (beam_radius**2))
+        intensity * xp.exp(
+            -2 * ((x - shift_x) ** 2 + (y - shift_y) ** 2) / (beam_radius**2)
+        ) 
         + offset
     )
+
 
 def focal_spot_radius(
         beam_radius: float,
         wavelength: float,
         focal_length: float,
 ) -> float:
-    """
-    Calculate the radius of the focal spot for a Gaussian beam.
+    """Calculates the radius of the focal spot for a Gaussian beam with a given
+    `beam_radius`, focussed by a lens with a given `focal_length`.
 
-    Parameters
-    ----------
-    beam_radius : float
-        The radius of the Gaussian beam at the aperture.
-    wavelength : float
-        The wavelength of the light in meters.
-    focal_length : float
-        The focal length of the lens in meters.
+    Args:
+        beam_radius (float): The radius of the Gaussian beam at the lens in 
+            meters.
+        wavelength (float): The wavelength of the light in meters.
+        focal_length (float): The focal length of the lens in meters.
 
-    Returns
-    -------
-    float
-        The radius of the focal spot in meters.
+    Returns:
+        float: The radius of the focal spot in meters.
     """
     return (wavelength * focal_length) / (torch.pi * beam_radius)
 
@@ -116,7 +215,21 @@ def rectangular_mask(
     shift_x: float = 0.0,
     shift_y: float = 0.0,
 ) -> torch.Tensor[torch.bool]:
-    """Rectangular mask with given width, height, and center."""
+    """Rectangular mask with given width, height, and center.
+    
+    Args:
+        x (torch.Tensor): X coordinates.
+        y (torch.Tensor): Y coordinates.
+        width (float): Width of the rectangle.
+        height (float): Height of the rectangle.
+        shift_x (float, optional): X shift of the rectangle center. Defaults 
+            to 0.0.
+        shift_y (float, optional): Y shift of the rectangle center. Defaults 
+            to 0.0.
+    
+    Returns:
+        torch.Tensor[torch.bool]: Binary mask.
+    """
     return ((x - shift_x).abs() < width / 2) & ((y - shift_y).abs() < height / 2)
 
 
@@ -127,5 +240,46 @@ def circular_mask(
     shift_x: float = 0.0,
     shift_y: float = 0.0,
 ) -> torch.Tensor[torch.bool]:
-    """Create a circular mask with a given radius and center."""
+    """Create a circular mask with a given radius and center.
+    
+    Args:
+        x (torch.Tensor): X coordinates.
+        y (torch.Tensor): Y coordinates.
+        radius (float): Radius of the circle.
+        shift_x (float, optional): X shift of the circle center. Defaults to 
+            0.0.
+        shift_y (float, optional): Y shift of the circle center. Defaults to 
+            0.0.
+    
+    Returns:
+        torch.Tensor[torch.bool]: Binary mask.
+    """
     return ((x - shift_x) ** 2 + (y - shift_y) ** 2) ** 0.5 < radius
+
+
+# %%
+def gaussian_blur(input: torch.Tensor, beam_radius: float):
+    """Blurs the input tensor with a Gaussian focal spot with a given 
+    `beam_radius`.
+
+    Args:
+        input (torch.Tensor): Input tensor.
+        beam_radius (float): Radius of the Gaussian beam.
+
+    Returns:
+        torch.Tensor: Blurred output tensor.
+    """
+    kernel_size = int(3 * beam_radius // 2 * 2 + 1)
+    kernel_grid = get_spatial_grid(
+        (kernel_size, kernel_size),
+        pixel_size=(1 , 1),
+        device=input.device
+    )
+    kernel = gaussian_beam_intensity(*kernel_grid, beam_radius)
+    kernel /= kernel.sum()
+    kernel = unsqueeze_to(kernel, 4)
+
+    input = unsqueeze_to(input, 4)
+
+    return torch.nn.functional.conv2d(input, kernel, padding="same").squeeze()
+
