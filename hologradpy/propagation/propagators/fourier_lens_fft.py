@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import torch
 
-from ..utils.tensor_utils import pad_to_shape_2D
-from ..utils.fourier_utils import fft_2d
+from ..utils.tensor_utils import pad_to_shape_2D, crop_to_shape_2D
+from ..utils.fourier_utils import fft_2d, ifft_2d
 
 from .abstract import PropagatorBase
 
-class FourierLensFft(PropagatorBase):
+class FourierLensFFT(PropagatorBase):
     def __init__(
-        self: FourierLensFft,
+        self: FourierLensFFT,
         focal_length: float,
         wavelength: float,
         resolution_in: tuple[int, int],
@@ -36,16 +36,26 @@ class FourierLensFft(PropagatorBase):
         )
 
     @property
-    def pixel_size_out(self: FourierLensFft) -> tuple[float, float]:
+    def pixel_size_out(self: FourierLensFFT) -> tuple[float, float]:
         return tuple(
             self.wavelength * self.focal_length / self.padded_spatial_extent[i]
             for i in range(2)
         )
 
     @property
-    def resolution_out(self: FourierLensFft) -> tuple[int, int]:
+    def resolution_out(self: FourierLensFFT) -> tuple[int, int]:
         return self.padded_resolution
 
-    def forward(self: FourierLensFft, input_field: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self: FourierLensFFT,
+        input_field: torch.Tensor
+    ) -> torch.Tensor:
         e_in = pad_to_shape_2D(input_field, self.padded_resolution)
         return fft_2d(e_in, **self.fft_kwargs)
+    
+    def inverse(
+        self: FourierLensFFT,
+        output_field: torch.Tensor
+    ) -> torch.Tensor:
+        e_in = ifft_2d(output_field, **self.fft_kwargs)
+        return crop_to_shape_2D(e_in, self.resolution_in)
