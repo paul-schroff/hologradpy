@@ -11,7 +11,6 @@ to start the CG minimisation.
 import numpy as np
 from numpy.typing import NDArray
 import scipy
-from scipy import ndimage
 import cv2 as cv
 
 
@@ -177,137 +176,7 @@ def load_filter_upscale(path: str,
     return out
 
 
-# Binary masks
-def rect_mask(im: NDArray[np.float_],
-              dx: int,
-              dy: int,
-              w: int,
-              h: int
-              ) -> NDArray[np.float_]:
-    """
-    Rectangular mask using pixel coordinates of an input image.
-
-    :param im: Input image
-    :param dx: X-offset of rectangle from the centre of the image.
-    :param dy: Y-offset of rectangle from the centre of the image.
-    :param w: Width of rectangle.
-    :param h: Height of rectangle.
-    :return: Binary mask.
-    """
-    height, width = im.shape
-    y_grid, x_grid = np.ogrid[-height // 2:height // 2, -width // 2:width // 2]
-    
-    idx = ((x_grid - dx > -w // 2) & (x_grid - dx < w // 2) & 
-           (y_grid - dy > -h // 2) & (y_grid - dy < h // 2))
-    mask = np.zeros_like(im)
-    mask[idx] = 1
-    return mask
-
-
-def rect_mask_xy(x: NDArray[np.float_], 
-                 y: NDArray[np.float_], 
-                 dx: int, 
-                 dy: int, 
-                 w: int, 
-                 h: int
-                 ) -> NDArray[np.float_]:
-    """
-    Rectangular mask using XY meshgrid coordinates.
-
-    :param x: X meshgrid
-    :param y: Y meshgrid
-    :param dx: X-offset of rectangle from the centre of the image.
-    :param dy: Y-offset of rectangle from the centre of the image.
-    :param w: Width of rectangle.
-    :param h: Height of rectangle.
-    :return: Binary mask.
-    """
-    idx = (np.abs(x - dx) < w / 2) & (np.abs(y - dy) < h / 2)
-    mask = np.zeros_like(x)
-    mask[idx] = 1
-    return mask
-
-
-def circ_mask(im: NDArray[np.float_],
-              dx: int,
-              dy: int,
-              r: int
-              ) -> NDArray[np.float_]:
-    """
-    Circular mask using pixel coordinates of an input image.
-
-    :param im: Input image
-    :param dx: X-offset of circle.
-    :param dy: Y-offset of circle.
-    :param r: Radius of circle.
-    :return: Binary mask.
-    """
-    height, width = im.shape
-    y, x = np.ogrid[-height / 2:height / 2, -width / 2:width / 2]
-    
-    idx = (x - dx) ** 2 + (y - dy) ** 2 < r ** 2
-    mask = np.zeros_like(im)
-    mask[idx] = 1
-    return mask
-
-
-def circ_mask_xy(x: NDArray[np.float_], 
-                 y: NDArray[np.float_], 
-                 dx: int, 
-                 dy: int, 
-                 r: int, 
-                 sparse: bool | None = None
-                 ) -> NDArray[np.float_]:
-    """
-    Circular mask using XY meshgrid coordinates.
-
-    :param x: X meshgrid.
-    :param y: Y meshgrid.
-    :param dx: X-offset of circle.
-    :param dy: Y-offset of circle.
-    :param r: Radius of circle.
-    :param sparse: Whether to use a sparse mask.
-    :return: Binary mask.
-    """
-    idx = (x - dx) ** 2 + (y - dy) ** 2 < r ** 2
-    if sparse:
-        mask = np.zeros((max(x.shape), max(x.shape)))
-    else:
-        mask = np.zeros_like(x)
-    mask[idx] = 1
-    return mask
-
-
 # Intensity patterns
-def gaussian(x: NDArray[np.float_], 
-             y: NDArray[np.float_], 
-             dx: int, 
-             dy: int, 
-             sig_x: float, 
-             sig_y: float | None = None, 
-             a: float = 1, 
-             c: float = 0
-             ) -> NDArray[np.float_]:
-    """
-    2D Gaussian.
-
-    :param x: X meshgrid.
-    :param y: Y meshgrid.
-    :param dx: X-offset of Gaussian.
-    :param dy: Y-offset of Gaussian.
-    :param sig_x: X width of Gaussian.
-    :param sig_y: Y width of Gaussian
-    :param a: Amplitude.
-    :param c: Offset.
-    :return: 2D Gaussian.
-    """
-    if sig_y is None:
-        sig_y = sig_x
-
-    return (a * np.exp(-0.5 * ((x - dx) ** 2 / sig_x ** 2 + 
-                               (y - dy) ** 2 / sig_y ** 2)) + c)
-
-
 def super_gaussian(x: NDArray[np.float_], 
                    y: NDArray[np.float_], 
                    dx: int, 
@@ -397,28 +266,3 @@ def ring_gauss(x: NDArray[np.float_],
     return (a * np.exp(-2 * (np.sqrt((x - dx) ** 2 +
                                      (y - dy) ** 2) - r) ** 2 / w ** 2))
 
-
-def checkerboard(npx: int, 
-                 dx: int, 
-                 dy: int, 
-                 rows: int, 
-                 columns: int, 
-                 square_size: int
-                 ) -> NDArray[np.float_]:
-    """
-    Creates a checkerboard on a canvas of `(npx, npx)` pixels.
-
-    :param npx: Size of canvas.
-    :param dx: X-offset of checkerboard.
-    :param dy: Y-Offset of checkerboard.
-    :param rows: Checkerboard rows.
-    :param columns: Checkerboard columns.
-    :param square_size: Size of a square in pixels
-    :return: Checkerboard.
-    """
-    cb = np.indices((columns, rows)).sum(axis=0) % 2
-    cb = np.repeat(np.repeat(cb, square_size, axis=0), square_size, axis=1)
-    cb_w, cb_h = cb.shape
-    pad_w = (npx - cb_w) // 2
-    pad_h = (npx - cb_h) // 2
-    return np.pad(cb, ((pad_w+dx, pad_w-dx), (pad_h+dy, pad_h-dy)))
