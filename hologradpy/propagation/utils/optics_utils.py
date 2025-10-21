@@ -259,8 +259,8 @@ def circular_mask(
 
 # %%
 def gaussian_blur(input: torch.Tensor, beam_radius: float):
-    """Blurs the input tensor with a Gaussian focal spot with a given 
-    `beam_radius`.
+    """Blurs the input tensor with the intensity distribution of a Gaussian 
+    focal spot with a given `beam_radius`.
 
     Args:
         input (torch.Tensor): Input tensor.
@@ -282,4 +282,3 @@ def gaussian_blur(input: torch.Tensor, beam_radius: float):
     input = unsqueeze_to(input, 4)
 
     return torch.nn.functional.conv2d(input, kernel, padding="same").squeeze()
-
