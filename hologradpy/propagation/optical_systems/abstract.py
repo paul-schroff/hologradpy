@@ -1,9 +1,11 @@
+import torch
 import torch.nn as nn
 
-from ..elements import VirtualSLM
+from ..virtual_slms.abstract import VirtualSLM
 
 
 class SLMCameraModel(nn.Sequential):
     virtual_slm: VirtualSLM
-    # def forward(self, phase: torch.Tensor | None = None) -> torch.Tensor: ...
-    # def __call__(self, phase: torch.Tensor | None = None) -> torch.Tensor: ...
+
+    def forward(self, phase: torch.Tensor | None = None) -> torch.Tensor:
+        return super().forward(phase)
