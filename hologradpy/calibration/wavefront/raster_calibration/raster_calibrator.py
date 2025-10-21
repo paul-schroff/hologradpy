@@ -7,22 +7,17 @@ from slmsuite.hardware.cameras.camera import Camera
 from . import SuperpixelSlicer
 
 from ..abstract import WavefrontCalibratorBase
-from ...utils import get_diffraction_spot_position
-from ....torch_modules.utils.fourier_utils import get_spatial_grid
-from ....torch_modules.utils.optics_utils import (
-    linear_phase,
-    quadratic_phase,
-)
+from ...camera_mapping.utils import get_diffraction_spot_position
+from ....propagation.utils.fourier_utils import get_spatial_grid
+from ....propagation.utils.optics_utils import linear_phase
 
-from ....torch_modules.utils.tensor_utils import gpu_to_numpy
+from ....propagation.utils.tensor_utils import gpu_to_numpy
 
 from ....analysis.fitting import (
     interferometric_fringes,
     fit_interferometric_fringes,
     gaussian_beam_intensity
 )
-
-import matplotlib.pyplot as plt
 
 
 # TODO: Test this class
@@ -101,26 +96,24 @@ class RasterCalibrator(WavefrontCalibratorBase):
         measured using the camera. Read the SI of 
         https://doi.org/10.1038/s41598-023-30296-6 for details.
 
-        Parameters
-        ----------
-        number_of_superpixels_x : int
-            Number of superpixels along x.
-        number_of_superpixels_y : int
-            Number of superpixels along y.
-        superpixel_width : int
-            Width of superpixels [px].
-        superpixel_height : int
-            Height of superpixels [px].
-        linear_phase_tilt : tuple[float, float]
-            x and y gradient of the linear phase in units of the resulting spot
-            displacement in the Fourier plane in metres.
-        camera_roi_size : tuple[int, int]
-            Width and height of the region of interest on the camera to 
-            remove the zeroth-order diffraction spot.
-        Returns
-        -------
-        superpixel_intensity : NDArray
-            Intensity of the superpixels.
+        Args:
+            number_of_superpixels_x : int
+                Number of superpixels along x.
+            number_of_superpixels_y : int
+                Number of superpixels along y.
+            superpixel_width : int
+                Width of superpixels [px].
+            superpixel_height : int
+                Height of superpixels [px].
+            linear_phase_tilt : tuple[float, float]
+                x and y gradient of the linear phase in units of the resulting 
+                spot displacement in the Fourier plane in metres.
+            camera_roi_size : tuple[int, int]
+                Width and height of the region of interest on the camera to 
+                remove the zeroth-order diffraction spot.
+        Returns:
+            superpixel_intensity : NDArray
+                Intensity of the superpixels.
         """
         spot_position_x, spot_position_y = (
             self.auto_camera_roi(linear_phase_tilt, camera_roi_size)[0]
@@ -192,6 +185,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         superpixel_intensity = superpixel_power / weights
         return superpixel_intensity, camera_images
     
+    # TODO: Add optical lattice to compensate for beam pointing instability.
     def measure_phase(
         self,
         number_of_superpixels_x: int,
@@ -207,7 +201,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         a sequence of rectangular phase masks on the SLM. This scheme was 
         adapted from Phillip Zupancic's work 
         (https://doi.org/10.1364/OE.24.013881). For details of our 
-        implementation, look into the SI of 
+        implementation, see the supplementary material of 
         https://doi.org/10.1038/s41598-023-30296-6.
 
         Parameters
@@ -339,7 +333,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
             amplitude_guess = np.max(camera_images[i, ...]) / np.sqrt(2)
 
-            popt, pcov = fit_interferometric_fringes(
+            popt, _ = fit_interferometric_fringes(
                 *fitting_grid,
                 camera_images[i, ...],
                 superpixel_separation_x,
