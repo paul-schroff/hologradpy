@@ -76,6 +76,7 @@ simulated_image = camera_mapping.simulated_images[0]
 slm_phase = slm_camera_model.virtual_slm.phase.detach().cpu().numpy()
 
 # %% Plotting results
+# TODO: Tidy up plotting
 plt.figure()
 plt.imshow(camera_image, cmap='turbo')
 plt.plot(
