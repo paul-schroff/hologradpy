@@ -21,6 +21,7 @@ from ...propagation.utils.optics_utils import (
     rectangular_mask,
     analytic_phase_guess,
 )
+from ...propagation.utils.fourier_utils import get_spatial_grid
 
 from ...holography.phase_retrieval import CGPhaseRetriever
 from ...holography.vortices.vortex_annihilator import VortexAnnihilator
@@ -164,27 +165,41 @@ class CheckerboardMapper(CameraMapper):
             for i in range(2)
         ])
 
-        spot_position_x, spot_position_y = get_diffraction_spot_position(
+        (spot_position_x, spot_position_y), _ = get_diffraction_spot_position(
             self.slm,
             self.camera,
             linear_phase_tilt=checkerboard_center_meters,
             focal_length=0.25,
         )
 
-        # Defining region of interest on camera to crop out zeroth-order spot
-        simulation_roi_width = (
+        # Defining region of interest in the simulated camera image
+        roi_width = (
             simulation_pixel_size[1] * square_size * (number_of_squares[1] + 1)
         )
-        simulation_roi_height = (
+        roi_height = (
             simulation_pixel_size[0] * square_size * (number_of_squares[0] + 1)
         )
 
         roi_mask_simulation = rectangular_mask(
             *self.slm_camera_model[-1].get_spatial_grid_output(),
-            width=torch.tensor(simulation_roi_width),
-            height=torch.tensor(simulation_roi_height),
+            width=torch.tensor(roi_width),
+            height=torch.tensor(roi_height),
             shift_x=checkerboard_center_meters[0],
             shift_y=checkerboard_center_meters[1],
+        )
+
+        # Defining the region of interest in the camera image
+        camera_grid = get_spatial_grid(
+            self.camera.shape,
+            [self.camera.pitch_um[i] * 1e-6 for i in range(2)],
+            device=self.device,
+        )
+        roi_mask_camera = rectangular_mask(
+            *camera_grid,
+            width=roi_width,
+            height=roi_height,
+            shift_x=spot_position_x,
+            shift_y=spot_position_y,
         )
 
         # Calculating SLM phase guess to seed conjugate gradient minimization
@@ -242,7 +257,7 @@ class CheckerboardMapper(CameraMapper):
         # Capturing camera image
         averaged_camera_image = self.capture_phase_shifted_image(
             gpu_to_numpy(slm_phase), number_of_shifts=10
-        )
+        ) * gpu_to_numpy(roi_mask_camera)
 
         # Detecting checkerboard corners in the captured and simulated images
         detected_corners, detected_score = self.detect_checkerboard(
