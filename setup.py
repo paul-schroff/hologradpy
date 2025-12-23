@@ -13,9 +13,12 @@ requirements = [
     'scipy',
     'matplotlib',
     'torch',
+    'kbnufft',
     'pytorch-minimize',
     'opencv-python',
-    'checkerboard', ]
+    'checkerboard', 
+    'slmsuite',
+]
 
 setup(name=name,
       version=version,
