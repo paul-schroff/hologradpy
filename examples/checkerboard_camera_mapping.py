@@ -84,6 +84,7 @@ plt.plot(
     camera_mapping.detected_points[:, 1],
     "wx"
 )
+plt.title("Captured Camera Image with Detected Corners")
 
 plt.figure()
 plt.imshow(simulated_image, cmap='turbo')
@@ -92,21 +93,10 @@ plt.plot(
     camera_mapping.calculated_points[:, 1],
     "wx"
 )
+plt.title("Simulated Camera Image with Detected Corners")
 
 plt.figure()
 plt.imshow(slm_phase, cmap='magma')
 plt.colorbar()
-
-# %%
-electric_field = slm_camera_model()
-phase = electric_field.angle()
-
-fig, axs = plt.subplots(1, 2, sharex=True, sharey=True)
-axs[0].imshow(gpu_to_numpy(electric_field.abs() ** 2), cmap='turbo')
-# axs[0].plot(
-#     camera_mapping.calculated_points[:, 0],
-#     camera_mapping.calculated_points[:, 1],
-#     'wx'
-# )
-axs[1].imshow(gpu_to_numpy(phase), cmap='magma')
+plt.title("SLM Phase")
 # %%

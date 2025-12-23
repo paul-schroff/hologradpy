@@ -96,10 +96,10 @@ class CheckerboardMapper(CameraMapper):
 
         if isinstance(checkerboard_center, str):
             checkerboard_shift_x = int(
-                -square_size * (number_of_squares[1] / 2 + 2)
+                square_size * (number_of_squares[1] / 2 + 2)
             )
             checkerboard_shift_y = int(
-                -square_size * (number_of_squares[0] / 2 + 2)
+                square_size * (number_of_squares[0] / 2 + 2)
             )
             if checkerboard_center == "top-left":
                 checkerboard_center = (
@@ -169,7 +169,7 @@ class CheckerboardMapper(CameraMapper):
             self.slm,
             self.camera,
             linear_phase_tilt=checkerboard_center_meters,
-            focal_length=0.25,
+            focal_length=self.slm_camera_model[-1].focal_length,
         )
 
         # Defining region of interest in the simulated camera image
@@ -251,23 +251,23 @@ class CheckerboardMapper(CameraMapper):
             slm_phase = phase_retriever.retrieve_phase(number_of_cg_iterations)
 
         simulated_camera_image = gpu_to_numpy(
-            self.slm_camera_model().abs() ** 2 * roi_mask_simulation
-        ).astype(np.float32)
+            self.slm_camera_model().abs() ** 2
+        )
 
         # Capturing camera image
         averaged_camera_image = self.capture_phase_shifted_image(
             gpu_to_numpy(slm_phase), number_of_shifts=10
-        ) * gpu_to_numpy(roi_mask_camera)
+        )
 
         # Detecting checkerboard corners in the captured and simulated images
         detected_corners, detected_score = self.detect_checkerboard(
-            averaged_camera_image,
+            averaged_camera_image * gpu_to_numpy(roi_mask_camera),
             number_of_corners=number_of_corners,
             number_of_attempts=3,
         )
 
         calculated_corners, calculated_score = self.detect_checkerboard(
-            simulated_camera_image,
+            simulated_camera_image * gpu_to_numpy(roi_mask_simulation),
             number_of_corners=number_of_corners,
             number_of_attempts=3,
         )
@@ -289,7 +289,6 @@ class CheckerboardMapper(CameraMapper):
             calculated_points=calculated_corners,
             camera_images=[averaged_camera_image],
             simulated_images=[simulated_camera_image],
-            reprojection_error=detected_score,
         )
 
     def capture_phase_shifted_image(

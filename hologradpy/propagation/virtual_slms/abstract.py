@@ -56,7 +56,7 @@ class VirtualSLM(PropagatorBase):
     def get_displayed_phase(self) -> torch.Tensor:
         """Returns the phase pattern as displayed on the SLM before grayscale
         conversion."""
-        return self.phase.remainder(self.slm.phase_scaling * 2 * torch.pi)
+        return -self.phase.remainder(self.slm.phase_scaling * 2 * torch.pi)
 
     def apply_phase_transforms(
             self: VirtualSLM,

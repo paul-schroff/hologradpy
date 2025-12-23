@@ -24,7 +24,7 @@ def get_diffraction_spot_position(
     exposure_time: float | None = None,
     slm_mask_diameter: float | None = None,
     camera_roi_size: tuple[int, int] | None = None,
-) -> tuple[NDArray]:
+) -> tuple[tuple[int, int], NDArray]:
     """
     This function generates a spot on the camera by displaying a circular 
     aperture on the SLM containing a linear phase gradient. The position of the 
@@ -48,8 +48,9 @@ def get_diffraction_spot_position(
             the zeroth-order diffraction spot. If None, the size is set to the 
             camera size.
     Returns:
-        tuple[float, float]
-            x and y coordinates of the spot on the camera.   
+        tuple[tuple[float, float], NDArray]
+            Tuple of x and y coordinates of the spot on the camera, and 
+            captured camera image.  
     """
     if slm_mask_diameter is None:
         slm_mask_diameter = min(slm.shape) * slm.pitch_um[0] * 1e-6
@@ -81,9 +82,7 @@ def get_diffraction_spot_position(
     camera.set_exposure(exposure_time)
     camera_image = camera.get_image()
 
-    pixel_grid = np.meshgrid(
-        np.arange(camera.shape[1]), np.arange(camera.shape[0])
-    )
+    camera_grid = get_spatial_grid(camera.shape, camera.pitch_um * 1e-6)
 
     # Fit Gaussian intensity profile to camera image
     beam_radius_guess = focal_spot_radius(
@@ -94,7 +93,7 @@ def get_diffraction_spot_position(
 
     print("Fitting Gaussian to camera image...")
     popt, _ = fit_gaussian_beam_intensity(
-        *pixel_grid, camera_image, beam_radius_guess=beam_radius_guess
+        *camera_grid, camera_image, beam_radius_guess=beam_radius_guess
     )
     shift_x, shift_y = popt[1:3]
     print("Gaussian fit complete.")

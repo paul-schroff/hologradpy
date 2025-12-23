@@ -11,7 +11,6 @@ from ...propagation import SLMCameraModel
 
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 
-# TODO: Add saving functionality
 @dataclass
 class CameraMapping:
     timestamp: datetime
@@ -22,10 +21,10 @@ class CameraMapping:
     calculated_points: list[tuple[float, float]]
     camera_images: list[ArrayLike]
     simulated_images: list[ArrayLike]
-    reprojection_error: float
     metadata = []
 
 
+# TODO: Add saving functionality
 class CameraMapper:
     """A class to determine the coordinate transform between the camera pixels 
     and the pixels of the simulated image.
