@@ -15,7 +15,6 @@ CurvatureUnits = Literal[
         "radians_per_pixel_squared", "radians_per_metre_squared"
     ]
 
-
 # %% Phase functions
 def lens_phase(
     x: ArrayLike, y: ArrayLike, focal_length: float, wavenumber: float
@@ -33,6 +32,83 @@ def lens_phase(
     """
     return -0.5 * wavenumber / focal_length * (x ** 2 + y ** 2)
 
+def spherical_surface(
+    x: ArrayLike, 
+    y: ArrayLike, 
+    radius: float, 
+    shift_x: float = 0.0, 
+    shift_y: float = 0.0,
+) -> ArrayLike:
+    """Calculates a spherical surface.
+
+    Args:
+        x (ArrayLike): X-meshgrid [m].
+        y (ArrayLike): Y-meshgrid [m].
+        wavenumber (float): Wavenumber [rad/m].
+        radius (float): Radius of curvature [m].
+        shift_x (float): X-offset of lens [m].
+        shift_y (float): Y-offset of lens [m].
+    """
+    xp = array_namespace(x, y)
+    surface = (
+        radius * (
+        1 - xp.sqrt(
+            1 - ((x - shift_x) ** 2 + (y - shift_y) ** 2) / radius ** 2
+            )
+        )
+    )
+    return surface
+    
+def doublet_lens(
+    x: ArrayLike, 
+    y: ArrayLike, 
+    wavenumber: float, 
+    refractive_index_flint: float, 
+    refractive_index_crown: float, 
+    radius_crown: float, 
+    radius_crown_flint: float, 
+    radius_flint: float, 
+    shift_x: float = 0.0, 
+    shift_y: float = 0.0,
+) -> ArrayLike:
+    """Calculates the phase of a doublet lens.
+
+    Args:
+        x (ArrayLike): X-meshgrid [m].
+        y (ArrayLike): Y-meshgrid [m].
+        wavenumber (float): Wavenumber [rad/m].
+        refractive_index_flint (float): Refractive index of flint.
+        refractive_index_crown (float): Refractive index of crown.
+        radius_crown (float): Radius of curvature of the first crown surface 
+            [m].
+        radius_crown_flint (float): Radius of curvature of the second crown 
+            surface/ first flint surface [m].
+        radius_flint (float): Radius of curvature of the second flint surface 
+            [m].
+        shift_x (float): X-offset of lens [m].
+        shift_y (float): Y-offset of lens [m].
+        wavenumber (float): Phase of the doublet lens [rad].
+
+    Returns:
+        ArrayLike: Phase of the doublet lens.
+    """
+    crown_surface = spherical_surface(x, y, radius_crown, shift_x, shift_y)
+
+    crown_flint_surface = spherical_surface(
+        x, y, radius_crown_flint, shift_x, shift_y
+    )
+
+    flint_surface = spherical_surface(x, y, radius_flint, shift_x, shift_y)
+
+    delta1 = - crown_surface + crown_flint_surface
+    delta2 = flint_surface - crown_flint_surface
+
+    return (
+        wavenumber * (
+            (refractive_index_flint - 1) * delta1 + 
+            (refractive_index_crown - 1) * delta2
+        )
+    )
 
 def linear_phase(
     x: ArrayLike,
@@ -78,7 +154,6 @@ def linear_phase(
             raise NotImplementedError("lines_per_mm not implemented yet")
     return slope_x * x + slope_y * y
 
-
 def quadratic_phase(
     x: ArrayLike,
     y: ArrayLike,
@@ -106,7 +181,6 @@ def quadratic_phase(
     return (
         4 * curvature * (aspect_ratio * y ** 2 + (1 - aspect_ratio) * x ** 2)
     )
-
 
 def analytic_phase_guess(
     x: ArrayLike,
@@ -161,7 +235,6 @@ def gaussian_beam_intensity(
     intensity: float = 1.0,
     offset: float = 0.0,
 ) -> ArrayLike:
-    xp = array_namespace(x, y)
     """Gaussian beam intensity on a 2D grid with given radius and center.
     
     Args:
@@ -178,13 +251,13 @@ def gaussian_beam_intensity(
     Returns:
         ArrayLike: Gaussian beam intensity.
     """
+    xp = array_namespace(x, y)
     return (
         intensity * xp.exp(
             -2 * ((x - shift_x) ** 2 + (y - shift_y) ** 2) / (beam_radius**2)
         ) 
         + offset
     )
-
 
 def focal_spot_radius(
         beam_radius: float,
@@ -208,18 +281,18 @@ def focal_spot_radius(
 
 # %% Binary aperture functions
 def rectangular_mask(
-    x: torch.Tensor,
-    y: torch.Tensor,
+    x: ArrayLike,
+    y: ArrayLike,
     width: float,
     height: float,
     shift_x: float = 0.0,
     shift_y: float = 0.0,
-) -> torch.Tensor[torch.bool]:
+) -> ArrayLike:
     """Rectangular mask with given width, height, and center.
     
     Args:
-        x (torch.Tensor): X coordinates.
-        y (torch.Tensor): Y coordinates.
+        x (ArrayLike): X coordinates.
+        y (ArrayLike): Y coordinates.
         width (float): Width of the rectangle.
         height (float): Height of the rectangle.
         shift_x (float, optional): X shift of the rectangle center. Defaults 
@@ -228,23 +301,25 @@ def rectangular_mask(
             to 0.0.
     
     Returns:
-        torch.Tensor[torch.bool]: Binary mask.
+        ArrayLike: Binary mask.
     """
-    return ((x - shift_x).abs() < width / 2) & ((y - shift_y).abs() < height / 2)
-
+    xp = array_namespace(x, y)
+    return (
+        xp.abs(x - shift_x) < width / 2) & (xp.abs(y - shift_y) < height / 2
+    )
 
 def circular_mask(
-    x: torch.Tensor,
-    y: torch.Tensor,
+    x: ArrayLike,
+    y: ArrayLike,
     radius: float,
     shift_x: float = 0.0,
     shift_y: float = 0.0,
-) -> torch.Tensor[torch.bool]:
+) -> ArrayLike:
     """Create a circular mask with a given radius and center.
     
     Args:
-        x (torch.Tensor): X coordinates.
-        y (torch.Tensor): Y coordinates.
+        x (ArrayLike): X coordinates.
+        y (ArrayLike): Y coordinates.
         radius (float): Radius of the circle.
         shift_x (float, optional): X shift of the circle center. Defaults to 
             0.0.
@@ -252,7 +327,7 @@ def circular_mask(
             0.0.
     
     Returns:
-        torch.Tensor[torch.bool]: Binary mask.
+        ArrayLike: Binary mask.
     """
     return ((x - shift_x) ** 2 + (y - shift_y) ** 2) ** 0.5 < radius
 
@@ -272,7 +347,7 @@ def gaussian_blur(input: torch.Tensor, beam_radius: float):
     kernel_size = int(3 * beam_radius // 2 * 2 + 1)
     kernel_grid = get_spatial_grid(
         (kernel_size, kernel_size),
-        pixel_size=(1 , 1),
+        pixel_size=(1, 1),
         device=input.device
     )
     kernel = gaussian_beam_intensity(*kernel_grid, beam_radius)
