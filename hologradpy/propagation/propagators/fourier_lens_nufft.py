@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-import numpy as np
+from jaxtyping import Float
 
 import torch
-from torch._prims_common import corresponding_complex_dtype
+from torch import Tensor
+from torch.nn import Parameter
+
 from torchkbnufft import KbNufft
 
 from ..utils.tensor_utils import unsqueeze_to
@@ -12,117 +14,167 @@ from ..utils.fourier_utils import get_frequency_grid
 from .abstract import PropagatorBase
 
 
-class FourierLensNufft(PropagatorBase):
+class FourierLensNUFFT(PropagatorBase):
     def __init__(
-        self: FourierLensNufft,
+        self: FourierLensNUFFT,
         focal_length: float,
+        wavelength: float,
         resolution_in: tuple[int, int],
-        pixel_pitch_in: float,
+        pixel_size_in: tuple[float, float],
         resolution_out: tuple[int, int],
+        pixel_size_out: tuple[float, float],
         calculation_resolution: tuple[int, int] | None = None,
-        scale: tuple[float, float] = (1, 1),
+        scale_factor: tuple[float, float] = (1, 1),
         shift: tuple[float, float] = (0, 0),
         angle: float = 0,
         nufft_kwargs: dict = {},
         device: str = "cpu",
     ) -> None:
-        self.focal_length = focal_length
-        self.resolution_out = resolution_out
+        super().__init__(resolution_in, pixel_size_in, device)
+
+        self.focal_length: float = focal_length
+        self.wavelength: float = wavelength
+
+        self._resolution_out: tuple[int, int] = resolution_out
+        self._pixel_size_out: tuple[float, float] = pixel_size_out
 
         if calculation_resolution is None:
-            calculation_resolution = tuple(resolution_in[i] * 2 for i in range(2))
-        self.calculation_resolution = calculation_resolution
+            calculation_resolution = tuple(
+                resolution_in[i] * 2 for i in range(2)
+            )
+        self.calculation_resolution: tuple[int, int] = calculation_resolution
 
-        # Scaling of the output pixel size relative to the pixel size
-        # assuming 2-fold zero padding of the input field.
-        self.scale = scale
+        # Calculating scale to achieve the desired output pixel size
+        self.scale: Float[Tensor, "2"] = torch.tensor(
+            [
+                self.wavelength
+                * self.focal_length
+                / (self.pixel_size_in[i] * self.calculation_resolution[i])
+                / self.pixel_size_out[i]
+                for i in range(2)
+            ],
+            dtype=self.dtype_r,
+            device=self.device,
+        )
+
+        self.scale_factor: Float[Tensor, "2"] = Parameter(
+            torch.tensor(
+                scale_factor,
+                dtype=self.dtype_r,
+                device=device,
+            ),
+            requires_grad=False,
+        )
 
         # Shift from the center of the in pixels
-        self.shift = shift
-
-        # Rotation angle in radians
-        self.angle = angle
-
-        super().__init__(
-            resolution_in=resolution_in,
-            pixel_size_in=(pixel_pitch_in, pixel_pitch_in),
-            device=device,
+        self.shift: Float[Tensor, "2"] = Parameter(
+            torch.tensor(
+                shift,
+                dtype=self.dtype_r,
+                device=device,
+            ),
+            requires_grad=False,
         )
 
-        self.eps = torch.finfo(self.dtype).eps
-
-        self.resolution_ratio = tuple(
-            self.resolution_out[i] / self.calculation_resolution[i] for i in range(2)
+        # Rotation angle in degrees
+        self.angle: Float[Tensor, ""] = Parameter(
+            torch.tensor(
+                angle,
+                dtype=self.dtype_r,
+                device=device,
+            ),
+            requires_grad=False,
         )
 
-        self.kbnufft = KbNufft(
+        resolution_ratio: tuple[float, float] = tuple(
+            self.calculation_resolution[i] / self.resolution_out[i]
+            for i in range(2)
+        )
+
+        self.kbnufft: KbNufft = KbNufft(
             im_size=self.resolution_in,
             grid_size=self.calculation_resolution,
             device=self.device,
-            dtype=corresponding_complex_dtype(self.dtype),
+            dtype=self.dtype_r,
             **nufft_kwargs,
         )
 
-        frequency_grid = get_frequency_grid(
-            self.resolution_out,
-            self.pixel_size_out,
-            self.device,
+        frequency_grid: tuple[Float[Tensor, "h w"], Float[Tensor, "h w"]] = (
+            get_frequency_grid(
+                self.resolution_out,
+                resolution_ratio,
+                self.device,
+            )
         )
 
-        # Flatten frequenciy grid
-        self.frequencies_x = frequency_grid[0].flatten()
-        self.frequencies_y = frequency_grid[1].flatten()
-
-        self.frequencies_flattened = self.get_transformed_coordinates(
-            self.scale, self.shift, self.angle
+        # Flatten frequency grid
+        self.frequencies: tuple[Float[Tensor, " hw"], Float[Tensor, " hw"]] = (
+            tuple(frequency_grid[i].flatten() for i in range(2))
         )
 
-    @property
-    def pixel_size_out(self: FourierLensNufft) -> tuple[float, float]:
-        return tuple(
-            self.wavelength
-            * self.focal_length
-            / self.spatial_extent_in[i]
-            / self.scale[i]
-            for i in range(2)
+        self.frequencies_flattened: Float[Tensor, "2 hw"] = (
+            self._get_transformed_coordinates(
+                self.scale_factor, self.shift, self.angle
+            )
         )
 
     @property
-    def resolution_out(self: FourierLensNufft) -> tuple[int, int]:
-        return self.resolution_out
+    def pixel_size_out(self: FourierLensNUFFT) -> tuple[float, float]:
+        return self._pixel_size_out
 
-    def get_transformed_coordinates(
-        self: FourierLensNufft,
-        scale: tuple[float, float],
-        shift: tuple[float, float],
-        angle: float,
-    ) -> torch.Tensor:
-        # Conversion factor from spatial frequency to radians
-        frequency_step_radians = (
-            2 * torch.pi / self.resolution_out[i] * self.resolution_ratio[i] / scale[i]
+    @property
+    def resolution_out(self: FourierLensNUFFT) -> tuple[int, int]:
+        return self._resolution_out
+
+    def _get_transformed_coordinates(
+        self: FourierLensNUFFT,
+        scale_factor: Float[Tensor, "2"],
+        shift: Float[Tensor, "2"],
+        angle: Float[Tensor, ""],
+    ) -> Float[Tensor, "2 hw"]:
+        scale_factor = scale_factor.abs() * self.scale
+
+        shift_randians = tuple(
+            2
+            * torch.pi
+            * shift[i]
+            / (self.calculation_resolution[i] * self.scale[i])
             for i in range(2)
         )
 
-        angle_sin = np.sin(angle)
-        angle_cos = np.cos(angle)
+        angle_radians = torch.deg2rad(angle)
+        angle_sin = angle_radians.sin()
+        angle_cos = angle_radians.cos()
 
-        frequencies_x_transformed = (
-            self.frequencies_x * angle_cos - self.frequencies_y * angle_sin + shift[1]
-        ) * frequency_step_radians[1]
-        frequencies_y_transformed = (
-            self.frequencies_x * angle_sin + self.frequencies_y * angle_cos + shift[0]
-        ) * frequency_step_radians[0]
-
-        return torch.stack(
-            (frequencies_y_transformed, frequencies_x_transformed), axis=0
+        frequencies_transformed = (
+            (
+                self.frequencies[0] * angle_cos / scale_factor[1]
+                - self.frequencies[1] * angle_sin / scale_factor[0]
+                - shift_randians[1] * angle_cos
+                + shift_randians[0] * angle_sin
+            ),
+            (
+                self.frequencies[0] * angle_sin / scale_factor[1]
+                + self.frequencies[1] * angle_cos / scale_factor[0]
+                - shift_randians[1] * angle_sin
+                - shift_randians[0] * angle_cos
+            ),
         )
 
-    def forward(self: FourierLensNufft, input_field: torch.Tensor) -> torch.Tensor:
-        self.number_of_images = input_field.shape[-3] if input_field.dim() > 2 else 1
+        return torch.stack(frequencies_transformed, dim=0)
+
+    def forward(
+        self: FourierLensNUFFT,
+        input_field: Float[Tensor, "... h w"] | Float[Tensor, "h w"],
+    ) -> Float[Tensor, "... h w"] | Float[Tensor, "h w"]:
+        self.number_of_images = (
+            input_field.shape[-3] if input_field.dim() > 2 else 1
+        )
         input_field = unsqueeze_to(input_field, 3)
 
         output_field = self.kbnufft(
-            unsqueeze_to(input_field, 4), unsqueeze_to(self.frequencies_flattened, 3)
+            unsqueeze_to(input_field, 4),
+            unsqueeze_to(self.frequencies_flattened, 3),
         ).squeeze()
 
         return output_field.reshape((
