@@ -259,7 +259,7 @@ def gaussian_beam_intensity(
         + offset
     )
 
-def focal_spot_radius(
+def get_focal_spot_radius(
         beam_radius: float,
         wavelength: float,
         focal_length: float,
