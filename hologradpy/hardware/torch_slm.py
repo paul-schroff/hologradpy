@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import torch
 from numpy.typing import NDArray
 
 from slmsuite.hardware.slms.slm import SLM
 
-from ..propagation.virtual_slms.abstract import VirtualSLM
+from ..propagation.virtual_slms import VirtualSLM
+
 
 class SimulatedSLMTorch(SLM):
     def __init__(
@@ -12,7 +15,7 @@ class SimulatedSLMTorch(SLM):
             bitdepth: int = 8,
             name: str = "SimulatedSLM",
             wav_um: float = 1,
-            wav_design_um: float = None,
+            wav_design_um: float | None = None,
             pitch_um: tuple[float, float] = (8, 8),
             settle_time_s: float = 0.3,
             torch_device: torch.device = torch.device("cpu")
@@ -27,7 +30,7 @@ class SimulatedSLMTorch(SLM):
             settle_time_s=settle_time_s
         )
 
-        self.virtual_slm: VirtualSLM = VirtualSLM(
+        self.virtual_slm: VirtualSLM = VirtualSLM.from_slm(
             slm=self,
             init_phase=None,
             device=torch_device,
@@ -37,3 +40,6 @@ class SimulatedSLMTorch(SLM):
         self.virtual_slm.set_phase(
             grayscales / self.bitresolution * 2 * torch.pi
         )
+    
+    def close(self) -> None:
+        pass

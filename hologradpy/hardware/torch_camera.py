@@ -1,14 +1,18 @@
+from __future__ import annotations
 from typing import Type, Literal
+
+from copy import deepcopy
 
 import numpy as np
 import torch
-import copy
+
 from slmsuite.hardware.cameras.camera import Camera
 
-from . import SimulatedSLMTorch
+from .torch_slm import SimulatedSLMTorch
 
 from ..propagation.optical_systems import SLMCameraModel, SLMFFTAffine
 from ..propagation.utils.tensor_utils import gpu_to_numpy, crop_to_roi
+from ..hardware.utils import CameraData
 
 
 class SimulatedCameraTorch(Camera):
@@ -42,9 +46,11 @@ class SimulatedCameraTorch(Camera):
             flipud=flipud
         )
 
+        camera_data: CameraData = CameraData.from_camera(self)
+
         self.slm_camera_model: SLMCameraModel = slm_camera_model_cls(
             virtual_slm=slm.virtual_slm,
-            camera=self,  # At risk of causing circular references.
+            camera_data=camera_data,
             **slm_camera_model_args,
         )
 
@@ -69,7 +75,7 @@ class SimulatedCameraTorch(Camera):
     def autoexposure(self, *args, **kwargs):
         # TODO: Ideally, self.autoexposure should work with self.woi, this is 
         # just a temporary workaround.
-        stored_woi = copy.deepcopy(self.woi)
+        stored_woi = deepcopy(self.woi)
         self.set_woi(None)
         output = super().autoexposure(*args, **kwargs)
         self.set_woi(stored_woi)
