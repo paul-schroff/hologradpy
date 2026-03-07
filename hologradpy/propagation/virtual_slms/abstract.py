@@ -9,39 +9,74 @@ import torch.nn as nn
 from ..utils.tensor_utils import unsqueeze_to
 from ..propagators.abstract import PropagatorBase
 
+from ...hardware.utils import SLMData
+
 from slmsuite.hardware.slms.slm import SLM
 
 
 class VirtualSLM(PropagatorBase):
     def __init__(
         self: VirtualSLM,
-        slm: SLM,
+        resolution: tuple[int, int],
+        pixel_size: tuple[float, float],
+        wavelength: float,
+        phase_scaling: float,
         init_phase: torch.Tensor | None = None,
         device: str = "cpu",
     ) -> None:
-        self.slm: SLM = slm
+        self.phase_scaling: float = phase_scaling
 
-        super().__init__(
-            self.slm.shape,
-            (self.slm.pitch_um[0] * 1e-6, self.slm.pitch_um[1] * 1e-6),
-            device=device,
-        )
+        super().__init__(resolution, pixel_size, device=device)
+
+        self.wavelength: float = wavelength
 
         if init_phase is None:
             init_phase = torch.zeros(
-                slm.shape, dtype=self.dtype, device=self.device
+                self.resolution_in, dtype=self.dtype, device=self.device
             )
 
         self.phase = nn.Parameter(
             torch.tensor(init_phase, dtype=self.dtype, device=self.device),
             requires_grad=True,
         )
+    
+    @classmethod
+    def from_slm(
+        cls: type[VirtualSLM],
+        slm: SLM,
+        init_phase: torch.Tensor | None = None,
+        device: str = "cpu",
+    ) -> VirtualSLM:
+        return cls(
+            resolution=slm.shape,
+            pixel_size=tuple(slm.pitch_um[i] * 1e-6 for i in range(2)),
+            wavelength=slm.wav_um * 1e-6,
+            phase_scaling=slm.phase_scaling,
+            init_phase=init_phase,
+            device=device,
+        )
+    
+    @classmethod
+    def from_slm_data(
+        cls: type[VirtualSLM],
+        slm_data: SLMData,
+        init_phase: torch.Tensor | None = None,
+        device: str = "cpu",
+    ) -> VirtualSLM:
+        return cls(
+            resolution=slm_data.shape,
+            pixel_size=tuple(slm_data.pitch_um[i] * 1e-6 for i in range(2)),
+            wavelength=slm_data.wav_um * 1e-6,
+            phase_scaling=slm_data.phase_scaling,
+            init_phase=init_phase,
+            device=device,
+        )
 
     def set_phase(self, phase: torch.Tensor | NDArray) -> None:
-        if phase.shape != self.slm.shape:
+        if phase.shape != self.resolution_in:
             raise ValueError(
                 f"Phase shape {phase.shape} does not match SLM shape "
-                + f"{self.slm.shape}."
+                + f"{self.resolution_in}."
             )
 
         if isinstance(phase, np.ndarray):
@@ -55,8 +90,9 @@ class VirtualSLM(PropagatorBase):
 
     def get_displayed_phase(self) -> torch.Tensor:
         """Returns the phase pattern as displayed on the SLM before grayscale
-        conversion."""
-        return -self.phase.remainder(self.slm.phase_scaling * 2 * torch.pi)
+        conversion.
+        """
+        return -self.phase.remainder(self.phase_scaling * 2 * torch.pi)
 
     def apply_phase_transforms(
             self: VirtualSLM,
