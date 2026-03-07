@@ -1,5 +1,7 @@
+from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypeVar
+import pickle 
 
 import torch
 from numpy.typing import NDArray
@@ -21,7 +23,19 @@ class CameraMapping:
     calculated_points: list[tuple[float, float]]
     camera_images: list[ArrayLike]
     simulated_images: list[ArrayLike]
+    zeroth_order_position: tuple[float, float]
+    focal_spot_radius: float
     metadata = []
+
+    def save(self, filename: str):
+        with open(filename, "wb") as file:
+            pickle.dump(self, file)
+
+    @staticmethod
+    def load(filename: str) -> CameraMapping:
+        with open(filename, "rb") as file:
+            camera_mapping: CameraMapping = pickle.load(file)
+        return camera_mapping
 
 
 # TODO: Add saving functionality
