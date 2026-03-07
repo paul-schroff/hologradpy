@@ -42,7 +42,8 @@ class LinearSuperpositionPhaseRetriever(PhaseRetrieverBase):
     ) -> torch.Tensor:
         field_superposition = torch.zeros(
             *self.slm_camera_model.virtual_slm.resolution_in, 
-            dtype=self.slm_camera_model.virtual_slm.dtype_c
+            dtype=self.slm_camera_model.virtual_slm.dtype_c,
+            device=self.device
         )
 
         for i in range(self.number_of_positions):
