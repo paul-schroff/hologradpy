@@ -47,7 +47,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         # Find Camera position with respect to SLM
         self.camera.set_woi(None)
 
-        (spot_position_x, spot_position_y), calibration_image = (
+        spot_position, calibration_image = (
             get_diffraction_spot_position(
                 self.slm,
                 self.camera,
@@ -56,14 +56,32 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 exposure_time=exposure_time,
             )
         )
+
+        spot_position_pixels = tuple(
+            int(
+                spot_position[i] / (self.camera.pitch_um[i] * 1e-6)
+                + self.camera.shape[::-1][i] // 2
+            )
+            for i in range(2)
+        )
+
+        print(
+            f"Auto camera ROI - Spot position (x, y): "
+            f"({spot_position[0]}, {spot_position[1]}) m."
+        )
+        print(
+            f"Auto camera ROI - Spot position (x, y): "
+            f"({spot_position_pixels[0]}, {spot_position_pixels[1]}) px."
+        )
+
         woi = [
-            int(spot_position_x) - roi_size[1] // 2,
+            spot_position_pixels[0] - roi_size[1] // 2,
             roi_size[1],
-            int(spot_position_y) - roi_size[0] // 2,
+            spot_position_pixels[1] - roi_size[0] // 2,
             roi_size[0],
         ]
         self.camera.set_woi(woi)
-        return (spot_position_x, spot_position_y), calibration_image
+        return spot_position_pixels, calibration_image
 
     def get_blazed_grating(
             self,

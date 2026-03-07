@@ -1,6 +1,5 @@
 # %% Imports
 import matplotlib.pyplot as plt
-import numpy as np
 import torch
 
 from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch
@@ -14,12 +13,8 @@ from hologradpy.propagation.optical_systems import SLMFFTAffine
 
 from hologradpy.propagation.utils.optics_utils import (
     gaussian_beam_intensity,
-    linear_phase
 )
-from hologradpy.propagation.utils.tensor_utils import (
-    check_device,
-    gpu_to_numpy
-)
+from hologradpy.propagation.utils.tensor_utils import check_device
 
 device = check_device(verbose=True)
 # %% Initializing simulated SLM and camera
@@ -55,11 +50,12 @@ camera = SimulatedCameraTorch(
 
 # slm.write(np.random.rand(*slm.shape) * 2 * np.pi)
 
+# %%
 camera.set_exposure(0.001)
 test_image = camera.get_image()
-# plt.figure()
-# plt.imshow(test_image)
-# plt.colorbar()
+plt.figure()
+plt.imshow(test_image)
+plt.colorbar()
 
 # %%
 (spot_position_x, spot_position_y), calibration_image = (
@@ -91,12 +87,12 @@ calibrator = RasterCalibrator(
 # %% Calibrate intesity
 camera.set_woi(None)
 intensity, camera_images = calibrator.measure_intensity(
-    number_of_superpixels_x=10,
-    number_of_superpixels_y=8,
-    superpixel_width=128,
-    superpixel_height=128,
+    number_of_superpixels_x=20,
+    number_of_superpixels_y=16,
+    superpixel_width=64,
+    superpixel_height=64,
     linear_phase_tilt=(500e-6, 500e-6),
-    camera_roi_size=(150, 150),
+    camera_roi_size=(50, 50),
     verbose=True
 )
 # %%
@@ -106,7 +102,7 @@ plt.imshow(intensity, cmap='turbo')
 plt.colorbar()
 
 plt.figure()
-plt.imshow(camera_images[2, ...], cmap='turbo')
+plt.imshow(camera_images[3, ...], cmap='turbo')
 plt.colorbar()
 
 plt.figure()
@@ -115,8 +111,8 @@ plt.colorbar()
 
 # %%
 phase, camera_images, fitted_images = calibrator.measure_phase(
-    number_of_superpixels_x=40,
-    number_of_superpixels_y=32,
+    number_of_superpixels_x=20,
+    number_of_superpixels_y=16,
     superpixel_width=32,
     superpixel_height=32,
     linear_phase_tilt=(500e-6, 500e-6),
@@ -140,7 +136,7 @@ plt.imshow(camera_images[14, ...], cmap="turbo")
 plt.colorbar()
 
 # %%
-%matplotlib qt
+# %matplotlib qt
 import matplotlib.animation as animation
 
 fig, ax = plt.subplots(1, 2)

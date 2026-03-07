@@ -11,8 +11,8 @@ class SuperpixelSlicer:
         superpixel_height: int,
         start_index_x: int = 0,
         start_index_y: int = 0,
-        end_index_x: int = None,
-        end_index_y: int = None,
+        end_index_x: int | None = None,
+        end_index_y: int | None = None,
         intensity: NDArray[np.float_] | None = None,
         max_correction_factor: int = 4,
     ) -> None:
@@ -31,6 +31,12 @@ class SuperpixelSlicer:
 
         self.superpixel_aspect = self.superpixel_width / self.superpixel_height
         self.superpixel_area = self.superpixel_width * self.superpixel_height
+
+        if end_index_x is None:
+            end_index_x = slm_shape[1]
+        
+        if end_index_y is None:
+            end_index_y = slm_shape[0]
 
         if intensity is None:
             self.intensity_compensation = False

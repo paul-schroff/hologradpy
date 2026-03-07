@@ -9,9 +9,7 @@ from hologradpy.calibration.camera_mapping import CheckerboardMapper
 from hologradpy.propagation.optical_systems import SLMFFT, SLMFFTAffine
 
 from hologradpy.propagation.utils.optics_utils import gaussian_beam_intensity
-from hologradpy.propagation.utils.tensor_utils import (
-    check_device, gpu_to_numpy
-)
+from hologradpy.propagation.utils.tensor_utils import check_device
 
 device = check_device(verbose=True)
 
@@ -34,6 +32,8 @@ slm_fft_affine_args = {
     "constant_field_slm": torch.tensor(gaussian_beam, dtype=torch.complex64),
     "device": device,
     "padded_resolution": (2048, 2048),
+    "camera_angle": 0,
+    "camera_shift": (0, 0),
 }
 
 camera = SimulatedCameraTorch(
@@ -71,21 +71,44 @@ camera_mapping = camera_mapper.map_camera(
     checkerboard_center="top-left",
 )
 
+camera_mapping.save("data/camera_mapping.pkl")
+
 camera_image = camera_mapping.camera_images[0]
 simulated_image = camera_mapping.simulated_images[0]
 slm_phase = slm_camera_model.virtual_slm.phase.detach().cpu().numpy()
 
 # %% Plotting results
 # TODO: Tidy up plotting
+print("Transformation matrix:")
+print(camera_mapping.transform)
+print("Inverse transformation matrix:")
+print(camera_mapping.inverse_transform)
+
 plt.figure()
 plt.imshow(camera_image, cmap='turbo')
 plt.plot(
     camera_mapping.detected_points[:, 0],
     camera_mapping.detected_points[:, 1],
-    "wx"
+    "wx",
+    label="detected corners",
 )
-plt.title("Captured Camera Image with Detected Corners")
+plt.plot(
+    camera_mapping.zeroth_order_position[1],
+    camera_mapping.zeroth_order_position[0],
+    "r+",
+    label="zeroth order position",
+)
+plt.plot(
+    camera.shape[1] // 2,
+    camera.shape[0] // 2,
+    "w*",
+    label="camera sensor center",
+)
+plt.legend()
 
+plt.title("Camera Image with Detected Corners")
+
+# %%
 plt.figure()
 plt.imshow(simulated_image, cmap='turbo')
 plt.plot(
