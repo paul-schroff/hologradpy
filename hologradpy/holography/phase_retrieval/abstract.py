@@ -5,7 +5,7 @@ from numpy.typing import NDArray
 
 from ...propagation.optical_systems import SLMCameraModel
 
-
+# TODO: Add saving functionality
 class PhaseRetrieverBase:
     def __init__(
             self,

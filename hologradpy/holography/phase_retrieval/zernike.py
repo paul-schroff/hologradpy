@@ -3,21 +3,22 @@ from __future__ import annotations
 import torch
 import torchmin
 
-from .abstract import PhaseRetrieverBase
-
 from ..utils import Timer
-from ..loss_functions import LossIntensityMSE
 
 from ...propagation.optical_systems import SLMCameraModel
 
-# TODO: Add convergence error metrics
-class CGPhaseRetriever(PhaseRetrieverBase):
+from .abstract import PhaseRetrieverBase
+from ..loss_functions import LossIntensityMSE
+
+
+# TODO: Add error metrics
+# TODO: Add saving functionality
+class ZernikePhaseRetriever(PhaseRetrieverBase):
     def __init__(
         self,
         slm_camera_model: SLMCameraModel,
         target: torch.Tensor,
         signal_region: torch.Tensor,
-        init_slm_phase: torch.Tensor,
         device: str = "cpu",
     ) -> None:
         super().__init__(slm_camera_model, device)
@@ -26,10 +27,10 @@ class CGPhaseRetriever(PhaseRetrieverBase):
         self.device: str = device
         use_cuda = "cuda" in device
 
-        self.slm_camera_model.virtual_slm.set_phase(init_slm_phase)
-
         self.loss_function = LossIntensityMSE(
-            target_intensity=self.target, signal_mask=self.signal_region
+            target_intensity=self.target,
+            signal_mask=self.signal_region,
+            steepness=1e12,
         )
 
         self.timer = Timer(use_cuda=use_cuda, verbose=True)
@@ -37,16 +38,16 @@ class CGPhaseRetriever(PhaseRetrieverBase):
         self.iteration: int = 0
 
     def set_optimizer(
-            self,
-            number_of_iterations: int,
-            method: str = "cg"
-        ) -> None:
+        self, number_of_iterations: int, method: str = "l-bfgs"
+    ) -> None:
         self.optimizer = torchmin.Minimizer(
             self.slm_camera_model.parameters(),
             method=method,
             max_iter=number_of_iterations,
             disp=1,
             callback=self.callback,
+            tol=1e-20,
+            options={'gtol': 1e-20, 'xtol': 1e-20}
         )
 
     def callback(self, _):
@@ -55,21 +56,27 @@ class CGPhaseRetriever(PhaseRetrieverBase):
 
     def closure(self):
         self.optimizer.zero_grad()
+
         electric_field = self.slm_camera_model()
         loss = self.loss_function.loss(electric_field)
+
         print(f"Loss: {loss.item()}")
         return loss
 
     def retrieve_phase(
-        self: CGPhaseRetriever,
+        self: ZernikePhaseRetriever,
         number_of_iterations: int = 10,
-        parameter_name: str = "virtual_slm.phase",
-        method: str = "cg",
+        parameter_name: str = "virtual_slm.zernike.zernike_coefficients",
+        method: str = "l-bfgs",
     ) -> torch.Tensor:
         self.timer.start()
         self.set_gradient_requirements(parameter_name)
         self.set_optimizer(number_of_iterations, method=method)
+
+        # for _ in range(number_of_iterations):
         self.optimizer.step(self.closure)
+            # self.callback(_)
+
         self.timer.stop()
 
         if "cuda" in self.device:
