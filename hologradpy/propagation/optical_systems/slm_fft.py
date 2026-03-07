@@ -20,16 +20,16 @@ class SLMFFT(SLMCameraModel):
         # Create constant field module
         constant_field = ConstantSLMField(
             init_field=constant_field_slm,
-            pixel_pitch=virtual_slm.slm.pitch_um * 1e-6,
+            pixel_pitch=virtual_slm.pixel_size_in[0],
             device=device,
         )
 
         # Create the Fourier lens module
         fourier_lens = FourierLensFFT(
             focal_length=focal_length,
-            wavelength=virtual_slm.slm.wav_um * 1e-6,
-            resolution_in=virtual_slm.slm.shape,
-            pixel_pitch_in=virtual_slm.slm.pitch_um[0] * 1e-6,
+            wavelength=virtual_slm.wavelength,
+            resolution_in=virtual_slm.resolution_in,
+            pixel_pitch_in=virtual_slm.pixel_size_in[0],
             padded_resolution=padded_resolution,
             device=device,
             fft_kwargs={"norm": "ortho"},

@@ -1,4 +1,4 @@
-"""Modules which modify the electric field in a 2D plane"""
+"""Modules that modify the electric field in a 2D plane"""
 
 from __future__ import annotations
 
@@ -58,52 +58,77 @@ class PartialAffineTransform(PropagatorBase):
     def __init__(
         self: PartialAffineTransform,
         resolution_in: tuple[int, int],
-        pixel_pitch_in: float,
         resolution_out: tuple[int, int],
-        scale: tuple[float, float] = (1, 1),
+        pixel_size_in: tuple[float, float],
+        pixel_size_out: tuple[float, float],
+        scale_factor: tuple[float, float] = (1, 1),
         shift: tuple[float, float] = (0, 0),
         angle: float = 0.0,
+        rotation_center_shift: tuple[float, float] = (0, 0),
         verbose: bool = True,
         device: str = "cpu",
     ) -> None:
-        self.scale = scale
-        self.shift = shift
-        self.angle = angle
+        super().__init__(resolution_in, pixel_size_in, device=device)
+        
         self._resolution_out = resolution_out
-        self.verbose = verbose
+        self._pixel_size_out = pixel_size_out
 
-        super().__init__(
-            resolution_in,
-            (pixel_pitch_in, pixel_pitch_in),
-            device=device,
-        )
-
-        self.scale = nn.Parameter(
-            torch.tensor(scale, dtype=self.dtype, device=self.device),
-            requires_grad=True,
-        )
-
-        # Shift from the center of the in pixels
-        self.shift = nn.Parameter(
-            torch.tensor(shift, dtype=self.dtype, device=self.device),
-            requires_grad=True,
-        )
-
-        # Rotation angle in radians
-        self.angle = nn.Parameter(
-            torch.tensor(angle, dtype=self.dtype, device=self.device),
-            requires_grad=True,
-        )
-
-        self.center = nn.Parameter(
-            torch.tensor([0.0, 0.0], dtype=self.dtype, device=self.device),
+        # Scaling factor
+        self.scale_factor = nn.Parameter(
+            torch.tensor(scale_factor, dtype=self.dtype, device=self.device),
             requires_grad=False,
         )
+
+        # Shift from the center in pixels
+        self.shift = nn.Parameter(
+            torch.tensor(shift, dtype=self.dtype, device=self.device),
+            requires_grad=False,
+        )
+
+        # Rotation angle in degrees
+        self.angle = nn.Parameter(
+            torch.tensor(angle, dtype=self.dtype, device=self.device),
+            requires_grad=False,
+        )
+
+        # Shift of the rotation center relative to the shift_center
+        self.rotation_center_shift = nn.Parameter(
+            torch.tensor(
+                rotation_center_shift, dtype=self.dtype, device=self.device
+            ),
+            requires_grad=False,
+        )
+
+        self.verbose = verbose
+
+        # Setting scaling to pixel size ratios
+        scale = tuple(
+            self.pixel_size_in[i] / pixel_size_out[i] for i in range(2)
+        )[::-1]
+        self.scale = torch.tensor(scale, dtype=self.dtype, device=device)
+
+        # Setting the rotation center to the center of the input image
+        rotation_center = (resolution_in[1] // 2, resolution_in[0] // 2)
+        self.rotation_center = torch.tensor(
+            rotation_center, dtype=self.dtype, device=device
+        )
+
+        # Shift moving the centre of the input image to the center of the 
+        # output image
+        shift_center = tuple(
+            self.rotation_center[i] * (self.scale[i] - 1)
+            + (resolution_out[i] - resolution_in[i] * self.scale[i]) / 2
+            for i in range(2)
+        )[::-1]
+        self.shift_center = torch.tensor(
+            shift_center, dtype=self.dtype, device=device
+        )
+        
         self.affine_matrix = self.get_affine_matrix()
 
     @property
     def pixel_size_out(self: PartialAffineTransform) -> tuple[float, float]:
-        return tuple(self.pixel_size_in[i] / self.scale[i] for i in range(2))
+        return self._pixel_size_out
 
     @property
     def resolution_out(self: PartialAffineTransform) -> tuple[int, int]:
@@ -111,9 +136,9 @@ class PartialAffineTransform(PropagatorBase):
 
     def get_affine_matrix(self) -> torch.Tensor:
         return get_affine_matrix2d(
-            self.shift.unsqueeze(0),
-            self.center.unsqueeze(0),
-            self.scale.unsqueeze(0),
+            (self.shift_center + self.shift).unsqueeze(0),
+            (self.rotation_center + self.rotation_center_shift).unsqueeze(0),
+            (self.scale * self.scale_factor).unsqueeze(0),
             self.angle.unsqueeze(0),
         )
 
