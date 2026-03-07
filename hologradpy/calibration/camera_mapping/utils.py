@@ -7,7 +7,7 @@ from slmsuite.hardware.cameras.camera import Camera
 from ...propagation.utils.optics_utils import (
     circular_mask,
     linear_phase,
-    focal_spot_radius
+    get_focal_spot_radius
 )
 
 from ...analysis.fitting import fit_gaussian_beam_intensity
@@ -20,11 +20,10 @@ def get_diffraction_spot_position(
     camera: Camera,
     linear_phase_tilt: tuple[float, float],
     focal_length: float,
-    device: str = 'cpu',
     exposure_time: float | None = None,
     slm_mask_diameter: float | None = None,
-    camera_roi_size: tuple[int, int] | None = None,
-) -> tuple[tuple[int, int], NDArray]:
+    verbose: bool = True,
+) -> tuple[tuple[float, float], float, NDArray]:
     """
     This function generates a spot on the camera by displaying a circular 
     aperture on the SLM containing a linear phase gradient. The position of the 
@@ -37,30 +36,34 @@ def get_diffraction_spot_position(
             Instance of your camera subclass.
         linear_phase_tilt : tuple[float, float]
             x and y gradient of the linear phase.
+        focal_length : float
+            Focal length of the Fourier lens in metres.
         exposure_time : float | None
             Exposure time in seconds. If None, the camera will perform 
             autoexposure.
         slm_mask_diameter : float | None
             Diameter of the circular aperture in meters. If None, the diameter
             is set to the size of the SLM.
-        camera_roi_size : tuple[int, int] | None
-            Width and height of the region of interest on the camera to remove 
-            the zeroth-order diffraction spot. If None, the size is set to the 
-            camera size.
+        verbose : bool
+            If True, prints progress messages to the console.
+
     Returns:
-        tuple[tuple[float, float], NDArray]
-            Tuple of x and y coordinates of the spot on the camera, and 
-            captured camera image.  
+        tuple[tuple[float, float], float, NDArray]
+            Tuple of x and y coordinates of the spot on the camera in metres, 
+            the focal spot radius in metres, and captured camera image.  
     """
     if slm_mask_diameter is None:
-        slm_mask_diameter = min(slm.shape) * slm.pitch_um[0] * 1e-6
+        slm_mask_diameter = min([
+            slm.shape[i] * slm.pitch_um[i] * 1e-6
+            for i in range(2)
+        ])
     
-    slm_grid = get_spatial_grid(
-        slm.shape, slm.pitch_um * 1e-6, device=device
-    )
+    slm_grid = get_spatial_grid(slm.shape, slm.pitch_um * 1e-6)
 
     slm_phase = linear_phase(
-        *slm_grid, *linear_phase_tilt, focal_length=focal_length,
+        *slm_grid, 
+        *linear_phase_tilt, 
+        focal_length=focal_length,
         wavenumber=2 * np.pi / (slm.wav_um * 1e-6),
     )
 
@@ -76,7 +79,7 @@ def get_diffraction_spot_position(
             exposure_bounds_s=(0, 1),
             timeout_s=10,
             window=None,
-            verbose=True
+            verbose=verbose,
         )
     
     camera.set_exposure(exposure_time)
@@ -85,17 +88,23 @@ def get_diffraction_spot_position(
     camera_grid = get_spatial_grid(camera.shape, camera.pitch_um * 1e-6)
 
     # Fit Gaussian intensity profile to camera image
-    beam_radius_guess = focal_spot_radius(
+    focal_spot_radius_guess = get_focal_spot_radius(
         beam_radius=slm_mask_diameter / 2,
         wavelength=slm.wav_um * 1e-6,
-        focal_length=focal_length
+        focal_length=focal_length,
     )
 
-    print("Fitting Gaussian to camera image...")
+    if verbose:
+        print("Fitting Gaussian to camera image...")
+    
     popt, _ = fit_gaussian_beam_intensity(
-        *camera_grid, camera_image, beam_radius_guess=beam_radius_guess
+        *camera_grid, camera_image, beam_radius_guess=focal_spot_radius_guess
     )
+    
+    if verbose:
+        print("Gaussian fit complete.")
+    
+    focal_spot_radius = popt[0]
     shift_x, shift_y = popt[1:3]
-    print("Gaussian fit complete.")
 
-    return (shift_x, shift_y), camera_image
+    return (shift_x, shift_y), focal_spot_radius, camera_image

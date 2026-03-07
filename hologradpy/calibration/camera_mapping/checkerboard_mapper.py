@@ -165,11 +165,13 @@ class CheckerboardMapper(CameraMapper):
             for i in range(2)
         ])
 
-        (spot_position_x, spot_position_y), _ = get_diffraction_spot_position(
-            self.slm,
-            self.camera,
-            linear_phase_tilt=checkerboard_center_meters,
-            focal_length=self.slm_camera_model[-1].focal_length,
+        (spot_position_x, spot_position_y), focal_spot_radius, _ = (
+            get_diffraction_spot_position(
+                self.slm,
+                self.camera,
+                linear_phase_tilt=checkerboard_center_meters,
+                focal_length=self.slm_camera_model[-1].focal_length,
+            )
         )
 
         # Defining region of interest in the simulated camera image
@@ -273,11 +275,22 @@ class CheckerboardMapper(CameraMapper):
         )
 
         # Fitting affine transformation to detected and calculated corners
-        transform, mask = estimateAffine2D(
-            detected_corners,
-            calculated_corners,
-        )
+        transform, _ = estimateAffine2D(detected_corners, calculated_corners)
         inverse_transform = invertAffineTransform(transform)
+
+        center = (
+            self.slm_camera_model[-1].resolution_out[0] // 2, 
+            self.slm_camera_model[-1].resolution_out[1] // 2
+        )
+
+        zeroth_order_position = (
+            inverse_transform[1, 0] * center[0]
+            + inverse_transform[1, 1] * center[1]
+            + inverse_transform[1, 2],
+            inverse_transform[0, 0] * center[0]
+            + inverse_transform[0, 1] * center[1]
+            + inverse_transform[0, 2],
+        )
 
         # Generating and returning CameraMapping dataclass.
         return CameraMapping(
@@ -289,6 +302,8 @@ class CheckerboardMapper(CameraMapper):
             calculated_points=calculated_corners,
             camera_images=[averaged_camera_image],
             simulated_images=[simulated_camera_image],
+            zeroth_order_position=zeroth_order_position,
+            focal_spot_radius=focal_spot_radius,
         )
 
     def capture_phase_shifted_image(
