@@ -14,49 +14,49 @@ from .tensor_utils import unsqueeze_to
 
 
 # %% Utility functions
+def get_pixel_grid(
+    resolution: tuple[int, int], device: torch.device = "cpu"
+) -> Tuple[Tensor, Tensor]:
+    height, width = resolution
+
+    pixel_indices_x = torch.arange(-width // 2, width // 2, device=device)
+    pixel_indices_y = torch.arange(-height // 2, height // 2, device=device)
+    
+    return torch.meshgrid(pixel_indices_x, pixel_indices_y, indexing="xy")
+
 def get_spatial_grid(
     resolution: tuple[int, int],
     pixel_size: tuple[float, float],
-    device: str = "cpu",
+    device: torch.device = "cpu",
 ) -> Tuple[Tensor, Tensor]:
     resolution = torch.tensor(resolution, device=device)
     pixel_size = torch.tensor(pixel_size, device=device)
 
     spatial_extent = resolution * pixel_size
 
-    coordinates_x = (
-        torch.arange(-resolution[1] // 2, resolution[1] // 2, device=device)
-        * spatial_extent[1] / resolution[1]
-    )
+    pixel_grid_x, pixel_grid_y = get_pixel_grid(resolution, device)
 
-    coordinates_y = (
-        torch.arange(-resolution[0] // 2, resolution[0] // 2, device=device)
-        * spatial_extent[0] / resolution[0]
-    )
-    return torch.meshgrid(coordinates_x, coordinates_y, indexing="xy")
+    spatial_grid_x = pixel_grid_x / resolution[1] * spatial_extent[1]
+    spatial_grid_y = pixel_grid_y / resolution[0] * spatial_extent[0]
 
+    return spatial_grid_x, spatial_grid_y
 
 def get_frequency_grid(
     resolution: tuple[int, int],
     pixel_size: tuple[float, float],
-    device: str = "cpu",
+    device: torch.device = "cpu",
 ) -> Tuple[Tensor, Tensor]:
     resolution = torch.tensor(resolution, device=device)
     pixel_size = torch.tensor(pixel_size, device=device)
 
     frequency_extent = 2 * torch.pi / pixel_size
 
-    frequencies_x = (
-        torch.arange(-resolution[1] // 2, resolution[1] // 2, device=device)
-        * frequency_extent[1] / resolution[1]
-    )
+    pixel_grid_x, pixel_grid_y = get_pixel_grid(resolution, device)
 
-    frequencies_y = (
-        torch.arange(-resolution[0] // 2, resolution[0] // 2, device=device)
-        * frequency_extent[0] / resolution[0]
-    )
+    frequency_grid_x = pixel_grid_x / resolution[1] * frequency_extent[1]
+    frequency_grid_y = pixel_grid_y / resolution[0] * frequency_extent[0]
 
-    return torch.meshgrid(frequencies_x, frequencies_y, indexing="xy")
+    return frequency_grid_x, frequency_grid_y
 
 
 # %% Pytorch FFT and IFFT wrappers
@@ -91,7 +91,10 @@ def ifft_2d(
 # %% Base classes
 class FourierBase(nn.Module):
     def __init__(
-        self, pixel_size: Tensor, resolution: Tensor, device: str | None = None
+        self, 
+        pixel_size: Tensor, 
+        resolution: Tensor, 
+        device: torch.device = "cpu"
     ) -> None:
         super().__init__()
         self.resolution = resolution
@@ -138,7 +141,7 @@ class FastFourierTransform(FourierBase):
         self: FastFourierTransform,
         pixel_size: Tensor,
         resolution: Tensor,
-        device: str | None = None,
+        device: torch.device = "cpu",
         fft_shift: bool = True,
         norm: Literal["backward", "forward", "ortho"] = "backward",
     ) -> None:
@@ -155,7 +158,7 @@ class InverseFastFourierTransform(FourierBase):
         self: InverseFastFourierTransform,
         pixel_size: Tensor,
         resolution: Tensor,
-        device: str | None = None,
+        device: torch.device = "cpu",
         fft_shift: bool = True,
         norm: Literal["backward", "forward", "ortho"] = "backward",
     ) -> None:
@@ -176,7 +179,7 @@ class KbNufftZoom(FourierBase):
         magnification: Tensor,
         #  shift: Tensor,
         dtype: torch.dtype,
-        device: str | None = None,
+        device: torch.device = "cpu",
         grid_size: Tensor | None = None,
         norm: str | None = "ortho",
         **nufft_kwargs,
