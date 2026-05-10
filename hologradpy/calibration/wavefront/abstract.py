@@ -1,5 +1,5 @@
-import os
-import time
+from __future__ import annotations
+import pickle
 from datetime import datetime
 from dataclasses import dataclass
 
@@ -7,14 +7,12 @@ import numpy as np
 from numpy.typing import NDArray
 
 import torch
+from torch import Tensor
 
 from slmsuite.hardware.slms.slm import SLM
 from slmsuite.hardware.cameras.camera import Camera
 
-from ...propagation.elements import (
-    ConstantSLMField,
-)
-from ...propagation.virtual_slms.abstract import VirtualSLM
+from ...propagation.utils.optics_utils import get_spatial_grid
 
 from ...analysis.fitting import fit_gaussian_beam_intensity
 
@@ -26,13 +24,25 @@ class WavefrontCalibrationData:
     beam_waist_x: float
     beam_waist_y: float
     zernike_coefficients: NDArray[np.float_]
+
+    def save(self, filename: str):
+        with open(filename, "wb") as file:
+            pickle.dump(self, file)
+
+    @staticmethod
+    def load(filename: str) -> WavefrontCalibrationData:
+        with open(filename, "rb") as file:
+            calibration_data: WavefrontCalibrationData = pickle.load(file)
+        return calibration_data
     
 
 class WavefrontCalibratorBase:
     """
     Class to calibrate the intensity and the phase at the SLM.
     """
-    def __init__(self, slm: SLM, camera: Camera, device: str = 'cpu'):
+    def __init__(
+        self, slm: SLM, camera: Camera, device: torch.device = "cpu"
+    ):
         """
         Initialize the SLMWavefrontCalobrator.
 
@@ -45,16 +55,29 @@ class WavefrontCalibratorBase:
         self.camera: Camera = camera
         self.slm: SLM = slm
         self.device: torch.device = device
-        self.virtual_slm: VirtualSLM = VirtualSLM(
-            self.slm,
-            device = self.device
-        )    
-    def calibrate(self) -> ConstantSLMField:
+    
+    @property
+    def spatial_grid_slm(self) -> tuple[Tensor, Tensor]:
+        """ Get the spatial grid coordinates for the SLM pixels.
+        
+        Args:
+            slm (SLM): The SLM to get the spatial grid for.
+            device (torch.device): The device to use for the spatial grid.
+        
+        Returns:
+            tuple[Tensor, Tensor]: The x and y coordinates of the SLM pixels.
+        """
+        resolution = self.slm.shape
+        pixel_size = (self.slm.pitch_um[0] * 1e-6, self.slm.pitch_um[1] * 1e-6)
+
+        return get_spatial_grid(resolution, pixel_size, device=self.device)
+        
+    def calibrate(self) -> WavefrontCalibrationData:
         """
         Calibrate the SLM wavefront consisting of the amplitude and the phase 
         at the SLM.
         Returns:
-            ConstantSLMField: The calibrated electric field at the SLM.
+            WavefrontCalibrationData: The calibrated wavefront data.
         """
         raise NotImplementedError(
             "The calibrate method should be implemented in the derived class."
@@ -77,7 +100,7 @@ class WavefrontCalibratorBase:
         )
         
         popt, _ = fit_gaussian_beam_intensity(
-            *self.virtual_slm.get_spatial_grid_input(),
+            *self.spatial_grid_slm,
             measured_intensity,
             beam_radius_guess,
             blur_sigma=10
@@ -105,32 +128,5 @@ class WavefrontCalibratorBase:
         # TODO: Implement the Zernike fitting method.
         raise NotImplementedError(
             "The fit_zernike method should be implemented in the derived class."
-        )
-    
-    def save(self, slm_field: ConstantSLMField, save_path: str):
-        """
-        Save the SLM field to a file.
-
-        Args:
-            slm_field (ConstantSLMField): The SLM field to save.
-            filename (str): The filename to save the SLM field to.
-        """
-        date_saved = time.strftime('%y-%m-%d_%H-%M-%S', time.localtime())
-        path = save_path + date_saved + '_' + 'measure_slm_intensity'
-        os.mkdir(path)
-        # TODO: Finish implementing this
-    
-    def load(self, filename: str) -> ConstantSLMField:
-        """
-        Load the SLM field from a file.
-
-        Args:
-            filename (str): The filename to load the SLM field from.
-
-        Returns:
-            ConstantSLMField: The loaded SLM field.
-        """
-        raise NotImplementedError(
-            "The load method should be implemented in the derived class."
         )
         # TODO: Finish implementing this
