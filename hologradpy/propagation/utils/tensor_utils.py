@@ -7,16 +7,20 @@ from array_api_compat import array_namespace
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 
 
-def check_device(verbose: bool = False) -> str:
+def get_device(verbose: bool = False) -> torch.device:
     """
-    Check if GPU is available.
+    Select CUDA GPU if available, otherwise use CPU.
 
-    :param bool verbose: Verbose output?
-    :return: 'cuda' if GPU available, otherwise 'cpu'.
+    Args:
+        verbose (bool): If True, prints the selected device.
+
+    Returns:
+        torch.device: The selected device.
     """
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    label = "cuda" if torch.cuda.is_available() else "cpu"
+    device = torch.device(label)
     if verbose:
-        print(f'Using {device} device')
+        print(f"Using device: {device}")
     return device
 
 
