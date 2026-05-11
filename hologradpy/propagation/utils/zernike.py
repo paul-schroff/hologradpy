@@ -96,6 +96,8 @@ class Zernike:
         resolution: tuple[int, int],
         unit_disk_mode: Literal["fill", "fit"] = "fit",
         unit_disk_radius: float | None = None,
+        number_of_radial_orders: int | None = None,
+        indices: list[int | tuple[int, int]] | None = None,
         convention: Conventions = "ANSI",
         device: torch.device = "cpu"
     ) -> None:
@@ -111,11 +113,10 @@ class Zernike:
             )
         )
 
-        self._zernike_array: torch.Tensor | None = None
-        self._number_of_zernikes: int | None = None
-        self._radial_orders_n: list[int] | None = None
-        self._azimuthal_frequencies_m: list[int] | None = None
-        self._indices: list[int] | None = None
+        self._zernike_array, self._indices = self.get_zernikes(
+            number_of_radial_orders=number_of_radial_orders,
+            indices=indices
+        )
     
     def raise_init_error(self):
         if self._zernike_array is None:
@@ -127,23 +128,11 @@ class Zernike:
     
     @property
     def zernike_array(self) -> torch.Tensor:
-        self.raise_init_error()
         return self._zernike_array
 
     @property
     def number_of_zernikes(self) -> int:
-        self.raise_init_error()
-        return self._number_of_zernikes
-    
-    @property
-    def radial_orders_n(self) -> list[int]:
-        self.raise_init_error()
-        return self._radial_orders_n
-
-    @property
-    def azimuthal_frequencies_m(self) -> list[int]:
-        self.raise_init_error()
-        return self._azimuthal_frequencies_m
+        return len(self._indices)
     
     @property
     def indices(self) -> list[int] | None:
@@ -287,7 +276,7 @@ class Zernike:
         self,
         number_of_radial_orders: int | None = None,
         indices: list[int | tuple[int, int]] | None = None,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, list[tuple[int, int]]]:
         if indices is not None and number_of_radial_orders is not None:
             raise ValueError(
                 "Cannot specify both indices and number_of_radial_orders."
@@ -316,14 +305,28 @@ class Zernike:
                 "Must specify either indices or number_of_radial_orders."
             )
 
-        self._radial_orders_n = radial_orders_n
-        self._azimuthal_frequencies_m = azimuthal_frequencies_m
-        self._indices = [
+        indices = [
             (n, m) for n, m in zip(radial_orders_n, azimuthal_frequencies_m)
         ]
-        self._number_of_zernikes = len(self._indices)
 
-        self._zernike_array = self.evaluate_zernike_polynomials(
-            radial_orders_n, azimuthal_frequencies_m
+        return (
+            self.evaluate_zernike_polynomials(
+                radial_orders_n, azimuthal_frequencies_m
+            ), 
+            indices
+        )
+    
+    def get_phase(
+        self,
+        coefficients: torch.Tensor
+    ) -> torch.Tensor:
+        if coefficients.shape[0] != self.number_of_zernikes:
+            raise ValueError(
+                f"Number of coefficients must match the number of Zernike "
+                f"polynomials. Expected {self.number_of_zernikes}, got "
+                f"{coefficients.shape[0]}."
+            )
+        return torch.tensordot(
+            coefficients, self.zernike_array, dims=([0], [0])
         )
     
