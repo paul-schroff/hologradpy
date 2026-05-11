@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import torch
-import torch.nn as nn
+from torch.nn import Parameter
 
 from kornia.geometry.transform import get_affine_matrix2d
 from kornia.geometry import warp_perspective
@@ -13,163 +13,228 @@ from aotools.functions.zernike import zernIndex
 
 from .utils.optics_utils import lens_phase, circular_mask
 from .utils.tensor_utils import (
-    unsqueeze_to, pad_to_shape_2D, crop_to_shape_2D
+    unsqueeze_to, pad_to_shape_2D, crop_to_shape_2D,
 )
 from .propagators.abstract import PropagatorBase
+from .optics_module import OpticsModule
+from .complex_amplitude import ComplexAmplitude
 
 
-class ConstantSLMField(PropagatorBase):
+class ConstantSLMField(OpticsModule):
     def __init__(
         self: ConstantSLMField,
-        init_field: torch.Tensor[torch.complex],
-        pixel_pitch: float,
-        device: str = "cpu",
+        init_field: ComplexAmplitude | None = None,
     ) -> None:
-        super().__init__(
-            init_field.shape[-2:],
-            (pixel_pitch, pixel_pitch),
-            device=device,
-        )
-        self.phase = nn.Parameter(
+        super().__init__()
+        self.init_field: ComplexAmplitude | None = init_field
+    
+    def lazy_init(
+        self: ConstantSLMField, complex_amplitude: ComplexAmplitude
+    ) -> None:
+        super().lazy_init(complex_amplitude)
+
+        if self.init_field is None:
+            self.init_field = ComplexAmplitude(
+                data=torch.ones(
+                    self.resolution_in, 
+                    dtype=complex_amplitude.dtype, 
+                    device=complex_amplitude.device
+                ),
+                wavelength=complex_amplitude.wavelength,
+                pixel_size=complex_amplitude.pixel_size,
+            )
+
+        self.phase = Parameter(
             torch.tensor(
-                init_field.angle(), dtype=self.dtype, device=self.device
+                self.init_field.phase, 
+                dtype=complex_amplitude.dtype_r,
+                device=complex_amplitude.device
             ),
-            requires_grad=self.training,
+            requires_grad=False,
         )
 
-        self.amplitude = nn.Parameter(
+        self.amplitude = Parameter(
             torch.tensor(
-                init_field.abs(), dtype=self.dtype, device=self.device
+                self.init_field.amplitude, 
+                dtype=complex_amplitude.dtype_r,
+                device=complex_amplitude.device
             ),
-            requires_grad=self.training,
+            requires_grad=False,
         )
 
     def forward(
-        self: ConstantSLMField, input_field: torch.Tensor = None
-    ) -> torch.Tensor:
-        input_field = unsqueeze_to(input_field, 3)
-        amplitude = unsqueeze_to(self.amplitude, 3)
-        phase = unsqueeze_to(self.phase, 3)
+        self: ConstantSLMField, complex_amplitude: ComplexAmplitude
+    ) -> ComplexAmplitude:
+        ndim = complex_amplitude.ndim
 
-        return (input_field * amplitude * torch.exp(1j * phase)).squeeze()
+        input_field = unsqueeze_to(complex_amplitude, ndim)
+        amplitude = unsqueeze_to(self.amplitude, ndim)
+        phase = unsqueeze_to(self.phase, ndim)
+
+        modified_field = input_field * amplitude * torch.exp(1j * phase)
+
+        return modified_field.with_geometry(
+            wavelength=complex_amplitude.wavelength,
+            pixel_size=self.pixel_size_out,
+        )
 
 
-class PartialAffineTransform(PropagatorBase):
+class PartialAffineTransform(OpticsModule):
     def __init__(
         self: PartialAffineTransform,
-        resolution_in: tuple[int, int],
         resolution_out: tuple[int, int],
-        pixel_size_in: tuple[float, float],
         pixel_size_out: tuple[float, float],
         scale_factor: tuple[float, float] = (1, 1),
         shift: tuple[float, float] = (0, 0),
         angle: float = 0.0,
         rotation_center_shift: tuple[float, float] = (0, 0),
-        verbose: bool = True,
-        device: str = "cpu",
+        verbose: bool = False,
     ) -> None:
-        super().__init__(resolution_in, pixel_size_in, device=device)
-        
-        self._resolution_out = resolution_out
-        self._pixel_size_out = pixel_size_out
-
-        # Scaling factor
-        self.scale_factor = nn.Parameter(
-            torch.tensor(scale_factor, dtype=self.dtype, device=self.device),
-            requires_grad=False,
-        )
-
-        # Shift from the center in pixels
-        self.shift = nn.Parameter(
-            torch.tensor(shift, dtype=self.dtype, device=self.device),
-            requires_grad=False,
-        )
-
-        # Rotation angle in degrees
-        self.angle = nn.Parameter(
-            torch.tensor(angle, dtype=self.dtype, device=self.device),
-            requires_grad=False,
-        )
-
-        # Shift of the rotation center relative to the shift_center
-        self.rotation_center_shift = nn.Parameter(
-            torch.tensor(
-                rotation_center_shift, dtype=self.dtype, device=self.device
-            ),
-            requires_grad=False,
-        )
+        super().__init__(pixel_size_out, resolution_out)
 
         self.verbose = verbose
 
+        self.init_scale_factor = scale_factor
+        self.init_shift = shift
+        self.init_angle = angle
+        self.init_rotation_center_shift = rotation_center_shift
+
+        self.register_parameter("scale_factor", None)
+        self.register_parameter("shift", None)
+        self.register_parameter("angle", None)
+        self.register_parameter("rotation_center_shift", None)
+
+        self.scale_factor: Parameter | None
+        self.shift: Parameter | None
+        self.angle: Parameter | None
+        self.rotation_center_shift: Parameter | None
+
+    def lazy_init(self, complex_amplitude: ComplexAmplitude) -> None:
+        super().lazy_init(complex_amplitude)
+
+        number_of_wavelengths = complex_amplitude.wavelength.numel()
+
+        # Scaling factor
+        self.scale_factor = Parameter(
+            torch.tensor(
+                self.init_scale_factor,
+                dtype=complex_amplitude.dtype_r,
+                device=complex_amplitude.device,
+            ),
+            requires_grad=False
+        )
+
+        # Shift from the center in pixels
+        self.shift = Parameter(
+            torch.tensor(
+                self.init_shift, 
+                dtype=complex_amplitude.dtype_r, 
+                device=complex_amplitude.device
+            ),
+            requires_grad=False
+        )
+
+        # Rotation angle in degrees
+        self.angle = Parameter(
+            torch.tensor(
+                [self.init_angle] * number_of_wavelengths, 
+                dtype=complex_amplitude.dtype_r, 
+                device=complex_amplitude.device
+            ),
+            requires_grad=False
+        )
+
+        # Shift of the rotation center relative to the shift_center
+        self.rotation_center_shift = Parameter(
+            torch.tensor(
+                self.init_rotation_center_shift, 
+                dtype=complex_amplitude.dtype_r, 
+                device=complex_amplitude.device
+            ).repeat(number_of_wavelengths, 1),
+            requires_grad=False
+        )
+
         # Setting scaling to pixel size ratios
-        scale = tuple(
-            self.pixel_size_in[i] / pixel_size_out[i] for i in range(2)
-        )[::-1]
-        self.scale = torch.tensor(scale, dtype=self.dtype, device=device)
+        self.scale = (self.pixel_size_in / self.pixel_size_out).fliplr()
 
         # Setting the rotation center to the center of the input image
-        rotation_center = (resolution_in[1] // 2, resolution_in[0] // 2)
+        rotation_center = tuple(
+            self.resolution_in[i] // 2 for i in range(2)
+        )[::-1]
         self.rotation_center = torch.tensor(
-            rotation_center, dtype=self.dtype, device=device
-        )
+            rotation_center, 
+            dtype=complex_amplitude.dtype_r, 
+            device=complex_amplitude.device
+        ).repeat(number_of_wavelengths, 1)  # Repeat for batch dimension if needed
 
         # Shift moving the centre of the input image to the center of the 
         # output image
-        shift_center = tuple(
-            self.rotation_center[i] * (self.scale[i] - 1)
-            + (resolution_out[i] - resolution_in[i] * self.scale[i]) / 2
-            for i in range(2)
-        )[::-1]
-        self.shift_center = torch.tensor(
-            shift_center, dtype=self.dtype, device=device
+        resolution_out = torch.tensor(
+            self.resolution_out, 
+            dtype=complex_amplitude.dtype_r, 
+            device=complex_amplitude.device
         )
-        
+        resolution_in = torch.tensor(
+            self.resolution_in, 
+            dtype=complex_amplitude.dtype_r, 
+            device=complex_amplitude.device
+        )
+
+        self.shift_center = (
+            self.rotation_center * (self.scale - 1)
+            + (resolution_out - resolution_in * self.scale) / 2
+        ).fliplr()
+
         self.affine_matrix = self.get_affine_matrix()
-
-    @property
-    def pixel_size_out(self: PartialAffineTransform) -> tuple[float, float]:
-        return self._pixel_size_out
-
-    @property
-    def resolution_out(self: PartialAffineTransform) -> tuple[int, int]:
-        return self._resolution_out
 
     def get_affine_matrix(self) -> torch.Tensor:
         return get_affine_matrix2d(
-            (self.shift_center + self.shift).unsqueeze(0),
-            (self.rotation_center + self.rotation_center_shift).unsqueeze(0),
-            (self.scale * self.scale_factor).unsqueeze(0),
-            self.angle.unsqueeze(0),
+            unsqueeze_to((self.shift_center + self.shift), 2),
+            unsqueeze_to(self.rotation_center + self.rotation_center_shift, 2),
+            unsqueeze_to(self.scale * self.scale_factor, 2),
+            unsqueeze_to(self.angle, 1),
         )
 
     def forward(
-        self: PartialAffineTransform, input_field: torch.Tensor
-    ) -> torch.Tensor:
+        self: PartialAffineTransform, complex_amplitude: ComplexAmplitude
+    ) -> ComplexAmplitude:
         """Applies partial affine transformation to input_field."""
         if self.verbose:
             print("Scale:", self.scale.data)
             print("Shift:", self.shift.data)
             print("Angle:", self.angle.data)
 
-        input_field = unsqueeze_to(input_field, 4)
+        if complex_amplitude.ndim == 2:
+            complex_amplitude_expanded = unsqueeze_to(complex_amplitude, 4)
+        elif complex_amplitude.ndim == 3:
+            complex_amplitude_expanded = complex_amplitude.unsqueeze(1)
+        else:
+            raise ValueError(
+                "Input complex amplitude must have 2 or 3 dimensions, but got "
+                + f"{complex_amplitude.ndim}."
+            )
         self.affine_matrix = self.get_affine_matrix()
 
         # Kornia does not support complex numbers in warp_perspective(),
         # so we need to split the real and imaginary parts and then
         # recombine them.
         output_real = warp_perspective(
-            input_field.real, self.affine_matrix, self.resolution_out
+            complex_amplitude_expanded.real, self.affine_matrix, self.resolution_out
         )
         output_imag = warp_perspective(
-            input_field.imag, self.affine_matrix, self.resolution_out
+            complex_amplitude_expanded.imag, self.affine_matrix, self.resolution_out
         )
         
         transformed_field = (output_real + 1j * output_imag).squeeze()
 
         # Normalize to conserve optical power
-        norm = self.scale.prod().sqrt()
-        transformed_field /= norm
-        return transformed_field
+        transformed_field /= self.scale.prod().sqrt()
+        
+        return ComplexAmplitude(
+            data=transformed_field,
+            wavelength=complex_amplitude.wavelength,
+            pixel_size=self.pixel_size_out,
+        )
 
 
 class SimpleLens(PropagatorBase):
@@ -265,7 +330,7 @@ class Zernike(PropagatorBase):
                     dtype=self.dtype, device=self.device
                 )
 
-        self.zernike_coefficients = nn.Parameter(
+        self.zernike_coefficients = Parameter(
             initial_coefficients, requires_grad=True
         )
 
