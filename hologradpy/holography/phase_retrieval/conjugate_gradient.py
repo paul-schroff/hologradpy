@@ -8,25 +8,26 @@ from .abstract import PhaseRetrieverBase
 from ..utils import Timer
 from ..loss_functions import LossIntensityMSE
 
-from ...propagation.optical_systems import SLMCameraModel
+from ...propagation.optical_systems import SLMFourierLensModel
 
 # TODO: Add convergence error metrics
 class CGPhaseRetriever(PhaseRetrieverBase):
     def __init__(
         self,
-        slm_camera_model: SLMCameraModel,
+        slm_camera_model: SLMFourierLensModel,
         target: torch.Tensor,
         signal_region: torch.Tensor,
         init_slm_phase: torch.Tensor,
         device: str = "cpu",
     ) -> None:
         super().__init__(slm_camera_model, device)
-        self.target: torch.Tensor = target
-        self.signal_region: torch.Tensor = signal_region
+        self.target: torch.Tensor = target.detach()
+        self.signal_region: torch.Tensor = signal_region.detach()
         self.device: str = device
         use_cuda = "cuda" in device
 
-        self.slm_camera_model.virtual_slm.set_phase(init_slm_phase)
+        self.slm_camera_model.to(device)
+        self.slm_camera_model.virtual_slm.set_phase(init_slm_phase.detach())
 
         self.loss_function = LossIntensityMSE(
             target_intensity=self.target, signal_mask=self.signal_region
@@ -55,8 +56,8 @@ class CGPhaseRetriever(PhaseRetrieverBase):
 
     def closure(self):
         self.optimizer.zero_grad()
-        electric_field = self.slm_camera_model()
-        loss = self.loss_function.loss(electric_field)
+        complex_amplitude = self.slm_camera_model()
+        loss = self.loss_function.loss(complex_amplitude)
         print(f"Loss: {loss.item()}")
         return loss
 
@@ -72,6 +73,6 @@ class CGPhaseRetriever(PhaseRetrieverBase):
         self.optimizer.step(self.closure)
         self.timer.stop()
 
-        if "cuda" in self.device:
+        if self.slm_camera_model.device.type == "cuda":
             torch.cuda.empty_cache()
         return self.slm_camera_model.virtual_slm.get_displayed_phase()

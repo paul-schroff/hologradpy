@@ -9,7 +9,7 @@ from datetime import datetime
 
 from slmsuite.hardware.slms.slm import SLM
 from slmsuite.hardware.cameras.camera import Camera
-from ...propagation import SLMCameraModel
+from ...propagation import SLMFourierLensModel
 
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 
@@ -47,13 +47,15 @@ class CameraMapper:
         self,
         slm: SLM,
         camera: Camera,
-        slm_camera_model: SLMCameraModel,
+        slm_camera_model: SLMFourierLensModel,
     ):
         self.slm = slm
         self.camera = camera
         self.slm_camera_model = slm_camera_model
         self.detected_points = []
         self.calculated_points = []
+        
+        self.slm_camera_model()
 
     def map_camera(self) -> CameraMapping:
         raise NotImplementedError(

@@ -14,10 +14,10 @@ from hologradpy.propagation.utils.optics_utils import (
     gaussian_beam_intensity,
 )
 from hologradpy.propagation.utils.tensor_utils import (
-    check_device,
+    get_device,
 )
 
-device = check_device(verbose=True)
+device = get_device(verbose=True)
 
 # %% Initializing simulated SLM and camera
 slm = SimulatedSLMTorch(

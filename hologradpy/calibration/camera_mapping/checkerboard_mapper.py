@@ -158,7 +158,9 @@ class CheckerboardMapper(CameraMapper):
         ] = True
 
         # Finding position of zeroth-order diffraction spot on camera
-        simulation_pixel_size = self.slm_camera_model[-1].pixel_size_out
+        simulation_pixel_size = (
+            self.slm_camera_model[-1].pixel_size_out.tolist()[0]
+        )
 
         checkerboard_center_meters = tuple([
             checkerboard_center[i] * simulation_pixel_size[::-1][i]
@@ -224,7 +226,7 @@ class CheckerboardMapper(CameraMapper):
                 curvature=curvature,
                 aspect_ratio=aspect_ratio,
                 focal_length=self.slm_camera_model.fourier_lens.focal_length,
-                wavenumber=self.slm_camera_model.fourier_lens.wavenumber,
+                wavenumber=self.slm_camera_model.init_field.wavenumber,
                 tilt_units="metres",
                 curvature_units="radians_per_pixel_squared",
             )
@@ -253,7 +255,7 @@ class CheckerboardMapper(CameraMapper):
             slm_phase = phase_retriever.retrieve_phase(number_of_cg_iterations)
 
         simulated_camera_image = gpu_to_numpy(
-            self.slm_camera_model().abs() ** 2
+            self.slm_camera_model().intensity
         )
 
         # Capturing camera image
@@ -356,8 +358,13 @@ class CheckerboardMapper(CameraMapper):
         for i in range(number_of_attempts):
             kernel_width = i
             blurred_image = gaussian_filter(image, kernel_width)
+            blurred_image_normalized = (
+                blurred_image / blurred_image.max() * 255
+            )
+
             corners, score = detect_checkerboard(
-                blurred_image, (number_of_corners[1], number_of_corners[0])
+                blurred_image_normalized, 
+                (number_of_corners[1], number_of_corners[0])
             )
             corners = np.squeeze(corners)
 

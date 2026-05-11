@@ -5,7 +5,7 @@ import torchmin
 
 from ..utils import Timer
 
-from ...propagation.optical_systems import SLMCameraModel
+from ...propagation.optical_systems import SLMFourierLensModel
 
 from .abstract import PhaseRetrieverBase
 from ..loss_functions import LossIntensityMSE
@@ -16,7 +16,7 @@ from ..loss_functions import LossIntensityMSE
 class ZernikePhaseRetriever(PhaseRetrieverBase):
     def __init__(
         self,
-        slm_camera_model: SLMCameraModel,
+        slm_camera_model: SLMFourierLensModel,
         target: torch.Tensor,
         signal_region: torch.Tensor,
         device: str = "cpu",

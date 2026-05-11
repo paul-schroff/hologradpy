@@ -3,16 +3,16 @@ from typing import Callable
 
 from numpy.typing import NDArray
 
-from ...propagation.optical_systems import SLMCameraModel
+from ...propagation.optical_systems import SLMFourierLensModel
 
 # TODO: Add saving functionality
 class PhaseRetrieverBase:
     def __init__(
             self,
-            slm_camera_model: SLMCameraModel,
+            slm_camera_model: SLMFourierLensModel,
             device: str = "cpu",
         ) -> None:
-        self.slm_camera_model: SLMCameraModel = slm_camera_model
+        self.slm_camera_model: SLMFourierLensModel = slm_camera_model
         self.device: str = device
 
     def set_optimizer(self):
@@ -22,11 +22,22 @@ class PhaseRetrieverBase:
             self,
             parameter_name: str = "virtual_slm.phase"
         ) -> None:
-        for name, parameter in self.slm_camera_model.named_parameters():
-            if name == parameter_name:
-                parameter.requires_grad = True
-            else:
-                parameter.requires_grad = False
+        named_parameters = dict(self.slm_camera_model.named_parameters())
+
+        if parameter_name not in named_parameters:
+            _ = self.slm_camera_model()
+            named_parameters = dict(self.slm_camera_model.named_parameters())
+
+        if parameter_name not in named_parameters:
+            available_parameters = ", ".join(named_parameters.keys())
+            raise ValueError(
+                f"Parameter '{parameter_name}' not found in "
+                f"slm_camera_model.named_parameters(). "
+                f"Available parameters: {available_parameters}"
+            )
+
+        for name, parameter in named_parameters.items():
+            parameter.requires_grad = (name == parameter_name)
 
     def set_target(self, target: NDArray) -> None:
         pass

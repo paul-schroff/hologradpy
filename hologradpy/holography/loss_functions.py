@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-
+from ..propagation.complex_amplitude import ComplexAmplitude
 
 class LossFunctionBase:
     def __init__(self) -> None:
@@ -48,18 +48,18 @@ class LossIntensityMSE(LossFunctionBase):
 
         self.target_intensity = target_intensity
     
-    def loss(self, electric_field: torch.Tensor) -> torch.Tensor:
+    def loss(self, complex_amplitude: torch.Tensor) -> torch.Tensor:
         """ Calculate the loss based on the electric field.
 
         Args:
-            electric_field : torch.Tensor
-                Electric field at the image plane.
-        
+            complex_amplitude : torch.Tensor
+                Complex amplitude at the image plane.
+
         Returns:
             torch.Tensor
                 Cost.
         """
-        intensity_out = torch.abs(electric_field) ** 2 * self.signal_mask
+        intensity_out = complex_amplitude.abs() ** 2 * self.signal_mask
         intensity_out = intensity_out / intensity_out.sum()
         return self.steepness * self.mse(intensity_out, self.target_intensity)
 

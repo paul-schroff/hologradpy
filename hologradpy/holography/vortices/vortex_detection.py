@@ -5,6 +5,7 @@ import torch
 
 from scipy.ndimage import label
 
+from ...propagation.complex_amplitude import ComplexAmplitude
 from ...propagation.utils.fourier_utils import get_spatial_grid
 from ...propagation.utils.tensor_utils import gpu_to_numpy
 
@@ -28,13 +29,13 @@ class VortexDetector:
     
     def detect_vortices(
         self,
-        electric_field: torch.Tensor,
+        complex_amplitude: ComplexAmplitude,
         target_intensity: torch.Tensor,
         threshold: float = 0.2,
         pad: int = 1,
     ) -> None:
         self.zero_crossing_mask = find_zero_crossing_intersections(
-            electric_field, target_intensity, threshold
+            complex_amplitude, target_intensity, threshold
         )
 
         self.labels, self.number_of_vortices = label_connected_components(
@@ -48,7 +49,7 @@ class VortexDetector:
             *self.pixel_grid, self.center_coordinates
         )
         self.charges = find_vortex_charge(
-            electric_field, *self.pixel_grid, self.center_indices, pad
+            complex_amplitude, *self.pixel_grid, self.center_indices, pad
         )
     
     def generate_anti_vortex_field(self) -> torch.Tensor:
@@ -109,7 +110,7 @@ def coordinates_to_indices(
 
 
 def find_zero_crossing_intersections(
-    electric_field: ArrayLike, 
+    complex_amplitude: ComplexAmplitude, 
     target_intensity: ArrayLike,
     threshold: float = 0.2,
 ) -> ArrayLike:
@@ -118,14 +119,14 @@ def find_zero_crossing_intersections(
     `target_intensity` is above a given `threshold`.
 
     Args:
-        electric_field (ArrayLike): The complex electric field.
+        complex_amplitude (ComplexAmplitude): The complex electric field.
         target_intensity (ArrayLike): The target intensity to threshold the
             zero crossings.
         threshold (float, optional): The intensity threshold to consider a
             zero crossing valid. Defaults to 0.2.
     """
-    zero_crossings_real = find_zero_crossings(electric_field.real)
-    zero_crossings_imag = find_zero_crossings(electric_field.imag)
+    zero_crossings_real = find_zero_crossings(complex_amplitude.real)
+    zero_crossings_imag = find_zero_crossings(complex_amplitude.imag)
     zero_crossings = zero_crossings_real & zero_crossings_imag
     return zero_crossings * (target_intensity > threshold)
 
@@ -182,7 +183,7 @@ def find_label_centers(
 
 
 def find_vortex_charge(
-    electric_field: torch.Tensor,
+    complex_amplitude: ComplexAmplitude,
     x: torch.Tensor,
     y: torch.Tensor,
     center_indices: torch.Tensor,
@@ -191,7 +192,7 @@ def find_vortex_charge(
     """ Finds the charge of vortices given their centers.
     
     Args:
-        electric_field (torch.Tensor): The complex electric field.
+        complex_amplitude (ComplexAmplitude): The complex electric field.
         x (torch.Tensor): The x-coordinates of the spatial grid.
         y (torch.Tensor): The y-coordinates of the spatial grid.
         center_indices (torch.Tensor): The coordinates of the vortex centers. 
@@ -205,18 +206,18 @@ def find_vortex_charge(
             phase difference is smaller than pi.
     """
     charges = torch.zeros(
-        len(center_indices), dtype=torch.int, device=electric_field.device
+        len(center_indices), dtype=torch.int, device=complex_amplitude.device
     )
 
     for i in range(len(center_indices)):
         center_index = center_indices[i]
 
-        roi = electric_field[
+        roi: ComplexAmplitude = complex_amplitude[
             center_index[0] - pad : center_index[0] + pad + 1,
             center_index[1] - pad : center_index[1] + pad + 1,
         ]
 
-        roi_phase = torch.angle(roi)
+        roi_phase = roi.phase
 
         phase_square_path = torch.cat(
             (

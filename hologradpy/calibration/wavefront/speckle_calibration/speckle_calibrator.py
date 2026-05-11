@@ -15,7 +15,7 @@ from ..abstract import WavefrontCalibratorBase, WavefrontCalibrationData
 
 from ...camera_mapping import CameraMapping
 
-from ....propagation.utils.tensor_utils import check_device
+from ....propagation.utils.tensor_utils import get_device
 
 from slmsuite.hardware.slms.slm import SLM
 from slmsuite.hardware.cameras.camera import Camera
@@ -138,7 +138,7 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
         device: str | None = None,
     ) -> WavefrontCalibrationData:
         if device is None:
-            device = check_device()
+            device = get_device()
 
         self.generate_dataset(
             speckle_pattern_extent=speckle_pattern_extent,

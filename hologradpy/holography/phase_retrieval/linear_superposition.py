@@ -6,14 +6,14 @@ from .abstract import PhaseRetrieverBase
 
 from ..utils import Timer
 
-from ...propagation.optical_systems import SLMCameraModel
+from ...propagation.optical_systems import SLMFourierLensModel
 
 from ...propagation.utils.optics_utils import linear_phase
 
 class LinearSuperpositionPhaseRetriever(PhaseRetrieverBase):
     def __init__(
         self,
-        slm_camera_model: SLMCameraModel,
+        slm_camera_model: SLMFourierLensModel,
         target_positions: torch.Tensor,
         target_intensities: torch.Tensor | None = None,
         target_phases: torch.Tensor | None = None,

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Type, Literal
+from typing import Literal
 
 from copy import deepcopy
 
@@ -8,21 +8,14 @@ import torch
 
 from slmsuite.hardware.cameras.camera import Camera
 
-from .torch_slm import SimulatedSLMTorch
-
-from ..propagation.optical_systems import SLMCameraModel, SLMFFTAffine
+from ..propagation.optical_systems import SLMFourierLensModel
 from ..propagation.utils.tensor_utils import gpu_to_numpy, crop_to_roi
-from ..hardware.utils import CameraData
 
 
 class SimulatedCameraTorch(Camera):
     def __init__(
         self,
-        slm: SimulatedSLMTorch,
-        resolution: tuple[int, int],
-        pitch_um: tuple[float, float],
-        slm_camera_model_cls: Type[SLMCameraModel] = SLMFFTAffine,
-        slm_camera_model_args: dict = {},
+        slm_camera_model: SLMFourierLensModel,
         bitdepth: int = 8,
         name: str = "SimulatedCameraTorch",
         averaging: int = 1,
@@ -33,10 +26,28 @@ class SimulatedCameraTorch(Camera):
         flipud: bool = False
     ) -> None:
         """Initialize a simulated camera with a given SLM."""
+        output_module = slm_camera_model[-1]
+        camera_resolution = output_module.resolution_out[::-1]
+
+        pixel_size_out = output_module.pixel_size_out
+        if pixel_size_out is None:
+            pixel_size_out = getattr(
+                output_module, "_pixel_size_out_init", None
+            )
+
+        if pixel_size_out is None:
+            raise ValueError(
+                "Could not infer camera pixel size from the final optical "
+                "module. Set output pixel size in the model configuration."
+            )
+
+        pixel_size_out = torch.as_tensor(pixel_size_out)
+        camera_pixel_size_um = tuple((pixel_size_out * 1e6).tolist())
+
         super().__init__(
-            resolution=resolution,
+            resolution=camera_resolution,
             bitdepth=bitdepth,
-            pitch_um=pitch_um,
+            pitch_um=camera_pixel_size_um,
             name=name,
             averaging=averaging,
             capture_attempts=capture_attempts,
@@ -46,13 +57,7 @@ class SimulatedCameraTorch(Camera):
             flipud=flipud
         )
 
-        camera_data: CameraData = CameraData.from_camera(self)
-
-        self.slm_camera_model: SLMCameraModel = slm_camera_model_cls(
-            virtual_slm=slm.virtual_slm,
-            camera_data=camera_data,
-            **slm_camera_model_args,
-        )
+        self.slm_camera_model: SLMFourierLensModel = slm_camera_model
 
         self.woi = (0, self.shape[1], 0, self.shape[0])  # (x, width, y, height)
 
@@ -94,7 +99,7 @@ class SimulatedCameraTorch(Camera):
         intensity = crop_to_roi(intensity, roi)
 
         if backend == "numpy":
-            return gpu_to_numpy(intensity).astype(self.dtype)
+            return gpu_to_numpy(intensity) #.astype(self.dtype)
         elif backend == "torch":
             return intensity
         else:
@@ -119,6 +124,3 @@ class SimulatedCameraTorch(Camera):
             return torch.stack(images)
         else:
             raise ValueError("Backend must be either 'numpy' or 'torch'.")
-    
-    
-        

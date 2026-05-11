@@ -2,9 +2,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import pickle
 
+from numpy.typing import NDArray
+
 from slmsuite.hardware.slms.slm import SLM
 from slmsuite.hardware.cameras.camera import Camera
-
 
 @dataclass(frozen=True, unsafe_hash=True)
 class SLMData:
@@ -58,6 +59,7 @@ class CameraData:
     hdr: bool
     woi: tuple[int, int, int, int]
     default_shape: tuple[int, int]
+    transform: NDArray
 
     @classmethod
     def from_camera(cls: type[CameraData], camera: Camera) -> CameraData:
@@ -73,6 +75,7 @@ class CameraData:
             hdr=camera.hdr,
             woi=camera.woi,
             default_shape=camera.default_shape,
+            transform=camera.transform,
         )
 
     def save(self, filename: str):

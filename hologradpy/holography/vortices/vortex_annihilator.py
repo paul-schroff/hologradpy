@@ -28,10 +28,10 @@ class VortexAnnihilator:
         while True:
             iteration += 1
 
-            electric_field = self.phase_retriever.slm_camera_model()
+            complex_amplitude = self.phase_retriever.slm_camera_model()
 
             self.vortex_detector.detect_vortices(
-                electric_field,
+                complex_amplitude,
                 target_intensity=target_intensity,
                 threshold=target_intensity_threshold,
                 pad=1
@@ -49,13 +49,13 @@ class VortexAnnihilator:
                     self.vortex_detector.generate_anti_vortex_field()
                 )
 
-                corrected_field = electric_field * anti_vortex_field
+                corrected_field = complex_amplitude * anti_vortex_field
 
-                corrected_slm_phase = torch.angle(
-                    self.phase_retriever.slm_camera_model.fourier_lens.inverse(
+                corrected_slm_phase = (
+                    self.phase_retriever.slm_camera_model.fourier_lens.adjoint(
                         corrected_field
                     )
-                )
+                ).phase
 
                 self.phase_retriever.slm_camera_model.virtual_slm.set_phase(
                     corrected_slm_phase
