@@ -1,10 +1,18 @@
 from __future__ import annotations
+from typing import TypedDict, Any, Self
 
 import torch
 from torch import nn, Tensor
 
 from .complex_amplitude import ComplexAmplitude, FieldGeometry
 from .utils.fourier_utils import get_spatial_grid
+
+
+class SaveDict(TypedDict):
+    state_dict: dict[str, Any]
+    input_geometry: FieldGeometry
+    resolution_out: tuple[int, int]
+    pixel_size_out: Tensor
 
 
 class OpticsModule(nn.Module):
@@ -141,6 +149,27 @@ class OpticsModule(nn.Module):
             "Subclasses of OpticsModule must implement adjoint() method."
         )
     
+    def save(self, path: str) -> None:
+        save_dict: SaveDict = {
+            "state_dict": self.state_dict(),
+            "input_geometry": self.input_geometry,
+            "resolution_out": self.resolution_out,
+            "pixel_size_out": self.pixel_size_out,
+        }
+        torch.save(save_dict, path)
+
+    def load_weights(self, path: str) -> None:
+        state = torch.load(path, weights_only=False)
+        self.load_state_dict(state["state_dict"])
+
+    @classmethod
+    def from_file(
+        cls, path: str, device: torch.device = "cpu"
+    ) -> Self:
+        raise NotImplementedError(
+            "OpticsModule subclasses must implement from_file() method."
+        )
+
     def get_spatial_grid_input(self, index: int = 0) -> tuple[Tensor, Tensor]:
         return get_spatial_grid(
             resolution=self.resolution_in,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import torch
+from torch import Tensor
 from torch.nn import Parameter
 
 from kornia.geometry.transform import get_affine_matrix2d
@@ -16,7 +17,7 @@ from .utils.tensor_utils import (
     unsqueeze_to, pad_to_shape_2D, crop_to_shape_2D,
 )
 from .propagators.abstract import PropagatorBase
-from .optics_module import OpticsModule
+from .optics_module import OpticsModule, SaveDict
 from .complex_amplitude import ComplexAmplitude
 
 
@@ -61,6 +62,27 @@ class ConstantSLMField(OpticsModule):
             ),
             requires_grad=False,
         )
+
+    @classmethod
+    def from_file(
+        cls, path: str, device: torch.device = "cpu"
+    ) -> ConstantSLMField:
+        state: SaveDict = torch.load(
+            path, map_location=device, weights_only=False
+        )
+        state_dict = state["state_dict"]
+        geometry = state["input_geometry"]
+
+        init_field_data: Tensor = (
+            state_dict["amplitude"] * torch.exp(1j * state_dict["phase"])
+        )
+
+        init_field = ComplexAmplitude(
+            data=init_field_data.to(device),
+            wavelength=geometry.wavelength.to(device),
+            pixel_size=geometry.pixel_size.to(device),
+        )
+        return cls(init_field=init_field)
 
     def forward(
         self: ConstantSLMField, complex_amplitude: ComplexAmplitude
@@ -186,6 +208,25 @@ class PartialAffineTransform(OpticsModule):
         ).fliplr()
 
         self.affine_matrix = self.get_affine_matrix()
+
+    @classmethod
+    def from_file(
+        cls, path: str, device: torch.device = "cpu"
+    ) -> PartialAffineTransform:
+        state: SaveDict = torch.load(
+            path, map_location=device, weights_only=False
+        )
+        state_dict = state["state_dict"]
+        return cls(
+            resolution_out=state["resolution_out"],
+            pixel_size_out=tuple(state["pixel_size_out"][0].tolist()),
+            scale_factor=tuple(state_dict["scale_factor"].tolist()),
+            shift=tuple(state_dict["shift"].tolist()),
+            angle=state_dict["angle"][0].item(),
+            rotation_center_shift=tuple(
+                state_dict["rotation_center_shift"][0].tolist()
+            ),
+        )
 
     def get_affine_matrix(self) -> torch.Tensor:
         return get_affine_matrix2d(
