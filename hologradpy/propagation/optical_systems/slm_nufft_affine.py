@@ -7,10 +7,10 @@ from ..virtual_slms.abstract import VirtualSLM
 
 from ...hardware.utils import CameraData
 
-from .abstract import SLMCameraModel
+from .abstract import SLMFourierLensModel
 
 
-class SLMNUFFTAffine(SLMCameraModel):
+class SLMNUFFTAffine(SLMFourierLensModel):
     def __init__(
         self,
         virtual_slm: VirtualSLM,
@@ -22,6 +22,13 @@ class SLMNUFFTAffine(SLMCameraModel):
         device: str = "cpu",
         verbose: bool = False,
     ) -> None:
+        self.camera_data = camera_data
+        self.device_name = device
+        self.verbose = verbose
+        self.camera_angle = camera_angle
+        self.camera_shift = camera_shift
+        self.focal_length = focal_length
+
         camera_resolution = tuple(camera_data.shape[i] for i in range(2))
         camera_pixel_size = tuple(
             camera_data.pitch_um[i] * 1e-6 for i in range(2)
@@ -69,3 +76,15 @@ class SLMNUFFTAffine(SLMCameraModel):
                 ("affine_transform", affine_transform),
             ])
         )
+
+    def get_checkpoint_spec(self) -> dict[str, object]:
+        return {
+            "virtual_slm": self.virtual_slm,
+            "camera_data": self.camera_data,
+            "focal_length": self.focal_length,
+            "constant_field_slm": self.constant_field.init_field,
+            "camera_angle": self.camera_angle,
+            "camera_shift": self.camera_shift,
+            "device": self.device_name,
+            "verbose": self.verbose,
+        }

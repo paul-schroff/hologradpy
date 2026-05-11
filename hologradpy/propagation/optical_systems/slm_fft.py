@@ -1,45 +1,40 @@
-from collections import OrderedDict
 import torch
+
+from ..complex_amplitude import FieldGeometry, ComplexAmplitude
 
 from ..propagators import FourierLensFFT
 from ..elements import ConstantSLMField
 from ..virtual_slms.abstract import VirtualSLM
 
-from .abstract import SLMCameraModel
+from .abstract import OpticalSystem
 
+class SLMFFT(OpticalSystem):
+    virtual_slm: VirtualSLM
+    constant_field: ConstantSLMField
+    fourier_lens: FourierLensFFT
 
-class SLMFFT(SLMCameraModel):
     def __init__(
         self,
-        virtual_slm: VirtualSLM,
+        input_geometry: FieldGeometry,
         focal_length: float,
-        constant_field_slm: torch.Tensor,
+        constant_field_slm: ComplexAmplitude,
+        init_phase: torch.Tensor | None = None,
         padded_resolution: tuple[int, int] = (2048, 2048),
-        device: str = "cpu",
     ) -> None:
-        # Create constant field module
-        constant_field = ConstantSLMField(
-            init_field=constant_field_slm,
-            pixel_pitch=virtual_slm.pixel_size_in[0],
-            device=device,
-        )
-
-        # Create the Fourier lens module
-        fourier_lens = FourierLensFFT(
-            focal_length=focal_length,
-            wavelength=virtual_slm.wavelength,
-            resolution_in=virtual_slm.resolution_in,
-            pixel_pitch_in=virtual_slm.pixel_size_in[0],
-            padded_resolution=padded_resolution,
-            device=device,
-            fft_kwargs={"norm": "ortho"},
-        )
-
-        # Adding modules to the nn.Sequential container in the desired order.
         super().__init__(
-            OrderedDict([
-                ("virtual_slm", virtual_slm),
-                ("constant_field", constant_field),
-                ("fourier_lens", fourier_lens),
-            ])
+            input_geometry=input_geometry,
+            virtual_slm=VirtualSLM(phase_scaling=1.0, init_phase=init_phase),
+            constant_field=ConstantSLMField(constant_field_slm),
+            fourier_lens=FourierLensFFT(
+                focal_length, padded_resolution=padded_resolution
+            ),
         )
+
+    def get_checkpoint_spec(self) -> dict[str, object]:
+        return {
+            "input_geometry": self.input_geometry,
+            "focal_length": float(self.fourier_lens.focal_length.item()),
+            "constant_field_slm": self.constant_field.init_field,
+            "init_phase": self.virtual_slm.init_phase,
+            "padded_resolution": self.fourier_lens._padded_resolution_init,
+        }
