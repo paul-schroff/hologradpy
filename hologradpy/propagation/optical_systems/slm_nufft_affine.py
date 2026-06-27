@@ -6,7 +6,7 @@ from ..diagonal_elements import StaticSLMField
 from ..geometric_transforms import PartialAffineTransform
 from ..virtual_slms.abstract import VirtualSLM
 
-from ...hardware.utils import CameraData
+from ...hardware.camera_data import CameraData
 
 from .abstract import SLMFourierLensModel
 

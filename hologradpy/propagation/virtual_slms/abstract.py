@@ -10,7 +10,7 @@ from ..utils.tensor_utils import unsqueeze_to
 from ..optics_module import OpticsModule
 from ..complex_amplitude import ComplexAmplitude
 
-from ...hardware.utils import SLMData
+from ...hardware.slm_data import SLMData
 
 from slmsuite.hardware.slms.slm import SLM
 
