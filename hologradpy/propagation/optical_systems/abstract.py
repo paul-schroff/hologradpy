@@ -143,14 +143,7 @@ class OpticalSystem(nn.Module):
 
             checkpoint_class_name = checkpoint.get("class_name")
             spec = dict(checkpoint.get("spec", checkpoint.get("init_kwargs", {})))
-            checkpoint_version = checkpoint.get("version", cls.checkpoint_version)
             state_dict = checkpoint["state_dict"]
-
-        if checkpoint_version != cls.checkpoint_version:
-            raise ValueError(
-                f"Checkpoint version {checkpoint_version} is not supported by "
-                f"{cls.__name__} (expected {cls.checkpoint_version})."
-            )
 
         if checkpoint_class_name is not None and checkpoint_class_name != cls.__name__:
             raise ValueError(
