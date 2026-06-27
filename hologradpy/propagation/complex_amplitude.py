@@ -170,6 +170,10 @@ class ComplexAmplitude(Tensor):
     @property
     def wavelength(self) -> Tensor:
         return self.geometry.wavelength
+    
+    @property
+    def number_of_wavelengths(self) -> int:
+        return self.geometry.number_of_wavelengths
 
     @property
     def wavenumber(self) -> Tensor:
