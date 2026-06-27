@@ -18,6 +18,47 @@ from .utils.fourier_utils import get_spatial_grid
 
 
 @dataclass(frozen=True)
+class BatchSpec:
+    """Records the leading-dimension layout of a :class:`ComplexAmplitude`.
+
+    A field is canonically laid out as ``(*batch, wavelength, H, W)`` where the
+    wavelength axis is always at ``dim=-3`` and everything before it is batch.
+    To run a fixed-rank operation (e.g. kornia ``warp_perspective`` or
+    ``torchkbnufft``) the batch dimensions are collapsed into a single leading
+    axis, giving canonical ``(N, n_wavelengths, H, W)``. ``BatchSpec`` captures
+    enough information to restore the original rank afterwards.
+    """
+    leading_shape: tuple[int, ...]
+    original_ndim: int
+
+
+class _WrapperToTensor(torch.autograd.Function):
+    """Convert a :class:`ComplexAmplitude` to a plain ``Tensor`` on-graph.
+
+    When a field is produced by an ``OpticsModule`` (i.e. via
+    ``__torch_dispatch__``), the autograd graph lives on the outer wrapper
+    while the inner ``_data`` tensor is detached. Reading ``_data`` directly
+    would therefore silently break gradient flow. This ``Function`` returns
+    the inner values as a plain tensor in forward and routes the incoming
+    gradient back through the wrapper (re-wrapped with the field geometry) in
+    backward, so the result is a genuine real/complex tensor that still
+    participates in optimization.
+    """
+
+    @staticmethod
+    def forward(ctx, field: "ComplexAmplitude") -> Tensor:
+        ctx.geometry = field.geometry
+        return field._data
+
+    @staticmethod
+    def backward(ctx, grad: Tensor) -> "ComplexAmplitude":
+        geometry = ctx.geometry
+        return ComplexAmplitude(
+            grad, geometry.wavelength, geometry.pixel_size
+        )
+
+
+@dataclass(frozen=True)
 class FieldGeometry:
     wavelength: Tensor
     pixel_size: Tensor
@@ -187,23 +228,59 @@ class ComplexAmplitude(Tensor):
         return self.geometry.resolution
 
     @property
+    def batch_shape(self) -> tuple[int, ...]:
+        """Leading batch dimensions preceding ``(wavelength, H, W)``.
+
+        Returns an empty tuple for 2D ``(H, W)`` and 3D ``(wavelength, H, W)``
+        fields, which carry no batch dimensions.
+        """
+        if self.ndim <= 3:
+            return ()
+        return tuple(self.shape[:-3])
+
+    @property
     def spatial_extent(self) -> Tensor:
         return self.geometry.spatial_extent
     
     def get_spatial_grid(self) -> tuple[Tensor, Tensor]:
         return self.geometry.get_spatial_grid()
 
+    def as_tensor(self) -> Tensor:
+        """Return the underlying complex field as a plain ``torch.Tensor``,
+        preserving the autograd graph wherever it lives.
+
+        Prefer this over ``._data`` when building a differentiable loss: a 
+        field produced by an ``OpticsModule`` keeps its graph on the wrapper, 
+        so ``._data`` is detached and would break gradient flow.
+        """
+        if self._data.requires_grad:
+            # Field built directly from graph-carrying data; the inner tensor 
+            # is already on the graph.
+            return self._data
+        if self.requires_grad:
+            # Field produced via dispatch; the graph lives on the wrapper.
+            return _WrapperToTensor.apply(self)
+        return self._data
+
     @property
     def phase(self) -> Tensor:
-        return torch.angle(self._data)
+        """Real-valued phase ``arg(E)``, differentiable and on-graph."""
+        return torch.angle(self.as_tensor())
 
     @property
     def amplitude(self) -> Tensor:
-        return torch.abs(self._data)
+        """Real-valued amplitude ``|E|``, differentiable and on-graph."""
+        return self.as_tensor().abs()
 
     @property
     def intensity(self) -> Tensor:
-        return self.amplitude ** 2
+        """Real-valued intensity ``|E|**2``, differentiable and on-graph.
+
+        Computed as ``real**2 + imag**2`` to avoid the gradient singularity of
+        ``abs()`` at zero field.
+        """
+        field = self.as_tensor()
+        return field.real ** 2 + field.imag ** 2
 
     def numpy(self) -> NDArray[np.complex_]:
         return self._data.detach().cpu().numpy()
@@ -284,6 +361,70 @@ class ComplexAmplitude(Tensor):
         # restrictions while keeping the autograd graph intact.
         object.__setattr__(self, "geometry", new_geometry)
         return self
+
+    def flatten_batch(self) -> tuple[Tensor, BatchSpec]:
+        """Collapse all batch dimensions into a single leading axis.
+
+        Returns the underlying tensor reshaped to canonical
+        ``(N, n_wavelengths, H, W)`` form together with a :class:`BatchSpec`
+        describing the original layout. This is the entry point for ND batch
+        support in fixed-rank ``OpticsModule`` implementations: flatten, run 
+        the fixed-rank operation, then restore with :meth:`unflatten_batch`.
+
+        Returns:
+            tuple[Tensor, BatchSpec]: The ``(N, n_wavelengths, H, W)`` tensor
+            (a view of ``self._data``) and the spec needed to restore rank.
+        """
+        height, width = self.resolution
+        n_wavelengths = self.number_of_wavelengths
+
+        if self.ndim == 2:
+            spec = BatchSpec(leading_shape=(), original_ndim=2)
+            return self._data.reshape(1, 1, height, width), spec
+
+        spec = BatchSpec(
+            leading_shape=tuple(self.shape[:-3]), original_ndim=self.ndim
+        )
+        return self._data.reshape(-1, n_wavelengths, height, width), spec
+
+    @classmethod
+    def unflatten_batch(
+        cls,
+        data: Tensor,
+        spec: BatchSpec,
+        wavelength: float | Tensor,
+        pixel_size: tuple[float, float] | Tensor,
+    ) -> ComplexAmplitude:
+        """Restore a canonical ``(N, n_wavelengths, H, W)`` tensor to the rank
+        recorded in ``spec`` and wrap it as a :class:`ComplexAmplitude`.
+
+        Inverse of :meth:`flatten_batch`. The output spatial resolution is 
+        taken from ``data`` so it may differ from the input (e.g. after a 
+        resampling propagator), while batch and wavelength dimensions are 
+        preserved.
+
+        Args:
+            data: Tensor shaped ``(N, n_wavelengths, H_out, W_out)``.
+            spec: Layout captured by :meth:`flatten_batch`.
+            wavelength: Output wavelength(s).
+            pixel_size: Output pixel size(s).
+
+        Returns:
+            ComplexAmplitude: Field with the same rank as the original input.
+        """
+        n_wavelengths = data.shape[1]
+        height_out, width_out = data.shape[-2:]
+
+        if spec.original_ndim == 2:
+            out = data.reshape(height_out, width_out)
+        elif spec.original_ndim == 3:
+            out = data.reshape(n_wavelengths, height_out, width_out)
+        else:
+            out = data.reshape(
+                *spec.leading_shape, n_wavelengths, height_out, width_out
+            )
+
+        return cls(out, wavelength, pixel_size)
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args=(), kwargs=None):
