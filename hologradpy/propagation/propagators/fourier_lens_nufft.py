@@ -6,7 +6,7 @@ import torch
 from torch import Tensor
 from torch.nn import Parameter
 
-from torchkbnufft import KbNufft
+from torchkbnufft import KbNufft, KbNufftAdjoint
 
 from ..utils.fourier_utils import get_frequency_grid
 
@@ -131,6 +131,14 @@ class FourierLensNUFFT(OpticsModule):
             **self.nufft_kwargs,
         )
 
+        self._kbnufft_adjoint: KbNufftAdjoint = KbNufftAdjoint(
+            im_size=complex_amplitude.resolution,
+            grid_size=self._padded_resolution,
+            device=complex_amplitude.device,
+            dtype=complex_amplitude.dtype_r,
+            **self.nufft_kwargs,
+        )
+
         frequency_grid: tuple[Float[Tensor, "h w"], Float[Tensor, "h w"]] = (
             get_frequency_grid(
                 self.resolution_out,
@@ -216,6 +224,25 @@ class FourierLensNUFFT(OpticsModule):
 
         return torch.stack(frequencies_transformed, dim=0)
 
+    def _batched_k_trajectory(
+        self: FourierLensNUFFT,
+        number_of_images: int,
+        number_of_wavelengths: int,
+    ) -> Float[Tensor, "n_images_wl 2 hw"]:
+        """Tile the per-wavelength k-space trajectory across the batch images.
+
+        The stored trajectory is ``(2, n_wl, hw)``; this returns
+        ``(n_images * n_wl, 2, hw)`` with wavelength alignment matching the
+        row-major (image, wavelength) flattening used by ``flatten_batch``.
+        """
+        k_traj: Float[Tensor, "n_wl 2 hw"] = (
+            self.frequencies_transformed.moveaxis(0, 1)
+        )
+        k_traj = k_traj.unsqueeze(0).expand(number_of_images, -1, -1, -1)
+        return k_traj.reshape(
+            number_of_images * number_of_wavelengths, 2, -1
+        )
+
     def forward(
         self: FourierLensNUFFT,
         complex_amplitude: ComplexAmplitude,
@@ -241,15 +268,8 @@ class FourierLensNUFFT(OpticsModule):
             *complex_amplitude.resolution,
         )
 
-        # k-space trajectory is per-wavelength: (2, n_wl, hw) -> (n_wl, 2, hw).
-        # Tile it across the batch images, keeping wavelength alignment with
-        # the row-major (image, wavelength) flattening of ``input_field``.
-        k_traj: Float[Tensor, "n_wl 2 hw"] = (
-            self.frequencies_transformed.moveaxis(0, 1)
-        )
-        k_traj = k_traj.unsqueeze(0).expand(number_of_images, -1, -1, -1)
-        k_traj = k_traj.reshape(
-            number_of_images * number_of_wavelengths, 2, -1
+        k_traj = self._batched_k_trajectory(
+            number_of_images, number_of_wavelengths
         )
 
         output_field: Float[Tensor, "n_images_wl 1 hw"] = self._kbnufft(
@@ -269,4 +289,50 @@ class FourierLensNUFFT(OpticsModule):
             batch_spec,
             complex_amplitude.wavelength,
             self.pixel_size_out,
+        )
+
+    def adjoint(
+        self: FourierLensNUFFT,
+        complex_amplitude: ComplexAmplitude,
+    ) -> ComplexAmplitude:
+        """Adjoint NUFFT mapping an output-plane field back to the input plane.
+
+        This is the conjugate transpose of :meth:`forward` (via
+        ``KbNufftAdjoint``), not its inverse. The input is a field sampled on
+        the output grid ``(*batch, n_wl, H_out, W_out)``; the output lives in
+        the input plane with ``resolution_in`` / ``pixel_size_in``. Requires a
+        prior ``forward`` call to have lazily initialised the module.
+        """
+        number_of_wavelengths = complex_amplitude.number_of_wavelengths
+
+        # Collapse batch dims and flatten the output-plane image into the
+        # k-space sample axis: (n_images * n_wl, 1, hw).
+        flat_field, batch_spec = complex_amplitude.flatten_batch()
+        number_of_images = flat_field.shape[0]
+
+        samples: Float[Tensor, "n_images_wl 1 hw"] = flat_field.reshape(
+            number_of_images * number_of_wavelengths, 1, -1
+        )
+
+        k_traj = self._batched_k_trajectory(
+            number_of_images, number_of_wavelengths
+        )
+
+        input_field: Float[Tensor, "n_images_wl 1 h w"] = (
+            self._kbnufft_adjoint(samples, k_traj)
+        )
+
+        # Restore canonical (N, n_wavelengths, H_in, W_in) layout.
+        input_field = input_field.reshape(
+            number_of_images,
+            number_of_wavelengths,
+            self.resolution_in[0],
+            self.resolution_in[1],
+        )
+
+        return ComplexAmplitude.unflatten_batch(
+            input_field,
+            batch_spec,
+            complex_amplitude.wavelength,
+            self.pixel_size_in,
         )
