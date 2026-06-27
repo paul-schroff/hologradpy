@@ -1,57 +1,10 @@
 import numpy as np
 from numpy.typing import NDArray
 
-from scipy.spatial import Delaunay
-
-from scipy.sparse import lil_matrix, csr_matrix
-from scipy.sparse.linalg import lsqr, spsolve
+from scipy.sparse import csr_matrix
+from scipy.sparse.linalg import spsolve
 
 from scipy.ndimage import distance_transform_edt
-
-
-def wrap(x: NDArray[np.float_]) -> NDArray[np.float_]:
-    return (x + np.pi) % (2 * np.pi) - np.pi
-
-
-def unwrap_nonuniform(
-    x: NDArray[np.float_],
-    y: NDArray[np.float_],
-    phase: NDArray[np.float_],
-) -> NDArray[np.float_]:
-    points = np.column_stack([x, y])
-    number_of_points = len(phase)
-
-    # Build Delaunay triangulation to find neighbours
-    tessellation = Delaunay(points)
-    edges = set()
-    for simplex in tessellation.simplices:
-        for a, b in [(0, 1), (1, 2), (0, 2)]:
-            i, j = simplex[a], simplex[b]
-            edges.add((min(i, j), max(i, j)))
-    edges = list(edges)
-
-    number_of_edges = len(edges)
-
-    # Build system
-    A = lil_matrix((number_of_edges, number_of_points))
-    b = np.zeros(number_of_edges)
-
-    for k, (i, j) in enumerate(edges):
-        distance = np.sqrt((x[i] - x[j]) ** 2 + (y[i] - y[j]) ** 2)
-
-        weight = 1.0 / distance
-
-        A[k, j] = weight
-        A[k, i] = -weight
-        b[k] = weight * wrap(phase[j] - phase[i])
-
-    # Fix one point (removes gauge freedom)
-    A[0, :] = 0
-    A[0, 0] = 1
-    b[0] = phase[0]
-
-    phi, *_ = lsqr(A.tocsr(), b)
-    return phi
 
 
 def inpaint(

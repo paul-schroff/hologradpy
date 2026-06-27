@@ -1,19 +1,22 @@
 import numpy as np
 from numpy.typing import NDArray
 
-from .. import patterns as pt
 
 
 def tilt(
     xy: tuple[NDArray, NDArray], *args: float, mask: NDArray | None = None
 ) -> NDArray:
-    """
-    Fit function containing the first three Zernike polynomials of the form
-    z = c0 + c1 * x + c2 * y + c3 * 2xy.
+    """Fit function for the first Zernike terms (piston and tilt) of the form
+    ``c0 + c1*x + c2*y + c3*2*x*y``.
 
-    :param xy: x, y coordinate vectors.
-    :param args: Vector of length 4, containing Zernike coefficients.
-    :return: First 3 Zernike polynomials.
+    Args:
+        xy (tuple[NDArray, NDArray]): ``(x, y)`` coordinate vectors.
+        *args (float): The four coefficients ``(c0, c1, c2, c3)``.
+        mask (NDArray | None, optional): Mask multiplied into the output.
+            Defaults to all ones.
+
+    Returns:
+        NDArray: The evaluated tilt surface.
     """
     if mask is None:
         mask = np.ones_like(xy[0])
@@ -22,19 +25,6 @@ def tilt(
     c = np.array(args)
     arr = c[0] + c[1] * x + c[2] * y + c[3] * 2 * x * y
     return arr * mask
-
-
-def gaussian(xy: tuple[NDArray, NDArray], *args: float) -> NDArray:
-    """
-    Gaussian fit function.
-
-    :param xy: x, y coordinate vectors.
-    :param args: Fitting parameters passed to patterns.gaussian.
-    :return: Gaussian.
-    """
-    x, y = xy
-    arr = pt.gaussian(x, y, *args)
-    return arr
 
 
 def interferometric_fringes(

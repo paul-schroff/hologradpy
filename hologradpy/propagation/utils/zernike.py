@@ -300,13 +300,79 @@ class Zernike:
         )
 
     def get_phase(self, coefficients: torch.Tensor) -> torch.Tensor:
-        if coefficients.shape[0] != self.number_of_zernikes:
+        """Reconstruct a phase from Zernike coefficients (inverse of
+        :meth:`fit`).
+
+        Args:
+            coefficients (torch.Tensor): Coefficients of shape
+                ``(*batch, number_of_zernikes)``.
+
+        Returns:
+            torch.Tensor: Phase of shape ``(*batch, H, W)``.
+        """
+        if coefficients.shape[-1] != self.number_of_zernikes:
             raise ValueError(
                 f"Number of coefficients must match the number of Zernike "
                 f"polynomials. Expected {self.number_of_zernikes}, got "
-                f"{coefficients.shape[0]}."
+                f"{coefficients.shape[-1]}."
             )
-        return torch.tensordot(coefficients, self.zernike_array, dims=([0], [0]))
+        return torch.einsum(
+            "...c,chw->...hw",
+            coefficients,
+            self.zernike_array.to(coefficients.dtype),
+        )
+
+    def fit(
+        self,
+        phase: torch.Tensor,
+        mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Fit Zernike coefficients to a measured phase (inverse of
+        :meth:`get_phase`).
+
+        Solves a masked, weighted linear least-squares problem (via the normal
+        equations) for the coefficients that best reconstruct ``phase`` from
+        the Zernike basis. Any leading dimensions of ``phase`` (e.g. batch and
+        wavelength) are fitted independently. Because the basis is sampled on a
+        discrete, masked grid it is not perfectly orthonormal, so the fit is a
+        least-squares solve rather than a direct projection.
+
+        Args:
+            phase (torch.Tensor): Measured phase of shape ``(*batch, H, W)``.
+            mask (torch.Tensor | None, optional): Mask of the pixels to fit
+                over, broadcastable to ``phase`` (e.g. ``(H, W)`` shared,
+                ``(n_wavelengths, H, W)`` per wavelength, or ``(*batch, H, W)``
+                per sample). Combined with the unit-disk mask. Defaults to the
+                unit disk only.
+
+        Returns:
+            torch.Tensor: Coefficients of shape
+            ``(*batch, number_of_zernikes)``.
+        """
+        number_of_pixels = self.resolution[0] * self.resolution[1]
+        basis = self.zernike_array.reshape(
+            self.number_of_zernikes, number_of_pixels
+        ).to(torch.float64)
+
+        phase_flat = phase.reshape(*phase.shape[:-2], number_of_pixels).to(
+            torch.float64
+        )
+
+        weight = self.mask.reshape(number_of_pixels).to(torch.float64)
+        if mask is not None:
+            weight = weight * mask.reshape(
+                *mask.shape[:-2], number_of_pixels
+            ).to(torch.float64)
+
+        # Weighted normal equations (A^T W A) c = A^T W b, W = diag(weight).
+        weighted_basis = weight[..., None, :] * basis
+        normal_matrix = weighted_basis @ basis.transpose(-1, -2)
+        rhs = torch.einsum("...mp,...p->...m", weighted_basis, phase_flat)
+
+        coefficients = torch.linalg.solve(
+            normal_matrix, rhs.unsqueeze(-1)
+        ).squeeze(-1)
+        return coefficients.to(phase.dtype)
 
 
 def make_per_wavelength_coefficients(

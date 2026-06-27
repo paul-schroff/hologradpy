@@ -11,7 +11,8 @@ from scipy.ndimage import gaussian_filter
 from . import SuperpixelSlicer
 
 from ..abstract import WavefrontCalibratorBase, WavefrontCalibrationData
-from ..utils import unwrap_nonuniform, inpaint
+from ..utils import inpaint
+from ....analysis.unwrapping import unwrap_nonuniform
 
 from ...camera_mapping.utils import get_diffraction_spot_position
 from ....propagation.utils.fourier_utils import get_spatial_grid

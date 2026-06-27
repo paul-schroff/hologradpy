@@ -6,14 +6,15 @@ from typing import Callable, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
+import torch
 from scipy.ndimage import gaussian_filter
 from scipy.optimize import curve_fit
 
-from .. import patterns as pt
 
-from .functions import tilt, interferometric_fringes
+from .functions import interferometric_fringes
 
 from ..propagation.utils.optics_utils import gaussian_beam_intensity
+from ..propagation.utils.zernike import Zernike
 
 
 def curve_fit_2d(
@@ -34,28 +35,36 @@ def curve_fit_2d(
     return popt, pcov
 
 
-def remove_tilt(img: NDArray, mask: NDArray | None = None) -> NDArray:
+def remove_tilt(phase: NDArray, mask: NDArray | None = None) -> NDArray:
+    """Fit and subtract piston and tilt from an image.
+
+    Fits the first three Zernike modes (piston and tip/tilt) to ``phase`` over
+    the region defined by ``mask`` as a linear least-squares problem and
+    subtracts the fitted surface. Higher-order modes (defocus, astigmatism,
+    ...) are left untouched.
+
+    Args:
+        phase (NDArray): Input phase.
+        mask (NDArray | None, optional): Boolean mask of the region to fit
+            over. Defaults to the whole image.
+
+    Returns:
+        NDArray: Phase with piston and tilt removed.
     """
-    This function removes fits the first three Zernike polynomials (Piston and
-    tilt) to an image and subtracts the
-    fitted function from the original image.
-    :param ndarray img: Input image.
-    :param ndarray mask: Binary mask in which to remove tilt.
-    :return: Image without tilt.
-    """
-    if mask is None:
-        mask = np.ones_like(img)
+    # Radial orders 0 and 1 are piston and tip/tilt (the first three Zernike
+    # modes); ``"fill"`` covers the whole image, not just the inscribed disk.
+    zernike = Zernike(
+        resolution=phase.shape,
+        number_of_radial_orders=2,
+        unit_disk_mode="fill",
+    )
 
-    def tilt_mask(xy: tuple[NDArray, NDArray], *args: float) -> NDArray:
-        return tilt(xy, *args, mask=mask.ravel())
+    phase_tensor = torch.as_tensor(phase, dtype=torch.float64)
+    mask_tensor = None if mask is None else torch.as_tensor(mask, dtype=bool)
 
-    x_, y_ = pt.make_grid(img)
-    xdata = np.vstack((x_.ravel(), y_.ravel()))
-    p0 = np.zeros(4)
-
-    p_opt, p_cov = curve_fit(tilt_mask, xdata, img.ravel(), p0)
-    img_tilt = np.reshape(tilt(xdata, *p_opt), img.shape)
-    return img - img_tilt
+    coefficients = zernike.fit(phase_tensor, mask=mask_tensor)
+    fitted = zernike.get_phase(coefficients).numpy()
+    return phase - fitted
 
 
 def fit_gaussian_beam_intensity(

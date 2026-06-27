@@ -1,5 +1,5 @@
 from .analysis import error_metrics, fitting
-from .holography import phase_retrieval, loss_functions, camera_feedback
+from .holography import phase_retrieval, loss_functions
 from .propagation import (
     diagonal_elements,
     geometric_transforms,
@@ -12,5 +12,3 @@ from .propagation.utils import (
     optics_utils,
     fourier_utils,
 )
-from .hardware import hardware
-from . import patterns

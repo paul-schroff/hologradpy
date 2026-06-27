@@ -272,6 +272,118 @@ def get_focal_spot_radius(
     return (wavelength * focal_length) / (torch.pi * beam_radius)
 
 
+def super_gaussian(
+    x: ArrayLike,
+    y: ArrayLike,
+    shift_x: int,
+    shift_y: int,
+    number_of_pixels_x: int,
+    number_of_pixels_y: int,
+    sigma_x: float,
+    sigma_y: float,
+    amplitude: float = 1.0,
+    offset: float = 0.0,
+) -> ArrayLike:
+    """2D super-Gaussian intensity distribution.
+
+    Args:
+        x (ArrayLike): X meshgrid.
+        y (ArrayLike): Y meshgrid.
+        shift_x (int): X-offset of the Gaussian.
+        shift_y (int): Y-offset of the Gaussian.
+        number_of_pixels_x (int): X-order.
+        number_of_pixels_y (int): Y-order.
+        sigma_x (float): X-width.
+        sigma_y (float): Y-width.
+        amplitude (float, optional): Amplitude. Defaults to 1.0.
+        offset (float, optional): Offset. Defaults to 0.0.
+
+    Returns:
+        ArrayLike: 2D super-Gaussian.
+    """
+    xp = array_namespace(x, y)
+    return (
+        amplitude
+        * xp.exp(-2 * (xp.abs(x - shift_x) / sigma_x) ** number_of_pixels_x)
+        * xp.exp(-2 * (xp.abs(y - shift_y) / sigma_y) ** number_of_pixels_y)
+        + offset
+    )
+
+
+def gaussian_spot_array(
+    x: ArrayLike,
+    y: ArrayLike,
+    number_of_rows: int,
+    number_of_columns: int,
+    shift_x: int,
+    shift_y: int,
+    spot_separation: float,
+    beam_radius: float,
+) -> ArrayLike:
+    """Array of Gaussian spots with equal spacing.
+
+    Args:
+        x (ArrayLike): X coordinates.
+        y (ArrayLike): Y coordinates.
+        number_of_rows (int): Number of array rows.
+        number_of_columns (int): Number of array columns.
+        shift_x (int): X-offset of the array.
+        shift_y (int): Y-offset of the array.
+        spot_separation (float): Separation between neighbouring spots.
+        beam_radius (float): Beam radius of the Gaussian spots.
+
+    Returns:
+        ArrayLike: Spot array.
+    """
+    xp = array_namespace(x, y)
+
+    spots = xp.zeros_like(x)
+    vertical_extent = (number_of_rows - 1) * spot_separation
+    horizontal_extent = (number_of_columns - 1) * spot_separation
+
+    for i in range(number_of_rows):
+        for j in range(number_of_columns):
+            spots = spots + gaussian_beam_intensity(
+                x,
+                y,
+                beam_radius,
+                shift_x=j * spot_separation - horizontal_extent // 2 - shift_y,
+                shift_y=i * spot_separation - vertical_extent // 2 - shift_x,
+            )
+    return spots
+
+
+def ring_gauss(
+    x: ArrayLike,
+    y: ArrayLike,
+    shift_x: int,
+    shift_y: int,
+    radius: float,
+    ring_sigma: float,
+    amplitude: float = 1.0,
+) -> ArrayLike:
+    """Ring with a Gaussian radial profile.
+
+    Args:
+        x (ArrayLike): X meshgrid.
+        y (ArrayLike): Y meshgrid.
+        shift_x (int): X-offset of the ring.
+        shift_y (int): Y-offset of the ring.
+        radius (float): Radius of the ring.
+        ring_sigma (float): Width of the Gaussian profile.
+        amplitude (float, optional): Amplitude. Defaults to 1.0.
+
+    Returns:
+        ArrayLike: Ring with a Gaussian profile.
+    """
+    xp = array_namespace(x, y)
+    return amplitude * xp.exp(
+        -2
+        * (xp.sqrt((x - shift_x) ** 2 + (y - shift_y) ** 2) - radius) ** 2
+        / ring_sigma ** 2
+    )
+
+
 # %% Binary aperture functions
 def rectangular_mask(
     x: ArrayLike,
