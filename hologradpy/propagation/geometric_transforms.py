@@ -8,7 +8,7 @@ from torch.nn import Parameter
 from kornia.geometry.transform import get_affine_matrix2d
 from kornia.geometry import warp_perspective
 
-from .utils.tensor_utils import unsqueeze_to
+from ..utils import unsqueeze_to
 from .optics_module import OpticsModule, SaveDict
 from .complex_amplitude import ComplexAmplitude
 

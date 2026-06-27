@@ -8,7 +8,7 @@ from ..complex_amplitude import (
     ComplexAmplitude,
     broadcast_wavelength_operand,
 )
-from ..utils.zernike import (
+from ..zernike import (
     Zernike,
     Conventions,
     make_per_wavelength_coefficients,

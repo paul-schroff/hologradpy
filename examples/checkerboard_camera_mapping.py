@@ -12,8 +12,8 @@ from hologradpy.propagation.diagonal_elements import StaticSLMField
 from hologradpy.propagation.virtual_slms import VirtualSLM
 from hologradpy.propagation.complex_amplitude import ComplexAmplitude, FieldGeometry
 
-from hologradpy.propagation.utils.optics_utils import gaussian_beam_intensity
-from hologradpy.propagation.utils.tensor_utils import get_device
+from hologradpy.propagation.amplitude_profiles import gaussian_beam_intensity
+from hologradpy.utils import get_device
 
 device = get_device(verbose=True)
 data_path = "data/"

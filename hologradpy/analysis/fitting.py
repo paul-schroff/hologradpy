@@ -13,8 +13,8 @@ from scipy.optimize import curve_fit
 
 from .functions import interferometric_fringes
 
-from ..propagation.utils.optics_utils import gaussian_beam_intensity
-from ..propagation.utils.zernike import Zernike
+from ..propagation.amplitude_profiles import gaussian_beam_intensity
+from ..propagation.zernike import Zernike
 
 
 def curve_fit_2d(

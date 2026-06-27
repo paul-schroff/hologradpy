@@ -7,7 +7,7 @@ from slmsuite.hardware.slms.slm import SLM
 
 from ..propagation.complex_amplitude import FieldGeometry
 from ..propagation.virtual_slms import VirtualSLM
-from ..propagation.utils.fourier_utils import get_spatial_grid
+from ..propagation.fourier import get_spatial_grid
 
 
 class SimulatedSLMTorch(SLM):

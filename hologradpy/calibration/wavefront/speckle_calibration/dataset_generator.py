@@ -22,9 +22,9 @@ from ..abstract import WavefrontCalibrationData
 
 from ...camera_mapping import CameraMapping
 
-from ....propagation.utils.optics_utils import circular_mask
-from ....propagation.utils.tensor_utils import get_device, find_roi
-from ....propagation.utils.fourier_utils import get_spatial_grid
+from ....propagation.amplitude_profiles import circular_mask
+from ....utils import get_device, find_roi
+from ....propagation.fourier import get_spatial_grid
 from ....propagation.optical_systems import SLMFourierLensModel
 from ....propagation.propagators import FourierLensFFT
 from ....propagation.virtual_slms import VirtualSLM

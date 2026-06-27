@@ -15,10 +15,10 @@ from ..utils import inpaint
 from ....analysis.unwrapping import unwrap_nonuniform
 
 from ...camera_mapping.utils import get_diffraction_spot_position
-from ....propagation.utils.fourier_utils import get_spatial_grid
-from ....propagation.utils.optics_utils import linear_phase
+from ....propagation.fourier import get_spatial_grid
+from ....propagation.phase_profiles import linear_phase
 
-from ....propagation.utils.tensor_utils import gpu_to_numpy
+from ....utils import gpu_to_numpy
 
 from ....analysis.fitting import (
     interferometric_fringes,

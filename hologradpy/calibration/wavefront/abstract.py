@@ -13,7 +13,7 @@ from slmsuite.hardware.slms.slm import SLM
 from slmsuite.hardware.cameras.camera import Camera
 
 from ...propagation.complex_amplitude import ComplexAmplitude
-from ...propagation.utils.optics_utils import get_spatial_grid
+from ...propagation.fourier import get_spatial_grid
 
 from ...analysis.fitting import fit_gaussian_beam_intensity
 

@@ -5,7 +5,7 @@ import torch
 from torch import nn, Tensor
 
 from .complex_amplitude import ComplexAmplitude, FieldGeometry
-from .utils.fourier_utils import get_spatial_grid
+from .fourier import get_spatial_grid
 
 
 class SaveDict(TypedDict):

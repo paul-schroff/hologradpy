@@ -8,7 +8,7 @@ from torch.nn import Parameter
 
 from torchkbnufft import KbNufft, KbNufftAdjoint
 
-from ..utils.fourier_utils import get_frequency_grid
+from ..fourier import get_frequency_grid
 
 from ..optics_module import OpticsModule
 from ..complex_amplitude import ComplexAmplitude

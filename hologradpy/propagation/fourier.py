@@ -10,7 +10,7 @@ from torch.fft import fftn, ifftn, fftshift, ifftshift
 
 import torchkbnufft as tkbn
 
-from .tensor_utils import unsqueeze_to
+from ..utils import unsqueeze_to
 
 
 # %% Utility functions

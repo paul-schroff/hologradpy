@@ -25,7 +25,7 @@ from ..dataset_transforms import (
 
 from .....propagation.virtual_slms import VirtualSLM
 from .....propagation.optical_systems import SLMNUFFTAffine
-from .....propagation.utils.tensor_utils import unsqueeze_to
+from .....utils import unsqueeze_to
 
 
 class SmoothWavefrontTrainer(PropagationTrainer):

@@ -9,7 +9,7 @@ import torch
 from slmsuite.hardware.cameras.camera import Camera
 
 from ..propagation.optical_systems import SLMFourierLensModel
-from ..propagation.utils.tensor_utils import gpu_to_numpy, crop_to_roi
+from ..utils import gpu_to_numpy, crop_to_roi
 
 
 class SimulatedCameraTorch(Camera):

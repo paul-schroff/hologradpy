@@ -1,7 +1,7 @@
 from typing import Literal
 import torch
 
-from .fourier_utils import get_pixel_grid
+from .fourier import get_pixel_grid
 
 Conventions = Literal["OSA", "ANSI", "Noll", "Fringe", "Arizona", "Wyant"]
 

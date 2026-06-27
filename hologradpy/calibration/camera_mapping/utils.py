@@ -4,15 +4,15 @@ from numpy.typing import NDArray
 from slmsuite.hardware.slms.slm import SLM
 from slmsuite.hardware.cameras.camera import Camera
 
-from ...propagation.utils.optics_utils import (
+from ...propagation.phase_profiles import linear_phase
+from ...propagation.amplitude_profiles import (
     circular_mask,
-    linear_phase,
     get_focal_spot_radius,
 )
 
 from ...analysis.fitting import fit_gaussian_beam_intensity
-from ...propagation.utils.fourier_utils import get_spatial_grid
-from ...propagation.utils.tensor_utils import gpu_to_numpy
+from ...propagation.fourier import get_spatial_grid
+from ...utils import gpu_to_numpy
 
 
 # TODO: Reformat docstrings.

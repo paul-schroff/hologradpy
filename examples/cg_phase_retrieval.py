@@ -2,13 +2,13 @@
 import matplotlib.pyplot as plt
 
 from hologradpy.holography.phase_retrieval import CGPhaseRetriever
-from hologradpy.propagation.utils.optics_utils import (
+from hologradpy.propagation.phase_profiles import lens_phase
+from hologradpy.propagation.amplitude_profiles import (
     gaussian_beam_intensity,
-    lens_phase,
     rectangular_mask,
     gaussian_blur,
 )
-from hologradpy.propagation.utils.tensor_utils import (
+from hologradpy.utils import (
     get_device,
     gpu_to_numpy,
 )

@@ -17,7 +17,7 @@ import torch
 from slmsuite.hardware.cameras.camera import Camera
 from slmsuite.hardware.slms.slm import SLM
 
-from ..propagation.utils.tensor_utils import gpu_to_numpy
+from ..utils import gpu_to_numpy
 from ..propagation.optical_systems import VirtualSlm
 from .phase_retrieval import PhaseRetrieval
 from .. import patterns as pt

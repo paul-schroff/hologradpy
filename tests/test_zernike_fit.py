@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from hologradpy.propagation.utils.zernike import Zernike
+from hologradpy.propagation.zernike import Zernike
 
 
 def _zernike(resolution=(40, 52), orders=5, mode="fit"):

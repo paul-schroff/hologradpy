@@ -15,7 +15,7 @@ from ..abstract import WavefrontCalibratorBase, WavefrontCalibrationData
 
 from ...camera_mapping import CameraMapping
 
-from ....propagation.utils.tensor_utils import get_device
+from ....utils import get_device
 
 from slmsuite.hardware.slms.slm import SLM
 from slmsuite.hardware.cameras.camera import Camera

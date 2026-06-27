@@ -14,8 +14,8 @@ from torch._prims_common import (
 import numpy as np
 from numpy.typing import NDArray
 
-from .utils.fourier_utils import get_spatial_grid
-from .utils.tensor_utils import unsqueeze_to
+from .fourier import get_spatial_grid
+from ..utils import unsqueeze_to
 
 
 def broadcast_wavelength_operand(operand: Tensor, field_ndim: int) -> Tensor:

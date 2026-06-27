@@ -7,7 +7,7 @@ import torch
 
 from .calibration_dataset import TrainingSample
 
-from ....propagation.utils.tensor_utils import crop_to_roi
+from ....utils import crop_to_roi
 
 
 # Pytorch Dataset transform classes for the speckle calibration dataset

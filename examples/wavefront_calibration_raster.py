@@ -18,11 +18,9 @@ from hologradpy.calibration import (
 from hologradpy.propagation.optical_systems import SLMFFTAffine
 from hologradpy.propagation.diagonal_elements import StaticSLMField
 
-from hologradpy.propagation.utils.optics_utils import (
-    gaussian_beam_intensity
-)
-from hologradpy.propagation.utils import Zernike
-from hologradpy.propagation.utils.tensor_utils import get_device, gpu_to_numpy
+from hologradpy.propagation.amplitude_profiles import gaussian_beam_intensity
+from hologradpy.propagation.zernike import Zernike
+from hologradpy.utils import get_device, gpu_to_numpy
 
 device = get_device(verbose=True)
 

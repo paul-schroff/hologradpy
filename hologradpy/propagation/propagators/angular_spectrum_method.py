@@ -3,8 +3,8 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from ..utils.tensor_utils import pad_to_shape_2D, crop_to_shape_2D
-from ..utils.fourier_utils import get_frequency_grid, fft_2d, ifft_2d
+from ...utils import pad_to_shape_2D, crop_to_shape_2D
+from ..fourier import get_frequency_grid, fft_2d, ifft_2d
 
 from ..optics_module import OpticsModule
 from ..complex_amplitude import (

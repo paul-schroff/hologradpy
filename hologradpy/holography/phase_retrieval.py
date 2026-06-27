@@ -9,7 +9,7 @@ import torchmin
 
 from ..propagation.optical_systems import VirtualSlm
 
-from ..propagation.utils.tensor_utils import gpu_to_numpy
+from ..utils import gpu_to_numpy
 
 from .loss_functions import rms, eff
 

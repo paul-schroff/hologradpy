@@ -6,8 +6,8 @@ import torch
 from scipy.ndimage import label
 
 from ...propagation.complex_amplitude import ComplexAmplitude
-from ...propagation.utils.fourier_utils import get_spatial_grid
-from ...propagation.utils.tensor_utils import gpu_to_numpy
+from ...propagation.fourier import get_spatial_grid
+from ...utils import gpu_to_numpy
 
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 

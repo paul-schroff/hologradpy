@@ -12,8 +12,8 @@ from ..calibration_dataset import DatasetDescriptor
 
 from ....camera_mapping import CameraMapping
 
-from .....propagation.utils.tensor_utils import crop_to_roi, find_roi
-from .....propagation.utils.optics_utils import gaussian_beam_intensity
+from .....utils import crop_to_roi, find_roi
+from .....propagation.amplitude_profiles import gaussian_beam_intensity
 from .....propagation.optical_systems import SLMFourierLensModel
 from .....analysis.fitting import curve_fit_2d
 

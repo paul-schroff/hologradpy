@@ -8,7 +8,7 @@ from numpy.typing import NDArray
 import torch
 import torch.nn as nn
 
-from ..utils.tensor_utils import unsqueeze_to
+from ...utils import unsqueeze_to
 from ..optics_module import OpticsModule
 from ..complex_amplitude import ComplexAmplitude
 

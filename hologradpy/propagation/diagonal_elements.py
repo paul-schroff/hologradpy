@@ -8,9 +8,13 @@ import torch
 from torch import Tensor
 from torch.nn import Parameter
 
-from .utils.optics_utils import lens_phase, circular_mask, doublet_lens
-from .utils.fourier_utils import get_spatial_grid
-from .utils.zernike import (
+from .phase_profiles import (
+    lens_phase,
+    doublet_lens,
+)
+from .amplitude_profiles import circular_mask
+from .fourier import get_spatial_grid
+from .zernike import (
     Zernike,
     Conventions,
     make_per_wavelength_coefficients,

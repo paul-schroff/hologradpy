@@ -3,8 +3,8 @@ from __future__ import annotations
 import torch
 from torch import nn, Tensor
 
-from ..utils.tensor_utils import pad_to_shape_2D, crop_to_shape_2D
-from ..utils.fourier_utils import fft_2d, ifft_2d
+from ...utils import pad_to_shape_2D, crop_to_shape_2D
+from ..fourier import fft_2d, ifft_2d
 
 from ..optics_module import OpticsModule, SaveDict
 from ..complex_amplitude import ComplexAmplitude

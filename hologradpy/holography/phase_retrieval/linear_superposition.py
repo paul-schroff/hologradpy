@@ -6,7 +6,7 @@ from .abstract import PhaseRetrieverBase
 
 from ...propagation.optical_systems import SLMFourierLensModel
 
-from ...propagation.utils.optics_utils import linear_phase
+from ...propagation.phase_profiles import linear_phase
 
 
 class LinearSuperpositionPhaseRetriever(PhaseRetrieverBase):

@@ -16,12 +16,10 @@ from .utils import get_diffraction_spot_position
 from ...analysis.functions import checkerboard
 
 from ...propagation.optical_systems import SLMFFT
-from ...propagation.utils.tensor_utils import gpu_to_numpy, find_roi
-from ...propagation.utils.optics_utils import (
-    rectangular_mask,
-    analytic_phase_guess,
-)
-from ...propagation.utils.fourier_utils import get_spatial_grid
+from ...utils import gpu_to_numpy, find_roi
+from ...propagation.phase_profiles import analytic_phase_guess
+from ...propagation.amplitude_profiles import rectangular_mask
+from ...propagation.fourier import get_spatial_grid
 
 from ...holography.phase_retrieval import CGPhaseRetriever
 from ...holography.vortices.vortex_annihilator import VortexAnnihilator

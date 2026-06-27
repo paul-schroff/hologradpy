@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 import torchmin
 
-from ..utils import Timer
+from ...utils import Timer
 
 from ...propagation.optical_systems import SLMFourierLensModel
 
