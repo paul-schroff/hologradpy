@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -10,9 +12,10 @@ from ..utils.tensor_utils import unsqueeze_to
 from ..optics_module import OpticsModule
 from ..complex_amplitude import ComplexAmplitude
 
-from ...hardware.slm_data import SLMData
-
 from slmsuite.hardware.slms.slm import SLM
+
+if TYPE_CHECKING:
+    from ...hardware.slm_data import SLMData
 
 
 class VirtualSLM(OpticsModule):

@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from collections import OrderedDict
 import torch
 
@@ -6,9 +10,10 @@ from ..diagonal_elements import StaticSLMField
 from ..geometric_transforms import PartialAffineTransform
 from ..virtual_slms.abstract import VirtualSLM
 
-from ...hardware.camera_data import CameraData
-
 from .abstract import SLMFourierLensModel
+
+if TYPE_CHECKING:
+    from ...hardware.camera_data import CameraData
 
 
 class SLMNUFFTAffine(SLMFourierLensModel):
