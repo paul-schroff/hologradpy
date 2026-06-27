@@ -11,10 +11,44 @@ from scipy.ndimage import gaussian_filter
 from scipy.optimize import curve_fit
 
 
-from .functions import interferometric_fringes
-
 from ..propagation.amplitude_profiles import gaussian_beam_intensity
 from ..propagation.zernike import Zernike
+
+
+def interferometric_fringes(
+    x: NDArray[np.float_],
+    y: NDArray[np.float_],
+    separation_x: float,
+    separation_y: float,
+    wavenumber: float,
+    focal_length: float,
+    phase: float,
+    amplitude: float,
+) -> NDArray[np.float_]:
+    """Interference pattern on the camera caused by two superpixels
+    on the SLM seperated by separation_x and separation_y. Equation adapted
+    from https://doi.org/10.1364/OE.24.013881.
+
+    Args:
+        x (NDArray[np.float_]): x coordinates.
+        y (NDArray[np.float_]): y coordinates.
+        separation_x (float): Separation between two superpixels along x.
+        separation_y (float): Separation between two superpixels along y.
+        wavenumber (float): Wavenumber of the light.
+        focal_length (float): Focal length of the Fourier lens.
+        phase (float): Phase difference between the two superpixels.
+        amplitude_a (float): Amplitude due to superpixel a.
+        amplitude_b (float): Amplitude due to superpixel b.
+    Returns:
+        NDArray[np.float_]: Interference pattern on the camera.
+    """
+    angle_x = np.arctan(separation_x / focal_length)
+    angle_y = np.arctan(separation_y / focal_length)
+
+    intesity = 2 * amplitude**2 + 2 * amplitude**2 * np.cos(
+        wavenumber * (np.sin(angle_x) * x + np.sin(angle_y) * y) + phase
+    )
+    return intesity
 
 
 def curve_fit_2d(

@@ -11,9 +11,7 @@ from cv2 import estimateAffine2D, invertAffineTransform
 from slmsuite.hardware.slms.slm import SLM
 from slmsuite.hardware.cameras.camera import Camera
 
-from .utils import get_diffraction_spot_position
-
-from ...analysis.functions import checkerboard
+from .utils import get_diffraction_spot_position, checkerboard
 
 from ...propagation.optical_systems import SLMFFT
 from ...utils import gpu_to_numpy, find_roi
