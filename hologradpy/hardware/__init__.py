@@ -1,5 +1,5 @@
-# from .torch_slm import SimulatedSLMTorch
-# from .torch_camera import SimulatedCameraTorch
+# from .slm_simulated import SimulatedSLMTorch
+# from .camera_simulated import SimulatedCameraTorch
 
 # __all__ = [
 #     "SimulatedSLMTorch",

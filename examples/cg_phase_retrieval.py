@@ -18,7 +18,7 @@ from hologradpy.propagation.optical_systems import SLMFFT
 
 from hologradpy.holography.vortices import VortexAnnihilator
 
-from hologradpy.hardware.torch_slm import SimulatedSLMTorch
+from hologradpy.hardware.slm_simulated import SimulatedSLMTorch
 
 import torch
 

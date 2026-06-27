@@ -2,8 +2,8 @@
 import matplotlib.pyplot as plt
 import torch
 
-from hologradpy.hardware.torch_slm import SimulatedSLMTorch
-from hologradpy.hardware.torch_camera import SimulatedCameraTorch
+from hologradpy.hardware.slm_simulated import SimulatedSLMTorch
+from hologradpy.hardware.camera_simulated import SimulatedCameraTorch
 
 from hologradpy.propagation.complex_amplitude import (
     ComplexAmplitude,
