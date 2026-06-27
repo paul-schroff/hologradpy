@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import torch
 from torch import Tensor
 from torch.nn import Parameter
@@ -20,6 +22,8 @@ from .propagators.abstract import PropagatorBase
 from .optics_module import OpticsModule, SaveDict
 from .complex_amplitude import ComplexAmplitude
 
+if TYPE_CHECKING:
+    from ..calibration.wavefront.abstract import WavefrontCalibrationData
 
 class ConstantSLMField(OpticsModule):
     def __init__(
@@ -83,6 +87,12 @@ class ConstantSLMField(OpticsModule):
             pixel_size=geometry.pixel_size.to(device),
         )
         return cls(init_field=init_field)
+
+    @classmethod
+    def from_calibration_data(
+        cls, calibration_data: WavefrontCalibrationData
+    ) -> ConstantSLMField:
+        return cls(init_field=calibration_data.complex_amplitude)
 
     def forward(
         self: ConstantSLMField, complex_amplitude: ComplexAmplitude
