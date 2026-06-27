@@ -15,7 +15,6 @@ from ...propagation.fourier import get_spatial_grid
 from ...utils import gpu_to_numpy
 
 
-# TODO: Reformat docstrings.
 def get_diffraction_spot_position(
     slm: SLM,
     camera: Camera,
@@ -110,7 +109,6 @@ def get_diffraction_spot_position(
     return (shift_x, shift_y), focal_spot_radius, camera_image
 
 
-# TODO: Make this work for odd values of square_size
 def checkerboard(
     resolution: tuple[int, int],
     number_of_squares: tuple[int, int] = None,
@@ -161,9 +159,21 @@ def checkerboard(
         light_square_brightness,
     )
 
-    pad_x = (resolution[1] - checkerboard_resolution[1]) // 2
-    pad_y = (resolution[0] - checkerboard_resolution[0]) // 2
+    # Distribute the padding asymmetrically (before gets the floor, after the
+    # remainder) so the output is always exactly `resolution`. Symmetric
+    # padding loses a pixel whenever resolution - checkerboard_resolution is
+    # odd, which happens e.g. for odd square_size.
+    pad_y_total = resolution[0] - checkerboard_resolution[0]
+    pad_x_total = resolution[1] - checkerboard_resolution[1]
+    pad_y_before = pad_y_total // 2
+    pad_x_before = pad_x_total // 2
+    pad_y_after = pad_y_total - pad_y_before
+    pad_x_after = pad_x_total - pad_x_before
 
     return np.pad(
-        cb, ((pad_y + shift_y, pad_y - shift_y), (pad_x + shift_x, pad_x - shift_x))
+        cb,
+        (
+            (pad_y_before + shift_y, pad_y_after - shift_y),
+            (pad_x_before + shift_x, pad_x_after - shift_x),
+        ),
     )
