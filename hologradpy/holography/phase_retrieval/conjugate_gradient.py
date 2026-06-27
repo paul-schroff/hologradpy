@@ -19,22 +19,18 @@ class CGPhaseRetriever(PhaseRetrieverBase):
         target: torch.Tensor,
         signal_region: torch.Tensor,
         init_slm_phase: torch.Tensor,
-        device: str = "cpu",
     ) -> None:
-        super().__init__(slm_camera_model, device)
+        super().__init__(slm_camera_model)
         self.target: torch.Tensor = target.detach()
         self.signal_region: torch.Tensor = signal_region.detach()
-        self.device: str = device
-        use_cuda = "cuda" in device
 
-        self.slm_camera_model.to(device)
         self.slm_camera_model.virtual_slm.set_phase(init_slm_phase.detach())
 
         self.loss_function = LossIntensityMSE(
             target_intensity=self.target, signal_mask=self.signal_region
         )
 
-        self.timer = Timer(use_cuda=use_cuda, verbose=True)
+        self.timer = Timer(use_cuda=self.device.type == "cuda", verbose=True)
 
         self.iteration: int = 0
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Callable
 
+import torch
 from numpy.typing import NDArray
 
 from ...propagation.optical_systems import SLMFourierLensModel
@@ -11,10 +12,10 @@ class PhaseRetrieverBase:
     def __init__(
         self,
         slm_camera_model: SLMFourierLensModel,
-        device: str = "cpu",
     ) -> None:
         self.slm_camera_model: SLMFourierLensModel = slm_camera_model
-        self.device: str = device
+        # The device is determined by the optical model rather than passed in.
+        self.device: torch.device = slm_camera_model.device
 
     def set_optimizer(self):
         pass

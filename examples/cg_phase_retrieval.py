@@ -13,7 +13,10 @@ from hologradpy.propagation.utils.tensor_utils import (
     gpu_to_numpy,
 )
 
-from hologradpy.propagation.complex_amplitude import ComplexAmplitude
+from hologradpy.propagation.complex_amplitude import (
+    ComplexAmplitude,
+    FieldGeometry,
+)
 from hologradpy.propagation.optical_systems import SLMFFT
 from hologradpy.propagation.diagonal_elements import StaticSLMField
 from hologradpy.propagation.virtual_slms import VirtualSLM
@@ -27,26 +30,24 @@ import torch
 # %% Set up the SLM and camera devices
 device = get_device(verbose=True)
 
-slm = SimulatedSLMTorch(
-    resolution=(1280, 1024),
-    wav_um=0.670,
-    pitch_um=12.5,
+slm_geometry = FieldGeometry(
+    resolution=(1024, 1280),
+    pixel_size=torch.tensor([12.5e-6, 12.5e-6], device=device),
+    wavelength=torch.tensor(0.670e-6, device=device),
 )
+
+slm = SimulatedSLMTorch(input_geometry=slm_geometry, bitdepth=8)
 
 # %% Set up the SLM and camera modules
 beam_radius = 4e-3  # beam radius in mm
 focal_length = 500e-3  # focal length in mm
 padded_resolution = (2048, 2048)  # padded resolution for the FFT
 
-slm_field = ComplexAmplitude(
-    torch.zeros(*slm.shape, device=device, dtype=torch.complex64),
-    wavelength=slm.wav_um * 1e-6,
-    pixel_size=tuple((slm.pitch_um * 1e-6).tolist()),
-)
-
-slm_grid = slm_field.get_spatial_grid()
+slm_grid = slm_geometry.get_spatial_grid()
 slm_intensity = gaussian_beam_intensity(*slm_grid, beam_radius=beam_radius)
-slm_field._data = slm_intensity.sqrt() + 0j
+slm_field = ComplexAmplitude.from_geometry(
+    slm_geometry, data=slm_intensity.sqrt() + 0j
+)
 
 plt.figure()
 plt.imshow(gpu_to_numpy(slm_intensity), cmap="turbo")
@@ -73,7 +74,7 @@ init_electric_field = slm_camera_model()
 init_intensity = init_electric_field.intensity
 
 plt.figure()
-plt.imshow(init_intensity, cmap="turbo")
+plt.imshow(gpu_to_numpy(init_intensity), cmap="turbo")
 plt.title("Initial Simulated Camera Image")
 plt.colorbar(label="Intensity (a.u.)")
 
@@ -118,7 +119,6 @@ phase_retriever = CGPhaseRetriever(
     target=target_top_hat,
     signal_region=signal_region,
     init_slm_phase=init_slm_phase,
-    device=device,
 )
 
 # %% Phase retrieval
@@ -159,7 +159,7 @@ plt.title("Final Retrieved Phase")
 plt.colorbar(label="Phase [radians]")
 
 plt.figure()
-plt.imshow(intensity_out[700:-700, 700:-700], cmap="turbo")
+plt.imshow(gpu_to_numpy(intensity_out)[700:-700, 700:-700], cmap="turbo")
 plt.title("Final Retrieved Intensity")
 plt.colorbar(label="Intensity [a.u.]")
 # %%

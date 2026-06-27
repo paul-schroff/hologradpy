@@ -222,7 +222,6 @@ class CheckerboardMapper(CameraMapper):
             target=target,
             signal_region=signal_region,
             init_slm_phase=phase_guess,
-            device=self.device,
         )
 
         slm_phase = phase_retriever.retrieve_phase(number_of_cg_iterations)

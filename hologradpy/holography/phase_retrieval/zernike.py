@@ -19,13 +19,10 @@ class ZernikePhaseRetriever(PhaseRetrieverBase):
         slm_camera_model: SLMFourierLensModel,
         target: torch.Tensor,
         signal_region: torch.Tensor,
-        device: str = "cpu",
     ) -> None:
-        super().__init__(slm_camera_model, device)
+        super().__init__(slm_camera_model)
         self.target: torch.Tensor = target
         self.signal_region: torch.Tensor = signal_region
-        self.device: str = device
-        use_cuda = "cuda" in device
 
         self.loss_function = LossIntensityMSE(
             target_intensity=self.target,
@@ -33,7 +30,7 @@ class ZernikePhaseRetriever(PhaseRetrieverBase):
             steepness=1e12,
         )
 
-        self.timer = Timer(use_cuda=use_cuda, verbose=True)
+        self.timer = Timer(use_cuda=self.device.type == "cuda", verbose=True)
 
         self.iteration: int = 0
 
@@ -77,6 +74,6 @@ class ZernikePhaseRetriever(PhaseRetrieverBase):
 
         self.timer.stop()
 
-        if "cuda" in self.device:
+        if self.device.type == "cuda":
             torch.cuda.empty_cache()
         return self.slm_camera_model.virtual_slm.get_displayed_phase()

@@ -4,8 +4,6 @@ import torch
 
 from .abstract import PhaseRetrieverBase
 
-from ..utils import Timer
-
 from ...propagation.optical_systems import SLMFourierLensModel
 
 from ...propagation.utils.optics_utils import linear_phase
@@ -18,9 +16,8 @@ class LinearSuperpositionPhaseRetriever(PhaseRetrieverBase):
         target_positions: torch.Tensor,
         target_intensities: torch.Tensor | None = None,
         target_phases: torch.Tensor | None = None,
-        device: str = "cpu",
     ) -> None:
-        super().__init__(slm_camera_model, device)
+        super().__init__(slm_camera_model)
 
         self.target_positions: torch.Tensor = target_positions
         self.number_of_positions: int = target_positions.shape[0]
