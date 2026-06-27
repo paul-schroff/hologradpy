@@ -2,7 +2,8 @@ from collections import OrderedDict
 import torch
 
 from ..propagators import FourierLensNUFFT
-from ..elements import ConstantSLMField, PartialAffineTransform
+from ..diagonal_elements import StaticSLMField
+from ..geometric_transforms import PartialAffineTransform
 from ..virtual_slms.abstract import VirtualSLM
 
 from ...hardware.utils import CameraData
@@ -33,7 +34,7 @@ class SLMNUFFTAffine(SLMFourierLensModel):
         camera_pixel_size = tuple(camera_data.pitch_um[i] * 1e-6 for i in range(2))
 
         # Create constant field module
-        constant_field = ConstantSLMField(
+        constant_field = StaticSLMField(
             init_field=constant_field_slm,
             pixel_pitch=virtual_slm.pixel_size_in[0],
             device=device,

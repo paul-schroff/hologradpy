@@ -1,7 +1,8 @@
 import torch
 
 from ..propagators import FourierLensFFT
-from ..elements import ConstantSLMField, PartialAffineTransform
+from ..diagonal_elements import StaticSLMField
+from ..geometric_transforms import PartialAffineTransform
 from ..virtual_slms.abstract import VirtualSLM
 from ..complex_amplitude import FieldGeometry
 
@@ -10,7 +11,7 @@ from .abstract import SLMFourierLensModel
 
 class SLMFFTAffine(SLMFourierLensModel):
     virtual_slm: VirtualSLM
-    constant_field: ConstantSLMField
+    constant_field: StaticSLMField
     fourier_lens: FourierLensFFT
     affine_transform: PartialAffineTransform
 
@@ -29,7 +30,7 @@ class SLMFFTAffine(SLMFourierLensModel):
         super().__init__(
             input_geometry=input_geometry,
             virtual_slm=virtual_slm,
-            constant_field=ConstantSLMField(constant_field_slm),
+            constant_field=StaticSLMField(constant_field_slm),
             fourier_lens=FourierLensFFT(
                 focal_length, padded_resolution=padded_resolution
             ),

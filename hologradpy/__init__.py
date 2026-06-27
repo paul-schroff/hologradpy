@@ -2,7 +2,8 @@ from .calibration import calibrate_slm
 from .analysis import error_metrics, fitting
 from .holography import phase_retrieval, loss_functions, camera_feedback
 from .propagation import (
-    elements,
+    diagonal_elements,
+    geometric_transforms,
     propagators,
     optical_systems,
     pixel_crosstalk,

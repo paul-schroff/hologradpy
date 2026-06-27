@@ -15,12 +15,14 @@ from hologradpy.propagation.propagators.fourier_lens_fft import FourierLensFFT
 from hologradpy.propagation.propagators.fourier_lens_nufft import (
     FourierLensNUFFT,
 )
-from hologradpy.propagation.elements import (
-    ConstantSLMField,
-    PartialAffineTransform,
+from hologradpy.propagation.diagonal_elements import (
+    StaticSLMField,
     SimpleLens,
     DoubletLens,
     ZernikePhase,
+)
+from hologradpy.propagation.geometric_transforms import (
+    PartialAffineTransform,
 )
 from hologradpy.propagation.propagators.angular_spectrum_method import (
     AngularSpectrumMethod,
@@ -52,7 +54,7 @@ MODULE_FACTORIES: dict[str, callable] = {
         resolution_out=RESOLUTION,
         pixel_size_out=(5e-6, 5e-6),
     ),
-    "ConstantSLMField": lambda: ConstantSLMField(),
+    "StaticSLMField": lambda: StaticSLMField(),
     "PartialAffineTransform": lambda: PartialAffineTransform(
         resolution_out=RESOLUTION,
         pixel_size_out=PIXEL_SIZE,

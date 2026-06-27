@@ -3,7 +3,7 @@ import torch
 from ..complex_amplitude import FieldGeometry, ComplexAmplitude
 
 from ..propagators import FourierLensFFT
-from ..elements import ConstantSLMField
+from ..diagonal_elements import StaticSLMField
 from ..virtual_slms.abstract import VirtualSLM
 
 from .abstract import OpticalSystem
@@ -11,7 +11,7 @@ from .abstract import OpticalSystem
 
 class SLMFFT(OpticalSystem):
     virtual_slm: VirtualSLM
-    constant_field: ConstantSLMField
+    constant_field: StaticSLMField
     fourier_lens: FourierLensFFT
 
     def __init__(
@@ -25,7 +25,7 @@ class SLMFFT(OpticalSystem):
         super().__init__(
             input_geometry=input_geometry,
             virtual_slm=VirtualSLM(phase_scaling=1.0, init_phase=init_phase),
-            constant_field=ConstantSLMField(constant_field_slm),
+            constant_field=StaticSLMField(constant_field_slm),
             fourier_lens=FourierLensFFT(
                 focal_length, padded_resolution=padded_resolution
             ),

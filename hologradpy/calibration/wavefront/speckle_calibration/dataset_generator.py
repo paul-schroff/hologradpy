@@ -28,7 +28,8 @@ from ....propagation.utils.fourier_utils import get_spatial_grid
 from ....propagation.optical_systems import SLMFourierLensModel
 from ....propagation.propagators import FourierLensFFT
 from ....propagation.virtual_slms import VirtualSLM
-from ....propagation.elements import ConstantSLMField, PartialAffineTransform
+from ....propagation.diagonal_elements import StaticSLMField
+from ....propagation.geometric_transforms import PartialAffineTransform
 
 
 class DatasetGenerator:
@@ -71,7 +72,7 @@ class DatasetGenerator:
 
         virtual_slm: VirtualSLM = VirtualSLM(self.slm)
 
-        constant_field: ConstantSLMField = ConstantSLMField(
+        constant_field: StaticSLMField = StaticSLMField(
             init_field=torch.ones(self.slm.shape),
             pixel_pitch=virtual_slm.slm.pitch_um[0] * 1e-6,
         )
