@@ -219,6 +219,8 @@ class FourierLensFFT(OpticsModule):
     def adjoint(
         self, complex_amplitude: ComplexAmplitude
      ) -> ComplexAmplitude:
+        self._ensure_initialized()
+
         # Perform inverse 2D FFT and FFT shift if specified
         padded_complex_amplitude = ifft_2d(complex_amplitude, **self.kwargs)
         

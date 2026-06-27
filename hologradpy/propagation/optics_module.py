@@ -67,9 +67,8 @@ class OpticsModule(nn.Module):
         if self._resolution_out is None:
             self._resolution_out = self.resolution_in
 
-    def _initialize_from_input(self, module, inputs) -> None:
-        complex_amplitude: ComplexAmplitude = inputs[0]
-
+    def _lazy_initialize(self, complex_amplitude: ComplexAmplitude) -> None:
+        """Run lazy initialization from an input-plane field (or probe)."""
         self._input_geometry = complex_amplitude.geometry
         self.initialized = True
 
@@ -92,7 +91,55 @@ class OpticsModule(nn.Module):
             )
 
         self._init_hook.remove()
-    
+
+    def _initialize_from_input(self, module, inputs) -> None:
+        self._lazy_initialize(inputs[0])
+
+    def initialize_from_geometry(
+        self,
+        geometry: FieldGeometry,
+        dtype: torch.dtype = torch.complex64,
+    ) -> None:
+        """Initialise the module from an input-plane geometry, without a
+        forward pass.
+
+        Lets ``forward()`` and ``adjoint()`` be called in any order: the
+        adjoint receives an output-plane field that does not carry the
+        input-plane geometry, so the module must be told it explicitly here.
+
+        Args:
+            geometry: Input-plane (e.g. SLM-plane) field geometry.
+            dtype: Complex dtype of the fields the module will process.
+        """
+        if self.initialized:
+            return
+
+        number_of_wavelengths = geometry.number_of_wavelengths
+        shape = (
+            geometry.resolution
+            if number_of_wavelengths == 1
+            else (number_of_wavelengths, *geometry.resolution)
+        )
+        # Probe carries only geometry/dtype/device into lazy_init, which never
+        # reads field values — so the (uninitialised) contents are unused.
+        probe = ComplexAmplitude(
+            torch.empty(
+                shape, dtype=dtype, device=geometry.wavelength.device
+            ),
+            geometry.wavelength,
+            geometry.pixel_size,
+        )
+        self._lazy_initialize(probe)
+
+    def _ensure_initialized(self) -> None:
+        """Raise if the module has not been lazily initialised yet."""
+        if not self.initialized:
+            raise RuntimeError(
+                f"{type(self).__name__} must be initialised before this "
+                "call; run forward() once or call "
+                "initialize_from_geometry(input_geometry)."
+            )
+
     @property
     def input_geometry(self) -> FieldGeometry:
         if not self.initialized:

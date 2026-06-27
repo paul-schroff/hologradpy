@@ -300,9 +300,12 @@ class FourierLensNUFFT(OpticsModule):
         This is the conjugate transpose of :meth:`forward` (via
         ``KbNufftAdjoint``), not its inverse. The input is a field sampled on
         the output grid ``(*batch, n_wl, H_out, W_out)``; the output lives in
-        the input plane with ``resolution_in`` / ``pixel_size_in``. Requires a
-        prior ``forward`` call to have lazily initialised the module.
+        the input plane with ``resolution_in`` / ``pixel_size_in``. The module
+        must be initialised first (via ``forward`` or
+        ``initialize_from_geometry``).
         """
+        self._ensure_initialized()
+
         number_of_wavelengths = complex_amplitude.number_of_wavelengths
 
         # Collapse batch dims and flatten the output-plane image into the
