@@ -1,0 +1,6 @@
+line-length = 88
+
+[lint]
+# Ruff's defaults (E4/E7/E9/F) omit the line-length rule, so enable it
+# explicitly to flag lines over the configured length.
+extend-select = ["E501"]
