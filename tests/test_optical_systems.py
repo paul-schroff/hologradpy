@@ -20,6 +20,7 @@ from hologradpy.propagation.optical_systems import (
     SLMFFTAffine,
     SLMNUFFTAffine,
 )
+from hologradpy.propagation.diagonal_elements import StaticSLMField
 from hologradpy.propagation.virtual_slms.abstract import VirtualSLM
 
 
@@ -45,11 +46,16 @@ def _constant_field() -> ComplexAmplitude:
     return ComplexAmplitude(data, geometry.wavelength, geometry.pixel_size)
 
 
+def _static_slm_field() -> StaticSLMField:
+    return StaticSLMField(_constant_field())
+
+
 def _make_slm_fft() -> SLMFFT:
     return SLMFFT(
         input_geometry=_input_geometry(),
+        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        static_slm_field=_static_slm_field(),
         focal_length=0.1,
-        constant_field_slm=_constant_field(),
         padded_resolution=PADDED_RESOLUTION,
     )
 
@@ -61,7 +67,7 @@ def _make_slm_fft_affine() -> SLMFFTAffine:
         camera_resolution=CAMERA_RESOLUTION,
         camera_pixel_size=CAMERA_PIXEL_SIZE,
         focal_length=0.1,
-        constant_field_slm=_constant_field(),
+        static_slm_field=_static_slm_field(),
         padded_resolution=PADDED_RESOLUTION,
     )
 
@@ -73,7 +79,7 @@ def _make_slm_nufft_affine() -> SLMNUFFTAffine:
         camera_resolution=CAMERA_RESOLUTION,
         camera_pixel_size=CAMERA_PIXEL_SIZE,
         focal_length=0.1,
-        constant_field_slm=_constant_field(),
+        static_slm_field=_static_slm_field(),
         camera_angle=5.0,
         camera_shift=(1.0, 2.0),
     )

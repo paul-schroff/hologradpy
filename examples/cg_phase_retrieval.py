@@ -15,6 +15,8 @@ from hologradpy.propagation.utils.tensor_utils import (
 
 from hologradpy.propagation.complex_amplitude import ComplexAmplitude
 from hologradpy.propagation.optical_systems import SLMFFT
+from hologradpy.propagation.diagonal_elements import StaticSLMField
+from hologradpy.propagation.virtual_slms import VirtualSLM
 
 from hologradpy.holography.vortices import VortexAnnihilator
 
@@ -60,10 +62,10 @@ init_slm_phase = lens_phase(
 
 slm_camera_model = SLMFFT(
     input_geometry=slm_field.geometry,
+    virtual_slm=VirtualSLM(phase_scaling=1.0, init_phase=init_slm_phase),
+    static_slm_field=StaticSLMField(slm_field),
     focal_length=focal_length,
-    constant_field_slm=slm_field,
     padded_resolution=padded_resolution,
-    init_phase=init_slm_phase,
 )
 
 # %% Plot initial simulated output

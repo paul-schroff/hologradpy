@@ -1,5 +1,3 @@
-import torch
-
 from ..propagators import FourierLensNUFFT
 from ..diagonal_elements import StaticSLMField
 from ..geometric_transforms import PartialAffineTransform
@@ -32,7 +30,7 @@ class SLMNUFFTAffine(SLMFourierLensModel):
         camera_resolution: tuple[int, int],
         camera_pixel_size: tuple[float, float],
         focal_length: float,
-        constant_field_slm: torch.Tensor,
+        static_slm_field: StaticSLMField,
         nufft_resolution: tuple[int, int] | None = None,
         camera_angle: float = 0.0,
         camera_shift: tuple[float, float] = (0.0, 0.0),
@@ -47,7 +45,7 @@ class SLMNUFFTAffine(SLMFourierLensModel):
         super().__init__(
             input_geometry=input_geometry,
             virtual_slm=virtual_slm,
-            constant_field=StaticSLMField(constant_field_slm),
+            constant_field=static_slm_field,
             fourier_lens=FourierLensNUFFT(
                 focal_length,
                 resolution_out=nufft_resolution,
@@ -76,7 +74,7 @@ class SLMNUFFTAffine(SLMFourierLensModel):
             "camera_resolution": tuple(self.affine_transform.resolution_out),
             "camera_pixel_size": camera_pixel_size,
             "focal_length": float(self.fourier_lens.focal_length),
-            "constant_field_slm": self.constant_field.init_field,
+            "static_slm_field": self.constant_field,
             "nufft_resolution": tuple(self.fourier_lens.resolution_out),
             "camera_angle": float(self.fourier_lens.angle_init),
             "camera_shift": tuple(self.fourier_lens.shift_init),

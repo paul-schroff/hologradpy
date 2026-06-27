@@ -6,7 +6,11 @@ from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch
 
 from hologradpy.calibration import SpeckleCalibrator, CameraMapping
 
-from hologradpy.propagation.optical_systems import SLMFFTAffine
+from hologradpy.propagation.optical_systems import SLMFFTAffine, SLMNUFFTAffine
+from hologradpy.propagation.diagonal_elements import StaticSLMField
+from hologradpy.propagation.complex_amplitude import (
+    ComplexAmplitude, FieldGeometry,
+)
 
 from hologradpy.propagation.utils.optics_utils import (
     gaussian_beam_intensity,
@@ -18,33 +22,37 @@ from hologradpy.propagation.utils.tensor_utils import (
 device = get_device(verbose=True)
 
 # %% Initializing simulated SLM and camera
-slm = SimulatedSLMTorch(
+input_geometry = FieldGeometry(
     resolution=(1280, 1024),
-    pitch_um=12.5,
-    wav_um=0.630,
-    torch_device=device,
-    bitdepth=8,
+    pixel_size=torch.tensor([12.5e-6, 12.5e-6], device=device),
+    wavelength=torch.tensor(630e-9, device=device),
 )
 
-gaussian_beam = gaussian_beam_intensity(
-    *slm.virtual_slm.get_spatial_grid_input(),
+slm = SimulatedSLMTorch(input_geometry=input_geometry, bitdepth=8)
+
+gaussian_beam_amplitude = gaussian_beam_intensity(
+    *slm.get_spatial_grid(device=device),
     beam_radius=5e-3,
+) ** 0.5
+
+constant_field_slm = ComplexAmplitude(
+    gaussian_beam_amplitude + 0j,
+    wavelength=input_geometry.wavelength,
+    pixel_size=input_geometry.pixel_size,
 )
 
-slm_fft_affine_args = {
-    "focal_length": 0.25,
-    "constant_field_slm": torch.tensor(gaussian_beam, dtype=torch.complex64),
-    "device": device,
-    "padded_resolution": (2048, 2048),
-}
-
-camera = SimulatedCameraTorch(
-    slm,
-    resolution=(1440, 960),
-    pitch_um=(3.75, 3.75),
-    slm_camera_model_cls=SLMFFTAffine,
-    slm_camera_model_args=slm_fft_affine_args,
+simulated_camera_model = SLMNUFFTAffine(
+    input_geometry=input_geometry,
+    virtual_slm=slm.virtual_slm,
+    camera_resolution=(960, 1440),
+    camera_pixel_size=(3.45e-6, 3.45e-6),
+    focal_length=0.25,
+    static_slm_field=StaticSLMField(constant_field_slm),
+    camera_angle=2.0,
+    camera_shift=(-20, 10),
 )
+
+camera = SimulatedCameraTorch(simulated_camera_model, bitdepth=12)
 
 # %% Test image capture
 camera.set_exposure(0.001)

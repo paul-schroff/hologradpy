@@ -1,6 +1,4 @@
-import torch
-
-from ..complex_amplitude import FieldGeometry, ComplexAmplitude
+from ..complex_amplitude import FieldGeometry
 
 from ..propagators import FourierLensFFT
 from ..diagonal_elements import StaticSLMField
@@ -17,15 +15,15 @@ class SLMFFT(OpticalSystem):
     def __init__(
         self,
         input_geometry: FieldGeometry,
+        virtual_slm: VirtualSLM,
+        static_slm_field: StaticSLMField,
         focal_length: float,
-        constant_field_slm: ComplexAmplitude,
-        init_phase: torch.Tensor | None = None,
         padded_resolution: tuple[int, int] = (2048, 2048),
     ) -> None:
         super().__init__(
             input_geometry=input_geometry,
-            virtual_slm=VirtualSLM(phase_scaling=1.0, init_phase=init_phase),
-            constant_field=StaticSLMField(constant_field_slm),
+            virtual_slm=virtual_slm,
+            constant_field=static_slm_field,
             fourier_lens=FourierLensFFT(
                 focal_length, padded_resolution=padded_resolution
             ),
@@ -34,8 +32,8 @@ class SLMFFT(OpticalSystem):
     def get_checkpoint_spec(self) -> dict[str, object]:
         return {
             "input_geometry": self.input_geometry,
+            "virtual_slm": self.virtual_slm,
+            "static_slm_field": self.constant_field,
             "focal_length": float(self.fourier_lens.focal_length.item()),
-            "constant_field_slm": self.constant_field.init_field,
-            "init_phase": self.virtual_slm.init_phase,
             "padded_resolution": self.fourier_lens._padded_resolution_init,
         }

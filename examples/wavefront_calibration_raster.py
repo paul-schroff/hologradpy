@@ -16,6 +16,7 @@ from hologradpy.calibration import (
 )
 
 from hologradpy.propagation.optical_systems import SLMFFTAffine
+from hologradpy.propagation.diagonal_elements import StaticSLMField
 
 from hologradpy.propagation.utils.optics_utils import (
     gaussian_beam_intensity
@@ -70,7 +71,7 @@ simulated_camera_model = SLMFFTAffine(
     camera_resolution=(960, 1440),
     camera_pixel_size=(3.75e-6, 3.75e-6),
     focal_length=0.25,
-    constant_field_slm=gaussian_beam,
+    static_slm_field=StaticSLMField(gaussian_beam),
     padded_resolution=(2048, 2048),
     camera_angle=0,
     camera_shift=(0, 0),
