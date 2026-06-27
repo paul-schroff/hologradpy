@@ -19,6 +19,8 @@ from hologradpy.propagation.elements import (
     ConstantSLMField,
     PartialAffineTransform,
     SimpleLens,
+    DoubletLens,
+    ZernikePhase,
 )
 from hologradpy.propagation.propagators.angular_spectrum_method import (
     AngularSpectrumMethod,
@@ -63,7 +65,20 @@ MODULE_FACTORIES: dict[str, callable] = {
         initial_coefficients=ZERNIKE_COEFFICIENTS,
     ),
     "SimpleLens": lambda: SimpleLens(focal_length=0.1, aperture_radius=1e-3),
-    "AngularSpectrumMethod": lambda: AngularSpectrumMethod(propagation_distance=1e-3),
+    "DoubletLens": lambda: DoubletLens(
+        refractive_index_flint=1.6,
+        refractive_index_crown=1.5,
+        radius_crown=0.1,
+        radius_crown_flint=-0.1,
+        radius_flint=-0.5,
+    ),
+    "AngularSpectrumMethod": lambda: AngularSpectrumMethod(
+        propagation_distance=1e-3
+    ),
+    "ZernikePhase": lambda: ZernikePhase(
+        number_of_radial_orders=ZERNIKE_RADIAL_ORDERS,
+        initial_coefficients=ZERNIKE_COEFFICIENTS,
+    ),
 }
 
 

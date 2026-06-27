@@ -262,7 +262,12 @@ def test_initialize_from_geometry_matches_forward_init(
 # Square propagators whose output plane matches the input plane (same
 # resolution and pixel size), so an input-plane field doubles as a valid
 # adjoint input.
-SQUARE_PROPAGATORS = ["AngularSpectrumMethod", "SimpleLens"]
+SQUARE_PROPAGATORS = [
+    "AngularSpectrumMethod",
+    "SimpleLens",
+    "DoubletLens",
+    "ZernikePhase",
+]
 
 
 @pytest.mark.parametrize("module_name", SQUARE_PROPAGATORS)
