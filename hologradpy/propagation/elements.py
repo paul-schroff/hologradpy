@@ -11,16 +11,14 @@ from torch.nn import Parameter
 from kornia.geometry.transform import get_affine_matrix2d
 from kornia.geometry import warp_perspective
 
-from aotools.functions import zernikeArray
-from aotools.functions.zernike import zernIndex
-
 from .utils.optics_utils import lens_phase, circular_mask
-from .utils.tensor_utils import (
-    unsqueeze_to, pad_to_shape_2D, crop_to_shape_2D,
-)
-from .propagators.abstract import PropagatorBase
+from .utils.fourier_utils import get_spatial_grid
+from .utils.tensor_utils import unsqueeze_to
 from .optics_module import OpticsModule, SaveDict
-from .complex_amplitude import ComplexAmplitude
+from .complex_amplitude import (
+    ComplexAmplitude,
+    broadcast_wavelength_operand,
+)
 
 if TYPE_CHECKING:
     from ..calibration.wavefront.abstract import WavefrontCalibrationData
@@ -320,168 +318,76 @@ class PartialAffineTransform(OpticsModule):
         )
 
 
-class SimpleLens(PropagatorBase):
+class SimpleLens(OpticsModule):
+    """Ideal thin lens: an apertured quadratic phase mask.
+
+    A diagonal (per-pixel) operator that preserves sampling, so the output
+    pixel size and resolution match the input. The lens phase is built
+    per-wavelength at lazy initialisation.
+    """
+
     def __init__(
         self: SimpleLens,
         focal_length: float,
         aperture_radius: float,
-        wavelength: float,
-        resolution_in: tuple[int, int],
-        pixel_pitch_in: float,
-        device: str = "cpu",
     ) -> None:
-        self.focal_length = focal_length
-        self.wavelength = wavelength
-        self.aperture_radius = aperture_radius
+        super().__init__()
 
-        super().__init__(
-            wavelength=wavelength,
-            resolution_in=resolution_in,
-            pixel_size_in=(pixel_pitch_in, pixel_pitch_in),
-            device=device,
-        )
+        self.focal_length: float = focal_length
+        self.aperture_radius: float = aperture_radius
 
-        spatial_grid = self.get_spatial_grid_input()
-
-        self.lens_phase = lens_phase(
-            spatial_grid[1],
-            spatial_grid[0],
-            self.focal_length,
-            self.wavenumber,
-        )
-
-        self.lens_aperture = circular_mask(
-            spatial_grid[1],
-            spatial_grid[0],
-            self.aperture_radius,
-            shift_x=self.spatial_extent_in[0] / 2,
-            shift_y=self.spatial_extent_in[1] / 2,
-        )
-
-    @property
-    def pixel_size_out(self: SimpleLens) -> tuple[float, float]:
-        return self.pixel_size_in
-
-    @property
-    def resolution_out(self: SimpleLens) -> tuple[int, int]:
-        return self.resolution_in
-
-    def forward(self: SimpleLens, input_field: torch.Tensor) -> torch.Tensor:
-        input_field = unsqueeze_to(input_field, 3)
-        lens_phase = unsqueeze_to(self.lens_phase, 3)
-        lens_aperture = unsqueeze_to(self.lens_aperture, 3)
-
-        return input_field * lens_aperture * torch.exp(1j * lens_phase)
-
-
-class Zernike(PropagatorBase):
-    """Experimental module, currently not fully tested."""
-    def __init__(
-        self: Zernike,
-        resolution_in: tuple[int, int],
-        pixel_size_in: tuple[float, float],
-        number_of_orders: int,
-        initial_coefficients: torch.Tensor | None = None,
-        norm: str | None = "noll",
-        device: str = "cpu",
+    def lazy_init(
+        self: SimpleLens, complex_amplitude: ComplexAmplitude
     ) -> None:
-        super().__init__(
-            resolution_in=resolution_in,
-            pixel_size_in=pixel_size_in,
-            device=device,
+        super().lazy_init(complex_amplitude)
+
+        grid_x, grid_y = get_spatial_grid(
+            self.resolution_in,
+            tuple(self.pixel_size_in[0].tolist()),
+            complex_amplitude.device,
         )
 
-        self.number_of_coefficients = (
-            (number_of_orders + 1) * (number_of_orders + 2) // 2
+        # Per-wavelength lens phase (n_wavelengths, H, W).
+        wavenumber = complex_amplitude.wavenumber.reshape(-1, 1, 1)
+        phase = lens_phase(
+            grid_x.unsqueeze(0), grid_y.unsqueeze(0),
+            self.focal_length, wavenumber,
         )
 
-        if initial_coefficients is None:
-            initial_coefficients = 0.1 * torch.rand(
-                self.number_of_coefficients,
-                dtype=self.dtype,
-                device=self.device,
-            )
-        else:
-            if initial_coefficients.shape[0] != self.number_of_coefficients:
-                raise ValueError(
-                    "Initial Zernike coefficients must have shape "
-                    + f"({self.number_of_coefficients},), but got "
-                    + f"{initial_coefficients.shape}."
-                )
-            else:
-                initial_coefficients = initial_coefficients.to(
-                    dtype=self.dtype, device=self.device
-                )
+        # Aperture is wavelength-independent; centred on the grid.
+        aperture = circular_mask(grid_x, grid_y, self.aperture_radius)
 
-        self.zernike_coefficients = Parameter(
-            initial_coefficients, requires_grad=True
+        # Complex transmission of the apertured lens.
+        self.register_buffer(
+            "transmission", aperture * torch.exp(1j * phase)
         )
-
-        unit_circle_diameter = (
-            int(
-                (self.resolution_in[0] ** 2 + self.resolution_in[1] ** 2)
-                ** 0.5
-            ) // 2 * 2
-        )
-
-        self.zernike_array = torch.tensor(
-            crop_to_shape_2D(
-                zernikeArray(
-                    self.number_of_coefficients,
-                    unit_circle_diameter,
-                    norm=norm,
-                ),
-                self.resolution_in,
-            ),
-            dtype=self.dtype,
-            device=device,
-        )
-
-        self.maximum_gradients = self.get_gradient_maxima()
-
-    def get_gradient_maxima(self):
-        n_index = torch.zeros(
-            self.number_of_coefficients, dtype=self.dtype, device=self.device
-        )
-        m_index = torch.zeros(
-            self.number_of_coefficients, dtype=self.dtype, device=self.device
-        )
-
-        for i in range(self.number_of_coefficients):
-            n_index[i], m_index[i] = zernIndex(i + 1)
-
-        delta = torch.zeros_like(m_index)
-        delta[m_index == 0] = 1
-
-        order = 0.5 * n_index * (n_index + 2) - m_index ** 2
-
-        max_gradients = (2 * (n_index + 1) / (1 + delta)) * torch.maximum(
-            order, m_index.abs()
-        )
-        return max_gradients
-
-    def get_phase(self) -> torch.Tensor:
-        zernike_array_padded = pad_to_shape_2D(
-            self.zernike_array, self.resolution_in
-        )
-        phase = torch.sum(
-            unsqueeze_to(self.zernike_coefficients, 3, dim=1)
-            # / (1 + unsqueeze_to(self.maximum_gradients, 3, dim=1))
-            * zernike_array_padded,
-            dim=0,
-        )
-        return phase
 
     def forward(
-        self: Zernike, input_field: torch.Tensor | None = None
-    ) -> torch.Tensor:
-        phase = self.get_phase()
+        self: SimpleLens, complex_amplitude: ComplexAmplitude
+    ) -> ComplexAmplitude:
+        transmission = broadcast_wavelength_operand(
+            self.transmission, complex_amplitude.ndim
+        )
+        modulated = complex_amplitude * transmission
+        return modulated.with_geometry(
+            wavelength=complex_amplitude.wavelength,
+            pixel_size=self.pixel_size_out,
+        )
 
-        if input_field is None:
-            return torch.exp(1j * phase).squeeze()
-        else:
-            input_field = unsqueeze_to(input_field, 3)
-            return (input_field * torch.exp(1j * phase)).squeeze()
+    def adjoint(
+        self: SimpleLens, complex_amplitude: ComplexAmplitude
+    ) -> ComplexAmplitude:
+        """Conjugate transpose of :meth:`forward` (a diagonal operator, so the
+        adjoint multiplies by the conjugate transmission)."""
+        self._ensure_initialized()
+        transmission = broadcast_wavelength_operand(
+            self.transmission.conj(), complex_amplitude.ndim
+        )
+        modulated = complex_amplitude * transmission
+        return modulated.with_geometry(
+            wavelength=complex_amplitude.wavelength,
+            pixel_size=self.pixel_size_out,
+        )
 
 
 # TODO: Implement doublet lens module

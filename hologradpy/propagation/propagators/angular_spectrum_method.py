@@ -1,78 +1,118 @@
 from __future__ import annotations
 
-import numpy as np
-
 import torch
-from torch._prims_common import corresponding_complex_dtype
+from torch import Tensor
 
-from ..utils.tensor_utils import (
-    pad_to_shape_2D,
-    unsqueeze_to,
-)
+from ..utils.tensor_utils import pad_to_shape_2D, crop_to_shape_2D
 from ..utils.fourier_utils import get_frequency_grid, fft_2d, ifft_2d
 
-from .abstract import PropagatorBase
+from ..optics_module import OpticsModule
+from ..complex_amplitude import (
+    ComplexAmplitude,
+    broadcast_wavelength_operand,
+)
 
 
-class AngularSpectrumMethod(PropagatorBase):
+class AngularSpectrumMethod(OpticsModule):
+    """Near-field propagation by the angular spectrum method.
+
+    Propagates a field a distance ``propagation_distance`` while preserving the
+    sampling (output pixel size and resolution equal the input). The field is
+    zero-padded to ``padded_resolution`` before the transform to avoid circular
+    convolution wraparound, then cropped back. Orthonormal FFTs are used so the
+    transform conserves energy and :meth:`adjoint` (back-propagation with the
+    conjugate transfer function) is the exact conjugate transpose of
+    :meth:`forward`.
+    """
+
     def __init__(
         self: AngularSpectrumMethod,
         propagation_distance: float,
-        resolution_in: tuple[int, int],
-        pixel_pitch_in: float,
         padded_resolution: tuple[int, int] | None = None,
-        fft_kwargs: dict = {},
-        device: str = "cpu",
     ) -> None:
-        self.propagation_distance = propagation_distance
+        super().__init__()
 
-        if padded_resolution is None:
-            padded_resolution = tuple(2 * resolution_in[i] for i in range(2))
-        self.padded_resolution = padded_resolution
-
-        self.fft_kwargs = fft_kwargs
-
-        super().__init__(
-            resolution_in=resolution_in,
-            pixel_size_in=(pixel_pitch_in, pixel_pitch_in),
-            device=device,
+        self.propagation_distance: float = propagation_distance
+        self._padded_resolution_init: tuple[int, int] | None = (
+            padded_resolution
         )
 
-        self.frequency_grid = get_frequency_grid(
-            self.padded_resolution, self.pixel_size_in, device=self.device
-        )
+    def lazy_init(
+        self: AngularSpectrumMethod, complex_amplitude: ComplexAmplitude
+    ) -> None:
+        super().lazy_init(complex_amplitude)
 
-        self.phase_factor = (
-            self.get_phase_factor(self.propagation_distance).to(
-                corresponding_complex_dtype(self.dtype)
+        resolution_in = complex_amplitude.resolution
+
+        if self._padded_resolution_init is None:
+            self._padded_resolution = tuple(
+                2 * resolution_in[i] for i in range(2)
             )
+        else:
+            if (
+                self._padded_resolution_init[0] < resolution_in[0]
+                or self._padded_resolution_init[1] < resolution_in[1]
+            ):
+                raise ValueError(
+                    "Padded resolution must be at least as large as input "
+                    "resolution."
+                )
+            if any(self._padded_resolution_init[i] % 2 for i in range(2)):
+                raise ValueError("Padded resolution must be even.")
+            self._padded_resolution = self._padded_resolution_init
+
+        self.register_buffer(
+            "phase_factor", self._get_phase_factor(complex_amplitude)
         )
 
-    @property
-    def pixel_size_out(self: AngularSpectrumMethod) -> tuple[float, float]:
-        return self.pixel_size_in
+    def _get_phase_factor(
+        self: AngularSpectrumMethod, complex_amplitude: ComplexAmplitude
+    ) -> Tensor:
+        """Angular-spectrum transfer function ``(n_wavelengths, H, W)``."""
+        frequency_grid_x, frequency_grid_y = get_frequency_grid(
+            self._padded_resolution,
+            tuple(complex_amplitude.pixel_size[0].tolist()),
+            complex_amplitude.device,
+        )
 
-    @property
-    def resolution_out(self: AngularSpectrumMethod) -> tuple[int, int]:
-        return self.padded_resolution
-
-    def get_phase_factor(
-        self: AngularSpectrumMethod, propagation_distance: float
-    ) -> torch.Tensor:
+        # Per-wavelength wavenumber broadcast over the (padded) frequency grid.
+        wavenumber = complex_amplitude.wavenumber.reshape(-1, 1, 1)
+        argument = (
+            wavenumber ** 2
+            - frequency_grid_x.unsqueeze(0) ** 2
+            - frequency_grid_y.unsqueeze(0) ** 2
+        )
+        # ``+ 0j`` allows the square root to go imaginary for evanescent waves.
         return torch.exp(
-            1j * propagation_distance * 
-            torch.sqrt(
-                self.wavenumber ** 2 - self.frequency_grid[0] ** 2 
-                 - self.frequency_grid[1] ** 2 + 0j
-            )
+            1j * self.propagation_distance * torch.sqrt(argument + 0j)
+        )
+
+    def _propagate(
+        self: AngularSpectrumMethod,
+        complex_amplitude: ComplexAmplitude,
+        transfer_function: Tensor,
+    ) -> ComplexAmplitude:
+        transfer_function = broadcast_wavelength_operand(
+            transfer_function, complex_amplitude.ndim
+        )
+        padded = pad_to_shape_2D(complex_amplitude, self._padded_resolution)
+        spectrum = fft_2d(padded, norm="ortho")
+        propagated = ifft_2d(spectrum * transfer_function, norm="ortho")
+        out = crop_to_shape_2D(propagated, self.resolution_out)
+        return out.with_geometry(
+            wavelength=complex_amplitude.wavelength,
+            pixel_size=self.pixel_size_out,
         )
 
     def forward(
-        self: AngularSpectrumMethod, input_field: torch.Tensor
-    ) -> torch.Tensor:
-        input_field = unsqueeze_to(input_field, 3)
-        phase_factor = unsqueeze_to(self.phase_factor, 3)
+        self: AngularSpectrumMethod, complex_amplitude: ComplexAmplitude
+    ) -> ComplexAmplitude:
+        return self._propagate(complex_amplitude, self.phase_factor)
 
-        padded_field = pad_to_shape_2D(input_field, self.padded_resolution)
-        angular_spectrum = fft_2d(padded_field, **self.fft_kwargs)
-        return ifft_2d(angular_spectrum * phase_factor, **self.fft_kwargs)
+    def adjoint(
+        self: AngularSpectrumMethod, complex_amplitude: ComplexAmplitude
+    ) -> ComplexAmplitude:
+        """Back-propagation by ``-propagation_distance`` — the conjugate
+        transpose of :meth:`forward`."""
+        self._ensure_initialized()
+        return self._propagate(complex_amplitude, self.phase_factor.conj())

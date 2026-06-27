@@ -15,6 +15,22 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .utils.fourier_utils import get_spatial_grid
+from .utils.tensor_utils import unsqueeze_to
+
+
+def broadcast_wavelength_operand(
+    operand: Tensor, field_ndim: int
+) -> Tensor:
+    """Align a per-wavelength operand to a field of the given rank.
+
+    The operand is laid out as ``(n_wavelengths, H, W)``. A 2D field carries no
+    wavelength axis (it is single-wavelength), so the singleton wavelength axis
+    is dropped; otherwise leading singleton batch axes are added so it
+    broadcasts against ``(*batch, n_wavelengths, H, W)`` without changing rank.
+    """
+    if field_ndim == 2:
+        return operand.squeeze(0)
+    return unsqueeze_to(operand, field_ndim)
 
 
 @dataclass(frozen=True)
