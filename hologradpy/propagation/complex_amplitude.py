@@ -211,6 +211,40 @@ class ComplexAmplitude(Tensor):
                 )
         return wavelength, pixel_size
 
+    @classmethod
+    def from_geometry(
+        cls: type[ComplexAmplitude],
+        geometry: FieldGeometry,
+        data: Tensor | None = None,
+        dtype: torch.dtype = torch.complex64,
+    ) -> ComplexAmplitude:
+        """Create a field that matches a :class:`FieldGeometry`.
+
+        Args:
+            geometry: Target geometry (wavelength, pixel size, resolution).
+            data: Field values ``(..., H, W)``. If ``None``, a uniform
+                unit-amplitude field (ones) is created at the geometry's
+                resolution, with a leading wavelength axis when there is more
+                than one wavelength.
+            dtype: Dtype of the default field when ``data`` is ``None``.
+
+        Returns:
+            ComplexAmplitude carrying the geometry's wavelength and pixel size.
+        """
+        if data is None:
+            number_of_wavelengths = geometry.number_of_wavelengths
+            shape = (
+                geometry.resolution
+                if number_of_wavelengths == 1
+                else (number_of_wavelengths, *geometry.resolution)
+            )
+            data = torch.ones(
+                shape,
+                dtype=dtype,
+                device=geometry.wavelength.device,
+            )
+        return cls(data, geometry.wavelength, geometry.pixel_size)
+
     @property
     def wavelength(self) -> Tensor:
         return self.geometry.wavelength
