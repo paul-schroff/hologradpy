@@ -1,5 +1,6 @@
 # %% Imports
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 import torch
 
 from hologradpy.hardware.slm_simulated import SimulatedSLMTorch
@@ -25,7 +26,8 @@ from hologradpy.utils import get_device, gpu_to_numpy
 device = get_device(verbose=True)
 
 # %%
-%matplotlib qt
+plt.switch_backend("QtAgg")
+plt.ion()
 # %% Initializing simulated SLM and camera
 slm_geometry = FieldGeometry(
     resolution=(1024, 1280),
@@ -159,8 +161,6 @@ plt.imshow(camera_images[14, ...], cmap="turbo")
 plt.colorbar()
 
 # %%
-import matplotlib.animation as animation
-
 fig, ax = plt.subplots(1, 2)
 ims = []
 for i in range(camera_images.shape[0]):
