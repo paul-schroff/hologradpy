@@ -2,13 +2,14 @@ import torch
 import torch.nn as nn
 from ..propagation.complex_amplitude import ComplexAmplitude
 
+
 class LossFunctionBase:
     def __init__(self) -> None:
         """Base class for loss functions."""
         pass
 
     def loss(self, electric_field: torch.Tensor) -> torch.Tensor:
-        """ Calculate the loss based on the electric field.
+        """Calculate the loss based on the electric field.
 
         Args:
             electric_field : torch.Tensor
@@ -23,12 +24,12 @@ class LossFunctionBase:
 
 class LossIntensityMSE(LossFunctionBase):
     def __init__(
-            self,
-            target_intensity: torch.Tensor,
-            signal_mask: torch.Tensor,
-            steepness: float = 1e12
-        ) -> None:
-        """ Amplitude-only cost function from 
+        self,
+        target_intensity: torch.Tensor,
+        signal_mask: torch.Tensor,
+        steepness: float = 1e12,
+    ) -> None:
+        """Amplitude-only cost function from
         https://doi.org/10.1364/OE.22.026548.
 
         Args:
@@ -39,17 +40,17 @@ class LossIntensityMSE(LossFunctionBase):
             steepness : float, optional
                 Steepness of the cost function, by default 1e12.
         """
-        self.mse = nn.MSELoss(reduction='sum')
+        self.mse = nn.MSELoss(reduction="sum")
         self.signal_mask = signal_mask
         self.steepness = steepness
-        
+
         target_intensity = target_intensity * signal_mask
         target_intensity /= target_intensity.sum()
 
         self.target_intensity = target_intensity
-    
+
     def loss(self, complex_amplitude: torch.Tensor) -> torch.Tensor:
-        """ Calculate the loss based on the electric field.
+        """Calculate the loss based on the electric field.
 
         Args:
             complex_amplitude : torch.Tensor
@@ -66,13 +67,13 @@ class LossIntensityMSE(LossFunctionBase):
 
 class LossFidelity(LossFunctionBase):
     def __init__(
-            self,
-            target_intensity: torch.Tensor,
-            target_phase: torch.Tensor,
-            signal_mask: torch.Tensor,
-            steepness: float = 1e12
-        ) -> None:
-        """ Phase and amplitude cost function from 
+        self,
+        target_intensity: torch.Tensor,
+        target_phase: torch.Tensor,
+        signal_mask: torch.Tensor,
+        steepness: float = 1e12,
+    ) -> None:
+        """Phase and amplitude cost function from
         https://doi.org/10.1364/OE.25.011692.
 
         Args:
@@ -92,7 +93,7 @@ class LossFidelity(LossFunctionBase):
         self.target_phase = target_phase * signal_mask
 
     def loss(self, electric_field: torch.Tensor) -> torch.Tensor:
-        """ Calculate the loss based on the electric field.
+        """Calculate the loss based on the electric field.
 
         Args:
             electric_field : torch.Tensor
@@ -106,25 +107,28 @@ class LossFidelity(LossFunctionBase):
         phase_out = electric_field.angle()
 
         overlap = (
-            self.signal_mask * amplitude_out * self.target_amplitude *
-            (phase_out - self.target_phase).cos()
+            self.signal_mask
+            * amplitude_out
+            * self.target_amplitude
+            * (phase_out - self.target_phase).cos()
         ).sum()
         overlap /= (
-            self.target_intensity.sum() * 
-            (amplitude_out * self.signal_mask) ** 2
-        ).sqrt().sum()
+            (self.target_intensity.sum() * (amplitude_out * self.signal_mask) ** 2)
+            .sqrt()
+            .sum()
+        )
 
         return self.steepness * (1 - overlap) ** 2
 
 
 class LossEfficiency(LossFunctionBase):
     def __init__(
-            self,
-            signal_mask: torch.Tensor,
-            total_power: torch.Tensor,
-            steepness: float = 1e12
-        ) -> None:
-        """ Efficiency cost function.
+        self,
+        signal_mask: torch.Tensor,
+        total_power: torch.Tensor,
+        steepness: float = 1e12,
+    ) -> None:
+        """Efficiency cost function.
 
         Args:
             signal_mask : torch.Tensor
@@ -137,9 +141,9 @@ class LossEfficiency(LossFunctionBase):
         self.signal_mask = signal_mask
         self.total_power = total_power
         self.steepness = steepness
-    
+
     def loss(self, electric_field: torch.Tensor) -> torch.Tensor:
-        """ Calculate the loss based on the electric field.
+        """Calculate the loss based on the electric field.
 
         Args:
             electric_field : torch.Tensor
@@ -169,20 +173,17 @@ class LossVorticity(LossFunctionBase):
         grad_y, _ = torch.gradient(electric_field)
         vorticity = 1 / (2 * torch.pi) * (grad_x * grad_y).imag / intensity
         vorticity = vorticity * self.target_intensity
-        return self.steepness * (vorticity ** 2).sum()
+        return self.steepness * (vorticity**2).sum()
 
 
 # TODO: Tidy this up
 def rms(
-    signal: torch.Tensor,
-    i_target: torch.Tensor, 
-    i_out: torch.Tensor,
-    frac: float
+    signal: torch.Tensor, i_target: torch.Tensor, i_out: torch.Tensor, frac: float
 ) -> torch.Tensor:
     """
-    Calculate normalised root-mean-squared error between two images inside a 
-    region of interest. Only pixels which are brighter than 
-    ``frac * np.max(i_target_norm)`` are taken into account, where 
+    Calculate normalised root-mean-squared error between two images inside a
+    region of interest. Only pixels which are brighter than
+    ``frac * np.max(i_target_norm)`` are taken into account, where
     ``i_target_norm`` is the normalised target intensity pattern.
 
     :param signal: Binary mask containing region of interest (signal region).

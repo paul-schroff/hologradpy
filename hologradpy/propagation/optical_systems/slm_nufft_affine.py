@@ -30,9 +30,7 @@ class SLMNUFFTAffine(SLMFourierLensModel):
         self.focal_length = focal_length
 
         camera_resolution = tuple(camera_data.shape[i] for i in range(2))
-        camera_pixel_size = tuple(
-            camera_data.pitch_um[i] * 1e-6 for i in range(2)
-        )
+        camera_pixel_size = tuple(camera_data.pitch_um[i] * 1e-6 for i in range(2))
 
         # Create constant field module
         constant_field = ConstantSLMField(
@@ -47,9 +45,7 @@ class SLMNUFFTAffine(SLMFourierLensModel):
             wavelength=virtual_slm.wavelength,
             resolution_in=virtual_slm.resolution_in,
             pixel_size_in=virtual_slm.pixel_size_in,
-            resolution_out=tuple(
-                int(camera_resolution[i] * 1.1) for i in range(2)
-            ),
+            resolution_out=tuple(int(camera_resolution[i] * 1.1) for i in range(2)),
             pixel_size_out=camera_pixel_size,
             scale_factor=(1, 1),
             shift=camera_shift,
@@ -69,12 +65,14 @@ class SLMNUFFTAffine(SLMFourierLensModel):
 
         # Adding modules to the nn.Sequential container in the desired order.
         super().__init__(
-            OrderedDict([
-                ("virtual_slm", virtual_slm),
-                ("constant_field", constant_field),
-                ("fourier_lens", fourier_lens),
-                ("affine_transform", affine_transform),
-            ])
+            OrderedDict(
+                [
+                    ("virtual_slm", virtual_slm),
+                    ("constant_field", constant_field),
+                    ("fourier_lens", fourier_lens),
+                    ("affine_transform", affine_transform),
+                ]
+            )
         )
 
     def get_checkpoint_spec(self) -> dict[str, object]:

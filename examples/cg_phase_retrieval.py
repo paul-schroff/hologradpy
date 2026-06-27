@@ -32,9 +32,9 @@ slm = SimulatedSLMTorch(
 )
 
 # %% Set up the SLM and camera modules
-beam_radius = 4e-3                  # beam radius in mm
-focal_length = 500e-3               # focal length in mm
-padded_resolution = (2048, 2048)    # padded resolution for the FFT
+beam_radius = 4e-3  # beam radius in mm
+focal_length = 500e-3  # focal length in mm
+padded_resolution = (2048, 2048)  # padded resolution for the FFT
 
 slm_field = ComplexAmplitude(
     torch.zeros(*slm.shape, device=device, dtype=torch.complex64),
@@ -47,9 +47,9 @@ slm_intensity = gaussian_beam_intensity(*slm_grid, beam_radius=beam_radius)
 slm_field._data = slm_intensity.sqrt() + 0j
 
 plt.figure()
-plt.imshow(gpu_to_numpy(slm_intensity), cmap='turbo')
-plt.title('SLM Intensity Pattern')
-plt.colorbar(label='Intensity [a.u.]')
+plt.imshow(gpu_to_numpy(slm_intensity), cmap="turbo")
+plt.title("SLM Intensity Pattern")
+plt.colorbar(label="Intensity [a.u.]")
 
 # TODO: Adapt the previous initial phase guess function.
 init_slm_phase = lens_phase(
@@ -71,11 +71,11 @@ init_electric_field = slm_camera_model()
 init_intensity = init_electric_field.intensity
 
 plt.figure()
-plt.imshow(init_intensity, cmap='turbo')
-plt.title('Initial Simulated Camera Image')
-plt.colorbar(label='Intensity (a.u.)')
+plt.imshow(init_intensity, cmap="turbo")
+plt.title("Initial Simulated Camera Image")
+plt.colorbar(label="Intensity (a.u.)")
 
-slm_power = slm_camera_model.constant_field.amplitude ** 2
+slm_power = slm_camera_model.constant_field.amplitude**2
 image_power = init_intensity.sum()
 
 print(f"SLM Power: {slm_power.sum().item()}")
@@ -105,9 +105,9 @@ signal_region = rectangular_mask(
 )
 
 plt.figure()
-plt.imshow(gpu_to_numpy(target_top_hat), cmap='turbo')
-plt.title('Target Top Hat Pattern')
-plt.colorbar(label='Intensity (a.u.)')
+plt.imshow(gpu_to_numpy(target_top_hat), cmap="turbo")
+plt.title("Target Top Hat Pattern")
+plt.colorbar(label="Intensity (a.u.)")
 
 
 # %% Setting up the phase retrieval module
@@ -129,20 +129,18 @@ phase_out = complex_amplitude.phase
 
 plt.figure()
 plt.imshow(gpu_to_numpy(phase_out % (2 * torch.pi)), cmap="magma")
-plt.title('Final Retrieved Phase')
-plt.colorbar(label='Phase [radians]')
+plt.title("Final Retrieved Phase")
+plt.colorbar(label="Phase [radians]")
 
 plt.figure()
-plt.imshow(gpu_to_numpy(intensity_out), cmap='turbo')
-plt.title('Final Retrieved Intensity')
-plt.colorbar(label='Intensity [a.u.]')
+plt.imshow(gpu_to_numpy(intensity_out), cmap="turbo")
+plt.title("Final Retrieved Intensity")
+plt.colorbar(label="Intensity [a.u.]")
 
- # %% Vortex detection
+# %% Vortex detection
 vortex_annihilator = VortexAnnihilator(phase_retriever)
 vortex_annihilator.annihilate_vortices(
-    target_intensity_threshold=0.1,
-    max_iterations=5,
-    cg_iterations=20
+    target_intensity_threshold=0.1, max_iterations=5, cg_iterations=20
 )
 
 # %% Refine SLM phase after vortex annihilation
@@ -155,11 +153,11 @@ phase_out = complex_amplitude.phase
 
 plt.figure()
 plt.imshow(gpu_to_numpy(phase) % (2 * torch.pi), cmap="magma")
-plt.title('Final Retrieved Phase')
-plt.colorbar(label='Phase [radians]')
+plt.title("Final Retrieved Phase")
+plt.colorbar(label="Phase [radians]")
 
 plt.figure()
-plt.imshow(intensity_out[700:-700, 700:-700], cmap='turbo')
-plt.title('Final Retrieved Intensity')
-plt.colorbar(label='Intensity [a.u.]')
+plt.imshow(intensity_out[700:-700, 700:-700], cmap="turbo")
+plt.title("Final Retrieved Intensity")
+plt.colorbar(label="Intensity [a.u.]")
 # %%

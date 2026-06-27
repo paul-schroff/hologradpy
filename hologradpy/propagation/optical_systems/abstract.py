@@ -26,9 +26,7 @@ class OpticalSystem(nn.Module):
     Sequential container for optical systems with named layers.
     """
 
-    def __init__(
-        self, input_geometry: FieldGeometry, **modules: OpticsModule
-    ) -> None:
+    def __init__(self, input_geometry: FieldGeometry, **modules: OpticsModule) -> None:
         super().__init__()
         self.input_geometry = input_geometry
         self.device = input_geometry.pixel_size.device
@@ -78,9 +76,7 @@ class OpticalSystem(nn.Module):
         raise KeyError(f"No module of type {module_type.__name__}")
 
     def has(self, module_type: Type[OpticsModule]) -> bool:
-        return any(
-            isinstance(getattr(self, n), module_type) for n in self._order
-        )
+        return any(isinstance(getattr(self, n), module_type) for n in self._order)
 
     def summary(self):
         for i, name in enumerate(self._order):
@@ -147,9 +143,7 @@ class OpticalSystem(nn.Module):
 
             checkpoint_class_name = checkpoint.get("class_name")
             spec = dict(checkpoint.get("spec", checkpoint.get("init_kwargs", {})))
-            checkpoint_version = checkpoint.get(
-                "version", cls.checkpoint_version
-            )
+            checkpoint_version = checkpoint.get("version", cls.checkpoint_version)
             state_dict = checkpoint["state_dict"]
 
         if checkpoint_version != cls.checkpoint_version:
@@ -158,10 +152,7 @@ class OpticalSystem(nn.Module):
                 f"{cls.__name__} (expected {cls.checkpoint_version})."
             )
 
-        if (
-            checkpoint_class_name is not None
-            and checkpoint_class_name != cls.__name__
-        ):
+        if checkpoint_class_name is not None and checkpoint_class_name != cls.__name__:
             raise ValueError(
                 f"Checkpoint was saved from '{checkpoint_class_name}', "
                 f"but '{cls.__name__}.load' was called."

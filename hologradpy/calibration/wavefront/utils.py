@@ -8,13 +8,15 @@ from scipy.sparse.linalg import lsqr, spsolve
 
 from scipy.ndimage import distance_transform_edt
 
+
 def wrap(x: NDArray[np.float_]) -> NDArray[np.float_]:
     return (x + np.pi) % (2 * np.pi) - np.pi
 
+
 def unwrap_nonuniform(
-    x: NDArray[np.float_], 
-    y: NDArray[np.float_], 
-    phase: NDArray[np.float_], 
+    x: NDArray[np.float_],
+    y: NDArray[np.float_],
+    phase: NDArray[np.float_],
 ) -> NDArray[np.float_]:
     points = np.column_stack([x, y])
     number_of_points = len(phase)
@@ -50,6 +52,7 @@ def unwrap_nonuniform(
 
     phi, *_ = lsqr(A.tocsr(), b)
     return phi
+
 
 def inpaint(
     image: NDArray[np.float_], covered: NDArray[np.bool_]
@@ -104,5 +107,3 @@ def inpaint(
     b[covered_flat] = image[covered].ravel()
 
     return spsolve(A, b).reshape(image.shape)
-
-

@@ -38,7 +38,7 @@ class SLMFFTAffine(SLMFourierLensModel):
                 pixel_size_out=camera_pixel_size,
                 shift=camera_shift,
                 angle=camera_angle,
-            )
+            ),
         )
 
     def get_checkpoint_spec(self) -> dict[str, object]:

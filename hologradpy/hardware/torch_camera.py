@@ -23,7 +23,7 @@ class SimulatedCameraTorch(Camera):
         hdr: bool = False,
         rot: float | str = "0",
         fliplr: bool = False,
-        flipud: bool = False
+        flipud: bool = False,
     ) -> None:
         """Initialize a simulated camera with a given SLM."""
         output_module = slm_camera_model[-1]
@@ -31,9 +31,7 @@ class SimulatedCameraTorch(Camera):
 
         pixel_size_out = output_module.pixel_size_out
         if pixel_size_out is None:
-            pixel_size_out = getattr(
-                output_module, "_pixel_size_out_init", None
-            )
+            pixel_size_out = getattr(output_module, "_pixel_size_out_init", None)
 
         if pixel_size_out is None:
             raise ValueError(
@@ -54,7 +52,7 @@ class SimulatedCameraTorch(Camera):
             hdr=hdr,
             rot=rot,
             fliplr=fliplr,
-            flipud=flipud
+            flipud=flipud,
         )
 
         self.slm_camera_model: SLMFourierLensModel = slm_camera_model
@@ -63,22 +61,22 @@ class SimulatedCameraTorch(Camera):
 
     def _get_exposure_hw(self):
         return self.exposure_s
-    
+
     def _set_exposure_hw(self, exposure_s: float) -> None:
         """Set the exposure time for the virtual camera."""
         self.exposure_s = exposure_s
-    
+
     def set_woi(self, woi: tuple[int, int, int, int] | None = None) -> None:
         """Set the region of interest (WOI) for the camera."""
         if woi is None:
             woi = (0, self.shape[1], 0, self.shape[0])
         self.woi = woi
-        
+
     def close(self) -> None:
         torch.cuda.empty_cache()
-    
+
     def autoexposure(self, *args, **kwargs):
-        # TODO: Ideally, self.autoexposure should work with self.woi, this is 
+        # TODO: Ideally, self.autoexposure should work with self.woi, this is
         # just a temporary workaround.
         stored_woi = deepcopy(self.woi)
         self.set_woi(None)
@@ -94,22 +92,26 @@ class SimulatedCameraTorch(Camera):
         """Get an image from the camera hardware."""
         intensity = self.slm_camera_model().abs() ** 2
 
-        roi = (self.woi[2], self.woi[2] + self.woi[3],
-               self.woi[0], self.woi[0] + self.woi[1])
+        roi = (
+            self.woi[2],
+            self.woi[2] + self.woi[3],
+            self.woi[0],
+            self.woi[0] + self.woi[1],
+        )
         intensity = crop_to_roi(intensity, roi)
 
         if backend == "numpy":
-            return gpu_to_numpy(intensity) #.astype(self.dtype)
+            return gpu_to_numpy(intensity)  # .astype(self.dtype)
         elif backend == "torch":
             return intensity
         else:
             raise ValueError("Backend must be either 'numpy' or 'torch'.")
-    
+
     def _get_images_hw(
         self,
         image_count: int,
         timeout_s: float,
-        out = None,
+        out=None,
         backend: Literal["numpy", "torch"] = "numpy",
     ) -> torch.Tensor:
         """Get multiple images from the camera hardware."""
@@ -117,7 +119,7 @@ class SimulatedCameraTorch(Camera):
         for _ in range(image_count):
             image = self._get_image_hw(timeout_s, backend)
             images.append(image)
-        
+
         if backend == "numpy":
             return np.stack(images)
         elif backend == "torch":

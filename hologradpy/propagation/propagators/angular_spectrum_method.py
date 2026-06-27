@@ -33,9 +33,7 @@ class AngularSpectrumMethod(OpticsModule):
         super().__init__()
 
         self.propagation_distance: float = propagation_distance
-        self._padded_resolution_init: tuple[int, int] | None = (
-            padded_resolution
-        )
+        self._padded_resolution_init: tuple[int, int] | None = padded_resolution
 
     def lazy_init(
         self: AngularSpectrumMethod, complex_amplitude: ComplexAmplitude
@@ -45,25 +43,20 @@ class AngularSpectrumMethod(OpticsModule):
         resolution_in = complex_amplitude.resolution
 
         if self._padded_resolution_init is None:
-            self._padded_resolution = tuple(
-                2 * resolution_in[i] for i in range(2)
-            )
+            self._padded_resolution = tuple(2 * resolution_in[i] for i in range(2))
         else:
             if (
                 self._padded_resolution_init[0] < resolution_in[0]
                 or self._padded_resolution_init[1] < resolution_in[1]
             ):
                 raise ValueError(
-                    "Padded resolution must be at least as large as input "
-                    "resolution."
+                    "Padded resolution must be at least as large as input resolution."
                 )
             if any(self._padded_resolution_init[i] % 2 for i in range(2)):
                 raise ValueError("Padded resolution must be even.")
             self._padded_resolution = self._padded_resolution_init
 
-        self.register_buffer(
-            "phase_factor", self._get_phase_factor(complex_amplitude)
-        )
+        self.register_buffer("phase_factor", self._get_phase_factor(complex_amplitude))
 
     def _get_phase_factor(
         self: AngularSpectrumMethod, complex_amplitude: ComplexAmplitude
@@ -78,14 +71,12 @@ class AngularSpectrumMethod(OpticsModule):
         # Per-wavelength wavenumber broadcast over the (padded) frequency grid.
         wavenumber = complex_amplitude.wavenumber.reshape(-1, 1, 1)
         argument = (
-            wavenumber ** 2
+            wavenumber**2
             - frequency_grid_x.unsqueeze(0) ** 2
             - frequency_grid_y.unsqueeze(0) ** 2
         )
         # ``+ 0j`` allows the square root to go imaginary for evanescent waves.
-        return torch.exp(
-            1j * self.propagation_distance * torch.sqrt(argument + 0j)
-        )
+        return torch.exp(1j * self.propagation_distance * torch.sqrt(argument + 0j))
 
     def _propagate(
         self: AngularSpectrumMethod,

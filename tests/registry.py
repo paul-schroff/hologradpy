@@ -5,6 +5,7 @@ axis is always at ``dim=-3`` and every dimension before it is batch. The ND
 contract suite exercises each concrete :class:`OpticsModule` across a range of
 batch ranks using the registries defined here.
 """
+
 from __future__ import annotations
 
 import torch
@@ -61,12 +62,8 @@ MODULE_FACTORIES: dict[str, callable] = {
         number_of_radial_orders=ZERNIKE_RADIAL_ORDERS,
         initial_coefficients=ZERNIKE_COEFFICIENTS,
     ),
-    "SimpleLens": lambda: SimpleLens(
-        focal_length=0.1, aperture_radius=1e-3
-    ),
-    "AngularSpectrumMethod": lambda: AngularSpectrumMethod(
-        propagation_distance=1e-3
-    ),
+    "SimpleLens": lambda: SimpleLens(focal_length=0.1, aperture_radius=1e-3),
+    "AngularSpectrumMethod": lambda: AngularSpectrumMethod(propagation_distance=1e-3),
 }
 
 
@@ -98,6 +95,4 @@ def make_field(
     real = torch.rand(*shape, generator=generator)
     imag = torch.rand(*shape, generator=generator)
     data = (real + 1j * imag).to(torch.complex64)
-    return ComplexAmplitude(
-        data, make_wavelength(number_of_wavelengths), PIXEL_SIZE
-    )
+    return ComplexAmplitude(data, make_wavelength(number_of_wavelengths), PIXEL_SIZE)

@@ -37,9 +37,7 @@ class ZernikePhaseRetriever(PhaseRetrieverBase):
 
         self.iteration: int = 0
 
-    def set_optimizer(
-        self, number_of_iterations: int, method: str = "l-bfgs"
-    ) -> None:
+    def set_optimizer(self, number_of_iterations: int, method: str = "l-bfgs") -> None:
         self.optimizer = torchmin.Minimizer(
             self.slm_camera_model.parameters(),
             method=method,
@@ -47,7 +45,7 @@ class ZernikePhaseRetriever(PhaseRetrieverBase):
             disp=1,
             callback=self.callback,
             tol=1e-20,
-            options={'gtol': 1e-20, 'xtol': 1e-20}
+            options={"gtol": 1e-20, "xtol": 1e-20},
         )
 
     def callback(self, _):
@@ -75,7 +73,7 @@ class ZernikePhaseRetriever(PhaseRetrieverBase):
 
         # for _ in range(number_of_iterations):
         self.optimizer.step(self.closure)
-            # self.callback(_)
+        # self.callback(_)
 
         self.timer.stop()
 

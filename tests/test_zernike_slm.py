@@ -5,6 +5,7 @@ this module adds tests for what makes it distinct: it learns per-wavelength
 Zernike *coefficients* (not a per-pixel phase), reconstructs a per-wavelength
 phase, and feeds gradients back to those coefficients.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -18,9 +19,7 @@ from .registry import ZERNIKE_RADIAL_ORDERS, make_field
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
-NUMBER_OF_COEFFICIENTS = (
-    ZERNIKE_RADIAL_ORDERS * (ZERNIKE_RADIAL_ORDERS + 1) // 2
-)
+NUMBER_OF_COEFFICIENTS = ZERNIKE_RADIAL_ORDERS * (ZERNIKE_RADIAL_ORDERS + 1) // 2
 
 
 class _FakeSLM:

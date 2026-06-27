@@ -94,7 +94,7 @@ def checkerboard(
             (y, x) axes. Overrides square_size.
         square_size (int, optional): Size of each square in pixels. If None,
             calculated from number_of_squares and resolution.
-        shift_x (int, optional): Horizontal shift of the pattern. Defaults to 
+        shift_x (int, optional): Horizontal shift of the pattern. Defaults to
             0.
         shift_y (int, optional): Vertical shift of the pattern. Defaults to 0.
         dark_square_brightness (float, optional): Value for dark square
@@ -109,28 +109,24 @@ def checkerboard(
     number_of_squares_y, number_of_squares_x = number_of_squares
 
     if square_size is None:
-        square_size = min(
-            width // number_of_squares_y, height // number_of_squares_x
-            )
-    
-    checkerboard_resolution =  (
+        square_size = min(width // number_of_squares_y, height // number_of_squares_x)
+
+    checkerboard_resolution = (
         number_of_squares_y * square_size,
-        number_of_squares_x * square_size
-        )
+        number_of_squares_x * square_size,
+    )
 
     y, x = np.indices(checkerboard_resolution)
-    
+
     cb = np.where(
-        ((x // square_size) + (y // square_size)) % 2 == 0, 
-        dark_square_brightness, 
-        light_square_brightness
+        ((x // square_size) + (y // square_size)) % 2 == 0,
+        dark_square_brightness,
+        light_square_brightness,
     )
-    
+
     pad_x = (resolution[1] - checkerboard_resolution[1]) // 2
     pad_y = (resolution[0] - checkerboard_resolution[0]) // 2
 
     return np.pad(
-        cb, 
-        ((pad_y + shift_y, pad_y - shift_y),
-         (pad_x + shift_x, pad_x - shift_x))
+        cb, ((pad_y + shift_y, pad_y - shift_y), (pad_x + shift_x, pad_x - shift_x))
     )

@@ -4,15 +4,16 @@ from .vortex_detection import VortexDetector
 
 from ..phase_retrieval.conjugate_gradient import CGPhaseRetriever
 
+
 # TODO: Docstrings
 class VortexAnnihilator:
     def __init__(self, phase_retriever: CGPhaseRetriever):
         self.phase_retriever = phase_retriever
         self.vortex_detector = VortexDetector(
             self.phase_retriever.slm_camera_model[-1].resolution_out,
-            device=self.phase_retriever.device
+            device=self.phase_retriever.device,
         )
-    
+
     def annihilate_vortices(
         self,
         target_intensity_threshold: float = 0.2,
@@ -34,20 +35,17 @@ class VortexAnnihilator:
                 complex_amplitude,
                 target_intensity=target_intensity,
                 threshold=target_intensity_threshold,
-                pad=1
+                pad=1,
             )
 
             number_of_vortices = self.vortex_detector.number_of_vortices
 
             print(
-                f"Iteration {iteration}: " +
-                f"Detected {number_of_vortices} vortices."
+                f"Iteration {iteration}: " + f"Detected {number_of_vortices} vortices."
             )
 
             if number_of_vortices > 0:
-                anti_vortex_field = (
-                    self.vortex_detector.generate_anti_vortex_field()
-                )
+                anti_vortex_field = self.vortex_detector.generate_anti_vortex_field()
 
                 corrected_field = complex_amplitude * anti_vortex_field
 

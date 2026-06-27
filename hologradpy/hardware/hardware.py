@@ -15,26 +15,26 @@ class ParamsBase(ABC):
     @property
     @abstractmethod
     def wavelength(self):
-        """ Wavelength [m]."""
+        """Wavelength [m]."""
         pass
 
     @property
     @final
     def k(self):
-        """ Wavenumber [rad/m]."""
+        """Wavenumber [rad/m]."""
         return 2 * np.pi / self.wavelength
 
     @property
     @abstractmethod
     def beam_diameter(self):
-        """ Diameter of incident Gaussian beam [m]."""
+        """Diameter of incident Gaussian beam [m]."""
         pass
 
     # Lens-related parameters
     @property
     @abstractmethod
     def fl(self):
-        """ Focal length [m]."""
+        """Focal length [m]."""
         pass
 
     # Doublet lens used with the ASM
@@ -65,21 +65,27 @@ class ParamsBase(ABC):
 
     # Parameters to process measured constant SLM phase and intensity
     crop = 32  #: Number of unused pixels at the edges of the SLM
-    phi_filter_size = 5  #: Size of the uniform filter to smoothen the constant SLM phase
-    i_filter_size = 3  #: Size of the uniform filter to smoothen the constant SLM intensity
+    phi_filter_size = (
+        5  #: Size of the uniform filter to smoothen the constant SLM phase
+    )
+    i_filter_size = (
+        3  #: Size of the uniform filter to smoothen the constant SLM intensity
+    )
 
 
 class CameraBase(ABC):
     def __init__(self, res, pitch, roi):
         """
-        Abstract camera base class. You will have to implement your own camera driver by writing a subclass of this
-        class. If you implement your own ``__init__()`` method in your subclass, call
-        ``super().__init__(res, pitch, roi)`` in your ``__init__()`` method first to initialise all required parameters.
+        Abstract camera base class. You will have to implement your own camera driver by
+        writing a subclass of this class. If you implement your own ``__init__()``
+        method in your subclass, call ``super().__init__(res, pitch, roi)`` in your
+        ``__init__()`` method first to initialise all required parameters.
 
         :param res: Resolution of the camera (width, height) [px].
         :param pitch: Pixel pitch of the camera [m].
-        :param roi: Region of interest on the camera (width, height, offset x, offset y) [px]. The offset is measured
-            with respect to the bottom left corner of the image.
+        :param roi: Region of interest on the camera (width, height, offset x, offset y)
+            [px]. The offset is measured with respect to the bottom left corner of the
+            image.
         """
         self.res = res
         self.pitch = pitch
@@ -106,8 +112,8 @@ class CameraBase(ABC):
     @abstractmethod
     def get_image(self, exp_time):
         """
-        You have to implement this yourself. Acquires and returns a camera image of the shape determined by
-        ``self.roi``.
+        You have to implement this yourself. Acquires and returns a camera image of the
+        shape determined by ``self.roi``.
 
         :param exp_time: Exposure time.
         :return: Camera image of shape as defined by ``self.roi``
@@ -126,7 +132,8 @@ def get_image_avg(cam_obj, exp_time, n_avg):
     """
     This function captures multiple camera images and calculates the average.
 
-    :param cam_obj: Instance of your own camera class which is a subclass of ``CameraBase``.
+    :param cam_obj: Instance of your own camera class which is a subclass of
+        ``CameraBase``.
     :param exp_time: Exposure time.
     :param n_avg: Number of frames to be averaged.
     :return: Averaged image.
@@ -141,10 +148,11 @@ def get_image_avg(cam_obj, exp_time, n_avg):
 class SlmBase(ABC):
     def __init__(self, res, pitch):
         """
-        Abstract SLM base class to display a phase pattern on the device. You will have to implement your own driver by
-        writing a subclass which inherits from ``SlmBase``. If you implement your own ``__init__()`` method in your
-        subclass, call ``super().__init__(res, pitch)`` in your ``__init__()`` method first to initialise all required
-        parameters.
+        Abstract SLM base class to display a phase pattern on the device. You will have
+        to implement your own driver by writing a subclass which inherits from
+        ``SlmBase``. If you implement your own ``__init__()`` method in your subclass,
+        call ``super().__init__(res, pitch)`` in your ``__init__()`` method first to
+        initialise all required parameters.
 
         :param res: Resolution of the SLM (width, height) [px].
         :param pitch: Pixel pitch of the SLM [m].
@@ -164,8 +172,8 @@ class SlmBase(ABC):
     @property
     def meshgrid_slm(self):
         """
-        Calculates an x, y meshgrid using the pixel pitch and the native resolution of the SLM.
-        :return: x, y meshgrid [m].
+        Calculates an x, y meshgrid using the pixel pitch and the native resolution of
+        the SLM. :return: x, y meshgrid [m].
         """
         x = np.arange(-self.slm_size[0] / 2, self.slm_size[0] / 2, self.pitch)
         return np.meshgrid(x, x)
@@ -173,7 +181,8 @@ class SlmBase(ABC):
     @abstractmethod
     def display(self, phi):
         """
-        This function displays a phase pattern on the SLM. You have to implement this yourself.
+        This function displays a phase pattern on the SLM. You have to implement this
+        yourself.
 
         :param phi: SLM phase pattern [radians].
         :return:

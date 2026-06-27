@@ -21,7 +21,7 @@ class ZernikeSLM(VirtualSLM):
 
     Unlike :class:`VirtualSLM`, which learns a per-pixel phase, ``ZernikeSLM``
     learns ``(n_wavelengths, n_coefficients)`` Zernike coefficients. The
-    displayed phase is reconstructed from a fixed Zernike basis built lazily 
+    displayed phase is reconstructed from a fixed Zernike basis built lazily
     for the input field's resolution.
     """
 
@@ -54,9 +54,7 @@ class ZernikeSLM(VirtualSLM):
         self.convention: Conventions = convention
         self.unit_disk_mode: str = unit_disk_mode
 
-    def lazy_init(
-        self: ZernikeSLM, complex_amplitude: ComplexAmplitude
-    ) -> None:
+    def lazy_init(self: ZernikeSLM, complex_amplitude: ComplexAmplitude) -> None:
         # Set pixel_size_out / resolution_out without creating VirtualSLM's
         # per-pixel phase Parameter, which ZernikeSLM does not use.
         OpticsModule.lazy_init(self, complex_amplitude)
@@ -81,9 +79,7 @@ class ZernikeSLM(VirtualSLM):
         coefficients = self._initial_coefficients(
             number_of_wavelengths, complex_amplitude
         )
-        self.zernike_coefficients = nn.Parameter(
-            coefficients, requires_grad=True
-        )
+        self.zernike_coefficients = nn.Parameter(coefficients, requires_grad=True)
 
     def _initial_coefficients(
         self: ZernikeSLM,
@@ -106,9 +102,7 @@ class ZernikeSLM(VirtualSLM):
         )
         # A 1D set of coefficients is shared (broadcast) across wavelengths.
         if coefficients.ndim == 1:
-            coefficients = coefficients.unsqueeze(0).repeat(
-                number_of_wavelengths, 1
-            )
+            coefficients = coefficients.unsqueeze(0).repeat(number_of_wavelengths, 1)
         if tuple(coefficients.shape) != target_shape:
             raise ValueError(
                 "initial_coefficients must have shape "

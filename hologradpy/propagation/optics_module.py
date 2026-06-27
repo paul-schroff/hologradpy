@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TypedDict, Any#, Self
+from typing import TypedDict, Any  # , Self
 
 import torch
 from torch import nn, Tensor
@@ -44,9 +44,7 @@ class OpticsModule(nn.Module):
 
         self._pixel_size_out: Tensor | None = None
 
-        self._init_hook = self.register_forward_pre_hook(
-            self._initialize_from_input
-        )
+        self._init_hook = self.register_forward_pre_hook(self._initialize_from_input)
 
         self.initialized = False
 
@@ -123,9 +121,7 @@ class OpticsModule(nn.Module):
         # Probe carries only geometry/dtype/device into lazy_init, which never
         # reads field values — so the (uninitialised) contents are unused.
         probe = ComplexAmplitude(
-            torch.empty(
-                shape, dtype=dtype, device=geometry.wavelength.device
-            ),
+            torch.empty(shape, dtype=dtype, device=geometry.wavelength.device),
             geometry.wavelength,
             geometry.pixel_size,
         )
@@ -195,7 +191,7 @@ class OpticsModule(nn.Module):
         raise NotImplementedError(
             "Subclasses of OpticsModule must implement adjoint() method."
         )
-    
+
     def save(self, path: str) -> None:
         save_dict: SaveDict = {
             "state_dict": self.state_dict(),
@@ -211,9 +207,7 @@ class OpticsModule(nn.Module):
 
     # TODO: Add Self type hint once upgraded to Python>=3.11
     @classmethod
-    def from_file(
-        cls, path: str, device: torch.device = "cpu"
-    ):
+    def from_file(cls, path: str, device: torch.device = "cpu"):
         raise NotImplementedError(
             "OpticsModule subclasses must implement from_file() method."
         )
@@ -224,11 +218,10 @@ class OpticsModule(nn.Module):
             pixel_size=self.pixel_size_in.tolist()[index],
             device=self.pixel_size_in.device,
         )
-    
+
     def get_spatial_grid_output(self, index: int = 0) -> tuple[Tensor, Tensor]:
         return get_spatial_grid(
             resolution=self.resolution_out,
             pixel_size=self.pixel_size_out.tolist()[index],
             device=self.pixel_size_out.device,
         )
-

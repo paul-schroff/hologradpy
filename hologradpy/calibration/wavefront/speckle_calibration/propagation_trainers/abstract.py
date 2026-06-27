@@ -31,15 +31,11 @@ class PropagationTrainer:
         roi_mask: NDArray[np.bool_] | None = None,
         device: str = "cpu",
     ) -> None:
-        self.dataset_descriptor: DatasetDescriptor = (
-            dataset_descriptor
-        )
+        self.dataset_descriptor: DatasetDescriptor = dataset_descriptor
         self.load_path: str = load_path
         self.slm_data: SLMDisplayData = self.dataset_descriptor.slm_data
         self.camera_data: CameraData = self.dataset_descriptor.camera_data
-        self.camera_mapping: CameraMapping = (
-            self.dataset_descriptor.camera_mapping
-        )
+        self.camera_mapping: CameraMapping = self.dataset_descriptor.camera_mapping
         self.device: str = device
 
         if roi_mask is None:

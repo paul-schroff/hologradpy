@@ -7,6 +7,7 @@ from numpy.typing import NDArray
 from slmsuite.hardware.slms.slm import SLM
 from slmsuite.hardware.cameras.camera import Camera
 
+
 @dataclass(frozen=True, unsafe_hash=True)
 class SLMData:
     name: str

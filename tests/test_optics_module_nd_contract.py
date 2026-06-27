@@ -14,6 +14,7 @@ These are parametrized across the module registry and a spread of ranks,
 including the singleton-wavelength batch ``(B, 1, H, W)`` that previously broke
 ``FourierLensNUFFT``.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -255,9 +256,7 @@ def test_initialize_from_geometry_matches_forward_init(
     via_forward(make_field((2, 16, 16), 2))
 
     assert via_geometry.resolution_out == via_forward.resolution_out
-    torch.testing.assert_close(
-        via_geometry.pixel_size_out, via_forward.pixel_size_out
-    )
+    torch.testing.assert_close(via_geometry.pixel_size_out, via_forward.pixel_size_out)
 
 
 # Square propagators whose output plane matches the input plane (same

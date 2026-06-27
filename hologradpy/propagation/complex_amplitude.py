@@ -18,9 +18,7 @@ from .utils.fourier_utils import get_spatial_grid
 from .utils.tensor_utils import unsqueeze_to
 
 
-def broadcast_wavelength_operand(
-    operand: Tensor, field_ndim: int
-) -> Tensor:
+def broadcast_wavelength_operand(operand: Tensor, field_ndim: int) -> Tensor:
     """Align a per-wavelength operand to a field of the given rank.
 
     The operand is laid out as ``(n_wavelengths, H, W)``. A 2D field carries no
@@ -44,6 +42,7 @@ class BatchSpec:
     axis, giving canonical ``(N, n_wavelengths, H, W)``. ``BatchSpec`` captures
     enough information to restore the original rank afterwards.
     """
+
     leading_shape: tuple[int, ...]
     original_ndim: int
 
@@ -69,9 +68,7 @@ class _WrapperToTensor(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad: Tensor) -> "ComplexAmplitude":
         geometry = ctx.geometry
-        return ComplexAmplitude(
-            grad, geometry.wavelength, geometry.pixel_size
-        )
+        return ComplexAmplitude(grad, geometry.wavelength, geometry.pixel_size)
 
 
 @dataclass(frozen=True)
@@ -96,7 +93,7 @@ class FieldGeometry:
             dtype=self.wavelength.dtype,
         )
         return self.pixel_size * resolution
-    
+
     def get_spatial_grid(self, index: int = 0) -> tuple[Tensor, Tensor]:
         return get_spatial_grid(
             resolution=self.resolution,
@@ -128,9 +125,7 @@ class ComplexAmplitude(Tensor):
             inner = data
             requires_grad = inner.requires_grad
 
-        wavelength, pixel_size = cls._sanitize_inputs(
-            inner, wavelength, pixel_size
-        )
+        wavelength, pixel_size = cls._sanitize_inputs(inner, wavelength, pixel_size)
 
         return Tensor._make_wrapper_subclass(
             cls,
@@ -151,15 +146,13 @@ class ComplexAmplitude(Tensor):
     ):
         if isinstance(data, ComplexAmplitude):
             # Unwrap to the raw inner tensor for storage. The autograd graph
-            # (grad_fn / requires_grad) lives on the outer 
+            # (grad_fn / requires_grad) lives on the outer
             # _make_wrapper_subclass wrapper.
             data = data._data
         elif not isinstance(data, Tensor):
             data = torch.as_tensor(data)
 
-        wavelength, pixel_size = self._sanitize_inputs(
-            data, wavelength, pixel_size
-        )
+        wavelength, pixel_size = self._sanitize_inputs(data, wavelength, pixel_size)
         self._data: Tensor = data
         self.geometry: FieldGeometry = FieldGeometry(
             wavelength, pixel_size, data.shape[-2:]
@@ -181,9 +174,7 @@ class ComplexAmplitude(Tensor):
             if wavelength.ndim != 1:
                 raise TypeError("Wavelength tensor must be a scalar or 1D.")
         else:
-            raise TypeError(
-                "Wavelength must be either float or a scalar or 1D tensor."
-            )
+            raise TypeError("Wavelength must be either float or a scalar or 1D tensor.")
 
         if isinstance(pixel_size, tuple):
             pixel_size = torch.tensor(
@@ -203,9 +194,7 @@ class ComplexAmplitude(Tensor):
                 "(1, 2) or (N, 2)."
             )
         if pixel_size.shape[0] not in (1, wavelength.numel()):
-            raise ValueError(
-                "pixel_size must have shape (1, 2) or (n_wavelength, 2)"
-            )
+            raise ValueError("pixel_size must have shape (1, 2) or (n_wavelength, 2)")
         if pixel_size.shape[0] == 1 and wavelength.shape[0] > 1:
             pixel_size = pixel_size.expand(wavelength.shape[0], 2)
 
@@ -213,9 +202,7 @@ class ComplexAmplitude(Tensor):
             raise ValueError("Data must have at least 2 dimensions (H, W).")
         elif data.ndim == 2:
             if wavelength.numel() > 1:
-                raise ValueError(
-                    "If data is 2D, wavelength must be a single value."
-                )
+                raise ValueError("If data is 2D, wavelength must be a single value.")
         else:
             if data.shape[-3] != wavelength.shape[-1]:
                 raise ValueError(
@@ -227,7 +214,7 @@ class ComplexAmplitude(Tensor):
     @property
     def wavelength(self) -> Tensor:
         return self.geometry.wavelength
-    
+
     @property
     def number_of_wavelengths(self) -> int:
         return self.geometry.number_of_wavelengths
@@ -235,6 +222,7 @@ class ComplexAmplitude(Tensor):
     @property
     def wavenumber(self) -> Tensor:
         return self.geometry.wavenumber
+
     @property
     def pixel_size(self) -> Tensor:
         return self.geometry.pixel_size
@@ -257,7 +245,7 @@ class ComplexAmplitude(Tensor):
     @property
     def spatial_extent(self) -> Tensor:
         return self.geometry.spatial_extent
-    
+
     def get_spatial_grid(self) -> tuple[Tensor, Tensor]:
         return self.geometry.get_spatial_grid()
 
@@ -265,12 +253,12 @@ class ComplexAmplitude(Tensor):
         """Return the underlying complex field as a plain ``torch.Tensor``,
         preserving the autograd graph wherever it lives.
 
-        Prefer this over ``._data`` when building a differentiable loss: a 
-        field produced by an ``OpticsModule`` keeps its graph on the wrapper, 
+        Prefer this over ``._data`` when building a differentiable loss: a
+        field produced by an ``OpticsModule`` keeps its graph on the wrapper,
         so ``._data`` is detached and would break gradient flow.
         """
         if self._data.requires_grad:
-            # Field built directly from graph-carrying data; the inner tensor 
+            # Field built directly from graph-carrying data; the inner tensor
             # is already on the graph.
             return self._data
         if self.requires_grad:
@@ -296,11 +284,11 @@ class ComplexAmplitude(Tensor):
         ``abs()`` at zero field.
         """
         field = self.as_tensor()
-        return field.real ** 2 + field.imag ** 2
+        return field.real**2 + field.imag**2
 
     def numpy(self) -> NDArray[np.complex_]:
         return self._data.detach().cpu().numpy()
-    
+
     @property
     def dtype_r(self: ComplexAmplitude) -> torch.dtype:
         if self.dtype.is_complex:
@@ -370,9 +358,7 @@ class ComplexAmplitude(Tensor):
         elif isinstance(pixel_size, Tensor) and pixel_size.ndim == 1:
             pixel_size = pixel_size.unsqueeze(0)
 
-        new_geometry = FieldGeometry(
-            wavelength, pixel_size, self.geometry.resolution
-        )
+        new_geometry = FieldGeometry(wavelength, pixel_size, self.geometry.resolution)
         # Use object.__setattr__ to bypass any tensor attribute-setting
         # restrictions while keeping the autograd graph intact.
         object.__setattr__(self, "geometry", new_geometry)
@@ -384,7 +370,7 @@ class ComplexAmplitude(Tensor):
         Returns the underlying tensor reshaped to canonical
         ``(N, n_wavelengths, H, W)`` form together with a :class:`BatchSpec`
         describing the original layout. This is the entry point for ND batch
-        support in fixed-rank ``OpticsModule`` implementations: flatten, run 
+        support in fixed-rank ``OpticsModule`` implementations: flatten, run
         the fixed-rank operation, then restore with :meth:`unflatten_batch`.
 
         Returns:
@@ -398,9 +384,7 @@ class ComplexAmplitude(Tensor):
             spec = BatchSpec(leading_shape=(), original_ndim=2)
             return self._data.reshape(1, 1, height, width), spec
 
-        spec = BatchSpec(
-            leading_shape=tuple(self.shape[:-3]), original_ndim=self.ndim
-        )
+        spec = BatchSpec(leading_shape=tuple(self.shape[:-3]), original_ndim=self.ndim)
         return self._data.reshape(-1, n_wavelengths, height, width), spec
 
     @classmethod
@@ -414,9 +398,9 @@ class ComplexAmplitude(Tensor):
         """Restore a canonical ``(N, n_wavelengths, H, W)`` tensor to the rank
         recorded in ``spec`` and wrap it as a :class:`ComplexAmplitude`.
 
-        Inverse of :meth:`flatten_batch`. The output spatial resolution is 
-        taken from ``data`` so it may differ from the input (e.g. after a 
-        resampling propagator), while batch and wavelength dimensions are 
+        Inverse of :meth:`flatten_batch`. The output spatial resolution is
+        taken from ``data`` so it may differ from the input (e.g. after a
+        resampling propagator), while batch and wavelength dimensions are
         preserved.
 
         Args:
@@ -470,18 +454,15 @@ class ComplexAmplitude(Tensor):
             for field in fields[1:]:
                 if not torch.allclose(field.wavelength, geometry.wavelength):
                     raise ValueError(
-                        "ComplexAmplitude arguments must have the same "
-                        "wavelength."
+                        "ComplexAmplitude arguments must have the same wavelength."
                     )
                 if not torch.allclose(field.pixel_size, geometry.pixel_size):
                     raise ValueError(
-                        "ComplexAmplitude arguments must have the same pixel "
-                        "size."
+                        "ComplexAmplitude arguments must have the same pixel size."
                     )
                 if field.resolution != geometry.resolution:
                     raise ValueError(
-                        "ComplexAmplitude arguments must have the same "
-                        "resolution."
+                        "ComplexAmplitude arguments must have the same resolution."
                     )
 
         def unwrap(x):

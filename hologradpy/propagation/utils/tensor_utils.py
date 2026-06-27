@@ -28,27 +28,20 @@ def gpu_to_numpy(tensor: torch.Tensor) -> NDArray:
     return tensor.clone().cpu().detach().numpy()
 
 
-def unsqueeze_to(
-        input: torch.Tensor,
-        max_dim: int,
-        dim: int = 0
-    ) -> torch.Tensor:
+def unsqueeze_to(input: torch.Tensor, max_dim: int, dim: int = 0) -> torch.Tensor:
     while input.dim() < max_dim:
         input = input.unsqueeze(dim)
     return input
 
 
-def pad_to_shape_2D(
-    input: torch.Tensor,
-    target_shape: tuple[int, int]
-    ) -> torch.Tensor:
+def pad_to_shape_2D(input: torch.Tensor, target_shape: tuple[int, int]) -> torch.Tensor:
     input_shape = input.shape[-2:]
 
     # Zero-pad input if target_shape is larger than its resolution.
     if any(input_shape[i] > target_shape[i] for i in range(2)):
         raise IndexError(
-            'Resolution of input is larger than specified in target_shape.'
-            )
+            "Resolution of input is larger than specified in target_shape."
+        )
     elif input_shape == target_shape:
         return input
     else:
@@ -58,10 +51,7 @@ def pad_to_shape_2D(
         return torch.nn.functional.pad(input, pad)
 
 
-def crop_to_shape_2D(
-        input: ArrayLike,
-        target_shape: tuple[int, int]
-    ) -> ArrayLike:
+def crop_to_shape_2D(input: ArrayLike, target_shape: tuple[int, int]) -> ArrayLike:
     # TODO: This function cannot handle odd number of pixels in target_shape.
     input_shape = input.shape[-2:]
     n_crop_y = (input_shape[0] - target_shape[0]) // 2
@@ -83,18 +73,18 @@ def crop_to_roi(
     Returns:
         ArrayLike: The cropped image.
     """
-    return input[..., roi[0]:roi[1], roi[2]:roi[3]]
+    return input[..., roi[0] : roi[1], roi[2] : roi[3]]
 
 
 def find_roi(
     input: ArrayLike, threshold: float = 0.5, pad: int = 10
 ) -> tuple[int, int, int, int]:
-    """Finds the rectangular region of interest in an image including pixel 
-    values larger than threshold * max(input). ROI can be padded symmetrically 
+    """Finds the rectangular region of interest in an image including pixel
+    values larger than threshold * max(input). ROI can be padded symmetrically
     along each axis using pad.
 
     Args:
-        input (ArrayLike): The image data in which to find the region of 
+        input (ArrayLike): The image data in which to find the region of
             interest.
         threshold (float, optional): The fraction of the maximum pixel value
             at which pixels must be include in the region of interest.

@@ -9,6 +9,7 @@ from ..utils.fourier_utils import fft_2d, ifft_2d
 from ..optics_module import OpticsModule, SaveDict
 from ..complex_amplitude import ComplexAmplitude
 
+
 class FourierLensFFT(OpticsModule):
     def __init__(
         self,
@@ -28,33 +29,25 @@ class FourierLensFFT(OpticsModule):
             torch.tensor(focal_length, dtype=torch.float32),
             requires_grad=False,
         )
-        self._padded_resolution_init: tuple[int, int] | None = (
-            padded_resolution
-        )
+        self._padded_resolution_init: tuple[int, int] | None = padded_resolution
 
         self.kwargs = kwargs
 
     def lazy_init(self, complex_amplitude: ComplexAmplitude) -> None:
         # Only padded_resolution is provided
-        if (
-            self._padded_resolution_init is not None
-            and self._pixel_size_out is None
-        ):  
-            # check if the provided padded resolution is at least 
+        if self._padded_resolution_init is not None and self._pixel_size_out is None:
+            # check if the provided padded resolution is at least
             # as large as the input resolution
             if (
                 self._padded_resolution_init[0] < complex_amplitude.resolution[0]
                 or self._padded_resolution_init[1] < complex_amplitude.resolution[1]
             ):
                 raise ValueError(
-                    "Padded resolution must be at least as large as input "
-                    "resolution."
+                    "Padded resolution must be at least as large as input resolution."
                 )
 
             # Check if padded_resolution is even
-            parity = tuple(
-                self._padded_resolution_init[i] % 2 for i in range(2)
-            )
+            parity = tuple(self._padded_resolution_init[i] % 2 for i in range(2))
 
             if parity[0] != 0 or parity[1] != 0:
                 raise ValueError("Padded resolution must be even.")
@@ -80,7 +73,7 @@ class FourierLensFFT(OpticsModule):
                 device=complex_amplitude.device,
                 dtype=torch.float32,
             )
-            
+
             max_pixel_size_out = self._get_pixel_size_out(
                 complex_amplitude.wavelength[0],
                 self.focal_length,
@@ -91,10 +84,12 @@ class FourierLensFFT(OpticsModule):
                 ),
             )
 
-            # Check if the requested pixel size is larger than the maximum 
+            # Check if the requested pixel size is larger than the maximum
             # allowed by the input geometry and focal length
-            if (requested_pixel_size_out[0] > max_pixel_size_out[0] or 
-                requested_pixel_size_out[1] > max_pixel_size_out[1]):
+            if (
+                requested_pixel_size_out[0] > max_pixel_size_out[0]
+                or requested_pixel_size_out[1] > max_pixel_size_out[1]
+            ):
                 raise ValueError(
                     "Requested pixel size out is too large for the given "
                     "input geometry and focal length. Maximum pixel size out "
@@ -135,7 +130,7 @@ class FourierLensFFT(OpticsModule):
             )
 
         self._resolution_out = tuple(self._padded_resolution.tolist())
-    
+
     @property
     def padded_resolution(self) -> Tensor:
         return self._padded_resolution
@@ -148,11 +143,7 @@ class FourierLensFFT(OpticsModule):
         pixel_size_out: Tensor,
     ) -> Tensor[torch.int64]:
         padded_resolution = (
-            wavelength
-            * focal_length
-            / (pixel_size_in * pixel_size_out)
-            // 2
-            * 2
+            wavelength * focal_length / (pixel_size_in * pixel_size_out) // 2 * 2
         )
         return padded_resolution.to(torch.int64)
 
@@ -163,9 +154,7 @@ class FourierLensFFT(OpticsModule):
         pixel_size_in: Tensor,
         padded_resolution: Tensor,
     ) -> Tensor:
-        return (
-            wavelength * focal_length / (pixel_size_in * padded_resolution)
-        )
+        return wavelength * focal_length / (pixel_size_in * padded_resolution)
 
     @property
     def pixel_size_out(self) -> Tensor:
@@ -187,12 +176,8 @@ class FourierLensFFT(OpticsModule):
         torch.save(save_dict, path)
 
     @classmethod
-    def from_file(
-        cls, path: str, device: torch.device = "cpu"
-    ) -> FourierLensFFT:
-        state: SaveDict = torch.load(
-            path, map_location=device, weights_only=False
-        )
+    def from_file(cls, path: str, device: torch.device = "cpu") -> FourierLensFFT:
+        state: SaveDict = torch.load(path, map_location=device, weights_only=False)
         sd = state["state_dict"]
         module = cls(
             focal_length=sd["focal_length"].item(),
@@ -201,13 +186,11 @@ class FourierLensFFT(OpticsModule):
         )
         return module
 
-    def forward(
-        self, complex_amplitude: ComplexAmplitude
-    ) -> ComplexAmplitude:
+    def forward(self, complex_amplitude: ComplexAmplitude) -> ComplexAmplitude:
         padded_complex_amplitude = pad_to_shape_2D(
             complex_amplitude, self.resolution_out
         )
-        
+
         # Perform 2D FFT and FFT shift if specified
         out = fft_2d(padded_complex_amplitude, **self.kwargs)
 
@@ -215,15 +198,13 @@ class FourierLensFFT(OpticsModule):
             wavelength=complex_amplitude.wavelength,
             pixel_size=self.pixel_size_out,
         )
-    
-    def adjoint(
-        self, complex_amplitude: ComplexAmplitude
-     ) -> ComplexAmplitude:
+
+    def adjoint(self, complex_amplitude: ComplexAmplitude) -> ComplexAmplitude:
         self._ensure_initialized()
 
         # Perform inverse 2D FFT and FFT shift if specified
         padded_complex_amplitude = ifft_2d(complex_amplitude, **self.kwargs)
-        
+
         out: ComplexAmplitude = crop_to_shape_2D(
             padded_complex_amplitude, self.resolution_in
         )
@@ -232,5 +213,3 @@ class FourierLensFFT(OpticsModule):
             wavelength=complex_amplitude.wavelength,
             pixel_size=self.pixel_size_in,
         )
-
-

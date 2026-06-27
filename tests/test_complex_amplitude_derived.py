@@ -7,6 +7,7 @@ live either on the inner ``_data`` (a field built directly from graph-carrying
 data) or on the wrapper (a field produced by an ``OpticsModule``); both paths
 are covered.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -46,9 +47,7 @@ def test_values_match_reference() -> None:
 def test_gradient_flows_when_data_carries_graph() -> None:
     """Field built directly from a leaf parameter: graph is on ``_data``."""
     coefficient = torch.zeros(16, 16, requires_grad=True)
-    field = ComplexAmplitude(
-        torch.exp(1j * coefficient), 800e-9, (10e-6, 10e-6)
-    )
+    field = ComplexAmplitude(torch.exp(1j * coefficient), 800e-9, (10e-6, 10e-6))
 
     field.intensity.sum().backward()
 

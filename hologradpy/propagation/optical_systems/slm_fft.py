@@ -8,6 +8,7 @@ from ..virtual_slms.abstract import VirtualSLM
 
 from .abstract import OpticalSystem
 
+
 class SLMFFT(OpticalSystem):
     virtual_slm: VirtualSLM
     constant_field: ConstantSLMField

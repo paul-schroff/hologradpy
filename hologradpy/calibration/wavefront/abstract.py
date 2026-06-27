@@ -17,6 +17,7 @@ from ...propagation.utils.optics_utils import get_spatial_grid
 
 from ...analysis.fitting import fit_gaussian_beam_intensity
 
+
 @dataclass
 class WavefrontCalibrationData:
     timestamp: datetime
@@ -33,15 +34,14 @@ class WavefrontCalibrationData:
         with open(filename, "rb") as file:
             calibration_data: WavefrontCalibrationData = pickle.load(file)
         return calibration_data
-    
+
 
 class WavefrontCalibratorBase:
     """
     Class to calibrate the intensity and the phase at the SLM.
     """
-    def __init__(
-        self, slm: SLM, camera: Camera, device: torch.device = "cpu"
-    ):
+
+    def __init__(self, slm: SLM, camera: Camera, device: torch.device = "cpu"):
         """
         Initialize the SLMWavefrontCalobrator.
 
@@ -54,15 +54,15 @@ class WavefrontCalibratorBase:
         self.camera: Camera = camera
         self.slm: SLM = slm
         self.device: torch.device = device
-    
+
     @property
     def spatial_grid_slm(self) -> tuple[Tensor, Tensor]:
-        """ Get the spatial grid coordinates for the SLM pixels.
-        
+        """Get the spatial grid coordinates for the SLM pixels.
+
         Args:
             slm (SLM): The SLM to get the spatial grid for.
             device (torch.device): The device to use for the spatial grid.
-        
+
         Returns:
             tuple[Tensor, Tensor]: The x and y coordinates of the SLM pixels.
         """
@@ -70,10 +70,10 @@ class WavefrontCalibratorBase:
         pixel_size = (self.slm.pitch_um[0] * 1e-6, self.slm.pitch_um[1] * 1e-6)
 
         return get_spatial_grid(resolution, pixel_size, device=self.device)
-        
+
     def calibrate(self) -> WavefrontCalibrationData:
         """
-        Calibrate the SLM wavefront consisting of the amplitude and the phase 
+        Calibrate the SLM wavefront consisting of the amplitude and the phase
         at the SLM.
         Returns:
             WavefrontCalibrationData: The calibrated wavefront data.
@@ -81,46 +81,38 @@ class WavefrontCalibratorBase:
         raise NotImplementedError(
             "The calibrate method should be implemented in the derived class."
         )
-    
+
     def fit_gaussian_beam(
         self,
         measured_intensity: NDArray[np.float_],
     ) -> tuple[float, float, float]:
-        """ Fit a Gaussian beam to the measured intensity.
+        """Fit a Gaussian beam to the measured intensity.
         Args:
-            measured_intensity (NDArray[np.float_]): The measured intensity 
+            measured_intensity (NDArray[np.float_]): The measured intensity
                 from the camera.
         Returns:
-            tuple[float, float, float]: The fitted beam radius and shifts in 
+            tuple[float, float, float]: The fitted beam radius and shifts in
                 x and y.
         """
-        beam_radius_guess = (
-            min(self.slm.shape) * self.slm.pitch_um[0] * 1e-6 / 2
-        )
-        
+        beam_radius_guess = min(self.slm.shape) * self.slm.pitch_um[0] * 1e-6 / 2
+
         popt, _ = fit_gaussian_beam_intensity(
-            *self.spatial_grid_slm,
-            measured_intensity,
-            beam_radius_guess,
-            blur_sigma=10
+            *self.spatial_grid_slm, measured_intensity, beam_radius_guess, blur_sigma=10
         )
 
         beam_radius = popt[0]
         shift_x = popt[1]
         shift_y = popt[2]
-        
+
         return beam_radius, shift_x, shift_y
-    
-    def fit_zernike(
-        self,
-        measured_phase: NDArray[np.float_]
-    ) -> NDArray[np.float_]:
-        """ Fit a Zernike polynomial to the measured phase.
-        
+
+    def fit_zernike(self, measured_phase: NDArray[np.float_]) -> NDArray[np.float_]:
+        """Fit a Zernike polynomial to the measured phase.
+
         Args:
-            measured_phase (NDArray[np.float_]): The measured phase from the 
+            measured_phase (NDArray[np.float_]): The measured phase from the
                 camera.
-        
+
         Returns:
             NDArray[np.float_]: The fitted Zernike coefficients.
         """

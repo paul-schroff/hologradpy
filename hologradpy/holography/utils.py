@@ -1,10 +1,11 @@
 import time
 import torch
 
+
 # TODO: Move to a more sensible location.
 class Timer:
     def __init__(self, use_cuda: bool = False, verbose: bool = False) -> None:
-        """Timer class to measure elapsed time for CUDA and non-CUDA 
+        """Timer class to measure elapsed time for CUDA and non-CUDA
         operations."""
         self.elapsed_time: float = None
         self.use_cuda: bool = use_cuda
@@ -26,7 +27,7 @@ class Timer:
         self.start_time = time.time()
 
         if self.verbose:
-            date = time.strftime('%d-%m-%y__%H-%M-%S', time.localtime())
+            date = time.strftime("%d-%m-%y__%H-%M-%S", time.localtime())
             print("Calculation start: %s\n" % date)
 
     def stop(self):
@@ -38,12 +39,12 @@ class Timer:
         if self.use_cuda:
             self.stop_event.record()
             torch.cuda.synchronize()
-            self.elapsed_time = (
-                self.start_event.elapsed_time(self.stop_event) / 1e3
-            )
+            self.elapsed_time = self.start_event.elapsed_time(self.stop_event) / 1e3
         else:
             self.elapsed_time = self.stop_time - self.start_time
 
         if self.verbose:
-            print(f'Ran for {(self.elapsed_time // 60):.0f} minutes and ' +
-                  f'{(self.elapsed_time % 60):.2f} seconds.')
+            print(
+                f"Ran for {(self.elapsed_time // 60):.0f} minutes and "
+                + f"{(self.elapsed_time % 60):.2f} seconds."
+            )

@@ -69,7 +69,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
         print(
             f"Auto camera ROI - Spot position (x, y): "
-            f"({spot_position[0]*1e6:.2f}, {spot_position[1]*1e6:.2f}) um."
+            f"({spot_position[0] * 1e6:.2f}, {spot_position[1] * 1e6:.2f}) um."
         )
         print(
             f"Auto camera ROI - Spot position (x, y): "
@@ -105,12 +105,10 @@ class RasterCalibrator(WavefrontCalibratorBase):
         """Return (n_superpixels_x, n_superpixels_y) for the superpixel size
         closest to the target, using divisors of the SLM dimensions."""
         factors_x = [
-            i for i in range(1, self.slm.shape[1] + 1)
-            if self.slm.shape[1] % i == 0
+            i for i in range(1, self.slm.shape[1] + 1) if self.slm.shape[1] % i == 0
         ]
         factors_y = [
-            i for i in range(1, self.slm.shape[0] + 1)
-            if self.slm.shape[0] % i == 0
+            i for i in range(1, self.slm.shape[0] + 1) if self.slm.shape[0] % i == 0
         ]
         superpixel_width = min(
             factors_x, key=lambda x: abs(x - target_superpixel_width)
@@ -131,14 +129,10 @@ class RasterCalibrator(WavefrontCalibratorBase):
         """Return (superpixel_width, superpixel_height) using the closest
         divisors of the SLM dimensions to slm_size / target_superpixels."""
         factors_x = [
-            i
-            for i in range(1, self.slm.shape[1] + 1)
-            if self.slm.shape[1] % i == 0
+            i for i in range(1, self.slm.shape[1] + 1) if self.slm.shape[1] % i == 0
         ]
         factors_y = [
-            i
-            for i in range(1, self.slm.shape[0] + 1)
-            if self.slm.shape[0] % i == 0
+            i for i in range(1, self.slm.shape[0] + 1) if self.slm.shape[0] % i == 0
         ]
         superpixel_width = min(
             factors_x,
@@ -155,8 +149,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
         aperture_width: int,
         aperture_height: int,
     ) -> tuple[int, int]:
-        """Return the full null-to-null width of the sinc-squared diffraction 
-        pattern in the Fourier plane for a rectangular aperture, in camera 
+        """Return the full null-to-null width of the sinc-squared diffraction
+        pattern in the Fourier plane for a rectangular aperture, in camera
         pixels.
         """
         wavelength = self.slm.wav_um * 1e-6
@@ -257,10 +251,12 @@ class RasterCalibrator(WavefrontCalibratorBase):
             timeout_s=0.1,  # TODO: set to a more reasonable time
         )
 
-        camera_images = np.zeros((
-            slicer.number_of_superpixels,
-            *camera_roi_size,
-        ))
+        camera_images = np.zeros(
+            (
+                slicer.number_of_superpixels,
+                *camera_roi_size,
+            )
+        )
         superpixel_power = np.zeros(self.slm.shape)
 
         # Take camera images
@@ -277,9 +273,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
             weights[superpixel_slice] += 1
 
-            superpixel_power[superpixel_slice] += np.sum(
-                camera_images[i, ...]
-            ) / (np.size(camera_images[i, ...]) * exposure_time)
+            superpixel_power[superpixel_slice] += np.sum(camera_images[i, ...]) / (
+                np.size(camera_images[i, ...]) * exposure_time
+            )
             print(
                 f"Superpixel {i + 1}/{slicer.number_of_superpixels} "
                 f"({100 * (i + 1) / slicer.number_of_superpixels:.2f}%)"
@@ -343,9 +339,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         if measured_intensity is None:
             intensity = np.ones(self.slm.shape)
         else:
-            beam_radius, shift_x, shift_y = self.fit_gaussian_beam(
-                measured_intensity
-            )
+            beam_radius, shift_x, shift_y = self.fit_gaussian_beam(measured_intensity)
             intensity = gpu_to_numpy(
                 gaussian_beam_intensity(
                     *self.spatial_grid_slm, beam_radius, shift_x, shift_y
@@ -527,17 +521,11 @@ class RasterCalibrator(WavefrontCalibratorBase):
             number_of_superpixels_x = self.slm.shape[1] // superpixel_width
             number_of_superpixels_y = self.slm.shape[0] // superpixel_height
         else:
-            number_of_superpixels_x, number_of_superpixels_y = (
-                number_of_superpixels
-            )
-            superpixel_width, superpixel_height = (
-                superpixel_size
-            )
-        
+            number_of_superpixels_x, number_of_superpixels_y = number_of_superpixels
+            superpixel_width, superpixel_height = superpixel_size
+
         if camera_roi_size is None:
-            camera_roi_size = self.get_roi_size(
-                superpixel_width, superpixel_height
-            )
+            camera_roi_size = self.get_roi_size(superpixel_width, superpixel_height)
 
         intensity, camera_images_intensity = self.measure_intensity(
             number_of_superpixels_x,
@@ -563,8 +551,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         complex_amplitude = np.sqrt(intensity) * np.exp(1j * phase)
 
         calibration_name = (
-            f"Raster Calibration - {number_of_superpixels_x}x"
-            f"{number_of_superpixels_y}"
+            f"Raster Calibration - {number_of_superpixels_x}x{number_of_superpixels_y}"
         )
 
         if save_metadata:

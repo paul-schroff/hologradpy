@@ -5,6 +5,7 @@ from .fourier_utils import get_pixel_grid
 
 Conventions = Literal["OSA", "ANSI", "Noll", "Fringe", "Arizona", "Wyant"]
 
+
 class ZernikeConventionHandler:
     _Canonical = Literal["osa_ansi", "noll", "fringe_arizona", "wyant"]
 
@@ -75,7 +76,7 @@ class ZernikeConventionHandler:
             case "fringe_arizona" | "wyant":
                 factor = 1
         return factor
-    
+
     def j_to_nm(self, j: int) -> tuple[int, int]:
         match self._canonical_convention:
             case "osa_ansi":
@@ -85,7 +86,7 @@ class ZernikeConventionHandler:
             case "fringe_arizona":
                 return self.fringe_arizona_indices_to_nm(j)
             case "wyant":
-                # Wyant convention is the same as the Fringe/Arizona, 
+                # Wyant convention is the same as the Fringe/Arizona,
                 # starting at j=0 instead of j=1.
                 return self.fringe_arizona_indices_to_nm(j + 1)
 
@@ -99,25 +100,24 @@ class Zernike:
         number_of_radial_orders: int | None = None,
         indices: list[int | tuple[int, int]] | None = None,
         convention: Conventions = "ANSI",
-        device: torch.device = "cpu"
+        device: torch.device = "cpu",
     ) -> None:
         self.resolution = resolution
         self.convention_handler = ZernikeConventionHandler(convention)
         self.device = device
         self.radial_coordinate, self.angular_coordinate, self.mask = (
             self.get_unit_disk_coordinates(
-                resolution, 
+                resolution,
                 unit_disk_mode=unit_disk_mode,
-                unit_disk_radius=unit_disk_radius, 
-                device=self.device
+                unit_disk_radius=unit_disk_radius,
+                device=self.device,
             )
         )
 
         self._zernike_array, self._indices = self.get_zernikes(
-            number_of_radial_orders=number_of_radial_orders,
-            indices=indices
+            number_of_radial_orders=number_of_radial_orders, indices=indices
         )
-    
+
     def raise_init_error(self):
         if self._zernike_array is None:
             raise ValueError(
@@ -125,7 +125,7 @@ class Zernike:
                 "get_zernikes() to generate the Zernike polynomials before "
                 "accessing them."
             )
-    
+
     @property
     def zernike_array(self) -> torch.Tensor:
         return self._zernike_array
@@ -133,7 +133,7 @@ class Zernike:
     @property
     def number_of_zernikes(self) -> int:
         return len(self._indices)
-    
+
     @property
     def indices(self) -> list[int] | None:
         self.raise_init_error()
@@ -146,8 +146,7 @@ class Zernike:
 
     @staticmethod
     def sanitize_zernike_indices(
-        radial_order_n: int, 
-        azimuthal_frequency_m: int
+        radial_order_n: int, azimuthal_frequency_m: int
     ) -> None:
         if radial_order_n < 0 or not isinstance(radial_order_n, int):
             raise ValueError("Radial order n must be a non-negative integer.")
@@ -164,25 +163,25 @@ class Zernike:
 
     def get_radial_polynomial(
         self,
-        radial_order_n: int, 
-        azimuthal_frequency_m: int, 
-        radial_coordinate: torch.Tensor
+        radial_order_n: int,
+        azimuthal_frequency_m: int,
+        radial_coordinate: torch.Tensor,
     ) -> torch.Tensor:
         # Implementation for radial polynomial calculation
         k_max = (radial_order_n - abs(azimuthal_frequency_m)) // 2
 
         radial_polynomial = torch.zeros_like(radial_coordinate)
         for k in range(k_max + 1):
-            factorial_ratio =  (
+            factorial_ratio = (
                 self.log_factorial(radial_order_n - k, device=self.device)
                 - self.log_factorial(k, device=self.device)
                 - self.log_factorial(
                     (radial_order_n + abs(azimuthal_frequency_m)) // 2 - k,
-                    device=self.device
+                    device=self.device,
                 )
                 - self.log_factorial(
                     (radial_order_n - abs(azimuthal_frequency_m)) // 2 - k,
-                    device=self.device
+                    device=self.device,
                 )
             ).exp()
 
@@ -193,11 +192,10 @@ class Zernike:
             )
         return radial_polynomial
 
-
     def get_zernike_basis_function(
         self,
-        radial_order_n: int, 
-        azimuthal_frequency_m: int, 
+        radial_order_n: int,
+        azimuthal_frequency_m: int,
         radial_coordinate: torch.Tensor,
         angular_coordinate: torch.Tensor,
     ) -> torch.Tensor:
@@ -206,10 +204,8 @@ class Zernike:
             radial_order_n, azimuthal_frequency_m, radial_coordinate
         )
 
-        normalization_factor = (
-            self.convention_handler.get_normalization_factor(
-                radial_order_n, azimuthal_frequency_m
-            )
+        normalization_factor = self.convention_handler.get_normalization_factor(
+            radial_order_n, azimuthal_frequency_m
         )
 
         if azimuthal_frequency_m >= 0:
@@ -220,13 +216,12 @@ class Zernike:
             factor = torch.sin(abs(azimuthal_frequency_m) * angular_coordinate)
         return normalization_factor * radial_polynomial * factor
 
-
     def get_unit_disk_coordinates(
         self,
-        resolution: tuple[int, int], 
+        resolution: tuple[int, int],
         unit_disk_mode: Literal["fill", "fit"] = "fill",
         unit_disk_radius: float | None = None,
-        device: torch.device = "cpu"
+        device: torch.device = "cpu",
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if unit_disk_radius is None:
             if unit_disk_mode == "fit":
@@ -236,24 +231,20 @@ class Zernike:
                     0.5 * (resolution[0] ** 2 + resolution[1] ** 2) ** 0.5
                 )
             else:
-                raise ValueError(
-                    "Invalid unit_disk_mode. Must be 'fill' or 'fit'."
-                )
+                raise ValueError("Invalid unit_disk_mode. Must be 'fill' or 'fit'.")
 
         x, y = get_pixel_grid(resolution, device)
 
         # unit_disk_radius = torch.tensor(unit_disk_radius, device=device)
 
-        radial_coordinate = (x ** 2 + y ** 2) ** 0.5 / unit_disk_radius
+        radial_coordinate = (x**2 + y**2) ** 0.5 / unit_disk_radius
         angular_coordinate = torch.atan2(y, x)
         mask = radial_coordinate <= 1
 
         return radial_coordinate, angular_coordinate, mask
-    
+
     def evaluate_zernike_polynomials(
-        self,
-        radial_orders_n: list[int], 
-        azimuthal_frequencies_m: list[int]
+        self, radial_orders_n: list[int], azimuthal_frequencies_m: list[int]
     ) -> torch.Tensor:
         if len(radial_orders_n) != len(azimuthal_frequencies_m):
             raise ValueError(
@@ -271,16 +262,14 @@ class Zernike:
             zernike_polynomials.append(zernike_polynomial * self.mask)
 
         return torch.stack(zernike_polynomials)
-    
+
     def get_zernikes(
         self,
         number_of_radial_orders: int | None = None,
         indices: list[int | tuple[int, int]] | None = None,
     ) -> tuple[torch.Tensor, list[tuple[int, int]]]:
         if indices is not None and number_of_radial_orders is not None:
-            raise ValueError(
-                "Cannot specify both indices and number_of_radial_orders."
-            )
+            raise ValueError("Cannot specify both indices and number_of_radial_orders.")
         elif indices is not None:
             radial_orders_n = []
             azimuthal_frequencies_m = []
@@ -301,32 +290,20 @@ class Zernike:
                     radial_orders_n.append(n)
                     azimuthal_frequencies_m.append(m)
         else:
-            raise ValueError(
-                "Must specify either indices or number_of_radial_orders."
-            )
+            raise ValueError("Must specify either indices or number_of_radial_orders.")
 
-        indices = [
-            (n, m) for n, m in zip(radial_orders_n, azimuthal_frequencies_m)
-        ]
+        indices = [(n, m) for n, m in zip(radial_orders_n, azimuthal_frequencies_m)]
 
         return (
-            self.evaluate_zernike_polynomials(
-                radial_orders_n, azimuthal_frequencies_m
-            ), 
-            indices
+            self.evaluate_zernike_polynomials(radial_orders_n, azimuthal_frequencies_m),
+            indices,
         )
-    
-    def get_phase(
-        self,
-        coefficients: torch.Tensor
-    ) -> torch.Tensor:
+
+    def get_phase(self, coefficients: torch.Tensor) -> torch.Tensor:
         if coefficients.shape[0] != self.number_of_zernikes:
             raise ValueError(
                 f"Number of coefficients must match the number of Zernike "
                 f"polynomials. Expected {self.number_of_zernikes}, got "
                 f"{coefficients.shape[0]}."
             )
-        return torch.tensordot(
-            coefficients, self.zernike_array, dims=([0], [0])
-        )
-    
+        return torch.tensordot(coefficients, self.zernike_array, dims=([0], [0]))

@@ -28,16 +28,12 @@ class FourierLensNUFFT(OpticsModule):
         super().__init__(pixel_size_out, resolution_out)
 
         self.focal_length: float = focal_length
-        self._padded_resolution_init: tuple[int, int] | None = (
-            padded_resolution
-        )
+        self._padded_resolution_init: tuple[int, int] | None = padded_resolution
         self.shift_init: tuple[float, float] = shift
         self.angle_init: float = angle
         self.nufft_kwargs = nufft_kwargs
 
-    def lazy_init(
-        self: FourierLensNUFFT, complex_amplitude: ComplexAmplitude
-    ) -> None:
+    def lazy_init(self: FourierLensNUFFT, complex_amplitude: ComplexAmplitude) -> None:
         self._pixel_size_out = torch.tensor(
             self._pixel_size_out_init,
             device=complex_amplitude.pixel_size.device,
@@ -48,20 +44,15 @@ class FourierLensNUFFT(OpticsModule):
             # check if the provided padded resolution is at least
             # as large as the input resolution
             if (
-                self._padded_resolution_init[0]
-                < complex_amplitude.resolution[0]
-                or self._padded_resolution_init[1]
-                < complex_amplitude.resolution[1]
+                self._padded_resolution_init[0] < complex_amplitude.resolution[0]
+                or self._padded_resolution_init[1] < complex_amplitude.resolution[1]
             ):
                 raise ValueError(
-                    "Padded resolution must be at least as large as input "
-                    "resolution."
+                    "Padded resolution must be at least as large as input resolution."
                 )
 
             # Check if padded_resolution is even
-            parity = tuple(
-                self._padded_resolution_init[i] % 2 for i in range(2)
-            )
+            parity = tuple(self._padded_resolution_init[i] % 2 for i in range(2))
 
             if parity[0] != 0 or parity[1] != 0:
                 raise ValueError("Padded resolution must be even.")
@@ -119,8 +110,7 @@ class FourierLensNUFFT(OpticsModule):
 
         # TODO: Add support for each wavelength
         resolution_ratio: tuple[float, float] = tuple(
-            self._padded_resolution[i] / self.resolution_out[i]
-            for i in range(2)
+            self._padded_resolution[i] / self.resolution_out[i] for i in range(2)
         )
 
         self._kbnufft: KbNufft = KbNufft(
@@ -159,9 +149,7 @@ class FourierLensNUFFT(OpticsModule):
         )
 
         self.frequencies_transformed: Float[Tensor, "n_wavelenghts 2 hw"] = (
-            self._get_transformed_coordinates(
-                self.scale_factor, self.shift, self.angle
-            )
+            self._get_transformed_coordinates(self.scale_factor, self.shift, self.angle)
         )
 
     @property
@@ -185,10 +173,7 @@ class FourierLensNUFFT(OpticsModule):
         shift_randians: tuple[
             Float[Tensor, " n_wavelenghts"], Float[Tensor, " n_wavelenghts"]
         ] = tuple(
-            2
-            * torch.pi
-            * shift[i]
-            / (self._padded_resolution[i] * self._scale[:, i])
+            2 * torch.pi * shift[i] / (self._padded_resolution[i] * self._scale[:, i])
             for i in range(2)
         )
 
@@ -201,22 +186,14 @@ class FourierLensNUFFT(OpticsModule):
             Float[Tensor, "n_wavelenghts hw"],
         ] = (
             (
-                self.frequencies[0]
-                * angle_cos
-                / scale_factor[:, 1].unsqueeze(-1)
-                - self.frequencies[1]
-                * angle_sin
-                / scale_factor[:, 0].unsqueeze(-1)
+                self.frequencies[0] * angle_cos / scale_factor[:, 1].unsqueeze(-1)
+                - self.frequencies[1] * angle_sin / scale_factor[:, 0].unsqueeze(-1)
                 - shift_randians[1].unsqueeze(-1) * angle_cos
                 + shift_randians[0].unsqueeze(-1) * angle_sin
             ),
             (
-                self.frequencies[0]
-                * angle_sin
-                / scale_factor[:, 1].unsqueeze(-1)
-                + self.frequencies[1]
-                * angle_cos
-                / scale_factor[:, 0].unsqueeze(-1)
+                self.frequencies[0] * angle_sin / scale_factor[:, 1].unsqueeze(-1)
+                + self.frequencies[1] * angle_cos / scale_factor[:, 0].unsqueeze(-1)
                 - shift_randians[1].unsqueeze(-1) * angle_sin
                 - shift_randians[0].unsqueeze(-1) * angle_cos
             ),
@@ -235,13 +212,9 @@ class FourierLensNUFFT(OpticsModule):
         ``(n_images * n_wl, 2, hw)`` with wavelength alignment matching the
         row-major (image, wavelength) flattening used by ``flatten_batch``.
         """
-        k_traj: Float[Tensor, "n_wl 2 hw"] = (
-            self.frequencies_transformed.moveaxis(0, 1)
-        )
+        k_traj: Float[Tensor, "n_wl 2 hw"] = self.frequencies_transformed.moveaxis(0, 1)
         k_traj = k_traj.unsqueeze(0).expand(number_of_images, -1, -1, -1)
-        return k_traj.reshape(
-            number_of_images * number_of_wavelengths, 2, -1
-        )
+        return k_traj.reshape(number_of_images * number_of_wavelengths, 2, -1)
 
     def forward(
         self: FourierLensNUFFT,
@@ -268,9 +241,7 @@ class FourierLensNUFFT(OpticsModule):
             *complex_amplitude.resolution,
         )
 
-        k_traj = self._batched_k_trajectory(
-            number_of_images, number_of_wavelengths
-        )
+        k_traj = self._batched_k_trajectory(number_of_images, number_of_wavelengths)
 
         output_field: Float[Tensor, "n_images_wl 1 hw"] = self._kbnufft(
             input_field, k_traj
@@ -317,12 +288,10 @@ class FourierLensNUFFT(OpticsModule):
             number_of_images * number_of_wavelengths, 1, -1
         )
 
-        k_traj = self._batched_k_trajectory(
-            number_of_images, number_of_wavelengths
-        )
+        k_traj = self._batched_k_trajectory(number_of_images, number_of_wavelengths)
 
-        input_field: Float[Tensor, "n_images_wl 1 h w"] = (
-            self._kbnufft_adjoint(samples, k_traj)
+        input_field: Float[Tensor, "n_images_wl 1 h w"] = self._kbnufft_adjoint(
+            samples, k_traj
         )
 
         # Restore canonical (N, n_wavelengths, H_in, W_in) layout.

@@ -5,13 +5,14 @@ from numpy.typing import NDArray
 
 from ...propagation.optical_systems import SLMFourierLensModel
 
+
 # TODO: Add saving functionality
 class PhaseRetrieverBase:
     def __init__(
-            self,
-            slm_camera_model: SLMFourierLensModel,
-            device: str = "cpu",
-        ) -> None:
+        self,
+        slm_camera_model: SLMFourierLensModel,
+        device: str = "cpu",
+    ) -> None:
         self.slm_camera_model: SLMFourierLensModel = slm_camera_model
         self.device: str = device
 
@@ -19,9 +20,8 @@ class PhaseRetrieverBase:
         pass
 
     def set_gradient_requirements(
-            self,
-            parameter_name: str = "virtual_slm.phase"
-        ) -> None:
+        self, parameter_name: str = "virtual_slm.phase"
+    ) -> None:
         named_parameters = dict(self.slm_camera_model.named_parameters())
 
         if parameter_name not in named_parameters:
@@ -37,7 +37,7 @@ class PhaseRetrieverBase:
             )
 
         for name, parameter in named_parameters.items():
-            parameter.requires_grad = (name == parameter_name)
+            parameter.requires_grad = name == parameter_name
 
     def set_target(self, target: NDArray) -> None:
         pass

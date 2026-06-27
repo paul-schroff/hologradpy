@@ -21,8 +21,9 @@ def get_pixel_grid(
 
     pixel_indices_x = torch.arange(-width // 2, width // 2, device=device)
     pixel_indices_y = torch.arange(-height // 2, height // 2, device=device)
-    
+
     return torch.meshgrid(pixel_indices_x, pixel_indices_y, indexing="xy")
+
 
 def get_spatial_grid(
     resolution: tuple[int, int],
@@ -40,6 +41,7 @@ def get_spatial_grid(
     spatial_grid_y = pixel_grid_y / resolution[0] * spatial_extent[0]
 
     return spatial_grid_x, spatial_grid_y
+
 
 def get_frequency_grid(
     resolution: tuple[int, int],
@@ -91,10 +93,7 @@ def ifft_2d(
 # %% Base classes
 class FourierBase(nn.Module):
     def __init__(
-        self, 
-        pixel_size: Tensor, 
-        resolution: Tensor, 
-        device: torch.device = "cpu"
+        self, pixel_size: Tensor, resolution: Tensor, device: torch.device = "cpu"
     ) -> None:
         super().__init__()
         self.resolution = resolution
@@ -121,15 +120,11 @@ class FourierBase(nn.Module):
 
     @property
     def frequency_grid(self) -> Tuple[Tensor, Tensor]:
-        return get_frequency_grid(
-            self.resolution, self.pixel_size, device=self.device
-        )
+        return get_frequency_grid(self.resolution, self.pixel_size, device=self.device)
 
     @property
     def spatial_grid(self) -> Tuple[Tensor, Tensor]:
-        return get_spatial_grid(
-            self.resolution, self.pixel_size, device=self.device
-        )
+        return get_spatial_grid(self.resolution, self.pixel_size, device=self.device)
 
     def forward(self, input: Tensor) -> Tensor:
         raise NotImplementedError
@@ -200,10 +195,7 @@ class KbNufftZoom(FourierBase):
 
         resolution_ratio = self.resolution_out / resolution
         frequency_step_radians = (
-            2 * torch.pi
-            / self.resolution_out
-            * resolution_ratio
-            / magnification
+            2 * torch.pi / self.resolution_out * resolution_ratio / magnification
         )
 
         frequencies_x = (
@@ -214,7 +206,7 @@ class KbNufftZoom(FourierBase):
             )
             * frequency_step_radians[1]
         )
-        
+
         frequencies_y = (
             torch.arange(
                 -self.resolution_out[0] // 2,
@@ -224,9 +216,7 @@ class KbNufftZoom(FourierBase):
             * frequency_step_radians[0]
         )
 
-        frequency_grid = torch.meshgrid(
-            frequencies_x, frequencies_y, indexing="xy"
-        )
+        frequency_grid = torch.meshgrid(frequencies_x, frequencies_y, indexing="xy")
 
         self.frequencies_flattened = torch.stack(
             (frequency_grid[1].flatten(), frequency_grid[0].flatten()), axis=0
@@ -241,11 +231,13 @@ class KbNufftZoom(FourierBase):
             norm=self.norm,
         )
 
-        return output.reshape((
-            number_of_images,
-            self.resolution_out[0],
-            self.resolution_out[1],
-        )).squeeze()
+        return output.reshape(
+            (
+                number_of_images,
+                self.resolution_out[0],
+                self.resolution_out[1],
+            )
+        ).squeeze()
 
 
 class InverseKbNufftZoom(KbNufftZoom):

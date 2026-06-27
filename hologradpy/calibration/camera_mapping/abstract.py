@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypeVar
-import pickle 
+import pickle
 
 import torch
 from numpy.typing import NDArray
@@ -12,6 +12,7 @@ from slmsuite.hardware.cameras.camera import Camera
 from ...propagation import SLMFourierLensModel
 
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
+
 
 @dataclass
 class CameraMapping:
@@ -40,9 +41,10 @@ class CameraMapping:
 
 # TODO: Add saving functionality
 class CameraMapper:
-    """A class to determine the coordinate transform between the camera pixels 
+    """A class to determine the coordinate transform between the camera pixels
     and the pixels of the simulated image.
     """
+
     def __init__(
         self,
         slm: SLM,
@@ -54,17 +56,16 @@ class CameraMapper:
         self.slm_camera_model = slm_camera_model
         self.detected_points = []
         self.calculated_points = []
-        
+
         self.slm_camera_model()
 
     def map_camera(self) -> CameraMapping:
         raise NotImplementedError(
             "Each subclass should implement its own map_camera() method."
-            )
-    
+        )
+
     def calculate_reprojection_error(self) -> float:
         raise NotImplementedError(
             "Each subclass should implement its own "
             "calculate_reprojection_error() method."
         )
-

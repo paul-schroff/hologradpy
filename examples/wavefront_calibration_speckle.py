@@ -4,9 +4,7 @@ import torch
 
 from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch
 
-from hologradpy.calibration import (
-    SpeckleCalibrator, CameraMapping
-)
+from hologradpy.calibration import SpeckleCalibrator, CameraMapping
 
 from hologradpy.propagation.optical_systems import SLMFFTAffine
 

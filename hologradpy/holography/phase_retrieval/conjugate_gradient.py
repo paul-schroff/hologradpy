@@ -10,6 +10,7 @@ from ..loss_functions import LossIntensityMSE
 
 from ...propagation.optical_systems import SLMFourierLensModel
 
+
 # TODO: Add convergence error metrics
 class CGPhaseRetriever(PhaseRetrieverBase):
     def __init__(
@@ -37,11 +38,7 @@ class CGPhaseRetriever(PhaseRetrieverBase):
 
         self.iteration: int = 0
 
-    def set_optimizer(
-            self,
-            number_of_iterations: int,
-            method: str = "cg"
-        ) -> None:
+    def set_optimizer(self, number_of_iterations: int, method: str = "cg") -> None:
         self.optimizer = torchmin.Minimizer(
             self.slm_camera_model.parameters(),
             method=method,

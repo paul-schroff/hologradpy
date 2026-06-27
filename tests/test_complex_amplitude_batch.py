@@ -4,6 +4,7 @@
 ``OpticsModule`` implementations use to support arbitrary batch ranks, so they
 are tested directly here in isolation from any module.
 """
+
 from __future__ import annotations
 
 import math
@@ -65,9 +66,7 @@ def test_unflatten_with_changed_resolution(shape, n_wl, batch_shape) -> None:
     flat, spec = field.flatten_batch()
 
     new_resolution = (8, 8)
-    resampled = torch.zeros(
-        flat.shape[0], n_wl, *new_resolution, dtype=flat.dtype
-    )
+    resampled = torch.zeros(flat.shape[0], n_wl, *new_resolution, dtype=flat.dtype)
 
     restored = ComplexAmplitude.unflatten_batch(
         resampled, spec, field.wavelength, field.pixel_size

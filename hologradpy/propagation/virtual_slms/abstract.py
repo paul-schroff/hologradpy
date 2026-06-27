@@ -25,19 +25,19 @@ class VirtualSLM(OpticsModule):
 
         self.phase_scaling: float = phase_scaling
         self.init_phase: torch.Tensor | None = init_phase
-    
+
     def lazy_init(self, complex_amplitude: ComplexAmplitude) -> None:
         super().lazy_init(complex_amplitude)
 
         if self.init_phase is None:
             self.init_phase = torch.zeros(
-                self.resolution_in, 
+                self.resolution_in,
                 device=complex_amplitude.device,
-                dtype=complex_amplitude.dtype_r
+                dtype=complex_amplitude.dtype_r,
             )
 
         self.phase = nn.Parameter(self.init_phase, requires_grad=False)
-    
+
     @classmethod
     def from_slm(
         cls: type[VirtualSLM],
@@ -50,7 +50,7 @@ class VirtualSLM(OpticsModule):
             phase_scaling=slm.phase_scaling,
             init_phase=init_phase,
         )
-    
+
     @classmethod
     def from_slm_data(
         cls: type[VirtualSLM],
@@ -70,9 +70,7 @@ class VirtualSLM(OpticsModule):
                 phase, dtype=self.phase.dtype, device=self.phase.device
             )
         else:
-            self.phase.data = phase.to(
-                dtype=self.phase.dtype, device=self.phase.device
-            )
+            self.phase.data = phase.to(dtype=self.phase.dtype, device=self.phase.device)
 
     def get_displayed_phase(self) -> torch.Tensor:
         """Returns the phase pattern as displayed on the SLM before grayscale
@@ -80,10 +78,7 @@ class VirtualSLM(OpticsModule):
         """
         return -self.phase.remainder(self.phase_scaling * 2 * torch.pi)
 
-    def apply_phase_transforms(
-            self: VirtualSLM,
-            phase: torch.Tensor
-        ) -> torch.Tensor:
+    def apply_phase_transforms(self: VirtualSLM, phase: torch.Tensor) -> torch.Tensor:
         return self.get_displayed_phase()
 
     def forward(

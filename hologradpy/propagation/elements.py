@@ -23,6 +23,7 @@ from .complex_amplitude import (
 if TYPE_CHECKING:
     from ..calibration.wavefront.abstract import WavefrontCalibrationData
 
+
 class ConstantSLMField(OpticsModule):
     def __init__(
         self: ConstantSLMField,
@@ -30,10 +31,8 @@ class ConstantSLMField(OpticsModule):
     ) -> None:
         super().__init__()
         self.init_field: ComplexAmplitude | None = init_field
-    
-    def lazy_init(
-        self: ConstantSLMField, complex_amplitude: ComplexAmplitude
-    ) -> None:
+
+    def lazy_init(self: ConstantSLMField, complex_amplitude: ComplexAmplitude) -> None:
         super().lazy_init(complex_amplitude)
 
         if self.init_field is None:
@@ -50,7 +49,7 @@ class ConstantSLMField(OpticsModule):
                 data=torch.ones(
                     default_shape,
                     dtype=complex_amplitude.dtype,
-                    device=complex_amplitude.device
+                    device=complex_amplitude.device,
                 ),
                 wavelength=complex_amplitude.wavelength,
                 pixel_size=complex_amplitude.pixel_size,
@@ -58,34 +57,30 @@ class ConstantSLMField(OpticsModule):
 
         self.phase = Parameter(
             torch.tensor(
-                self.init_field.phase, 
+                self.init_field.phase,
                 dtype=complex_amplitude.dtype_r,
-                device=complex_amplitude.device
+                device=complex_amplitude.device,
             ),
             requires_grad=False,
         )
 
         self.amplitude = Parameter(
             torch.tensor(
-                self.init_field.amplitude, 
+                self.init_field.amplitude,
                 dtype=complex_amplitude.dtype_r,
-                device=complex_amplitude.device
+                device=complex_amplitude.device,
             ),
             requires_grad=False,
         )
 
     @classmethod
-    def from_file(
-        cls, path: str, device: torch.device = "cpu"
-    ) -> ConstantSLMField:
-        state: SaveDict = torch.load(
-            path, map_location=device, weights_only=False
-        )
+    def from_file(cls, path: str, device: torch.device = "cpu") -> ConstantSLMField:
+        state: SaveDict = torch.load(path, map_location=device, weights_only=False)
         state_dict = state["state_dict"]
         geometry = state["input_geometry"]
 
-        init_field_data: Tensor = (
-            state_dict["amplitude"] * torch.exp(1j * state_dict["phase"])
+        init_field_data: Tensor = state_dict["amplitude"] * torch.exp(
+            1j * state_dict["phase"]
         )
 
         init_field = ComplexAmplitude(
@@ -160,63 +155,61 @@ class PartialAffineTransform(OpticsModule):
                 dtype=complex_amplitude.dtype_r,
                 device=complex_amplitude.device,
             ),
-            requires_grad=False
+            requires_grad=False,
         )
 
         # Shift from the center in pixels
         self.shift = Parameter(
             torch.tensor(
-                self.init_shift, 
-                dtype=complex_amplitude.dtype_r, 
-                device=complex_amplitude.device
+                self.init_shift,
+                dtype=complex_amplitude.dtype_r,
+                device=complex_amplitude.device,
             ),
-            requires_grad=False
+            requires_grad=False,
         )
 
         # Rotation angle in degrees
         self.angle = Parameter(
             torch.tensor(
-                [self.init_angle] * number_of_wavelengths, 
-                dtype=complex_amplitude.dtype_r, 
-                device=complex_amplitude.device
+                [self.init_angle] * number_of_wavelengths,
+                dtype=complex_amplitude.dtype_r,
+                device=complex_amplitude.device,
             ),
-            requires_grad=False
+            requires_grad=False,
         )
 
         # Shift of the rotation center relative to the shift_center
         self.rotation_center_shift = Parameter(
             torch.tensor(
-                self.init_rotation_center_shift, 
-                dtype=complex_amplitude.dtype_r, 
-                device=complex_amplitude.device
+                self.init_rotation_center_shift,
+                dtype=complex_amplitude.dtype_r,
+                device=complex_amplitude.device,
             ).repeat(number_of_wavelengths, 1),
-            requires_grad=False
+            requires_grad=False,
         )
 
         # Setting scaling to pixel size ratios
         self.scale = (self.pixel_size_in / self.pixel_size_out).fliplr()
 
         # Setting the rotation center to the center of the input image
-        rotation_center = tuple(
-            self.resolution_in[i] // 2 for i in range(2)
-        )[::-1]
+        rotation_center = tuple(self.resolution_in[i] // 2 for i in range(2))[::-1]
         self.rotation_center = torch.tensor(
-            rotation_center, 
-            dtype=complex_amplitude.dtype_r, 
-            device=complex_amplitude.device
+            rotation_center,
+            dtype=complex_amplitude.dtype_r,
+            device=complex_amplitude.device,
         ).repeat(number_of_wavelengths, 1)  # Repeat for batch dimension if needed
 
-        # Shift moving the centre of the input image to the center of the 
+        # Shift moving the centre of the input image to the center of the
         # output image
         resolution_out = torch.tensor(
-            self.resolution_out, 
-            dtype=complex_amplitude.dtype_r, 
-            device=complex_amplitude.device
+            self.resolution_out,
+            dtype=complex_amplitude.dtype_r,
+            device=complex_amplitude.device,
         )
         resolution_in = torch.tensor(
-            self.resolution_in, 
-            dtype=complex_amplitude.dtype_r, 
-            device=complex_amplitude.device
+            self.resolution_in,
+            dtype=complex_amplitude.dtype_r,
+            device=complex_amplitude.device,
         )
 
         self.shift_center = (
@@ -230,9 +223,7 @@ class PartialAffineTransform(OpticsModule):
     def from_file(
         cls, path: str, device: torch.device = "cpu"
     ) -> PartialAffineTransform:
-        state: SaveDict = torch.load(
-            path, map_location=device, weights_only=False
-        )
+        state: SaveDict = torch.load(path, map_location=device, weights_only=False)
         state_dict = state["state_dict"]
         return cls(
             resolution_out=state["resolution_out"],
@@ -293,12 +284,8 @@ class PartialAffineTransform(OpticsModule):
         # Kornia does not support complex numbers in warp_perspective(),
         # so we need to split the real and imaginary parts and then
         # recombine them.
-        output_real = warp_perspective(
-            field.real, affine_matrix, self.resolution_out
-        )
-        output_imag = warp_perspective(
-            field.imag, affine_matrix, self.resolution_out
-        )
+        output_real = warp_perspective(field.real, affine_matrix, self.resolution_out)
+        output_imag = warp_perspective(field.imag, affine_matrix, self.resolution_out)
 
         transformed_field = output_real + 1j * output_imag
 
@@ -336,9 +323,7 @@ class SimpleLens(OpticsModule):
         self.focal_length: float = focal_length
         self.aperture_radius: float = aperture_radius
 
-    def lazy_init(
-        self: SimpleLens, complex_amplitude: ComplexAmplitude
-    ) -> None:
+    def lazy_init(self: SimpleLens, complex_amplitude: ComplexAmplitude) -> None:
         super().lazy_init(complex_amplitude)
 
         grid_x, grid_y = get_spatial_grid(
@@ -350,17 +335,17 @@ class SimpleLens(OpticsModule):
         # Per-wavelength lens phase (n_wavelengths, H, W).
         wavenumber = complex_amplitude.wavenumber.reshape(-1, 1, 1)
         phase = lens_phase(
-            grid_x.unsqueeze(0), grid_y.unsqueeze(0),
-            self.focal_length, wavenumber,
+            grid_x.unsqueeze(0),
+            grid_y.unsqueeze(0),
+            self.focal_length,
+            wavenumber,
         )
 
         # Aperture is wavelength-independent; centred on the grid.
         aperture = circular_mask(grid_x, grid_y, self.aperture_radius)
 
         # Complex transmission of the apertured lens.
-        self.register_buffer(
-            "transmission", aperture * torch.exp(1j * phase)
-        )
+        self.register_buffer("transmission", aperture * torch.exp(1j * phase))
 
     def forward(
         self: SimpleLens, complex_amplitude: ComplexAmplitude

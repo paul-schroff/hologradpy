@@ -7,12 +7,13 @@ from slmsuite.hardware.cameras.camera import Camera
 from ...propagation.utils.optics_utils import (
     circular_mask,
     linear_phase,
-    get_focal_spot_radius
+    get_focal_spot_radius,
 )
 
 from ...analysis.fitting import fit_gaussian_beam_intensity
 from ...propagation.utils.fourier_utils import get_spatial_grid
 from ...propagation.utils.tensor_utils import gpu_to_numpy
+
 
 # TODO: Reformat docstrings.
 def get_diffraction_spot_position(
@@ -25,8 +26,8 @@ def get_diffraction_spot_position(
     verbose: bool = True,
 ) -> tuple[tuple[float, float], float, NDArray]:
     """
-    This function generates a spot on the camera by displaying a circular 
-    aperture on the SLM containing a linear phase gradient. The position of the 
+    This function generates a spot on the camera by displaying a circular
+    aperture on the SLM containing a linear phase gradient. The position of the
     spot is found by fitting a Gaussian to the camera image.
 
     Args:
@@ -39,7 +40,7 @@ def get_diffraction_spot_position(
         focal_length : float
             Focal length of the Fourier lens in metres.
         exposure_time : float | None
-            Exposure time in seconds. If None, the camera will perform 
+            Exposure time in seconds. If None, the camera will perform
             autoexposure.
         slm_mask_diameter : float | None
             Diameter of the circular aperture in meters. If None, the diameter
@@ -49,20 +50,19 @@ def get_diffraction_spot_position(
 
     Returns:
         tuple[tuple[float, float], float, NDArray]
-            Tuple of x and y coordinates of the spot on the camera in metres, 
-            the focal spot radius in metres, and captured camera image.  
+            Tuple of x and y coordinates of the spot on the camera in metres,
+            the focal spot radius in metres, and captured camera image.
     """
     if slm_mask_diameter is None:
-        slm_mask_diameter = min([
-            slm.shape[i] * slm.pitch_um[i] * 1e-6
-            for i in range(2)
-        ])
-    
+        slm_mask_diameter = min(
+            [slm.shape[i] * slm.pitch_um[i] * 1e-6 for i in range(2)]
+        )
+
     slm_grid = get_spatial_grid(slm.shape, slm.pitch_um * 1e-6)
 
     slm_phase = linear_phase(
-        *slm_grid, 
-        *linear_phase_tilt, 
+        *slm_grid,
+        *linear_phase_tilt,
         focal_length=focal_length,
         wavenumber=2 * np.pi / (slm.wav_um * 1e-6),
     )
@@ -81,7 +81,7 @@ def get_diffraction_spot_position(
             window=None,
             verbose=verbose,
         )
-    
+
     camera.set_exposure(exposure_time)
     camera_image = camera.get_image()
 
@@ -96,14 +96,14 @@ def get_diffraction_spot_position(
 
     if verbose:
         print("Fitting Gaussian to camera image...")
-    
+
     popt, _ = fit_gaussian_beam_intensity(
         *camera_grid, camera_image, beam_radius_guess=focal_spot_radius_guess
     )
-    
+
     if verbose:
         print("Gaussian fit complete.")
-    
+
     focal_spot_radius = popt[0]
     shift_x, shift_y = popt[1:3]
 

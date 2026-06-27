@@ -64,12 +64,14 @@ class SmoothWavefrontTrainer(PropagationTrainer):
         dataset = CalibrationDataset(
             dataset_descriptor=self.dataset_descriptor,
             load_path=self.load_path,
-            transform=Compose([
-                BackgroundSubtraction(background_image),
-                CropToRoi(self.roi),
-                Normalize(self.roi_mask),
-                TransformToTensor(self.device, self.real),
-            ]),
+            transform=Compose(
+                [
+                    BackgroundSubtraction(background_image),
+                    CropToRoi(self.roi),
+                    Normalize(self.roi_mask),
+                    TransformToTensor(self.device, self.real),
+                ]
+            ),
         )
 
         if subset_indices is None:
@@ -102,9 +104,7 @@ class SmoothWavefrontTrainer(PropagationTrainer):
         verbose=True,
     ) -> torch.Tensor:
         number_of_targets = target.shape[-3]
-        intensity_output: torch.Tensor = (
-            output_field.abs() ** 2 * self.roi_mask_torch
-        )
+        intensity_output: torch.Tensor = output_field.abs() ** 2 * self.roi_mask_torch
         target *= self.roi_mask_torch
 
         # TODO (PS): Make type hints work for the two lines below
@@ -120,9 +120,7 @@ class SmoothWavefrontTrainer(PropagationTrainer):
             intensity_output.sum(dim=(1, 2)), 3, -1
         )
 
-        target_normalized = target / unsqueeze_to(
-            target.sum(dim=(1, 2)), 3, -1
-        )
+        target_normalized = target / unsqueeze_to(target.sum(dim=(1, 2)), 3, -1)
 
         loss_mse = (
             self.mse_loss_function(intensity_normalized, target_normalized)
@@ -177,9 +175,7 @@ def gradient_loss(input):
     return torch.mean(gradient_x**2) + torch.mean(gradient_y**2)
 
 
-def mean_curvature(
-    input: torch.Tensor, pixel_pitch: float = 1.0
-) -> torch.Tensor:
+def mean_curvature(input: torch.Tensor, pixel_pitch: float = 1.0) -> torch.Tensor:
     """Calculate the mean curvature of a 2D image using finite differences."""
     gradient_x, gradient_y = torch.gradient(
         input, dim=[-2, -1], spacing=pixel_pitch, edge_order=2

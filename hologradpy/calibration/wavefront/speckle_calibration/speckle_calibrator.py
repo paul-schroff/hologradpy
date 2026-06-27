@@ -123,7 +123,7 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
             mask=slm_mask,
             beam_waist_x=beam_radius,
             beam_waist_y=beam_radius,
-            zernike_coefficients=zernike_coefficients
+            zernike_coefficients=zernike_coefficients,
         )
 
     def calibrate_wavefront(

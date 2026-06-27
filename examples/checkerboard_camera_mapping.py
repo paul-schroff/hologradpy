@@ -8,9 +8,7 @@ from hologradpy.hardware.torch_camera import SimulatedCameraTorch
 from hologradpy.calibration.camera_mapping import CheckerboardMapper
 
 from hologradpy.propagation.optical_systems import SLMFFT, SLMFFTAffine
-from hologradpy.propagation.complex_amplitude import (
-    ComplexAmplitude, FieldGeometry
-)
+from hologradpy.propagation.complex_amplitude import ComplexAmplitude, FieldGeometry
 
 from hologradpy.propagation.utils.optics_utils import gaussian_beam_intensity
 from hologradpy.propagation.utils.tensor_utils import get_device
@@ -29,12 +27,13 @@ slm_geometry = FieldGeometry(
 slm = SimulatedSLMTorch(input_geometry=slm_geometry, bitdepth=8)
 
 gaussian_intensity = gaussian_beam_intensity(
-    *slm.get_spatial_grid(), beam_radius=5e-3,
+    *slm.get_spatial_grid(),
+    beam_radius=5e-3,
 )
 gaussian_beam = ComplexAmplitude(
-    gaussian_intensity.sqrt() + 0j, 
-    wavelength=slm_geometry.wavelength, 
-    pixel_size=slm_geometry.pixel_size
+    gaussian_intensity.sqrt() + 0j,
+    wavelength=slm_geometry.wavelength,
+    pixel_size=slm_geometry.pixel_size,
 )
 
 simulated_camera_model = SLMFFTAffine(
@@ -55,8 +54,8 @@ camera.set_exposure(0.001)
 test_image = camera.get_image()
 
 plt.figure()
-plt.imshow(test_image, cmap='turbo')
-plt.title('Initial Simulated Camera Image')
+plt.imshow(test_image, cmap="turbo")
+plt.title("Initial Simulated Camera Image")
 
 # %%
 slm_camera_model = SLMFFT(
@@ -98,7 +97,7 @@ print("Inverse transformation matrix:")
 print(camera_mapping.inverse_transform)
 
 plt.figure()
-plt.imshow(camera_image, cmap='turbo')
+plt.imshow(camera_image, cmap="turbo")
 plt.plot(
     camera_mapping.detected_points[:, 0],
     camera_mapping.detected_points[:, 1],
@@ -123,16 +122,14 @@ plt.title("Camera Image with Detected Corners")
 
 # %%
 plt.figure()
-plt.imshow(simulated_image, cmap='turbo')
+plt.imshow(simulated_image, cmap="turbo")
 plt.plot(
-    camera_mapping.calculated_points[:, 0],
-    camera_mapping.calculated_points[:, 1],
-    "wx"
+    camera_mapping.calculated_points[:, 0], camera_mapping.calculated_points[:, 1], "wx"
 )
 plt.title("Simulated Camera Image with Detected Corners")
 
 plt.figure()
-plt.imshow(slm_phase, cmap='magma')
+plt.imshow(slm_phase, cmap="magma")
 plt.colorbar()
 plt.title("SLM Phase")
 # %%

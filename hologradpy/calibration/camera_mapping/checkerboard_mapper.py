@@ -95,12 +95,8 @@ class CheckerboardMapper(CameraMapper):
         number_of_corners = tuple([i - 1 for i in number_of_squares])
 
         if isinstance(checkerboard_center, str):
-            checkerboard_shift_x = int(
-                square_size * (number_of_squares[1] / 2 + 2)
-            )
-            checkerboard_shift_y = int(
-                square_size * (number_of_squares[0] / 2 + 2)
-            )
+            checkerboard_shift_x = int(square_size * (number_of_squares[1] / 2 + 2))
+            checkerboard_shift_y = int(square_size * (number_of_squares[0] / 2 + 2))
             if checkerboard_center == "top-left":
                 checkerboard_center = (
                     -checkerboard_shift_x,
@@ -122,9 +118,7 @@ class CheckerboardMapper(CameraMapper):
                     checkerboard_shift_y,
                 )
             else:
-                raise ValueError(
-                    f"Invalid checkerboard_center: {checkerboard_center}"
-                )
+                raise ValueError(f"Invalid checkerboard_center: {checkerboard_center}")
         elif isinstance(checkerboard_center, tuple):
             pass
         else:
@@ -158,14 +152,11 @@ class CheckerboardMapper(CameraMapper):
         ] = True
 
         # Finding position of zeroth-order diffraction spot on camera
-        simulation_pixel_size = (
-            self.slm_camera_model[-1].pixel_size_out.tolist()[0]
-        )
+        simulation_pixel_size = self.slm_camera_model[-1].pixel_size_out.tolist()[0]
 
-        checkerboard_center_meters = tuple([
-            checkerboard_center[i] * simulation_pixel_size[::-1][i]
-            for i in range(2)
-        ])
+        checkerboard_center_meters = tuple(
+            [checkerboard_center[i] * simulation_pixel_size[::-1][i] for i in range(2)]
+        )
 
         (spot_position_x, spot_position_y), focal_spot_radius, _ = (
             get_diffraction_spot_position(
@@ -177,12 +168,8 @@ class CheckerboardMapper(CameraMapper):
         )
 
         # Defining region of interest in the simulated camera image
-        roi_width = (
-            simulation_pixel_size[1] * square_size * (number_of_squares[1] + 1)
-        )
-        roi_height = (
-            simulation_pixel_size[0] * square_size * (number_of_squares[0] + 1)
-        )
+        roi_width = simulation_pixel_size[1] * square_size * (number_of_squares[1] + 1)
+        roi_height = simulation_pixel_size[0] * square_size * (number_of_squares[0] + 1)
 
         roi_mask_simulation = rectangular_mask(
             *self.slm_camera_model[-1].get_spatial_grid_output(),
@@ -209,14 +196,11 @@ class CheckerboardMapper(CameraMapper):
         # Calculating SLM phase guess to seed conjugate gradient minimization
         # if phase_guess is not provided
         if phase_guess is None:
-            aspect_ratio = 1 / (
-                1 + number_of_squares[1] / number_of_squares[0]
-            )
+            aspect_ratio = 1 / (1 + number_of_squares[1] / number_of_squares[0])
             curvature = (
                 1.8e-6
                 * square_size
-                * (number_of_squares[0] ** 2 + number_of_squares[1] ** 2)
-                ** 0.5
+                * (number_of_squares[0] ** 2 + number_of_squares[1] ** 2) ** 0.5
             )
 
             phase_guess = analytic_phase_guess(
@@ -254,9 +238,7 @@ class CheckerboardMapper(CameraMapper):
 
             slm_phase = phase_retriever.retrieve_phase(number_of_cg_iterations)
 
-        simulated_camera_image = gpu_to_numpy(
-            self.slm_camera_model().intensity
-        )
+        simulated_camera_image = gpu_to_numpy(self.slm_camera_model().intensity)
 
         # Capturing camera image
         averaged_camera_image = self.capture_phase_shifted_image(
@@ -281,8 +263,8 @@ class CheckerboardMapper(CameraMapper):
         inverse_transform = invertAffineTransform(transform)
 
         center = (
-            self.slm_camera_model[-1].resolution_out[0] // 2, 
-            self.slm_camera_model[-1].resolution_out[1] // 2
+            self.slm_camera_model[-1].resolution_out[0] // 2,
+            self.slm_camera_model[-1].resolution_out[1] // 2,
         )
 
         zeroth_order_position = (
@@ -358,13 +340,10 @@ class CheckerboardMapper(CameraMapper):
         for i in range(number_of_attempts):
             kernel_width = i
             blurred_image = gaussian_filter(image, kernel_width)
-            blurred_image_normalized = (
-                blurred_image / blurred_image.max() * 255
-            )
+            blurred_image_normalized = blurred_image / blurred_image.max() * 255
 
             corners, score = detect_checkerboard(
-                blurred_image_normalized, 
-                (number_of_corners[1], number_of_corners[0])
+                blurred_image_normalized, (number_of_corners[1], number_of_corners[0])
             )
             corners = np.squeeze(corners)
 

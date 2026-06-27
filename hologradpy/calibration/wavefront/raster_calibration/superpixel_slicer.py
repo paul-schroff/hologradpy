@@ -55,9 +55,7 @@ class SuperpixelSlicer:
 
         end_indices_x = start_indices_x + superpixel_width
 
-        self.start_indices_x = np.tile(
-            start_indices_x, number_of_superpixels_y
-        )
+        self.start_indices_x = np.tile(start_indices_x, number_of_superpixels_y)
         self.end_indices_x = np.tile(end_indices_x, number_of_superpixels_y)
 
         start_indices_y = np.floor(
@@ -71,9 +69,7 @@ class SuperpixelSlicer:
 
         end_indices_y = start_indices_y + superpixel_height
 
-        self.start_indices_y = np.repeat(
-            start_indices_y, number_of_superpixels_x
-        )
+        self.start_indices_y = np.repeat(start_indices_y, number_of_superpixels_x)
         self.end_indices_y = np.repeat(end_indices_y, number_of_superpixels_x)
 
         self.superpixel_indices = list(range(self._number_of_superpixels))
@@ -88,7 +84,7 @@ class SuperpixelSlicer:
         else:
             for i in self.superpixel_indices:
                 self.slices.append(self.get_slice(i))
-    
+
     @property
     def superpixel_separation(self) -> tuple[int, int]:
         return self._superpixel_separation_x, self._superpixel_separation_y
@@ -160,9 +156,9 @@ class SuperpixelSlicer:
     @property
     def reference_index(self) -> int:
         """Returns the index of the superpixel with the highest intensity."""
-        superpixel_powers = np.asarray([
-            self.get_superpixel_power(i) for i in self.superpixel_indices
-        ])
+        superpixel_powers = np.asarray(
+            [self.get_superpixel_power(i) for i in self.superpixel_indices]
+        )
         return self.superpixel_indices[np.argmax(superpixel_powers)]
 
     @property
@@ -201,9 +197,7 @@ class SuperpixelSlicer:
         adjusted_superpixel_height = self.superpixel_height * correction_factor
 
         pad_width = int(adjusted_superpixel_width - self.superpixel_width) // 2
-        pad_height = (
-            int(adjusted_superpixel_height - self.superpixel_height) // 2
-        )
+        pad_height = int(adjusted_superpixel_height - self.superpixel_height) // 2
 
         adjusted_slice = (
             slice(

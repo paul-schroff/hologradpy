@@ -57,9 +57,7 @@ class DatasetGenerator:
         self.number_of_masks: int = 0
         self.number_of_phase_patterns: int = self.number_of_random_patterns
 
-        self.camera_background_image: NDArray[np.float_] = np.zeros(
-            self.camera.shape
-        )
+        self.camera_background_image: NDArray[np.float_] = np.zeros(self.camera.shape)
 
         self.exposure_time: float = 0.0
 
@@ -74,7 +72,7 @@ class DatasetGenerator:
         virtual_slm: VirtualSLM = VirtualSLM(self.slm)
 
         constant_field: ConstantSLMField = ConstantSLMField(
-            init_field=torch.ones(self.slm.shape), 
+            init_field=torch.ones(self.slm.shape),
             pixel_pitch=virtual_slm.slm.pitch_um[0] * 1e-6,
         )
 
@@ -97,12 +95,14 @@ class DatasetGenerator:
         )
 
         self.slm_camera_model: SLMFourierLensModel = SLMFourierLensModel(
-            OrderedDict([
-                ("virtual_slm", virtual_slm),
-                ("constant_field", constant_field),
-                ("fourier_lens", fourier_lens),
-                ("affine_transform", affine_transform),
-            ])
+            OrderedDict(
+                [
+                    ("virtual_slm", virtual_slm),
+                    ("constant_field", constant_field),
+                    ("fourier_lens", fourier_lens),
+                    ("affine_transform", affine_transform),
+                ]
+            )
         )
 
         self.roi_mask: torch.Tensor[torch.bool] = torch.ones(
@@ -117,8 +117,7 @@ class DatasetGenerator:
         """Generate a set of random phase patterns using Simplex noise."""
         if extent is None:
             extent = tuple(
-                self.camera.shape[i] * self.camera.pitch_um[i] * 1e-6 
-                for i in range(2)
+                self.camera.shape[i] * self.camera.pitch_um[i] * 1e-6 for i in range(2)
             )
 
         self.metadata["simplex_extent"] = extent
@@ -134,30 +133,36 @@ class DatasetGenerator:
 
         feature_size = tuple(
             simplex_4d_norm
-            * self.slm.wav_um * 1e-6
+            * self.slm.wav_um
+            * 1e-6
             * self.slm_camera_model.fourier_lens.focal_length
             / (1e-6 * self.slm.pitch_um[i] * extent[i])
             for i in range(2)
         )
 
-        random = (
-            np.random.rand(2) * self.slm.shape[0] / 2 / feature_size[0]
+        random = np.random.rand(2) * self.slm.shape[0] / 2 / feature_size[0]
+        z = np.asarray(
+            [
+                random[0],
+            ]
         )
-        z = np.asarray([random[0],])
-        w = np.asarray([random[1],])
+        w = np.asarray(
+            [
+                random[1],
+            ]
+        )
 
         grating = np.zeros(self.slm.shape)
         grating[:, ::2] = np.pi
 
         for i in range(self.number_of_random_patterns):
             print(
-                f"Generating phase pattern {i + 1} "
-                f"of {self.number_of_random_patterns}."
+                f"Generating phase pattern {i + 1} of {self.number_of_random_patterns}."
             )
 
             simplex_coords = tuple(
-                (np.arange(self.slm.shape[i]) - self.slm.shape[i] / 2) 
-                / feature_size[i] for i in range(2)
+                (np.arange(self.slm.shape[i]) - self.slm.shape[i] / 2) / feature_size[i]
+                for i in range(2)
             )[::-1]
 
             random_seed()
@@ -165,9 +170,7 @@ class DatasetGenerator:
 
             simplex_noise = simplex_noise * simplex_4d_norm * np.pi + np.pi
 
-            simplex_noise = np.remainder(
-                simplex_noise + benchmark_phase, 2 * np.pi
-            )
+            simplex_noise = np.remainder(simplex_noise + benchmark_phase, 2 * np.pi)
 
             phase_filename = f"phase_pattern_{i}.npy"
 
@@ -179,14 +182,11 @@ class DatasetGenerator:
             self.data_filenames.append(sample_filename)
 
         # Generating the ROI mask based on the camera mapping and extent
-        camera_grid = get_spatial_grid(
-            self.camera.shape, self.camera.pitch_um * 1e-6
-        )
+        camera_grid = get_spatial_grid(self.camera.shape, self.camera.pitch_um * 1e-6)
 
         # TODO: Fix this
         shift_pixels = tuple(
-            self.camera_mapping.zeroth_order_position[i] 
-            - self.camera.shape[i] // 2
+            self.camera_mapping.zeroth_order_position[i] - self.camera.shape[i] // 2
             for i in range(2)
         )
 
@@ -215,8 +215,7 @@ class DatasetGenerator:
     ) -> DatasetDescriptor:
         for i, filename in enumerate(self.data_filenames):
             print(
-                f"Displaying phase pattern {i + 1} of "
-                f"{self.number_of_phase_patterns}"
+                f"Displaying phase pattern {i + 1} of {self.number_of_phase_patterns}"
             )
 
             phase_pattern = np.load(self.directory + filename["phase_pattern"])
@@ -224,14 +223,12 @@ class DatasetGenerator:
             self.slm.set_phase(phase_pattern, phase_correct=False)
 
             if i == 0:
-                # Find ROI and reformat to window 
+                # Find ROI and reformat to window
                 # (x_center, width, y_center, height)
                 roi = find_roi(self.roi_mask, pad=0)
 
                 width, height = roi[3] - roi[2], roi[1] - roi[0]
-                window = (
-                    roi[2] + width // 2, width, roi[0] + height // 2, height
-                )
+                window = (roi[2] + width // 2, width, roi[0] + height // 2, height)
                 print(roi)
                 print(window)
 
@@ -241,20 +238,13 @@ class DatasetGenerator:
 
             camera_image_filename = f"camera_image_{i}.npy"
 
-            print(
-                f"Capturing camera image {i + 1} of "
-                f"{self.number_of_phase_patterns}"
-            )
+            print(f"Capturing camera image {i + 1} of {self.number_of_phase_patterns}")
 
             camera_image = self.camera.get_image()
 
-            np.save(
-                self.directory + camera_image_filename, np.copy(camera_image)
-            )
+            np.save(self.directory + camera_image_filename, np.copy(camera_image))
 
-            self.data_filenames[i]["camera_image"] = copy(
-                camera_image_filename
-            )
+            self.data_filenames[i]["camera_image"] = copy(camera_image_filename)
 
         if capture_background_image:
             message = input(

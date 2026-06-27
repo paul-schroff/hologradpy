@@ -2,13 +2,13 @@
 This module contains functions to characterise light potentials.
 """
 
-import numpy as np                          # Used for array manipulation
+import numpy as np  # Used for array manipulation
 
 
 def normalize(img, roi, thres=0.5):
     """
-    Normalises an image by dividing it by the pixel sum in a region of interest. Only pixels brighter than
-    thres * max(roi * img) are taken into account.
+    Normalises an image by dividing it by the pixel sum in a region of interest. Only
+    pixels brighter than thres * max(roi * img) are taken into account.
 
     :param img: Input image.
     :param roi: Binary mask containing region of interest.
@@ -24,7 +24,8 @@ def normalize(img, roi, thres=0.5):
 
 def fidelity(signal, a_tar, phi_tar, a_out, phi_out):
     """
-    Calculate fidelity between two electric fields in a region of interest (signal region).
+    Calculate fidelity between two electric fields in a region of interest (signal
+    region).
 
     :param signal: Binary mask containing the region of interest.
     :param a_tar: Target amplitude pattern.
@@ -36,16 +37,20 @@ def fidelity(signal, a_tar, phi_tar, a_out, phi_out):
     e_tar_s = (a_tar * np.exp(1j * phi_tar)) * signal
     e_out_s = (a_out * np.exp(1j * phi_out)) * signal
 
-    fid = np.sum(e_tar_s * np.conjugate(e_out_s)) / (np.sum(np.abs(e_tar_s) ** 2) * np.sum(np.abs(e_out_s) ** 2)) ** 0.5
+    fid = (
+        np.sum(e_tar_s * np.conjugate(e_out_s))
+        / (np.sum(np.abs(e_tar_s) ** 2) * np.sum(np.abs(e_out_s) ** 2)) ** 0.5
+    )
     fid = np.abs(fid) ** 2
     return fid
 
 
 def rms(signal, i_target, i_out, frac=0.5):
     """
-    Calculate normalised root-mean-squared error between two images inside a region of interest. Only pixels which are brighter
-    than ``frac * max(i_target_norm)`` are taken into account, where ``i_target_norm`` is the normalised target
-    intensity pattern.
+    Calculate normalised root-mean-squared error between two images inside a region of
+    interest. Only pixels which are brighter than ``frac * max(i_target_norm)`` are
+    taken into account, where ``i_target_norm`` is the normalised target intensity
+    pattern.
 
     :param signal: Binary mask containing region of interest (signal region).
     :param i_target: Target intensity pattern.
@@ -83,8 +88,8 @@ def rms_phase(phi):
 
 def psnr(signal, i_target, i_out):
     """
-    Calculates the peak signal-to-noise ratio between two images in a region of interest according to
-    https://doi.org/10.1364/OE.24.006249.
+    Calculates the peak signal-to-noise ratio between two images in a region of interest
+    according to https://doi.org/10.1364/OE.24.006249.
 
     :param signal: Binary mask containing region of interest (signal region).
     :param i_target: Target intensity pattern.
@@ -93,21 +98,21 @@ def psnr(signal, i_target, i_out):
     """
     i_target_w = i_target * signal
     i_out_w = i_out * signal
-    
+
     i_target_w_norm = i_target_w / np.sum(i_target_w)
     i_out_w_norm = i_out_w / np.sum(i_out_w)
-    
+
     mr = np.count_nonzero(signal)
-    
+
     mse = np.sum(signal * (i_out_w_norm - i_target_w_norm) ** 2) / mr
-    
+
     return 20 * np.log10(np.max(i_target_w_norm * signal) / np.sqrt(mse))
 
 
 def eff(signal, i_out):
     """
-    Calculates the predicted efficiency of a light potential by dividing the pixel sum in the signal region by
-    the pixel sum in the entire pattern.
+    Calculates the predicted efficiency of a light potential by dividing the pixel sum
+    in the signal region by the pixel sum in the entire pattern.
 
     :param signal: Binary mask containing the signal region.
     :param i_out: Intensity pattern of the light potential.

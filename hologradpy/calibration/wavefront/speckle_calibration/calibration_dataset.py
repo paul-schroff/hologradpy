@@ -23,9 +23,7 @@ class CalibrationDataset(Dataset):
         load_path: str | None = None,
         transform=None,
     ):
-        self.dataset_descriptor: DatasetDescriptor = (
-            dataset_descriptor
-        )
+        self.dataset_descriptor: DatasetDescriptor = dataset_descriptor
         self.transform = transform
 
         if load_path is None:
@@ -73,17 +71,11 @@ class DatasetDescriptor:
 
     def load_training_sample(self, sample_index: int) -> TrainingSample:
         """Load a training sample from the dataset."""
-        sample_file_names: TrainingSampleFilenames = self.data_filenames[
-            sample_index
-        ]
+        sample_file_names: TrainingSampleFilenames = self.data_filenames[sample_index]
 
-        camera_image = np.load(
-            self.directory + sample_file_names["camera_image"]
-        )
+        camera_image = np.load(self.directory + sample_file_names["camera_image"])
 
-        phase_pattern = np.load(
-            self.directory + sample_file_names["phase_pattern"]
-        )
+        phase_pattern = np.load(self.directory + sample_file_names["phase_pattern"])
 
         sample: TrainingSample = {
             "camera_image": camera_image,

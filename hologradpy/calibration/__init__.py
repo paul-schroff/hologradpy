@@ -7,5 +7,5 @@ __all__ = [
     "RasterCalibrator",
     "SpeckleCalibrator",
     "get_diffraction_spot_position",
-    "CameraMapping"
+    "CameraMapping",
 ]

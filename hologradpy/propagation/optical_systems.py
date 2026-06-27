@@ -12,31 +12,34 @@ from ..torch_functions import ASM
 
 class VirtualSlm(nn.Module):
     """
-    This class models pixel crosstalk on the SLM and the propagation of light 
+    This class models pixel crosstalk on the SLM and the propagation of light
     from the SLM to the camera.
     """
-    def __init__(self, 
-                 slm_disp_obj: hw.SlmBase, 
-                 pms_obj: hw.ParamsBase, 
-                 phi: NDArray[np.float_], 
-                 npix_pad: int, 
-                 npix: int | None = None, 
-                 e_slm: NDArray[np.float_] | None = None, 
-                 kernel_ct: NDArray[np.float_] | None = None, 
-                 pix_res: int | None = None,
-                 propagation_type: str = 'fft', 
-                 extent_lens: float | None = None, 
-                 pd1: float | None = None, 
-                 pd2: float | None = None, 
-                 xf: float | None = None, 
-                 device: str = 'cpu', 
-                 slm_mask: NDArray[np.float_] | None = None,
-                 precision: str | None = None, 
-                 fft_shift: bool = True):
+
+    def __init__(
+        self,
+        slm_disp_obj: hw.SlmBase,
+        pms_obj: hw.ParamsBase,
+        phi: NDArray[np.float_],
+        npix_pad: int,
+        npix: int | None = None,
+        e_slm: NDArray[np.float_] | None = None,
+        kernel_ct: NDArray[np.float_] | None = None,
+        pix_res: int | None = None,
+        propagation_type: str = "fft",
+        extent_lens: float | None = None,
+        pd1: float | None = None,
+        pd2: float | None = None,
+        xf: float | None = None,
+        device: str = "cpu",
+        slm_mask: NDArray[np.float_] | None = None,
+        precision: str | None = None,
+        fft_shift: bool = True,
+    ):
         """
-        :param slm_disp_obj: Object created by a subclass of 
+        :param slm_disp_obj: Object created by a subclass of
             :py:class:`hardware.SlmBase`
-        :param pms_obj: Object created by a subclass of 
+        :param pms_obj: Object created by a subclass of
             :py:class:`hardware.ParamsBase`
         :param phi: SLM phase pattern [rad].
         :param npix_pad: Size of zero-padded SLM plane [px].
@@ -71,7 +74,7 @@ class VirtualSlm(nn.Module):
         self.pms_obj = pms_obj
 
         # Choose computational precision
-        if precision == 'single':
+        if precision == "single":
             dtype_c = torch.complex64
             dtype_r = torch.float32
         else:
@@ -92,7 +95,7 @@ class VirtualSlm(nn.Module):
         self.npix_full = self.pix_res * self.npix_pad
 
         self.propagation_type = propagation_type
-        if propagation_type == 'asm':
+        if propagation_type == "asm":
             self.asm_obj = ASM(
                 slm_disp_obj,
                 pms_obj,
@@ -104,28 +107,26 @@ class VirtualSlm(nn.Module):
                 xf,
                 shift=self.fft_shift,
                 precision=self.precision,
-                device=self.device
+                device=self.device,
             )
             phi -= self.asm_obj.phi_corr_native
             e_slm = e_slm * np.exp(1j * self.asm_obj.phi_corr)
 
         # Initialise optimisation parameters
-        if self.precision == 'double':
+        if self.precision == "double":
             self.phi = nn.Parameter(
-                torch.tensor(phi, dtype=torch.float64).to(device),
-                requires_grad=True
+                torch.tensor(phi, dtype=torch.float64).to(device), requires_grad=True
             )
         else:
             self.phi = nn.Parameter(
-                torch.tensor(phi, dtype=torch.float32).to(device),
-                requires_grad=True
+                torch.tensor(phi, dtype=torch.float32).to(device), requires_grad=True
             )
 
         if npix is None:
             npix = phi.shape[0]
         self.npix = npix
         self.propagation_type = propagation_type
-        if device == 'cuda':
+        if device == "cuda":
             torch.cuda.empty_cache()
 
     def set_phi(self, new_phi: NDArray[np.float_]) -> None:
@@ -134,22 +135,20 @@ class VirtualSlm(nn.Module):
 
         :param new_phi: SLM phase [rad].
         """
-        if self.precision == 'double':
-            self.phi.data = torch.tensor(new_phi,
-                                         dtype=torch.float64).to(self.device)
+        if self.precision == "double":
+            self.phi.data = torch.tensor(new_phi, dtype=torch.float64).to(self.device)
         else:
-            self.phi.data = torch.tensor(new_phi,
-                                         dtype=torch.float32).to(self.device)
+            self.phi.data = torch.tensor(new_phi, dtype=torch.float32).to(self.device)
 
     def forward(self) -> torch.Tensor:
         """
-        Model the SLM and simulate the propagation of light from the SLM plane 
+        Model the SLM and simulate the propagation of light from the SLM plane
         to the image plane. This method is used by gradient-based optimizers.
 
         :return: Electric field in the image plane.
         """
-        # Restrict phase value to lower limit 0 and upper limit 2 * pi when 
-        # modelling pixel crosstalk. This prevents discontinuities in the cost 
+        # Restrict phase value to lower limit 0 and upper limit 2 * pi when
+        # modelling pixel crosstalk. This prevents discontinuities in the cost
         # function. Wrap the phase otherwise.
         if self.kernel_ct is None:
             x = self.phi.remainder(self.slm_disp_obj.max_phase)
@@ -170,11 +169,7 @@ class VirtualSlm(nn.Module):
         # Convolve upscaled SLM phase with pixel crosstalk kernel.
         if self.kernel_ct is not None:
             x = x.unsqueeze(0).unsqueeze(0)
-            x = torch.nn.functional.conv2d(
-                x,
-                self.kernel_ct,
-                padding='same'
-            ).squeeze()
+            x = torch.nn.functional.conv2d(x, self.kernel_ct, padding="same").squeeze()
 
         # Add displayed SLM phase to the constant electric field at the SLM.
         x = tt.exp(1j * x) * self.e_slm
@@ -183,9 +178,9 @@ class VirtualSlm(nn.Module):
         x = nn.ZeroPad2d((self.pad, self.pad, self.pad, self.pad))(x)
 
         # Propagate electric field in the SLM plane to the image plane.
-        if self.propagation_type == 'fft':
-            x = fft(x, shift=self.fft_shift, norm='ortho')
-        elif self.propagation_type == 'asm':
+        if self.propagation_type == "fft":
+            x = fft(x, shift=self.fft_shift, norm="ortho")
+        elif self.propagation_type == "asm":
             x = self.asm_obj.forward(x)
         self.counter += 1
         return x
