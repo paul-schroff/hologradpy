@@ -1,5 +1,4 @@
 # %% Imports
-from collections import OrderedDict
 import matplotlib.pyplot as plt
 
 from hologradpy.holography.phase_retrieval import CGPhaseRetriever
@@ -10,44 +9,42 @@ from hologradpy.propagation.utils.optics_utils import (
     gaussian_blur,
 )
 from hologradpy.propagation.utils.tensor_utils import (
-    check_device,
+    get_device,
     gpu_to_numpy,
 )
-from hologradpy.propagation.optical_systems import SLMFFTAffine, SLMCameraModel
-from hologradpy.propagation.virtual_slms import VirtualSLM
+
+from hologradpy.propagation.complex_amplitude import ComplexAmplitude
+from hologradpy.propagation.optical_systems import SLMFFT
 
 from hologradpy.holography.vortices import VortexAnnihilator
 
-from slmsuite.hardware.slms.slm import SLM
-from slmsuite.hardware.cameras.simulated import SimulatedCamera as Camera
+from hologradpy.hardware.torch_slm import SimulatedSLMTorch
 
 import torch
 
 # %% Set up the SLM and camera devices
-device = check_device(verbose=True)
+device = get_device(verbose=True)
 
-slm = SLM(
+slm = SimulatedSLMTorch(
     resolution=(1280, 1024),
     wav_um=0.670,
     pitch_um=12.5,
 )
 
-virtual_slm = VirtualSLM(slm, device=device)
+# %% Set up the SLM and camera modules
+beam_radius = 4e-3                  # beam radius in mm
+focal_length = 500e-3               # focal length in mm
+padded_resolution = (2048, 2048)    # padded resolution for the FFT
 
-camera = Camera(
-    slm=slm,
-    resolution=(1440, 900),
-    pitch_um=3.45,
+slm_field = ComplexAmplitude(
+    torch.zeros(*slm.shape, device=device, dtype=torch.complex64),
+    wavelength=slm.wav_um * 1e-6,
+    pixel_size=tuple((slm.pitch_um * 1e-6).tolist()),
 )
 
-# %% Set up the SLM and camera modules
-beam_radius = 4e-3  # beam radius in mm
-focal_length = 500e-3  # focal length in mm
-padded_resolution = (2048, 2048)  # padded resolution for the FFT
-
-slm_grid = virtual_slm.get_spatial_grid_input()
+slm_grid = slm_field.get_spatial_grid()
 slm_intensity = gaussian_beam_intensity(*slm_grid, beam_radius=beam_radius)
-slm_field = slm_intensity.sqrt() + 0j
+slm_field._data = slm_intensity.sqrt() + 0j
 
 plt.figure()
 plt.imshow(gpu_to_numpy(slm_intensity), cmap='turbo')
@@ -57,41 +54,30 @@ plt.colorbar(label='Intensity [a.u.]')
 # TODO: Adapt the previous initial phase guess function.
 init_slm_phase = lens_phase(
     *slm_grid,
-    focal_length=2.5,
+    focal_length=1.5,
     wavenumber=2 * torch.pi / (slm.wav_um * 1e-6),
 ).to(torch.float32)
 
-slm_camera_model = SLMFFTAffine(
-    virtual_slm=virtual_slm,
-    camera=camera,
+slm_camera_model = SLMFFT(
+    input_geometry=slm_field.geometry,
     focal_length=focal_length,
     constant_field_slm=slm_field,
     padded_resolution=padded_resolution,
-    device=device,
-)
-
-slm_camera_model = SLMCameraModel(
-    OrderedDict([
-        ("virtual_slm", virtual_slm),
-        ("constant_field", slm_camera_model.constant_field),
-        ("fourier_lens", slm_camera_model.fourier_lens),
-        # ("affine_transform", slm_camera_model.affine_transform),
-    ])
+    init_phase=init_slm_phase,
 )
 
 # %% Plot initial simulated output
-slm_camera_model.virtual_slm.set_phase(init_slm_phase)
 init_electric_field = slm_camera_model()
-init_intensity = torch.abs(init_electric_field) ** 2
+init_intensity = init_electric_field.intensity
 
 plt.figure()
-plt.imshow(gpu_to_numpy(init_intensity), cmap='turbo')
+plt.imshow(init_intensity, cmap='turbo')
 plt.title('Initial Simulated Camera Image')
 plt.colorbar(label='Intensity (a.u.)')
 
-
-slm_power = slm_camera_model.constant_field.amplitude.abs() ** 2
+slm_power = slm_camera_model.constant_field.amplitude ** 2
 image_power = init_intensity.sum()
+
 print(f"SLM Power: {slm_power.sum().item()}")
 print(f"Image Power: {image_power.item()}")
 
@@ -134,15 +120,15 @@ phase_retriever = CGPhaseRetriever(
 )
 
 # %% Phase retrieval
-phase = phase_retriever.retrieve_phase(50, method="cg")
+phase = phase_retriever.retrieve_phase(20, method="cg")
 
 # %% Plotting the results
-electric_field = phase_retriever.slm_camera_model()
-intensity_out = torch.abs(electric_field) ** 2
-phase_out = torch.angle(electric_field)
+complex_amplitude = phase_retriever.slm_camera_model()
+intensity_out = complex_amplitude.intensity
+phase_out = complex_amplitude.phase
 
 plt.figure()
-plt.imshow(gpu_to_numpy(phase % (2 * torch.pi)), cmap="magma")
+plt.imshow(gpu_to_numpy(phase_out % (2 * torch.pi)), cmap="magma")
 plt.title('Final Retrieved Phase')
 plt.colorbar(label='Phase [radians]')
 
@@ -154,7 +140,7 @@ plt.colorbar(label='Intensity [a.u.]')
  # %% Vortex detection
 vortex_annihilator = VortexAnnihilator(phase_retriever)
 vortex_annihilator.annihilate_vortices(
-    target_intensity_threshold=0.05,
+    target_intensity_threshold=0.1,
     max_iterations=5,
     cg_iterations=20
 )
@@ -163,17 +149,17 @@ vortex_annihilator.annihilate_vortices(
 phase = phase_retriever.retrieve_phase(100, method="l-bfgs")
 
 # %% Plotting the results
-electric_field = phase_retriever.slm_camera_model()
-intensity_out = torch.abs(electric_field) ** 2
-phase_out = torch.angle(electric_field)
+complex_amplitude = phase_retriever.slm_camera_model()
+intensity_out = complex_amplitude.intensity
+phase_out = complex_amplitude.phase
 
 plt.figure()
-plt.imshow(gpu_to_numpy(phase % (2 * torch.pi)), cmap="magma")
+plt.imshow(gpu_to_numpy(phase) % (2 * torch.pi), cmap="magma")
 plt.title('Final Retrieved Phase')
 plt.colorbar(label='Phase [radians]')
 
 plt.figure()
-plt.imshow(gpu_to_numpy(intensity_out), cmap='turbo')
+plt.imshow(intensity_out[700:-700, 700:-700], cmap='turbo')
 plt.title('Final Retrieved Intensity')
 plt.colorbar(label='Intensity [a.u.]')
 # %%

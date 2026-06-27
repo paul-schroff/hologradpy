@@ -23,9 +23,9 @@ from ..abstract import WavefrontCalibrationData
 from ...camera_mapping import CameraMapping
 
 from ....propagation.utils.optics_utils import circular_mask
-from ....propagation.utils.tensor_utils import check_device, find_roi
+from ....propagation.utils.tensor_utils import get_device, find_roi
 from ....propagation.utils.fourier_utils import get_spatial_grid
-from ....propagation.optical_systems import SLMCameraModel
+from ....propagation.optical_systems import SLMFourierLensModel
 from ....propagation.propagators import FourierLensFFT
 from ....propagation.virtual_slms import VirtualSLM
 from ....propagation.elements import ConstantSLMField, PartialAffineTransform
@@ -52,7 +52,7 @@ class DatasetGenerator:
         self.number_of_phase_patterns: int = self.number_of_random_patterns
 
         if device is None:
-            device = check_device()
+            device = get_device()
 
         self.number_of_masks: int = 0
         self.number_of_phase_patterns: int = self.number_of_random_patterns
@@ -96,7 +96,7 @@ class DatasetGenerator:
             verbose=False,
         )
 
-        self.slm_camera_model: SLMCameraModel = SLMCameraModel(
+        self.slm_camera_model: SLMFourierLensModel = SLMFourierLensModel(
             OrderedDict([
                 ("virtual_slm", virtual_slm),
                 ("constant_field", constant_field),

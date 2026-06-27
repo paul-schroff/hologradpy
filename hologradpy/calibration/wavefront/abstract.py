@@ -12,6 +12,7 @@ from torch import Tensor
 from slmsuite.hardware.slms.slm import SLM
 from slmsuite.hardware.cameras.camera import Camera
 
+from ...propagation.complex_amplitude import ComplexAmplitude
 from ...propagation.utils.optics_utils import get_spatial_grid
 
 from ...analysis.fitting import fit_gaussian_beam_intensity
@@ -20,10 +21,8 @@ from ...analysis.fitting import fit_gaussian_beam_intensity
 class WavefrontCalibrationData:
     timestamp: datetime
     name: str
-    constant_slm_field_state_dict: dict
-    beam_waist_x: float
-    beam_waist_y: float
-    zernike_coefficients: NDArray[np.float_]
+    complex_amplitude: ComplexAmplitude
+    metadata: dict
 
     def save(self, filename: str):
         with open(filename, "wb") as file:

@@ -14,7 +14,7 @@ from ....camera_mapping import CameraMapping
 
 from .....propagation.utils.tensor_utils import crop_to_roi, find_roi
 from .....propagation.utils.optics_utils import gaussian_beam_intensity
-from .....propagation.optical_systems import SLMCameraModel
+from .....propagation.optical_systems import SLMFourierLensModel
 from .....analysis.fitting import curve_fit_2d
 
 
@@ -27,7 +27,7 @@ class PropagationTrainer:
         self,
         dataset_descriptor: DatasetDescriptor,
         load_path: str,
-        slm_camera_model: SLMCameraModel,
+        slm_camera_model: SLMFourierLensModel,
         roi_mask: NDArray[np.bool_] | None = None,
         device: str = "cpu",
     ) -> None:
@@ -49,7 +49,7 @@ class PropagationTrainer:
         self.roi_mask: NDArray[np.float_] = crop_to_roi(roi_mask, self.roi)
         self.roi_size: tuple[int, ...] = self.roi_mask.shape
 
-        self.slm_camera_model: SLMCameraModel = slm_camera_model
+        self.slm_camera_model: SLMFourierLensModel = slm_camera_model
 
         self.mse_loss_function: nn.Module = nn.MSELoss(reduction="sum")
 
