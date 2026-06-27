@@ -1,4 +1,3 @@
-from .calibration import calibrate_slm
 from .analysis import error_metrics, fitting
 from .holography import phase_retrieval, loss_functions, camera_feedback
 from .propagation import (
@@ -15,4 +14,3 @@ from .propagation.utils import (
 )
 from .hardware import hardware
 from . import patterns
-from . import torch_functions
