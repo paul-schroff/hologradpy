@@ -13,6 +13,16 @@ from .optics_module import OpticsModule, SaveDict
 from .complex_amplitude import ComplexAmplitude
 
 
+# TODO: Consolidate the scattered geometric-transform logic. An affine
+# registration is currently fitted and applied in several disconnected places:
+# cv2.estimateAffine2D in CheckerboardMapper and holography.camera_feedback, the
+# bare transform / inverse_transform matrix stored on CameraMapping (with
+# hand-rolled point math, e.g. the zeroth_order_position calculation), and this
+# differentiable PartialAffineTransform. A shared, backend-agnostic
+# AffineTransform value object (fit from point sets, transform points,
+# invert/compose) under a single documented coordinate convention would remove
+# the duplication. PartialAffineTransform would remain the differentiable
+# field-warp adapter and could be initialised from such a fitted transform.
 class PartialAffineTransform(OpticsModule):
     def __init__(
         self: PartialAffineTransform,
