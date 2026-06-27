@@ -39,7 +39,8 @@ class ZernikeSLM(VirtualSLM):
                 tensor ``(n_coefficients,)`` broadcast across all wavelengths,
                 or a 2D tensor ``(n_wavelengths, n_coefficients)`` to seed each
                 wavelength independently. Defaults to small random values.
-            norm: Zernike normalization passed to ``aotools`` (e.g. ``"noll"``).
+            norm: Zernike normalization passed to ``aotools`` (e.g.
+                ``"noll"``).
         """
         super().__init__(phase_scaling=phase_scaling)
 

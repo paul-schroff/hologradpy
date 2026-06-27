@@ -39,10 +39,19 @@ class ConstantSLMField(OpticsModule):
         super().lazy_init(complex_amplitude)
 
         if self.init_field is None:
+            number_of_wavelengths = complex_amplitude.number_of_wavelengths
+            # A uniform default field is wavelength-independent, but the
+            # ComplexAmplitude layout requires an explicit wavelength axis when
+            # more than one wavelength is present.
+            default_shape = (
+                self.resolution_in
+                if number_of_wavelengths == 1
+                else (number_of_wavelengths, *self.resolution_in)
+            )
             self.init_field = ComplexAmplitude(
                 data=torch.ones(
-                    self.resolution_in, 
-                    dtype=complex_amplitude.dtype, 
+                    default_shape,
+                    dtype=complex_amplitude.dtype,
                     device=complex_amplitude.device
                 ),
                 wavelength=complex_amplitude.wavelength,
@@ -249,42 +258,65 @@ class PartialAffineTransform(OpticsModule):
     def forward(
         self: PartialAffineTransform, complex_amplitude: ComplexAmplitude
     ) -> ComplexAmplitude:
-        """Applies partial affine transformation to input_field."""
+        """Applies a partial affine transformation to a field of arbitrary
+        batch rank ``(*batch, n_wl, H, W)``.
+
+        All leading batch dimensions are collapsed onto kornia's batch axis,
+        the per-wavelength affine matrix is tiled to match, and the original
+        rank is restored on output.
+        """
         if self.verbose:
             print("Scale:", self.scale.data)
             print("Shift:", self.shift.data)
             print("Angle:", self.angle.data)
 
-        if complex_amplitude.ndim == 2:
-            complex_amplitude_expanded = unsqueeze_to(complex_amplitude, 4)
-        elif complex_amplitude.ndim == 3:
-            complex_amplitude_expanded = complex_amplitude.unsqueeze(1)
-        else:
-            raise ValueError(
-                "Input complex amplitude must have 2 or 3 dimensions, but got "
-                + f"{complex_amplitude.ndim}."
-            )
+        number_of_wavelengths = complex_amplitude.number_of_wavelengths
+
+        # Collapse all batch dimensions into a single leading axis and merge
+        # (image, wavelength) onto kornia's batch axis with a single channel.
+        flat_field, batch_spec = complex_amplitude.flatten_batch()
+        number_of_images = flat_field.shape[0]
+        field = flat_field.reshape(
+            number_of_images * number_of_wavelengths,
+            1,
+            *complex_amplitude.resolution,
+        )
+
+        # The affine matrix is per-wavelength: (n_wl, 3, 3). Tile it across the
+        # batch images, keeping wavelength alignment with the row-major
+        # (image, wavelength) flattening of ``field`` above.
         self.affine_matrix = self.get_affine_matrix()
+        affine_matrix = (
+            self.affine_matrix.unsqueeze(0)
+            .expand(number_of_images, -1, -1, -1)
+            .reshape(number_of_images * number_of_wavelengths, 3, 3)
+        )
 
         # Kornia does not support complex numbers in warp_perspective(),
         # so we need to split the real and imaginary parts and then
         # recombine them.
         output_real = warp_perspective(
-            complex_amplitude_expanded.real, self.affine_matrix, self.resolution_out
+            field.real, affine_matrix, self.resolution_out
         )
         output_imag = warp_perspective(
-            complex_amplitude_expanded.imag, self.affine_matrix, self.resolution_out
+            field.imag, affine_matrix, self.resolution_out
         )
-        
-        transformed_field = (output_real + 1j * output_imag).squeeze()
+
+        transformed_field = output_real + 1j * output_imag
 
         # Normalize to conserve optical power
-        transformed_field /= self.scale.prod().sqrt()
-        
-        return ComplexAmplitude(
-            data=transformed_field,
-            wavelength=complex_amplitude.wavelength,
-            pixel_size=self.pixel_size_out,
+        transformed_field = transformed_field / self.scale.prod().sqrt()
+
+        # Restore canonical (N, n_wavelengths, H_out, W_out) layout.
+        transformed_field = transformed_field.reshape(
+            number_of_images, number_of_wavelengths, *self.resolution_out
+        )
+
+        return ComplexAmplitude.unflatten_batch(
+            transformed_field,
+            batch_spec,
+            complex_amplitude.wavelength,
+            self.pixel_size_out,
         )
 
 
