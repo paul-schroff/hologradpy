@@ -14,3 +14,4 @@ examples/dev_scripts/
 examples/data/
 
 .vscode/
+.claude/
