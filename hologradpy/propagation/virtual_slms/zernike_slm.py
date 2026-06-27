@@ -8,7 +8,11 @@ from ..complex_amplitude import (
     ComplexAmplitude,
     broadcast_wavelength_operand,
 )
-from ..utils.zernike import Zernike, Conventions
+from ..utils.zernike import (
+    Zernike,
+    Conventions,
+    make_per_wavelength_coefficients,
+)
 
 from slmsuite.hardware.slms.slm import SLM
 
@@ -76,40 +80,16 @@ class ZernikeSLM(VirtualSLM):
         )
         self.number_of_coefficients: int = zernike.number_of_zernikes
 
-        coefficients = self._initial_coefficients(
-            number_of_wavelengths, complex_amplitude
-        )
-        self.zernike_coefficients = nn.Parameter(coefficients, requires_grad=True)
-
-    def _initial_coefficients(
-        self: ZernikeSLM,
-        number_of_wavelengths: int,
-        complex_amplitude: ComplexAmplitude,
-    ) -> torch.Tensor:
-        target_shape = (number_of_wavelengths, self.number_of_coefficients)
-
-        if self.initial_coefficients is None:
-            return 0.1 * torch.rand(
-                target_shape,
-                dtype=complex_amplitude.dtype_r,
-                device=complex_amplitude.device,
-            )
-
-        coefficients = torch.as_tensor(
+        coefficients = make_per_wavelength_coefficients(
             self.initial_coefficients,
-            dtype=complex_amplitude.dtype_r,
-            device=complex_amplitude.device,
+            number_of_wavelengths,
+            self.number_of_coefficients,
+            complex_amplitude.dtype_r,
+            complex_amplitude.device,
         )
-        # A 1D set of coefficients is shared (broadcast) across wavelengths.
-        if coefficients.ndim == 1:
-            coefficients = coefficients.unsqueeze(0).repeat(number_of_wavelengths, 1)
-        if tuple(coefficients.shape) != target_shape:
-            raise ValueError(
-                "initial_coefficients must have shape "
-                f"({self.number_of_coefficients},) or {target_shape}, but got "
-                f"{tuple(coefficients.shape)}."
-            )
-        return coefficients
+        self.zernike_coefficients = nn.Parameter(
+            coefficients, requires_grad=True
+        )
 
     def set_phase(self, phase: torch.Tensor) -> None:
         raise NotImplementedError(

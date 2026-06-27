@@ -11,9 +11,14 @@ from torch.nn import Parameter
 from kornia.geometry.transform import get_affine_matrix2d
 from kornia.geometry import warp_perspective
 
-from .utils.optics_utils import lens_phase, circular_mask
+from .utils.optics_utils import lens_phase, circular_mask, doublet_lens
 from .utils.fourier_utils import get_spatial_grid
 from .utils.tensor_utils import unsqueeze_to
+from .utils.zernike import (
+    Zernike,
+    Conventions,
+    make_per_wavelength_coefficients,
+)
 from .optics_module import OpticsModule, SaveDict
 from .complex_amplitude import (
     ComplexAmplitude,
@@ -305,12 +310,58 @@ class PartialAffineTransform(OpticsModule):
         )
 
 
-class SimpleLens(OpticsModule):
+class DiagonalElement(OpticsModule):
+    """Base for diagonal (per-pixel) optical elements that preserve sampling.
+
+    The output pixel size and resolution match the input. :meth:`forward`
+    multiplies the field by the element's complex transmission
+    ``(n_wavelengths, H, W)`` and :meth:`adjoint` by its conjugate (the
+    conjugate transpose of a diagonal operator).
+
+    Subclasses provide the transmission via :meth:`get_transmission`. The
+    default returns a static ``transmission`` buffer (set in :meth:`lazy_init`,
+    e.g. a fixed lens phase); subclasses whose transmission depends on
+    parameters (e.g. learnable coefficients) override it to recompute each call.
+    """
+
+    transmission: Tensor
+
+    def get_transmission(self: DiagonalElement) -> Tensor:
+        return self.transmission
+
+    def _modulate(
+        self: DiagonalElement,
+        complex_amplitude: ComplexAmplitude,
+        transmission: Tensor,
+    ) -> ComplexAmplitude:
+        transmission = broadcast_wavelength_operand(
+            transmission, complex_amplitude.ndim
+        )
+        modulated = complex_amplitude * transmission
+        return modulated.with_geometry(
+            wavelength=complex_amplitude.wavelength,
+            pixel_size=self.pixel_size_out,
+        )
+
+    def forward(
+        self: DiagonalElement, complex_amplitude: ComplexAmplitude
+    ) -> ComplexAmplitude:
+        return self._modulate(complex_amplitude, self.get_transmission())
+
+    def adjoint(
+        self: DiagonalElement, complex_amplitude: ComplexAmplitude
+    ) -> ComplexAmplitude:
+        """Conjugate transpose of :meth:`forward`."""
+        self._ensure_initialized()
+        return self._modulate(
+            complex_amplitude, self.get_transmission().conj()
+        )
+
+
+class SimpleLens(DiagonalElement):
     """Ideal thin lens: an apertured quadratic phase mask.
 
-    A diagonal (per-pixel) operator that preserves sampling, so the output
-    pixel size and resolution match the input. The lens phase is built
-    per-wavelength at lazy initialisation.
+    The lens phase is built per-wavelength at lazy initialisation.
     """
 
     def __init__(
@@ -347,32 +398,146 @@ class SimpleLens(OpticsModule):
         # Complex transmission of the apertured lens.
         self.register_buffer("transmission", aperture * torch.exp(1j * phase))
 
-    def forward(
-        self: SimpleLens, complex_amplitude: ComplexAmplitude
-    ) -> ComplexAmplitude:
-        transmission = broadcast_wavelength_operand(
-            self.transmission, complex_amplitude.ndim
-        )
-        modulated = complex_amplitude * transmission
-        return modulated.with_geometry(
-            wavelength=complex_amplitude.wavelength,
-            pixel_size=self.pixel_size_out,
+
+class DoubletLens(DiagonalElement):
+    """Achromatic doublet lens phase mask.
+
+    Models the phase imparted by a cemented doublet (a crown and a flint
+    element) as the optical path difference through three spherical surfaces,
+    following the ``doublet`` profile on the main branch. The phase is built
+    per-wavelength at lazy initialisation (the wavenumber is per-wavelength;
+    the refractive indices are treated as constant over the wavelength range).
+    """
+
+    def __init__(
+        self: DoubletLens,
+        refractive_index_flint: float,
+        refractive_index_crown: float,
+        radius_crown: float,
+        radius_crown_flint: float,
+        radius_flint: float,
+        shift: tuple[float, float] = (0.0, 0.0),
+    ) -> None:
+        """
+        Args:
+            refractive_index_flint: Refractive index of the flint element.
+            refractive_index_crown: Refractive index of the crown element.
+            radius_crown: Radius of curvature of the first crown surface [m].
+            radius_crown_flint: Radius of curvature of the cemented
+                crown/flint surface [m].
+            radius_flint: Radius of curvature of the second flint surface [m].
+            shift: Lateral offset ``(shift_x, shift_y)`` of the lens centre [m].
+        """
+        super().__init__()
+
+        self.refractive_index_flint: float = refractive_index_flint
+        self.refractive_index_crown: float = refractive_index_crown
+        self.radius_crown: float = radius_crown
+        self.radius_crown_flint: float = radius_crown_flint
+        self.radius_flint: float = radius_flint
+        self.shift: tuple[float, float] = shift
+
+    def lazy_init(
+        self: DoubletLens, complex_amplitude: ComplexAmplitude
+    ) -> None:
+        super().lazy_init(complex_amplitude)
+
+        grid_x, grid_y = get_spatial_grid(
+            self.resolution_in,
+            tuple(self.pixel_size_in[0].tolist()),
+            complex_amplitude.device,
         )
 
-    def adjoint(
-        self: SimpleLens, complex_amplitude: ComplexAmplitude
-    ) -> ComplexAmplitude:
-        """Conjugate transpose of :meth:`forward` (a diagonal operator, so the
-        adjoint multiplies by the conjugate transmission)."""
-        self._ensure_initialized()
-        transmission = broadcast_wavelength_operand(
-            self.transmission.conj(), complex_amplitude.ndim
-        )
-        modulated = complex_amplitude * transmission
-        return modulated.with_geometry(
-            wavelength=complex_amplitude.wavelength,
-            pixel_size=self.pixel_size_out,
+        # Per-wavelength doublet phase (n_wavelengths, H, W).
+        wavenumber = complex_amplitude.wavenumber.reshape(-1, 1, 1)
+        phase = doublet_lens(
+            grid_x.unsqueeze(0),
+            grid_y.unsqueeze(0),
+            wavenumber,
+            self.refractive_index_flint,
+            self.refractive_index_crown,
+            self.radius_crown,
+            self.radius_crown_flint,
+            self.radius_flint,
+            shift_x=self.shift[0],
+            shift_y=self.shift[1],
         )
 
+        self.register_buffer("transmission", torch.exp(1j * phase))
 
-# TODO: Implement doublet lens module
+
+class ZernikePhase(DiagonalElement):
+    """Phase element imparting a per-wavelength Zernike phase.
+
+    Learns an independent set of Zernike coefficients
+    ``(n_wavelengths, n_coefficients)`` and applies ``exp(i * phase)``, where
+    the phase for each wavelength is the coefficient-weighted sum of a fixed
+    Zernike basis built lazily for the input resolution. The transmission is
+    recomputed from the coefficients each call so gradients flow back to them.
+    """
+
+    def __init__(
+        self: ZernikePhase,
+        number_of_radial_orders: int = 5,
+        initial_coefficients: torch.Tensor | None = None,
+        convention: Conventions = "Noll",
+        unit_disk_mode: str = "fill",
+    ) -> None:
+        """
+        Args:
+            number_of_radial_orders: Number of radial Zernike orders to
+                include (orders ``0 .. number_of_radial_orders - 1``).
+            initial_coefficients: Optional initial coefficients. May be a 1D
+                tensor ``(n_coefficients,)`` broadcast across all wavelengths,
+                or a 2D tensor ``(n_wavelengths, n_coefficients)`` to seed each
+                wavelength independently. Defaults to small random values.
+            convention: Zernike ordering/normalization convention.
+            unit_disk_mode: How the unit disk maps onto the resolution
+                (``"fill"`` covers the corners, ``"fit"`` inscribes it).
+        """
+        super().__init__()
+
+        self.number_of_radial_orders: int = number_of_radial_orders
+        self.initial_coefficients: torch.Tensor | None = initial_coefficients
+        self.convention: Conventions = convention
+        self.unit_disk_mode: str = unit_disk_mode
+
+    def lazy_init(
+        self: ZernikePhase, complex_amplitude: ComplexAmplitude
+    ) -> None:
+        super().lazy_init(complex_amplitude)
+
+        # Build the (n_coefficients, H, W) Zernike basis for the input
+        # resolution and keep it as a buffer.
+        zernike = Zernike(
+            resolution=self.resolution_in,
+            unit_disk_mode=self.unit_disk_mode,
+            number_of_radial_orders=self.number_of_radial_orders,
+            convention=self.convention,
+            device=complex_amplitude.device,
+        )
+        self.register_buffer(
+            "zernike_basis",
+            zernike.zernike_array.to(dtype=complex_amplitude.dtype_r),
+        )
+
+        coefficients = make_per_wavelength_coefficients(
+            self.initial_coefficients,
+            complex_amplitude.number_of_wavelengths,
+            zernike.number_of_zernikes,
+            complex_amplitude.dtype_r,
+            complex_amplitude.device,
+        )
+        self.zernike_coefficients = Parameter(
+            coefficients, requires_grad=True
+        )
+
+    def get_phase(self: ZernikePhase) -> torch.Tensor:
+        """Per-wavelength phase ``(n_wavelengths, H, W)`` from the learnable
+        coefficients and the Zernike basis."""
+        return torch.einsum(
+            "lc,chw->lhw", self.zernike_coefficients, self.zernike_basis
+        )
+
+    def get_transmission(self: ZernikePhase) -> Tensor:
+        return torch.exp(1j * self.get_phase())

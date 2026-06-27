@@ -307,3 +307,39 @@ class Zernike:
                 f"{coefficients.shape[0]}."
             )
         return torch.tensordot(coefficients, self.zernike_array, dims=([0], [0]))
+
+
+def make_per_wavelength_coefficients(
+    initial_coefficients: torch.Tensor | None,
+    number_of_wavelengths: int,
+    number_of_coefficients: int,
+    dtype: torch.dtype,
+    device: torch.device,
+) -> torch.Tensor:
+    """Build a ``(n_wavelengths, n_coefficients)`` Zernike coefficient tensor.
+
+    ``initial_coefficients`` may be:
+    - ``None`` -> small random values,
+    - a 1D tensor ``(n_coefficients,)`` -> broadcast across all wavelengths,
+    - a 2D tensor ``(n_wavelengths, n_coefficients)`` -> used as-is.
+    """
+    target_shape = (number_of_wavelengths, number_of_coefficients)
+
+    if initial_coefficients is None:
+        return 0.1 * torch.rand(target_shape, dtype=dtype, device=device)
+
+    coefficients = torch.as_tensor(
+        initial_coefficients, dtype=dtype, device=device
+    )
+    # A 1D set of coefficients is shared (broadcast) across wavelengths.
+    if coefficients.ndim == 1:
+        coefficients = coefficients.unsqueeze(0).repeat(
+            number_of_wavelengths, 1
+        )
+    if tuple(coefficients.shape) != target_shape:
+        raise ValueError(
+            "initial_coefficients must have shape "
+            f"({number_of_coefficients},) or {target_shape}, but got "
+            f"{tuple(coefficients.shape)}."
+        )
+    return coefficients
