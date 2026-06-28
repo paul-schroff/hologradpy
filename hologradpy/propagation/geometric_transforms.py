@@ -199,8 +199,6 @@ class PartialAffineTransform(OpticsModule):
 
         transformed_field = output_real + 1j * output_imag
 
-        # Normalize to conserve optical power
-        transformed_field = transformed_field / self.scale.prod().sqrt()
 
         # Restore canonical (N, n_wavelengths, H_out, W_out) layout.
         transformed_field = transformed_field.reshape(

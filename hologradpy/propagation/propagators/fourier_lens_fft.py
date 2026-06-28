@@ -4,10 +4,10 @@ import torch
 from torch import nn, Tensor
 
 from ...utils import pad_to_shape_2D, crop_to_shape_2D
-from ..fourier import fft_2d, ifft_2d
+from ..fourier import FastFourierTransform
 
 from ..optics_module import OpticsModule, SaveDict
-from ..complex_amplitude import ComplexAmplitude
+from ..complex_amplitude import ComplexAmplitude, broadcast_wavelength_operand
 
 
 class FourierLensFFT(OpticsModule):
@@ -16,6 +16,7 @@ class FourierLensFFT(OpticsModule):
         focal_length: float,
         pixel_size_out: tuple[float, float] | None = None,
         padded_resolution: tuple[int, int] | None = None,
+        power_normalized: bool = True,
         **kwargs,
     ) -> None:
         super().__init__(pixel_size_out, padded_resolution)
@@ -30,6 +31,12 @@ class FourierLensFFT(OpticsModule):
             requires_grad=False,
         )
         self._padded_resolution_init: tuple[int, int] | None = padded_resolution
+
+        # When True, scale the transform by the physical Fourier-optics prefactor
+        # so a lossless lens conserves optical power (integral|E_focal|^2 dx ==
+        # integral|E_slm|^2 du). Default False keeps the legacy arbitrary-unit
+        # amplitude scale.
+        self.power_normalized: bool = power_normalized
 
         self.kwargs = kwargs
 
@@ -131,6 +138,15 @@ class FourierLensFFT(OpticsModule):
 
         self._resolution_out = tuple(self._padded_resolution.tolist())
 
+        # Compose the resolution-preserving FFT on the padded grid. ``self.kwargs``
+        # carries any ``norm`` / ``fft_shift`` (defaults match ``fft_2d``), so
+        # this is behaviour-preserving.
+        self._transform = FastFourierTransform(
+            self._resolution_out,
+            device=complex_amplitude.device,
+            **self.kwargs,
+        )
+
     @property
     def padded_resolution(self) -> Tensor:
         return self._padded_resolution
@@ -186,30 +202,54 @@ class FourierLensFFT(OpticsModule):
         )
         return module
 
+    def _power_prefactor(self, field_ndim: int) -> Tensor:
+        """Physical Fourier-optics amplitude prefactor ``(du * dv) / (lambda *
+        f)`` per wavelength, so the transform conserves optical power
+        (``integral|E_focal|^2 dx == integral|E_slm|^2 du`` with ``norm=
+        "backward"``). Computed in float64 then cast to the field's real dtype;
+        the ``1/i`` global phase is omitted as it does not affect power."""
+        pixel_size_in = self.pixel_size_in
+        pixel_area = (pixel_size_in[:, 0] * pixel_size_in[:, 1]).to(torch.float64)
+        wavelength = self.input_geometry.wavelength.to(torch.float64)
+        focal_length = self.focal_length.to(torch.float64)
+        prefactor = pixel_area / (wavelength * focal_length)  # (n_wavelengths,)
+        prefactor = prefactor.to(pixel_size_in.dtype).reshape(-1, 1, 1)
+        return broadcast_wavelength_operand(prefactor, field_ndim)
+
     def forward(self, complex_amplitude: ComplexAmplitude) -> ComplexAmplitude:
         padded_complex_amplitude = pad_to_shape_2D(
             complex_amplitude, self.resolution_out
         )
 
         # Perform 2D FFT and FFT shift if specified
-        out = fft_2d(padded_complex_amplitude, **self.kwargs)
+        out = self._transform.forward(padded_complex_amplitude)
 
-        return out.with_geometry(
+        out = out.with_geometry(
             wavelength=complex_amplitude.wavelength,
             pixel_size=self.pixel_size_out,
         )
+
+        if self.power_normalized:
+            out = out * self._power_prefactor(out.ndim)
+
+        return out
 
     def adjoint(self, complex_amplitude: ComplexAmplitude) -> ComplexAmplitude:
         self._ensure_initialized()
 
         # Perform inverse 2D FFT and FFT shift if specified
-        padded_complex_amplitude = ifft_2d(complex_amplitude, **self.kwargs)
+        padded_complex_amplitude = self._transform.adjoint(complex_amplitude)
 
         out: ComplexAmplitude = crop_to_shape_2D(
             padded_complex_amplitude, self.resolution_in
         )
 
-        return out.with_geometry(
+        out = out.with_geometry(
             wavelength=complex_amplitude.wavelength,
             pixel_size=self.pixel_size_in,
         )
+
+        if self.power_normalized:
+            out = out * self._power_prefactor(out.ndim)
+
+        return out

@@ -24,13 +24,16 @@ class SLMFFTAffine(SLMFourierLensModel):
         padded_resolution: tuple[int, int] = (2048, 2048),
         camera_angle: float = 0.0,
         camera_shift: tuple[float, float] = (0.0, 0.0),
+        power_normalized: bool = True,
     ) -> None:
         super().__init__(
             input_geometry=input_geometry,
             virtual_slm=virtual_slm,
             constant_field=static_slm_field,
             fourier_lens=FourierLensFFT(
-                focal_length, padded_resolution=padded_resolution
+                focal_length,
+                padded_resolution=padded_resolution,
+                power_normalized=power_normalized,
             ),
             affine_transform=PartialAffineTransform(
                 resolution_out=camera_resolution,
@@ -59,4 +62,5 @@ class SLMFFTAffine(SLMFourierLensModel):
             "padded_resolution": self.fourier_lens._padded_resolution_init,
             "camera_angle": float(self.affine_transform.init_angle),
             "camera_shift": tuple(self.affine_transform.init_shift),
+            "power_normalized": self.fourier_lens.power_normalized,
         }

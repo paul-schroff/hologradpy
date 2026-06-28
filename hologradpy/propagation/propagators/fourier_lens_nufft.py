@@ -6,9 +6,7 @@ import torch
 from torch import Tensor
 from torch.nn import Parameter
 
-from torchkbnufft import KbNufft, KbNufftAdjoint
-
-from ..fourier import get_frequency_grid
+from ..fourier import KbNufftZoomRotate
 
 from ..optics_module import OpticsModule
 from ..complex_amplitude import ComplexAmplitude
@@ -24,6 +22,7 @@ class FourierLensNUFFT(OpticsModule):
         shift: tuple[float, float] = (0, 0),
         angle: float = 0,
         nufft_kwargs: dict = {},
+        power_normalized: bool = True,
     ) -> None:
         super().__init__(pixel_size_out, resolution_out)
 
@@ -32,6 +31,7 @@ class FourierLensNUFFT(OpticsModule):
         self.shift_init: tuple[float, float] = shift
         self.angle_init: float = angle
         self.nufft_kwargs = nufft_kwargs
+        self.power_normalized: bool = power_normalized
 
     def lazy_init(self: FourierLensNUFFT, complex_amplitude: ComplexAmplitude) -> None:
         self._pixel_size_out = torch.tensor(
@@ -108,48 +108,47 @@ class FourierLensNUFFT(OpticsModule):
             requires_grad=False,
         )
 
-        # TODO: Add support for each wavelength
-        resolution_ratio: tuple[float, float] = tuple(
-            self._padded_resolution[i] / self.resolution_out[i] for i in range(2)
-        )
+        self._transform = self._build_transform(complex_amplitude)
 
-        self._kbnufft: KbNufft = KbNufft(
-            im_size=complex_amplitude.resolution,
+    def _build_transform(
+        self: FourierLensNUFFT, complex_amplitude: ComplexAmplitude
+    ) -> KbNufftZoomRotate:
+        """Map the per-wavelength ``lambda*f`` geometry to the unit-free
+        ``(magnification, shift, angle)`` of a :class:`KbNufftZoomRotate`.
+
+        ``self._scale`` is the per-axis focal-plane zoom, indexed ``(axis0=y,
+        axis1=x)``; the transform expects magnification / shift in ``(x, y)``
+        order, so the two axes are swapped. The base sample grid has bin spacing
+        ``2*pi / padded_resolution`` (rad/sample on the padded grid), divided by
+        the scale -- which is exactly ``get_zoom_frequency_grid`` with
+        ``resolution = padded_resolution`` and ``magnification = scale``. The
+        in-pixel ``shift`` becomes the window offset ``-2*pi * shift / (padded *
+        scale)`` (the rotation then mixes the axes identically for grid and
+        offset, matching the legacy ``scale -> rotate -> shift`` ordering).
+        """
+        scale: Tensor = (
+            self.scale_factor.abs().unsqueeze(0) * self._scale
+        )  # (n_wl, 2): [0] = y, [1] = x
+        magnification = torch.stack((scale[:, 1], scale[:, 0]), dim=-1)  # (x, y)
+
+        two_pi = 2 * torch.pi
+        padded_height, padded_width = self._padded_resolution
+        shift_x = -two_pi * self.shift[1] / (padded_width * scale[:, 1])
+        shift_y = -two_pi * self.shift[0] / (padded_height * scale[:, 0])
+        shift = torch.stack((shift_x, shift_y), dim=-1)  # (n_wl, 2): (x, y)
+
+        angle_radians = float(torch.deg2rad(self.angle))
+
+        return KbNufftZoomRotate(
+            resolution=tuple(complex_amplitude.resolution),
+            resolution_out=self.resolution_out,
+            magnification=magnification,
+            shift=shift,
+            angle=angle_radians,
             grid_size=self._padded_resolution,
-            device=complex_amplitude.device,
             dtype=complex_amplitude.dtype_r,
-            **self.nufft_kwargs,
-        )
-
-        self._kbnufft_adjoint: KbNufftAdjoint = KbNufftAdjoint(
-            im_size=complex_amplitude.resolution,
-            grid_size=self._padded_resolution,
             device=complex_amplitude.device,
-            dtype=complex_amplitude.dtype_r,
             **self.nufft_kwargs,
-        )
-
-        frequency_grid: tuple[Float[Tensor, "h w"], Float[Tensor, "h w"]] = (
-            get_frequency_grid(
-                self.resolution_out,
-                resolution_ratio,
-                complex_amplitude.device,
-            )
-        )
-
-        # Flatten frequency grid
-        self.frequencies: tuple[
-            Float[Tensor, "n_wavelenghts hw"],
-            Float[Tensor, "n_wavelenghts hw"],
-        ] = tuple(
-            frequency_grid[i]
-            .flatten()
-            .expand(complex_amplitude.number_of_wavelengths, -1)
-            for i in range(2)
-        )
-
-        self.frequencies_transformed: Float[Tensor, "n_wavelenghts 2 hw"] = (
-            self._get_transformed_coordinates(self.scale_factor, self.shift, self.angle)
         )
 
     @property
@@ -160,61 +159,18 @@ class FourierLensNUFFT(OpticsModule):
     def resolution_out(self: FourierLensNUFFT) -> tuple[int, int]:
         return self._resolution_out
 
-    def _get_transformed_coordinates(
-        self: FourierLensNUFFT,
-        scale_factor: Float[Tensor, "2"],
-        shift: Float[Tensor, "2"],
-        angle: Float[Tensor, "1"],
-    ) -> Float[Tensor, "n_wavelenghts hw 2"]:
-        scale_factor: Float[Tensor, "n_wavelenghts 2"] = (
-            scale_factor.abs().unsqueeze(0) * self._scale
+    def _power_prefactor(self: FourierLensNUFFT) -> Tensor:
+        """Fourier-lens amplitude prefactor ``(du*dv) / (lambda*f)`` per
+        wavelength, so the transform carries physical optical power. The KbNufft
+        is approximate, so power is conserved only up to interpolation error.
+        Shaped ``(1, n_wl, 1, 1)`` for the flattened field."""
+        pixel_size_in = self.pixel_size_in
+        pixel_area = (
+            (pixel_size_in[:, 0] * pixel_size_in[:, 1]).to(torch.float64).reshape(-1)
         )
-
-        shift_randians: tuple[
-            Float[Tensor, " n_wavelenghts"], Float[Tensor, " n_wavelenghts"]
-        ] = tuple(
-            2 * torch.pi * shift[i] / (self._padded_resolution[i] * self._scale[:, i])
-            for i in range(2)
-        )
-
-        angle_radians = torch.deg2rad(angle)
-        angle_sin = angle_radians.sin()
-        angle_cos = angle_radians.cos()
-
-        frequencies_transformed: tuple[
-            Float[Tensor, "n_wavelenghts hw"],
-            Float[Tensor, "n_wavelenghts hw"],
-        ] = (
-            (
-                self.frequencies[0] * angle_cos / scale_factor[:, 1].unsqueeze(-1)
-                - self.frequencies[1] * angle_sin / scale_factor[:, 0].unsqueeze(-1)
-                - shift_randians[1].unsqueeze(-1) * angle_cos
-                + shift_randians[0].unsqueeze(-1) * angle_sin
-            ),
-            (
-                self.frequencies[0] * angle_sin / scale_factor[:, 1].unsqueeze(-1)
-                + self.frequencies[1] * angle_cos / scale_factor[:, 0].unsqueeze(-1)
-                - shift_randians[1].unsqueeze(-1) * angle_sin
-                - shift_randians[0].unsqueeze(-1) * angle_cos
-            ),
-        )
-
-        return torch.stack(frequencies_transformed, dim=0)
-
-    def _batched_k_trajectory(
-        self: FourierLensNUFFT,
-        number_of_images: int,
-        number_of_wavelengths: int,
-    ) -> Float[Tensor, "n_images_wl 2 hw"]:
-        """Tile the per-wavelength k-space trajectory across the batch images.
-
-        The stored trajectory is ``(2, n_wl, hw)``; this returns
-        ``(n_images * n_wl, 2, hw)`` with wavelength alignment matching the
-        row-major (image, wavelength) flattening used by ``flatten_batch``.
-        """
-        k_traj: Float[Tensor, "n_wl 2 hw"] = self.frequencies_transformed.moveaxis(0, 1)
-        k_traj = k_traj.unsqueeze(0).expand(number_of_images, -1, -1, -1)
-        return k_traj.reshape(number_of_images * number_of_wavelengths, 2, -1)
+        wavelength = self.input_geometry.wavelength.to(torch.float64).reshape(-1)
+        prefactor = pixel_area / (wavelength * self.focal_length)  # (n_wl,)
+        return prefactor.to(pixel_size_in.dtype).reshape(1, -1, 1, 1)
 
     def forward(
         self: FourierLensNUFFT,
@@ -222,39 +178,14 @@ class FourierLensNUFFT(OpticsModule):
     ) -> ComplexAmplitude:
         """Propagate a field of arbitrary batch rank ``(*batch, n_wl, H, W)``.
 
-        All leading batch dimensions are collapsed into a single axis, the
-        NUFFT is evaluated with the per-wavelength k-space trajectory tiled
-        across that axis, and the original rank is restored on the way out.
+        All leading batch dimensions are collapsed into a single axis and the
+        scaled + shifted + rotated NUFFT is delegated to
+        :class:`KbNufftZoomRotate`, then the original rank is restored.
         """
-        number_of_wavelengths = complex_amplitude.number_of_wavelengths
-
-        # Collapse all batch dimensions into a single leading axis:
-        # (N, n_wavelengths, H, W).
         flat_field, batch_spec = complex_amplitude.flatten_batch()
-        number_of_images = flat_field.shape[0]
-
-        # torchkbnufft expects (batch, coil, H, W); merge (image, wavelength)
-        # into the batch axis with a single coil.
-        input_field: Float[Tensor, "n_images_wl 1 h w"] = flat_field.reshape(
-            number_of_images * number_of_wavelengths,
-            1,
-            *complex_amplitude.resolution,
-        )
-
-        k_traj = self._batched_k_trajectory(number_of_images, number_of_wavelengths)
-
-        output_field: Float[Tensor, "n_images_wl 1 hw"] = self._kbnufft(
-            input_field, k_traj
-        )
-
-        # Restore canonical (N, n_wavelengths, H_out, W_out) layout.
-        output_field = output_field.reshape(
-            number_of_images,
-            number_of_wavelengths,
-            self.resolution_out[0],
-            self.resolution_out[1],
-        )
-
+        output_field = self._transform.forward(flat_field)
+        if self.power_normalized:
+            output_field = output_field * self._power_prefactor()
         return ComplexAmplitude.unflatten_batch(
             output_field,
             batch_spec,
@@ -268,40 +199,19 @@ class FourierLensNUFFT(OpticsModule):
     ) -> ComplexAmplitude:
         """Adjoint NUFFT mapping an output-plane field back to the input plane.
 
-        This is the conjugate transpose of :meth:`forward` (via
-        ``KbNufftAdjoint``), not its inverse. The input is a field sampled on
-        the output grid ``(*batch, n_wl, H_out, W_out)``; the output lives in
-        the input plane with ``resolution_in`` / ``pixel_size_in``. The module
-        must be initialised first (via ``forward`` or
-        ``initialize_from_geometry``).
+        This is the conjugate transpose of :meth:`forward` (the
+        ``KbNufftZoomRotate`` adjoint on the same trajectory), not its inverse.
+        The input is a field sampled on the output grid ``(*batch, n_wl, H_out,
+        W_out)``; the output lives in the input plane with ``resolution_in`` /
+        ``pixel_size_in``. The module must be initialised first (via ``forward``
+        or ``initialize_from_geometry``).
         """
         self._ensure_initialized()
 
-        number_of_wavelengths = complex_amplitude.number_of_wavelengths
-
-        # Collapse batch dims and flatten the output-plane image into the
-        # k-space sample axis: (n_images * n_wl, 1, hw).
         flat_field, batch_spec = complex_amplitude.flatten_batch()
-        number_of_images = flat_field.shape[0]
-
-        samples: Float[Tensor, "n_images_wl 1 hw"] = flat_field.reshape(
-            number_of_images * number_of_wavelengths, 1, -1
-        )
-
-        k_traj = self._batched_k_trajectory(number_of_images, number_of_wavelengths)
-
-        input_field: Float[Tensor, "n_images_wl 1 h w"] = self._kbnufft_adjoint(
-            samples, k_traj
-        )
-
-        # Restore canonical (N, n_wavelengths, H_in, W_in) layout.
-        input_field = input_field.reshape(
-            number_of_images,
-            number_of_wavelengths,
-            self.resolution_in[0],
-            self.resolution_in[1],
-        )
-
+        input_field = self._transform.adjoint(flat_field)
+        if self.power_normalized:
+            input_field = input_field * self._power_prefactor()
         return ComplexAmplitude.unflatten_batch(
             input_field,
             batch_spec,

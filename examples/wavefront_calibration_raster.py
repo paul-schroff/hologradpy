@@ -16,7 +16,7 @@ from hologradpy.calibration import (
     get_diffraction_spot_position
 )
 
-from hologradpy.propagation.optical_systems import SLMFFTAffine
+from hologradpy.propagation.optical_systems import SLMCZT
 from hologradpy.propagation.diagonal_elements import StaticSLMField
 
 from hologradpy.propagation.amplitude_profiles import gaussian_beam_intensity
@@ -62,28 +62,37 @@ gaussian_beam = ComplexAmplitude(
     gaussian_intensity.sqrt() * torch.exp(1j * zernike_phase),
     wavelength=slm_geometry.wavelength,
     pixel_size=slm_geometry.pixel_size,
+    power=1e-3,
 )
 
-simulated_camera_model = SLMFFTAffine(
+simulated_camera_model = SLMCZT(
     input_geometry=slm_geometry,
     virtual_slm=slm.virtual_slm,
     camera_resolution=(960, 1440),
     camera_pixel_size=(3.45e-6, 3.45e-6),
     focal_length=0.25,
     static_slm_field=StaticSLMField(gaussian_beam),
-    padded_resolution=(2048, 2048),
     camera_angle=0,
     camera_shift=(0, 0),
+    power_normalized=True,
 )
 
-camera = SimulatedCameraTorch(simulated_camera_model)
+camera = SimulatedCameraTorch(
+    simulated_camera_model,
+    quantum_efficiency=0.01,
+    full_well_capacity=11e3,
+    noise_level=4.0,
+    nd_filter_optical_density=3,
+    bitdepth=10,
+)
 
-camera.set_exposure(0.001)
+camera.set_exposure(40e-6)
 test_image = camera.get_image()
 
 plt.figure()
 plt.imshow(test_image, cmap="turbo")
 plt.title("Initial Simulated Camera Image")
+plt.colorbar()
 
 
 # %%

@@ -111,6 +111,7 @@ class ComplexAmplitude(Tensor):
         data: Tensor | ComplexAmplitude,
         wavelength: float | Tensor,
         pixel_size: tuple[float, float] | Tensor,
+        power: float | Tensor | None = None,
     ):
         if isinstance(data, cls):
             # Keep the outer wrapper's requires_grad flag so that gradients
@@ -143,6 +144,7 @@ class ComplexAmplitude(Tensor):
         data: Tensor | ComplexAmplitude,
         wavelength: float | Tensor,
         pixel_size: tuple[float, float] | Tensor,
+        power: float | Tensor | None = None,
     ):
         if isinstance(data, ComplexAmplitude):
             # Unwrap to the raw inner tensor for storage. The autograd graph
@@ -153,6 +155,11 @@ class ComplexAmplitude(Tensor):
             data = torch.as_tensor(data)
 
         wavelength, pixel_size = self._sanitize_inputs(data, wavelength, pixel_size)
+
+        # Optionally scale the field to an absolute power (watts) at construction.
+        if power is not None:
+            data = self._scale_to_power(data, pixel_size, power)
+
         self._data: Tensor = data
         self.geometry: FieldGeometry = FieldGeometry(
             wavelength, pixel_size, data.shape[-2:]
@@ -217,6 +224,7 @@ class ComplexAmplitude(Tensor):
         geometry: FieldGeometry,
         data: Tensor | None = None,
         dtype: torch.dtype = torch.complex64,
+        power: float | Tensor | None = None,
     ) -> ComplexAmplitude:
         """Create a field that matches a :class:`FieldGeometry`.
 
@@ -227,6 +235,7 @@ class ComplexAmplitude(Tensor):
                 resolution, with a leading wavelength axis when there is more
                 than one wavelength.
             dtype: Dtype of the default field when ``data`` is ``None``.
+            power: If given, scale the field to this absolute power (watts).
 
         Returns:
             ComplexAmplitude carrying the geometry's wavelength and pixel size.
@@ -243,7 +252,7 @@ class ComplexAmplitude(Tensor):
                 dtype=dtype,
                 device=geometry.wavelength.device,
             )
-        return cls(data, geometry.wavelength, geometry.pixel_size)
+        return cls(data, geometry.wavelength, geometry.pixel_size, power=power)
 
     @property
     def wavelength(self) -> Tensor:
@@ -319,6 +328,64 @@ class ComplexAmplitude(Tensor):
         """
         field = self.as_tensor()
         return field.real**2 + field.imag**2
+
+    @staticmethod
+    def _integrate_power(intensity: Tensor, pixel_size: Tensor) -> Tensor:
+        """Integrate intensity over area -> optical power per
+        ``(*batch, wavelength)`` (a scalar for a 2D field).
+
+        Reduces over ``(H, W)`` in float64 for precision (the per-pixel values
+        are fine in float32, but summing ~1e6 of them is not). ``pixel_size`` is
+        ``(n_wavelengths, 2)``.
+        """
+        pixel_area = (pixel_size[:, 0] * pixel_size[:, 1]).to(torch.float64)
+        summed = intensity.to(torch.float64).sum(dim=(-2, -1))
+        if intensity.ndim == 2:
+            return summed * pixel_area.squeeze(0)
+        return summed * pixel_area
+
+    @classmethod
+    def _scale_to_power(
+        cls, data: Tensor, pixel_size: Tensor, power: float | Tensor
+    ) -> Tensor:
+        """Return ``data`` scaled so its integrated power equals ``power`` (W),
+        preserving phase. The scale ratio is computed in float64."""
+        intensity = data.real**2 + data.imag**2
+        current_power = cls._integrate_power(intensity, pixel_size)
+        target_power = torch.as_tensor(
+            power, dtype=torch.float64, device=data.device
+        )
+        factor = torch.sqrt(target_power / current_power)
+        if data.ndim > 2:
+            factor = factor[..., None, None]
+        return data * factor.to(corresponding_real_dtype(data.dtype))
+
+    def power(self) -> Tensor:
+        """Total optical power = integral of intensity over area
+        (``sum(|E|^2) * pixel_area``), returned per ``(*batch, wavelength)`` (a
+        scalar for a 2D field).
+
+        In SI this is watts when the field amplitude is in ``sqrt(W/m^2)`` and
+        ``pixel_size`` in metres. The reduction is performed in float64.
+        """
+        return self._integrate_power(self.intensity, self.pixel_size)
+
+    def with_power(self, power: float | Tensor) -> ComplexAmplitude:
+        """Return this field scaled so ``power() == power``, preserving phase
+        and the autograd graph.
+
+        Like :meth:`with_geometry`, this is the graph-safe way to rescale a
+        field produced by an OpticsModule: the multiply goes through the
+        dispatch mechanism, keeping ``grad_fn`` intact. ``power`` is matched
+        per ``(*batch, wavelength)``.
+        """
+        target_power = torch.as_tensor(
+            power, dtype=torch.float64, device=self.device
+        )
+        factor = torch.sqrt(target_power / self.power())
+        if self.ndim > 2:
+            factor = factor[..., None, None]
+        return self * factor.to(self.dtype_r)
 
     def numpy(self) -> NDArray[np.complex_]:
         return self._data.detach().cpu().numpy()

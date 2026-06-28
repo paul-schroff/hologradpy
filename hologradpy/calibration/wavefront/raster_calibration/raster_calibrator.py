@@ -19,7 +19,7 @@ from ....hardware.utils import set_camera_woi
 from ....propagation.fourier import get_spatial_grid
 from ....propagation.phase_profiles import linear_phase
 
-from ....utils import gpu_to_numpy, roi_bounds
+from ....utils import gpu_to_numpy, roi_bounds, Timer
 
 from ....analysis.fitting import (
     interferometric_fringes,
@@ -43,9 +43,12 @@ class RasterCalibrator(WavefrontCalibratorBase):
         camera: Camera,
         focal_length: float,
         device: str = "cpu",
+        autoexposure_timeout_s: float = 5.0,
     ) -> None:
         super().__init__(slm, camera, device)
         self.focal_length = focal_length
+        # Time budget for each camera autoexposure during calibration.
+        self.autoexposure_timeout_s = autoexposure_timeout_s
 
     def get_blazed_grating(
         self,
@@ -103,7 +106,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 full_lattice[corner_slice] = base_grating[corner_slice]
             self.slm.set_phase(full_lattice)
             exposure_time = self.camera.autoexposure(
-                set_fraction=0.7, exposure_bounds_s=(0, 1), timeout_s=0.1
+                set_fraction=0.7, exposure_bounds_s=(0, 1),
+                timeout_s=self.autoexposure_timeout_s,
             )
 
         # Grid centred on the window, i.e. relative to the nominal spot.
@@ -256,6 +260,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
             superpixel_intensity : NDArray
                 Intensity of the superpixels.
         """
+        timer = Timer(verbose=verbose)
+        timer.start()
+
         # Size the camera ROI from the superpixel's sinc^2 diffraction spot when
         # not given. A square aperture of side a produces a sinc^2 whose first
         # zero lies at lambda * f / a from the peak, so get_roi_size returns the
@@ -321,7 +328,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         exposure_time = self.camera.autoexposure(
             set_fraction=0.7,
             exposure_bounds_s=(0, 1),
-            timeout_s=0.1,  # TODO: set to a more reasonable time
+            timeout_s=self.autoexposure_timeout_s,
         )
 
         camera_images = np.zeros(
@@ -362,6 +369,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
         superpixel_intensity = gaussian_filter(
             superpixel_intensity, sigma=blur_kernel_size
         )
+
+        timer.stop()
         return superpixel_intensity, camera_images
 
     def measure_phase(
@@ -443,6 +452,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 "compensate_pointing requires measured_intensity (to size the "
                 "corner superpixels) or an explicit lattice_superpixel_size."
             )
+
+        timer = Timer(verbose=verbose)
+        timer.start()
 
         wavenumber = 2 * np.pi / (self.slm.wav_um * 1e-6)
 
@@ -627,9 +639,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
         self.slm.set_phase(exposure_test_phase)
 
         # Find camera exposure time
-        # TODO: Set timeout_s to a more reasonable value.
         exposure_time = self.camera.autoexposure(
-            set_fraction=0.7, exposure_bounds_s=(0, 1), timeout_s=0.1
+            set_fraction=0.7, exposure_bounds_s=(0, 1),
+            timeout_s=self.autoexposure_timeout_s,
         )
 
         camera_images = np.zeros((len(slicer.slices), *camera_roi_size))
@@ -838,6 +850,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
         blur_kernel_size = max(slicer.superpixel_separation) / 2
         phase = gaussian_filter(phase, sigma=blur_kernel_size)
+
+        timer.stop()
         return phase, camera_images, fitted_images
 
     def calibrate(

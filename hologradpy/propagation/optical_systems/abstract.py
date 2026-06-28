@@ -83,6 +83,54 @@ class OpticalSystem(nn.Module):
             module = getattr(self, name)
             print(f"{i:02d}  {name:15} {module.__class__.__name__}")
 
+    def power_report(
+        self, input_field: ComplexAmplitude | None = None
+    ) -> dict[str, object]:
+        """Track optical power through the system, module by module.
+
+        Runs the forward chain one module at a time, recording the field
+        ``power()`` after each named module and its efficiency relative to the
+        field entering it. Returns ``{"input_power", "modules": [{"module",
+        "type", "power", "efficiency"}, ...]}``.
+
+        Notes:
+        - Power is absolute (watts) only when the input field / ``StaticSLMField``
+          beam carries an absolute power and the FFT lens is ``power_normalized``.
+          The diagonal-stage (phase/amplitude) efficiencies are scale-invariant
+          ratios and meaningful regardless.
+        - For a ``power_normalized`` FFT system the ``fourier_lens`` stage is
+          ~1.0 by Parseval. The **camera-FOV capture fraction** is NOT the
+          ``affine_transform`` stage efficiency: that resampling conserves the
+          discrete L2 norm ``sum|E|^2`` (via ``1/sqrt(scale.prod())``), which
+          equals physical power ``sum|E|^2 * pixel_area`` only when the pixel
+          size is unchanged. When the affine changes the pixel size (FFT plane
+          -> camera) the physical power scales by ``(pixel_out/pixel_in)**2``,
+          so the stage ratio is ``1/scale**2``, not the capture fraction. A
+          NUFFT lens likewise only computes the camera window. The physical
+          capture fraction comes from integrating ``|E_fft|^2`` over the FOV at
+          the FFT-plane pixel size (crop the power-normalized FFT plane) -- see
+          the NUFFT power diagnosis.
+        """
+        field = self.init_field if input_field is None else input_field
+        input_power = field.power().detach()
+
+        modules: list[dict[str, object]] = []
+        previous_power = input_power
+        for name in self._order:
+            field = getattr(self, name)(field)
+            current_power = field.power().detach()
+            modules.append(
+                {
+                    "module": name,
+                    "type": type(getattr(self, name)).__name__,
+                    "power": current_power,
+                    "efficiency": current_power / previous_power,
+                }
+            )
+            previous_power = current_power
+
+        return {"input_power": input_power, "modules": modules}
+
     def get_checkpoint_spec(self) -> dict[str, object]:
         """Return reconstructible keyword arguments for this system."""
         raise NotImplementedError(

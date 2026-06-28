@@ -19,6 +19,7 @@ from hologradpy.propagation.optical_systems import (
     SLMFFT,
     SLMFFTAffine,
     SLMNUFFTAffine,
+    SLMCZT,
 )
 from hologradpy.propagation.diagonal_elements import StaticSLMField
 from hologradpy.propagation.virtual_slms.abstract import VirtualSLM
@@ -85,10 +86,24 @@ def _make_slm_nufft_affine() -> SLMNUFFTAffine:
     )
 
 
+def _make_slm_czt() -> SLMCZT:
+    return SLMCZT(
+        input_geometry=_input_geometry(),
+        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        camera_resolution=CAMERA_RESOLUTION,
+        camera_pixel_size=CAMERA_PIXEL_SIZE,
+        focal_length=0.1,
+        static_slm_field=_static_slm_field(),
+        camera_angle=5.0,
+        camera_shift=(1.0, 2.0),
+    )
+
+
 SYSTEM_FACTORIES = {
     "SLMFFT": _make_slm_fft,
     "SLMFFTAffine": _make_slm_fft_affine,
     "SLMNUFFTAffine": _make_slm_nufft_affine,
+    "SLMCZT": _make_slm_czt,
 }
 SYSTEM_IDS = list(SYSTEM_FACTORIES)
 
