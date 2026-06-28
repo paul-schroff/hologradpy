@@ -72,13 +72,13 @@ class RasterCalibrator(WavefrontCalibratorBase):
         """Per-corner linear phase tilts that steer all four corner superpixels
         onto the same (nominal) camera spot.
 
-        Local SLM wavefront aberration gives each corner a slightly different
-        effective tilt, so with a single shared grating the four corner beams
-        land at slightly different camera positions and do not interfere
-        cleanly. Each corner is displayed on its own, its diffraction spot is
-        located within a window around the nominal lattice position (so the
-        zeroth-order spot at the SLM centre is excluded), and the tilt that
-        brings it back onto the nominal position is returned.
+        Local SLM wavefront aberration gives each corner a slightly different effective
+        tilt, so with a single shared grating the four corner beams land at slightly
+        different camera positions and do not interfere cleanly. Each corner is
+        displayed on its own, its diffraction spot is located within a window around the
+        nominal lattice position (so the zeroth-order spot at the SLM centre is
+        excluded), and the tilt that brings it back onto the nominal position is
+        returned.
         """
         base_grating = self.get_blazed_grating(lattice_phase_tilt)
 
@@ -171,8 +171,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
         target_superpixels_x: int = 16,
         target_superpixels_y: int = 16,
     ) -> tuple[int, int]:
-        """Return (superpixel_width, superpixel_height) using the closest
-        divisors of the SLM dimensions to slm_size / target_superpixels."""
+        """Return (superpixel_width, superpixel_height) using the closest divisors of
+        the SLM dimensions to slm_size / target_superpixels. """
         factors_x = [
             i for i in range(1, self.slm.shape[1] + 1) if self.slm.shape[1] % i == 0
         ]
@@ -195,8 +195,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         aperture_height: int,
     ) -> tuple[int, int]:
         """Return the full null-to-null width of the sinc-squared diffraction
-        pattern in the Fourier plane for a rectangular aperture, in camera
-        pixels.
+        pattern in the Fourier plane for a rectangular aperture, in camera pixels.
         """
         wavelength = self.slm.wav_um * 1e-6
 
@@ -233,12 +232,11 @@ class RasterCalibrator(WavefrontCalibratorBase):
         verbose: bool = True,
     ) -> tuple[NDArray[np.float_], NDArray[np.float_]]:
         """
-        This function measures the intensity profile of the laser beam incident
-        onto the SLM by displaying a sequence of rectangular phase masks on the
-        SLM. The phase mask contains a linear phase which creates a diffraction
-        spot on the camera. The position of the phase mask is varied across the
-        entire area of the SLM and the intensity of each diffraction spot is
-        measured using the camera. Read the SI of
+        This function measures the intensity profile of the laser beam incident onto the
+        SLM by displaying a sequence of rectangular phase masks on the SLM. The phase
+        mask contains a linear phase which creates a diffraction spot on the camera. The
+        position of the phase mask is varied across the entire area of the SLM and the
+        intensity of each diffraction spot is measured using the camera. Read the SI of
         https://doi.org/10.1038/s41598-023-30296-6 for details.
 
         Args:
@@ -251,12 +249,12 @@ class RasterCalibrator(WavefrontCalibratorBase):
             superpixel_height : int
                 Height of superpixels [px].
             linear_phase_tilt : tuple[float, float]
-                x and y gradient of the linear phase in units of the resulting
-                spot displacement in the Fourier plane in metres.
+                x and y gradient of the linear phase in units of the resulting spot
+                displacement in the Fourier plane in metres.
             camera_roi_size : tuple[int, int] | None
-                Height and width of the region of interest on the camera around
-                each diffraction spot. If None, it is sized automatically from
-                the superpixel's sinc^2 spot (see below).
+                Height and width of the region of interest on the camera around each
+                diffraction spot. If None, it is sized automatically from the
+                superpixel's sinc^2 spot (see below).
         Returns:
             superpixel_intensity : NDArray
                 Intensity of the superpixels.
@@ -264,12 +262,12 @@ class RasterCalibrator(WavefrontCalibratorBase):
         timer = Timer(verbose=verbose)
         timer.start()
 
-        # Size the camera ROI from the superpixel's sinc^2 diffraction spot when
-        # not given. A square aperture of side a produces a sinc^2 whose first
-        # zero lies at lambda * f / a from the peak, so get_roi_size returns the
-        # null-to-null central-lobe width (2 * lambda * f / a). Use a window
-        # twice that wide so it comfortably contains the main lobe and the first
-        # sidelobes of every superpixel's diffraction spot.
+        # Size the camera ROI from the superpixel's sinc^2 diffraction spot when not
+        # given. A square aperture of side a produces a sinc^2 whose first zero lies at
+        # lambda * f / a from the peak, so get_roi_size returns the null-to-null
+        # central-lobe width (2 * lambda * f / a). Use a window twice that wide so it
+        # comfortably contains the main lobe and the first sidelobes of every
+        # superpixel's diffraction spot.
         if camera_roi_size is None:
             roi_width, roi_height = self.get_roi_size(
                 superpixel_width, superpixel_height
@@ -306,10 +304,10 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
         linear_slm_phase = self.get_blazed_grating(linear_phase_tilt)
 
-        # Background: a vertical binary 0/pi grating (every other pixel column)
-        # instead of a flat zero phase, so the unmodulated SLM area diffracts
-        # into the edge Nyquist orders instead of a bright central zeroth-order
-        # spot. Each displayed superpixel overwrites this background.
+        # Background: a vertical binary 0/pi grating (every other pixel column) instead
+        # of a flat zero phase, so the unmodulated SLM area diffracts into the edge
+        # Nyquist orders instead of a bright central zeroth-order spot. Each displayed
+        # superpixel overwrites this background.
         base_phase = np.zeros(self.slm.shape)
         base_phase[:, 1::2] = np.pi
 
@@ -390,10 +388,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
         verbose: bool = True,
     ) -> tuple[NDArray[np.float_], NDArray[np.float_], NDArray[np.float_]]:
         """This function measures the constant phase at the SLM by displaying
-        a sequence of rectangular phase masks on the SLM. This scheme was
-        adapted from Phillip Zupancic's work
-        (https://doi.org/10.1364/OE.24.013881). For details of our
-        implementation, see the supplementary material of
+        a sequence of rectangular phase masks on the SLM. This scheme was adapted from
+        Phillip Zupancic's work (https://doi.org/10.1364/OE.24.013881). For details of
+        our implementation, see the supplementary material of
         https://doi.org/10.1038/s41598-023-30296-6.
 
         Parameters
@@ -410,25 +407,22 @@ class RasterCalibrator(WavefrontCalibratorBase):
             x and y gradient of the linear phase in units of the resulting spot
             displacement in the Fourier plane in metres.
         camera_roi_size : tuple[int, int] | None
-            Height and width of the region of interest on the camera around the
-            main interference spot. If None, sized automatically to the
-            superpixel's sinc^2 central lobe (out to the first zero).
+            Height and width of the region of interest on the camera around the main
+            interference spot. If None, sized automatically to the superpixel's sinc^2
+            central lobe (out to the first zero).
         compensate_pointing : bool, optional
-            If True, also display four corner superpixels forming a 2D optical
-            lattice and use its phase to correct for beam pointing drift.
-            Default is False.
+            If True, also display four corner superpixels forming a 2D optical lattice
+            and use its phase to correct for beam pointing drift. Default is False.
         lattice_phase_tilt : tuple[float, float] | None, optional
-            x and y gradient (metres in the Fourier plane) steering the optical
-            lattice to a separate camera region. Required if
-            compensate_pointing is True.
+            x and y gradient (metres in the Fourier plane) steering the optical lattice
+            to a separate camera region. Required if compensate_pointing is True.
         lattice_superpixel_size : int | None, optional
             Side length [px] of the square corner superpixels. If None, sized
-            automatically from measured_intensity to match the fringe
-            brightness.
+            automatically from measured_intensity to match the fringe brightness.
         lattice_roi_size : tuple[int, int] | None, optional
-            Height and width of the camera region of interest around the
-            optical lattice. If None, sized automatically to the corner
-            superpixel's sinc^2 central lobe (out to the first zero).
+            Height and width of the camera region of interest around the optical
+            lattice. If None, sized automatically to the corner superpixel's sinc^2
+            central lobe (out to the first zero).
         verbose : bool, optional
             If True, prints the progress of the measurement. Default is True.
 
@@ -627,10 +621,10 @@ class RasterCalibrator(WavefrontCalibratorBase):
             slicer.reference_slice[0].start + slicer.reference_slice[0].stop
         ) / 2
 
-        # Pick a second superpixel (neighbour of the reference within the kept
-        # slices) so the exposure test sees two-beam interference. Indexing the
-        # reduced slice list directly avoids running off the end when slices are
-        # removed (intensity compensation or corner exclusion).
+        # Pick a second superpixel (neighbour of the reference within the kept slices)
+        # so the exposure test sees two-beam interference. Indexing the reduced slice
+        # list directly avoids running off the end when slices are removed (intensity
+        # compensation or corner exclusion).
         reference_position = slicer.slices.index(slicer.reference_slice)
         test_position = (reference_position + 1) % len(slicer.slices)
         test_slice = slicer.slices[test_position]
@@ -680,9 +674,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
             fitted_lattice_images = np.zeros(
                 (slicer.number_of_superpixels, *lattice_roi_size)
             )
-            # Baseline lattice phase from the displayed reference/exposure
-            # pattern (which already shows the constant lattice). This anchors
-            # the measured drift to zero at the un-drifted reference state.
+            # Baseline lattice phase from the displayed reference/exposure pattern
+            # (which already shows the constant lattice). This anchors the measured
+            # drift to zero at the un-drifted reference state.
             baseline_image = self.camera.get_image(exposure_time)[lattice_box]
             popt_lattice, _ = fit_optical_lattice_fringes(
                 *lattice_grid,
@@ -729,9 +723,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 * 1e-6
             )
 
-            # Measure the camera-plane displacement from beam pointing drift via
-            # the optical lattice, then fit the main fringes on shifted
-            # coordinates to remove it (shift stays 0 when not compensating).
+            # Measure the camera-plane displacement from beam pointing drift via the
+            # optical lattice, then fit the main fringes on shifted coordinates to
+            # remove it (shift stays 0 when not compensating).
             shift_x = 0.0
             shift_y = 0.0
             if compensate_pointing:
@@ -743,9 +737,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
                     lattice_separation_y,
                     wavenumber,
                     self.focal_length,
-                    # Unbounded phase warm-started from the previous cumulative
-                    # value, so the fit tracks continuous drift across the
-                    # (-pi, pi) boundary without wrapping.
+                    # Unbounded phase warm-started from the previous cumulative value,
+                    # so the fit tracks continuous drift across the (-pi, pi) boundary
+                    # without wrapping.
                     phase_x_guess=phase_x_prev,
                     phase_y_guess=phase_y_prev,
                     amplitude_guess=np.max(lattice_image) / 2,
@@ -754,8 +748,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 phase_x_prev = popt_lattice[0]
                 phase_y_prev = popt_lattice[1]
                 # A pattern shift by d lowers the fitted phase by k*d, so the
-                # camera-plane displacement is (phase0 - phase) / k. The main
-                # fringes are then fitted on (grid - displacement).
+                # camera-plane displacement is (phase0 - phase) / k. The main fringes
+                # are then fitted on (grid - displacement).
                 shift_x = (phase_x0 - phase_x_prev) / k_lattice_x
                 shift_y = (phase_y0 - phase_y_prev) / k_lattice_y
                 # 1-sigma fit uncertainty on the phases, propagated to the shift.
