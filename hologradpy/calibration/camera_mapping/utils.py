@@ -1,3 +1,5 @@
+from typing import Literal
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -12,7 +14,7 @@ from ...propagation.amplitude_profiles import (
 
 from ...analysis.fitting import fit_gaussian_beam_intensity
 from ...propagation.fourier import get_spatial_grid
-from ...utils import gpu_to_numpy
+from ...utils import gpu_to_numpy, find_roi, crop_to_roi
 
 
 def get_diffraction_spot_position(
@@ -22,8 +24,11 @@ def get_diffraction_spot_position(
     focal_length: float,
     exposure_time: float | None = None,
     slm_mask_diameter: float | None = None,
+    units: Literal["metres", "pixels"] = "metres",
+    roi_pad: int = 50,
+    roi_threshold: float = 0.5,
     verbose: bool = True,
-) -> tuple[tuple[float, float], float, NDArray]:
+) -> tuple[tuple[float, float], float, NDArray, tuple[int, int, int, int]]:
     """
     This function generates a spot on the camera by displaying a circular
     aperture on the SLM containing a linear phase gradient. The position of the
@@ -44,14 +49,32 @@ def get_diffraction_spot_position(
         slm_mask_diameter : float | None
             Diameter of the circular aperture in meters. If None, the diameter
             is set to the size of the SLM.
+        units : str
+            Units of the returned spot position: "metres" (default) for the
+            (x, y) coordinates in the camera plane, or "pixels" for integer
+            camera pixel coordinates. The focal spot radius is always in metres.
+        roi_pad : int
+            Padding in pixels added around the detected spot when cropping the
+            camera image before the fit (passed to find_roi).
+        roi_threshold : float
+            Fraction of the peak intensity used to detect the spot region of
+            interest (passed to find_roi).
         verbose : bool
             If True, prints progress messages to the console.
 
     Returns:
-        tuple[tuple[float, float], float, NDArray]
-            Tuple of x and y coordinates of the spot on the camera in metres,
-            the focal spot radius in metres, and captured camera image.
+        tuple[tuple[float, float], float, NDArray, tuple[int, int, int, int]]
+            Tuple of x and y coordinates of the spot on the full sensor (in
+            metres or pixels, see ``units``), the focal spot radius in metres,
+            the cropped camera image used for the fit, and the (top, bottom,
+            left, right) region of interest used to crop it.
     """
+    if units not in ("metres", "pixels"):
+        raise ValueError(f"units must be 'metres' or 'pixels', got {units!r}.")
+
+    # Capture the whole frame so the spot can be located anywhere on the sensor.
+    camera.set_woi(None)
+
     if slm_mask_diameter is None:
         slm_mask_diameter = min(
             [slm.shape[i] * slm.pitch_um[i] * 1e-6 for i in range(2)]
@@ -84,9 +107,16 @@ def get_diffraction_spot_position(
     camera.set_exposure(exposure_time)
     camera_image = camera.get_image()
 
-    camera_grid = get_spatial_grid(camera.shape, camera.pitch_um * 1e-6)
+    # Crop to a region of interest around the spot before fitting, so the
+    # Gaussian fit runs on a small image instead of the whole sensor. The grid
+    # is cropped with the same ROI, so it keeps full-sensor coordinates and the
+    # fitted position is already referenced to the full sensor.
+    roi = find_roi(camera_image, threshold=roi_threshold, pad=roi_pad)
+    cropped_camera_image = crop_to_roi(camera_image, roi)
 
-    # Fit Gaussian intensity profile to camera image
+    camera_grid = get_spatial_grid(camera.shape, camera.pitch_um * 1e-6)
+    cropped_grid = [crop_to_roi(grid, roi) for grid in camera_grid]
+
     focal_spot_radius_guess = get_focal_spot_radius(
         beam_radius=slm_mask_diameter / 2,
         wavelength=slm.wav_um * 1e-6,
@@ -97,16 +127,36 @@ def get_diffraction_spot_position(
         print("Fitting Gaussian to camera image...")
 
     popt, _ = fit_gaussian_beam_intensity(
-        *camera_grid, camera_image, beam_radius_guess=focal_spot_radius_guess
+        *cropped_grid,
+        cropped_camera_image,
+        beam_radius_guess=focal_spot_radius_guess,
     )
 
     if verbose:
         print("Gaussian fit complete.")
 
     focal_spot_radius = popt[0]
-    shift_x, shift_y = popt[1:3]
+    position = (popt[1], popt[2])
 
-    return (shift_x, shift_y), focal_spot_radius, camera_image
+    if units == "pixels":
+        position = tuple(
+            int(
+                position[i] / (camera.pitch_um[i] * 1e-6)
+                + camera.shape[::-1][i] // 2
+            )
+            for i in range(2)
+        )
+
+    if verbose:
+        if units == "pixels":
+            print(f"Diffraction spot position (x, y): {position} px.")
+        else:
+            print(
+                "Diffraction spot position (x, y): "
+                f"({position[0] * 1e6:.2f}, {position[1] * 1e6:.2f}) um."
+            )
+
+    return position, focal_spot_radius, cropped_camera_image, roi
 
 
 def checkerboard(

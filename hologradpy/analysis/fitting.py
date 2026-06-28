@@ -173,3 +173,112 @@ def fit_interferometric_fringes(
         x, y, data, fit_function, p0=p0, bounds=bounds, maxfev=max_iterations
     )
     return popt, pcov
+
+
+def optical_lattice_fringes(
+    x: NDArray,
+    y: NDArray,
+    separation_x: float,
+    separation_y: float,
+    wavenumber: float,
+    focal_length: float,
+    phase_x: float,
+    phase_y: float,
+    amplitude: float,
+) -> NDArray[np.float_]:
+    """2D optical lattice on the camera caused by four superpixels in the SLM
+    corners.
+
+    It is the separable product of two orthogonal ``interferometric_fringes``
+    patterns and is used to track beam pointing drift during the phase
+    measurement.
+
+    Args:
+        x (NDArray): x coordinates.
+        y (NDArray): y coordinates.
+        separation_x (float): Horizontal separation between the corner
+            superpixels.
+        separation_y (float): Vertical separation between the corner
+            superpixels.
+        wavenumber (float): Wavenumber of the light.
+        focal_length (float): Focal length of the Fourier lens.
+        phase_x (float): Phase of the lattice along x.
+        phase_y (float): Phase of the lattice along y.
+        amplitude (float): Amplitude of the lattice.
+
+    Returns:
+        NDArray[np.float_]: 2D optical lattice pattern on the camera.
+    """
+    angle_x = np.arctan(separation_x / focal_length)
+    angle_y = np.arctan(separation_y / focal_length)
+
+    fringes_x = 1 + np.cos(wavenumber * np.sin(angle_x) * x + phase_x)
+    fringes_y = 1 + np.cos(wavenumber * np.sin(angle_y) * y + phase_y)
+    return 2 * amplitude ** 2 * fringes_x * fringes_y
+
+
+def fit_optical_lattice_fringes(
+    x: NDArray,
+    y: NDArray,
+    data: NDArray,
+    separation_x: float,
+    separation_y: float,
+    wavenumber: float,
+    focal_length: float,
+    phase_x_guess: float = 0.0,
+    phase_y_guess: float = 0.0,
+    amplitude_guess: float = 1.0,
+    max_iterations: int = 10000,
+    bound_phase: bool = True,
+) -> tuple[NDArray[np.float_], NDArray[np.float_]]:
+    """Fit the 2D optical lattice on the camera caused by four corner
+    superpixels.
+
+    Args:
+        x (NDArray): x coordinates.
+        y (NDArray): y coordinates.
+        data (NDArray): Optical lattice pattern on the camera.
+        separation_x (float): Horizontal separation between the corner
+            superpixels.
+        separation_y (float): Vertical separation between the corner
+            superpixels.
+        wavenumber (float): Wavenumber of the light.
+        focal_length (float): Focal length of the Fourier lens.
+        phase_x_guess (float, optional): Initial guess for the lattice phase
+            along x. Defaults to 0.0.
+        phase_y_guess (float, optional): Initial guess for the lattice phase
+            along y. Defaults to 0.0.
+        amplitude_guess (float, optional): Initial guess for the lattice
+            amplitude. Defaults to 1.0.
+        bound_phase (bool, optional): If True, constrain the phases to
+            (-pi, pi). Set False to track a continuously drifting phase across
+            frames (warm-started from the previous value), avoiding the wrap
+            discontinuity at the bound. Defaults to True.
+
+    Returns:
+        tuple[NDArray[np.float_], NDArray[np.float_]]: Fitting parameters
+            (phase_x, phase_y, amplitude) and covariance matrix.
+    """
+
+    def fit_function(x_, y_, phase_x, phase_y, amplitude):
+        return optical_lattice_fringes(
+            x_,
+            y_,
+            separation_x,
+            separation_y,
+            wavenumber,
+            focal_length,
+            phase_x,
+            phase_y,
+            amplitude,
+        )
+
+    p0 = (phase_x_guess, phase_y_guess, amplitude_guess)
+    if bound_phase:
+        bounds = ((-np.pi, -np.pi, 0), (np.pi, np.pi, np.inf))
+    else:
+        bounds = ((-np.inf, -np.inf, 0), (np.inf, np.inf, np.inf))
+    popt, pcov = curve_fit_2d(
+        x, y, data, fit_function, p0=p0, bounds=bounds, maxfev=max_iterations
+    )
+    return popt, pcov

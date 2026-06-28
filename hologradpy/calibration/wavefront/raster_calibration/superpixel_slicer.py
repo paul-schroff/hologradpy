@@ -124,6 +124,31 @@ class SuperpixelSlicer:
                 valid_slices.append(slice_)
         self.slices = valid_slices
 
+    def remove_overlapping_slices(
+        self, regions: list[tuple[slice, slice]]
+    ) -> None:
+        """Removes slices that overlap any of the given (row, col) regions.
+
+        Used to keep the scanned sample superpixels from running over the
+        fixed corner superpixels of the optical lattice.
+        """
+
+        def overlaps(
+            slice_: tuple[slice, slice], region: tuple[slice, slice]
+        ) -> bool:
+            return (
+                slice_[0].start < region[0].stop
+                and region[0].start < slice_[0].stop
+                and slice_[1].start < region[1].stop
+                and region[1].start < slice_[1].stop
+            )
+
+        self.slices = [
+            slice_
+            for slice_ in self.slices
+            if not any(overlaps(slice_, region) for region in regions)
+        ]
+
     @property
     def central_index(self) -> int:
         """
@@ -210,3 +235,58 @@ class SuperpixelSlicer:
             ),
         )
         return adjusted_slice
+
+    def get_lattice_corner_size(self, max_size: int | None = None) -> int:
+        """Side length [px] of square corner superpixels so the optical lattice
+        peak on the camera is comparable to the interference fringes.
+
+        A focal spot's peak intensity scales as the squared coherent field over
+        the aperture, ``(sum sqrt(intensity))**2``, not the integrated power
+        (a larger aperture focuses the same power into a smaller, brighter
+        spot). The four-corner lattice peak goes as ``~ (4 * F_corner)**2`` and
+        the two-superpixel fringe peak as ``~ (2 * F_reference)**2``, so each
+        corner is sized to reach roughly ``F_reference / sqrt(2)`` (giving a
+        comparable lattice peak). Sizing for the dimmest corner keeps all four
+        comparable. ``max_size`` caps the search (a warning is printed if a
+        corner cannot reach the target within it).
+
+        Requires intensity compensation (an ``intensity`` map at construction).
+        """
+        target_field_fraction = 1.0 / np.sqrt(2.0)
+
+        height, width = self.slm_shape
+        amplitude = np.sqrt(self.intensity)
+        center_y, center_x = np.unravel_index(
+            np.argmax(self.intensity), self.intensity.shape
+        )
+
+        half_height = self.superpixel_height // 2
+        half_width = self.superpixel_width // 2
+        reference_box = amplitude[
+            max(center_y - half_height, 0): center_y + half_height,
+            max(center_x - half_width, 0): center_x + half_width,
+        ]
+        target_field = target_field_fraction * reference_box.sum()
+
+        if max_size is None:
+            max_size = min(height, width) // 2
+
+        def dimmest_corner_field(size: int) -> float:
+            corners = [
+                amplitude[:size, :size],
+                amplitude[:size, width - size:],
+                amplitude[height - size:, :size],
+                amplitude[height - size:, width - size:],
+            ]
+            return min(corner.sum() for corner in corners)
+
+        size = min(self.superpixel_width, self.superpixel_height)
+        while size < max_size and dimmest_corner_field(size) < target_field:
+            size += 1
+
+        if dimmest_corner_field(size) < target_field:
+            print(
+                "Warning: corner superpixels capped at "
+                f"{size} px; the optical lattice may be dim."
+            )
+        return size

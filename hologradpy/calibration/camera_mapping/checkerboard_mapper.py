@@ -154,7 +154,7 @@ class CheckerboardMapper(CameraMapper):
             [checkerboard_center[i] * simulation_pixel_size[::-1][i] for i in range(2)]
         )
 
-        (spot_position_x, spot_position_y), focal_spot_radius, _ = (
+        (spot_position_x, spot_position_y), focal_spot_radius, _, _ = (
             get_diffraction_spot_position(
                 self.slm,
                 self.camera,

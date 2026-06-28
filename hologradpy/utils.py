@@ -3,7 +3,7 @@ from typing import TypeVar
 import torch
 from numpy.typing import NDArray
 
-from array_api_compat import array_namespace
+from array_api_compat import array_namespace, device as array_device
 
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 
@@ -77,6 +77,37 @@ def crop_to_roi(
     return input[..., roi[0] : roi[1], roi[2] : roi[3]]
 
 
+def pad_from_roi(
+    input: ArrayLike,
+    roi: tuple[int, int, int, int],
+    original_shape: tuple[int, int],
+) -> ArrayLike:
+    """Inverse of :func:`crop_to_roi`: pad a cropped image back to its original
+    size, placing it at the region of interest and zero-filling the rest.
+
+    Args:
+        input (ArrayLike): The cropped 2D data, shaped (..., roi_height,
+            roi_width).
+        roi (tuple[int, int, int, int]): The region of interest used to crop, as
+            a tuple of (top, bottom, left, right) pixel indices.
+        original_shape (tuple[int, int]): The (height, width) of the original
+            image before cropping.
+
+    Returns:
+        ArrayLike: The zero-padded image of shape (..., *original_shape), with
+            input placed back at the region of interest.
+    """
+    xp = array_namespace(input)
+    top, bottom, left, right = roi
+    output = xp.zeros(
+        (*input.shape[:-2], *original_shape),
+        dtype=input.dtype,
+        device=array_device(input),
+    )
+    output[..., top:bottom, left:right] = input
+    return output
+
+
 def find_roi(
     input: ArrayLike, threshold: float = 0.5, pad: int = 10
 ) -> tuple[int, int, int, int]:
@@ -106,6 +137,23 @@ def find_roi(
     min_idx_x = int(xp.clip(xp.min(idx_x) - pad, 0, input.shape[1]))
 
     return (min_idx_y, max_idx_y, min_idx_x, max_idx_x)
+
+
+def roi_bounds(
+    center: tuple[int, int],
+    roi_size: tuple[int, int],
+) -> tuple[int, int, int, int]:
+    """Return the (x0, x1, y0, y1) pixel bounds of a region of interest centred
+    on ``center`` (x, y) with ``roi_size`` (height, width).
+
+    Note the (left, right, top, bottom) ordering here differs from the (top,
+    bottom, left, right) convention used by :func:`crop_to_roi` and
+    :func:`find_roi`; this order matches the camera window-of-interest layout
+    (x, width, y, height) used by :func:`hologradpy.hardware.utils.set_camera_woi`.
+    """
+    x0 = center[0] - roi_size[1] // 2
+    y0 = center[1] - roi_size[0] // 2
+    return x0, x0 + roi_size[1], y0, y0 + roi_size[0]
 
 
 class Timer:
