@@ -221,6 +221,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         )
         return roi_width, roi_height
 
+    # TODO: Add power tracking during measurement
     def measure_intensity(
         self,
         number_of_superpixels_x: int,
