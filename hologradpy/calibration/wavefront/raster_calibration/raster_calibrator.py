@@ -9,6 +9,7 @@ from slmsuite.hardware.cameras.camera import Camera
 from scipy.ndimage import gaussian_filter
 
 from . import SuperpixelSlicer
+from .visualizer import RasterVisualizationData
 
 from ..abstract import WavefrontCalibratorBase, WavefrontCalibrationData
 from ..utils import inpaint
@@ -67,54 +68,53 @@ class RasterCalibrator(WavefrontCalibratorBase):
         corner_slices: list[tuple[slice, slice]],
         lattice_phase_tilt: tuple[float, float],
         roi_size: tuple[int, int],
+        spot_center_pixels: tuple[int, int],
         exposure_time: float | None = None,
     ) -> list[tuple[float, float]]:
         """Per-corner linear phase tilts that steer all four corner superpixels
-        onto the same (nominal) camera spot.
+        onto the same camera spot.
 
         Local SLM wavefront aberration gives each corner a slightly different effective
         tilt, so with a single shared grating the four corner beams land at slightly
         different camera positions and do not interfere cleanly. Each corner is
-        displayed on its own, its diffraction spot is located within a window around the
-        nominal lattice position (so the zeroth-order spot at the SLM centre is
-        excluded), and the tilt that brings it back onto the nominal position is
-        returned.
+        displayed on its own and its diffraction spot is located, then the tilt that
+        brings it onto the common spot is returned.
+
+        The detection window is centred on ``spot_center_pixels`` (the camera spot the
+        full SLM produces for ``lattice_phase_tilt``, i.e. the real, aberrated lattice
+        position) and is four times the lattice ROI, so a single corner's dim, offset
+        spot is captured. A single corner against the otherwise flat SLM throws a
+        bright zeroth-order spot at the sensor centre; the exposure for each corner is
+        set with ``autoexposure(window=...)`` restricted to the detection window so it
+        exposes the (much dimmer) corner spot rather than that zeroth-order spot.
         """
         base_grating = self.get_blazed_grating(lattice_phase_tilt)
 
-        # Window around the nominal lattice spot, excluding the bright
-        # zeroth-order spot at the camera centre.
-        nominal_pixels = tuple(
-            int(
-                lattice_phase_tilt[i] / (self.camera.pitch_um[i] * 1e-6)
-                + self.camera.shape[::-1][i] // 2
-            )
-            for i in range(2)
-        )
-        self.camera.set_woi(
-            [
-                nominal_pixels[0] - roi_size[1] // 2,
-                roi_size[1],
-                nominal_pixels[1] - roi_size[0] // 2,
-                roi_size[0],
-            ]
-        )
 
-        if exposure_time is None:
-            full_lattice = np.zeros(self.slm.shape)
-            for corner_slice in corner_slices:
-                full_lattice[corner_slice] = base_grating[corner_slice]
-            self.slm.set_phase(full_lattice)
-            exposure_time = self.camera.autoexposure(
-                set_fraction=0.7, exposure_bounds_s=(0, 1),
-                timeout_s=self.autoexposure_timeout_s,
-            )
+        center_x, center_y = int(spot_center_pixels[0]), int(spot_center_pixels[1])
+        sensor_height, sensor_width = self.camera.shape
+        window_width = min(4 * roi_size[1], sensor_width)
+        window_height = min(4 * roi_size[0], sensor_height)
+        window_x0 = int(
+            np.clip(center_x - window_width // 2, 0, sensor_width - window_width)
+        )
+        window_y0 = int(
+            np.clip(center_y - window_height // 2, 0, sensor_height - window_height)
+        )
+        self.camera.set_woi([window_x0, window_width, window_y0, window_height])
 
-        # Grid centred on the window, i.e. relative to the nominal spot.
-        grid = [
-            gpu_to_numpy(g)
-            for g in get_spatial_grid(roi_size, self.camera.pitch_um * 1e-6)
-        ]
+        autoexposure_window = [center_x, window_width, center_y, window_height]
+
+        # Grid referenced to the spot centre (0 = spot centre), so the fitted
+        # centre is directly the offset from it even when the window was clamped.
+        pitch_x = self.camera.pitch_um[1] * 1e-6
+        pitch_y = self.camera.pitch_um[0] * 1e-6
+        grid_x, grid_y = np.meshgrid(
+            (np.arange(window_width) - (center_x - window_x0)) * pitch_x,
+            (np.arange(window_height) - (center_y - window_y0)) * pitch_y,
+        )
+        grid = [grid_x, grid_y]
+
         corner_size = corner_slices[0][0].stop - corner_slices[0][0].start
         aperture_radius = corner_size * self.slm.pitch_um[0] * 1e-6 / 2
         spot_radius_guess = (
@@ -128,11 +128,21 @@ class RasterCalibrator(WavefrontCalibratorBase):
             corner_phase[corner_slice] = base_grating[corner_slice]
             self.slm.set_phase(corner_phase)
 
-            camera_image = self.camera.get_image(exposure_time)
+            # Autoexpose each corner individually (within the detection window)
+            corner_exposure = exposure_time
+            if corner_exposure is None:
+                # A single corner sits in the dim tail of the beam, so allow a
+                # longer exposure than the bright main spot needs.
+                corner_exposure = self.camera.autoexposure(
+                    set_fraction=0.7, exposure_bounds_s=(0, 10),
+                    window=autoexposure_window,
+                    timeout_s=self.autoexposure_timeout_s,
+                )
+            camera_image = self.camera.get_image(corner_exposure)
             popt, _ = fit_gaussian_beam_intensity(
                 *grid, camera_image, beam_radius_guess=spot_radius_guess
             )
-            # Spot offset from the nominal position; steer it back by that much.
+            # Spot offset from the lattice spot; steer it back by that much.
             offset_x, offset_y = popt[1], popt[2]
             corner_tilts.append(
                 (
@@ -323,10 +333,14 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
         self.slm.set_phase(slm_phase_central_superpixel)
 
-        # Find camera exposure time
+        # Find camera exposure time.
         exposure_time = self.camera.autoexposure(
             set_fraction=0.7,
             exposure_bounds_s=(0, 1),
+            window=[
+                spot_center[0], camera_roi_size[1],
+                spot_center[1], camera_roi_size[0],
+            ],
             timeout_s=self.autoexposure_timeout_s,
         )
 
@@ -386,6 +400,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         lattice_superpixel_size: int | None = None,
         lattice_roi_size: tuple[int, int] | None = None,
         verbose: bool = True,
+        record_displayed_phases: bool = False,
     ) -> tuple[NDArray[np.float_], NDArray[np.float_], NDArray[np.float_]]:
         """This function measures the constant phase at the SLM by displaying
         a sequence of rectangular phase masks on the SLM. This scheme was adapted from
@@ -425,6 +440,11 @@ class RasterCalibrator(WavefrontCalibratorBase):
             central lobe (out to the first zero).
         verbose : bool, optional
             If True, prints the progress of the measurement. Default is True.
+        record_displayed_phases : bool, optional
+            If True, store the displayed SLM phase (``slm.display``) for every
+            scanned superpixel in ``self.displayed_slm_phases`` so the scan can be
+            visualised afterwards (see ``RasterCalibratorVisualizer``). Off by
+            default as it keeps a full-resolution frame per superpixel.
 
         Returns
         -------
@@ -500,11 +520,26 @@ class RasterCalibrator(WavefrontCalibratorBase):
                     slice(width - corner_size, width),
                 ),
             ]
+            # Detected camera spot the full SLM produces for the lattice tilt (the
+            # real, aberrated lattice position). The corner-steering detection
+            # window and the lattice ROI are both centred on it, so the dim corner
+            # beams fall inside the window and the steered lattice sits centred in
+            # the ROI.
+            lattice_center, _, _, _ = get_diffraction_spot_position(
+                self.slm,
+                self.camera,
+                lattice_phase_tilt,
+                focal_length=self.focal_length,
+                exposure_time=0.1,
+                units="pixels",
+                verbose=verbose,
+            )
+
             # Local SLM aberration gives each corner a slightly different
             # effective tilt, so steer each corner individually onto the common
-            # nominal lattice spot, so the four beams interfere cleanly.
+            # lattice spot, so the four beams interfere cleanly.
             corner_tilts = self.calibrate_lattice_corner_tilts(
-                corner_slices, lattice_phase_tilt, lattice_roi_size
+                corner_slices, lattice_phase_tilt, lattice_roi_size, lattice_center
             )
             self.lattice_corner_tilts = corner_tilts
             for corner_slice, corner_tilt in zip(corner_slices, corner_tilts):
@@ -563,16 +598,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
         main_box = None
         lattice_box = None
         if compensate_pointing:
-            lattice_center, _, _, _ = get_diffraction_spot_position(
-                self.slm,
-                self.camera,
-                lattice_phase_tilt,
-                focal_length=self.focal_length,
-                exposure_time=0.1,
-                units="pixels",
-                verbose=verbose,
-            )
-
+            # lattice_center was detected above (used to centre the corner-steering
+            # detection window); reuse it to place the lattice ROI on the same spot.
             main_x0, main_x1, main_y0, main_y1 = roi_bounds(
                 main_center, camera_roi_size
             )
@@ -633,9 +660,13 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
         self.slm.set_phase(exposure_test_phase)
 
-        # Find camera exposure time
+        # Find camera exposure time.
         exposure_time = self.camera.autoexposure(
             set_fraction=0.7, exposure_bounds_s=(0, 1),
+            window=[
+                main_center[0], camera_roi_size[1],
+                main_center[1], camera_roi_size[0],
+            ],
             timeout_s=self.autoexposure_timeout_s,
         )
 
@@ -650,8 +681,6 @@ class RasterCalibrator(WavefrontCalibratorBase):
         ]
 
         # TODO: This is a bit messy
-        lattice_phase_x = np.zeros(slicer.number_of_superpixels)
-        lattice_phase_y = np.zeros(slicer.number_of_superpixels)
         lattice_shift_x = np.zeros(slicer.number_of_superpixels)
         lattice_shift_y = np.zeros(slicer.number_of_superpixels)
         lattice_shift_x_err = np.zeros(slicer.number_of_superpixels)
@@ -694,6 +723,10 @@ class RasterCalibrator(WavefrontCalibratorBase):
         superpixel_coordinates = np.zeros((2, slicer.number_of_superpixels))
         superpixel_phase = np.zeros(slicer.number_of_superpixels)
 
+        # Optionally keep the displayed SLM phase for each superpixel (the actual
+        # grayscale shown, so any drift / quantization is captured) for plotting.
+        displayed_slm_phases = [] if record_displayed_phases else None
+
         # Take camera images
         fitted_phase = 0
         for i, superpixel_slice in enumerate(slicer.slices):
@@ -702,6 +735,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
             masked_phase[superpixel_slice] = linear_slm_phase[superpixel_slice]
 
             self.slm.set_phase(masked_phase)
+
+            if record_displayed_phases:
+                displayed_slm_phases.append(np.asarray(self.slm.display).copy())
 
             full_image = self.camera.get_image(exposure_time)
 
@@ -756,8 +792,6 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 phase_err = np.sqrt(np.diag(pcov_lattice))
                 lattice_shift_x_err[i] = phase_err[0] / k_lattice_x
                 lattice_shift_y_err[i] = phase_err[1] / k_lattice_y
-                lattice_phase_x[i] = phase_x_prev
-                lattice_phase_y[i] = phase_y_prev
                 lattice_shift_x[i] = shift_x
                 lattice_shift_y[i] = shift_y
                 lattice_images[i, ...] = lattice_image
@@ -812,16 +846,6 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 f"({100 * (i + 1) / slicer.number_of_superpixels:.2f}%)"
             )
 
-        # Store lattice diagnostics for inspection/troubleshooting/plotting.
-        self.lattice_phase_x = lattice_phase_x
-        self.lattice_phase_y = lattice_phase_y
-        self.lattice_shift_x = lattice_shift_x
-        self.lattice_shift_y = lattice_shift_y
-        self.lattice_shift_x_err = lattice_shift_x_err
-        self.lattice_shift_y_err = lattice_shift_y_err
-        self.lattice_images = lattice_images
-        self.fitted_lattice_images = fitted_lattice_images
-
         phase_unwrapped = unwrap_nonuniform(
             superpixel_coordinates[0, :],
             superpixel_coordinates[1, :],
@@ -845,6 +869,29 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
         blur_kernel_size = max(slicer.superpixel_separation) / 2
         phase = gaussian_filter(phase, sigma=blur_kernel_size)
+
+        # Bundle everything recorded this scan (in scan order, aligned with
+        # superpixel_coordinates) for plotting/visualisation: consumed by
+        # RasterCalibratorVisualizer and attached to the result by calibrate().
+        # Lattice fields are populated only when compensate_pointing was on;
+        # displayed_slm_phases only when record_displayed_phases was requested.
+        self.visualization_data = RasterVisualizationData(
+            camera_images=camera_images,
+            fitted_images=fitted_images,
+            measured_phase=phase,
+            superpixel_coordinates=superpixel_coordinates,
+            lattice_images=lattice_images,
+            fitted_lattice_images=fitted_lattice_images,
+            lattice_shift_x=lattice_shift_x,
+            lattice_shift_y=lattice_shift_y,
+            lattice_shift_x_err=lattice_shift_x_err,
+            lattice_shift_y_err=lattice_shift_y_err,
+            displayed_slm_phases=(
+                np.array(displayed_slm_phases)
+                if record_displayed_phases
+                else None
+            ),
+        )
 
         timer.stop()
         return phase, camera_images, fitted_images
@@ -895,7 +942,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
             verbose=verbose,
         )
 
-        phase, camera_images_phase, fitted_images_phase = self.measure_phase(
+        phase, _, _ = self.measure_phase(
             number_of_superpixels_x,
             number_of_superpixels_y,
             superpixel_width // 2,
@@ -918,10 +965,11 @@ class RasterCalibrator(WavefrontCalibratorBase):
         
         # TODO: Make sure these are sensible.
         if save_metadata:
+            # Scan parameters + the intensity-scan images. Everything from the phase
+            # scan (camera/fitted/lattice images, lattice shifts, ...) already lives in
+            # visualization_data, so it is not duplicated here.
             metadata = {
                 "camera_images_intensity": camera_images_intensity,
-                "camera_images_phase": camera_images_phase,
-                "fitted_images_phase": fitted_images_phase,
                 "number_of_superpixels_x": number_of_superpixels_x,
                 "number_of_superpixels_y": number_of_superpixels_y,
                 "superpixel_width": superpixel_width,
@@ -929,12 +977,6 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 "linear_phase_tilt": linear_phase_tilt,
                 "camera_roi_size": camera_roi_size,
                 "compensate_pointing": compensate_pointing,
-                "lattice_phase_x": self.lattice_phase_x,
-                "lattice_phase_y": self.lattice_phase_y,
-                "lattice_shift_x": self.lattice_shift_x,
-                "lattice_shift_y": self.lattice_shift_y,
-                "lattice_images": self.lattice_images,
-                "fitted_lattice_images": self.fitted_lattice_images,
             }
         else:
             metadata = {}
@@ -944,4 +986,5 @@ class RasterCalibrator(WavefrontCalibratorBase):
             name=calibration_name,
             complex_amplitude=complex_amplitude,
             metadata=metadata,
+            visualization_data=self.visualization_data,
         )

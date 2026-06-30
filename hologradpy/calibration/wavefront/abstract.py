@@ -14,6 +14,7 @@ from slmsuite.hardware.cameras.camera import Camera
 
 from ...propagation.complex_amplitude import ComplexAmplitude
 from ...propagation.fourier import get_spatial_grid
+from ...visualizer import VisualizationData
 
 from ...analysis.fitting import fit_gaussian_beam_intensity
 
@@ -24,6 +25,7 @@ class WavefrontCalibrationData:
     name: str
     complex_amplitude: ComplexAmplitude
     metadata: dict
+    visualization_data: VisualizationData | None = None
 
     def save(self, filename: str):
         with open(filename, "wb") as file:
