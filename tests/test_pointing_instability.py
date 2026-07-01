@@ -25,9 +25,7 @@ def _uniform_field() -> ComplexAmplitude:
 
 def test_tilt_is_zero_mean_gaussian():
     std = 2e-3
-    module = PointingInstability(
-        tilt_std=std, generator=torch.Generator().manual_seed(0)
-    )
+    module = PointingInstability(tilt_std=std, seed=0)
     samples = []
     for _ in range(3000):
         module(_uniform_field())
@@ -38,9 +36,7 @@ def test_tilt_is_zero_mean_gaussian():
 
 
 def test_preserves_type_and_geometry():
-    out = PointingInstability(1e-3, generator=torch.Generator().manual_seed(1))(
-        _spot()
-    )
+    out = PointingInstability(1e-3, seed=1)(_spot())
     assert isinstance(out, ComplexAmplitude)
     assert out.shape == (8, 8)
     assert torch.allclose(out.pixel_size, GEOMETRY.pixel_size.reshape(1, 2))
@@ -49,13 +45,13 @@ def test_preserves_type_and_geometry():
 def test_tilt_is_phase_only():
     # The tilt is a unit-modulus phase ramp, so amplitudes are unchanged.
     field = _uniform_field()
-    out = PointingInstability(5e-3, generator=torch.Generator().manual_seed(2))(field)
+    out = PointingInstability(5e-3, seed=2)(field)
     assert torch.allclose(out.abs(), field.abs(), atol=1e-5)
 
 
 def test_adjoint_inverts_last_forward():
     field = _spot()
-    module = PointingInstability(2e-3, generator=torch.Generator().manual_seed(7))
+    module = PointingInstability(2e-3, seed=7)
     back = module.adjoint(module(field))
     assert torch.allclose(back, field, atol=1e-5)
 
@@ -63,19 +59,13 @@ def test_adjoint_inverts_last_forward():
 def test_differentiable_with_respect_to_input():
     field = _spot()
     field.requires_grad_(True)
-    PointingInstability(
-        1e-3, generator=torch.Generator().manual_seed(3)
-    )(field).abs().sum().backward()
+    PointingInstability(1e-3, seed=3)(field).abs().sum().backward()
     assert field.grad is not None and torch.isfinite(field.grad).all()
 
 
-def test_reproducible_with_seeded_generator():
-    first = PointingInstability(
-        1e-3, generator=torch.Generator().manual_seed(42)
-    )(_spot())
-    second = PointingInstability(
-        1e-3, generator=torch.Generator().manual_seed(42)
-    )(_spot())
+def test_reproducible_with_seed():
+    first = PointingInstability(1e-3, seed=42)(_spot())
+    second = PointingInstability(1e-3, seed=42)(_spot())
     assert torch.allclose(first, second)
 
 
@@ -87,7 +77,7 @@ def test_from_focal_shift_converts_to_angle():
 
 
 def test_recording_toggle_captures_sampled_angles():
-    module = PointingInstability(1e-3, generator=torch.Generator().manual_seed(0))
+    module = PointingInstability(1e-3, seed=0)
     # Nothing recorded by default.
     module(_uniform_field())
     assert module.angle_history.shape == (0, 2)
@@ -105,7 +95,7 @@ def test_recording_toggle_captures_sampled_angles():
 
 
 def test_record_samples_context_manager():
-    module = PointingInstability(1e-3, generator=torch.Generator().manual_seed(1))
+    module = PointingInstability(1e-3, seed=1)
     with module.record_samples():
         module(_uniform_field())
         module(_uniform_field())

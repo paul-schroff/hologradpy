@@ -25,18 +25,22 @@ class PointingInstability(OpticsModule):
             -- a scalar (same for x and y) or ``(std_x, std_y)``. Each forward
             draws ``angle_x ~ N(0, std_x)`` and ``angle_y ~ N(0, std_y)``; ``x``
             is the width axis, ``y`` the height axis.
-        generator: Optional :class:`torch.Generator` for reproducible sampling.
+        seed: Optional integer seed. When given, an internal
+            :class:`torch.Generator` (on the field's device) is seeded with it for
+            reproducible sampling; otherwise the global RNG is used.
     """
 
     def __init__(
         self,
         tilt_std: float | tuple[float, float],
         *,
-        generator: torch.Generator | None = None,
+        seed: int | None = None,
     ) -> None:
         super().__init__()
         self.tilt_std = self._as_pair(tilt_std)
-        self.generator = generator
+        self.seed = seed
+        # Built lazily on the field's device in lazy_init (None -> global RNG).
+        self._generator: torch.Generator | None = None
         # Last sampled tilt (and the angles), so adjoint() can invert the most
         # recent forward() and recordables() / tests can inspect the sampled angles.
         self._last_tilt: Tensor | None = None
@@ -48,7 +52,7 @@ class PointingInstability(OpticsModule):
         focal_shift_std: float | tuple[float, float],
         focal_length: float,
         *,
-        generator: torch.Generator | None = None,
+        seed: int | None = None,
     ) -> PointingInstability:
         """Build with the tilt std given as a focal-spot displacement [m] instead
         of an angle.
@@ -60,7 +64,7 @@ class PointingInstability(OpticsModule):
         std_x, std_y = cls._as_pair(focal_shift_std)
         return cls(
             (std_x / focal_length, std_y / focal_length),
-            generator=generator,
+            seed=seed,
         )
 
     @staticmethod
@@ -105,10 +109,13 @@ class PointingInstability(OpticsModule):
         )
         self.register_buffer("grid_x", grid_x)
         self.register_buffer("grid_y", grid_y)
+        if self.seed is not None:
+            self._generator = torch.Generator(device=complex_amplitude.device)
+            self._generator.manual_seed(self.seed)
 
     def _normal(self, std: float, device: torch.device) -> Tensor:
         """A 0-d sample from ``N(0, std)``."""
-        return torch.randn((), device=device, generator=self.generator) * std
+        return torch.randn((), device=device, generator=self._generator) * std
 
     def _sampled_tilt(
         self, complex_amplitude: ComplexAmplitude, angle_x: Tensor, angle_y: Tensor

@@ -1,5 +1,7 @@
 from __future__ import annotations
-from collections.abc import Iterator
+import functools
+import inspect
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TypeVar, Type
@@ -25,6 +27,31 @@ class OpticalSystemCheckpoint:
     class_name: str
     spec: dict[str, object]
     state_dict: dict[str, object]
+
+
+def capture_init(init: Callable[..., None]) -> Callable[..., None]:
+    """Decorator for a concrete ``OpticalSystem.__init__`` that records the bound
+    constructor arguments into ``self._init_kwargs``, so the base
+    ``get_checkpoint_spec`` can reproduce them without a hand-written method.
+
+    The original ``__init__`` runs first (so ``nn.Module`` is fully initialised);
+    the captured dict holds the live arguments verbatim (a ``torch.Generator`` is
+    serialized only later, by ``get_checkpoint_spec``).
+    """
+    signature = inspect.signature(init)
+
+    @functools.wraps(init)
+    def wrapper(self, *args, **kwargs) -> None:
+        init(self, *args, **kwargs)
+        bound = signature.bind(self, *args, **kwargs)
+        bound.apply_defaults()
+        self._init_kwargs = {
+            name: value
+            for name, value in bound.arguments.items()
+            if name != "self"
+        }
+
+    return wrapper
 
 
 class OpticalSystem(nn.Module):
@@ -204,10 +231,19 @@ class OpticalSystem(nn.Module):
         return {"input_power": input_power, "modules": modules}
 
     def get_checkpoint_spec(self) -> dict[str, object]:
-        """Return reconstructible keyword arguments for this system."""
-        raise NotImplementedError(
-            f"{self.__class__.__name__} must implement get_checkpoint_spec()."
-        )
+        """Return reconstructible keyword arguments for this system.
+
+        The concrete constructor is captured by the ``@capture_init`` decorator into
+        ``self._init_kwargs`` -- all of which are plain, picklable values.
+        """
+        spec = getattr(self, "_init_kwargs", None)
+        if spec is None:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} must decorate __init__ with "
+                "@capture_init (or override get_checkpoint_spec) to support "
+                "checkpointing."
+            )
+        return dict(spec)
 
     def get_init_kwargs(self) -> dict[str, object]:
         """Backward-compatible alias for the checkpoint spec."""
@@ -309,7 +345,7 @@ class SLMFourierLensModel(OpticalSystem):
         *,
         focal_length: float | None = None,
         pointing_focal_shift_std: float | tuple[float, float] | None = None,
-        pointing_generator: torch.Generator | None = None,
+        pointing_seed: int | None = None,
         **modules: OpticsModule,
     ) -> None:
         """Build the named SLM -> Fourier-lens chain.
@@ -318,8 +354,8 @@ class SLMFourierLensModel(OpticalSystem):
         built from it via :meth:`PointingInstability.from_focal_shift` (using this
         model's ``focal_length``) and inserted immediately after the
         ``StaticSLMField`` stage, so the (static) SLM-plane field carries a freshly
-        sampled beam-pointing tilt on every forward pass. ``pointing_generator``
-        seeds that sampling for reproducibility.
+        sampled beam-pointing tilt on every forward pass. ``pointing_seed`` seeds
+        that sampling for reproducibility.
         """
         super().__init__(input_geometry, **modules)
         self.pointing_focal_shift_std = pointing_focal_shift_std
@@ -332,7 +368,7 @@ class SLMFourierLensModel(OpticalSystem):
             pointing = PointingInstability.from_focal_shift(
                 pointing_focal_shift_std,
                 focal_length,
-                generator=pointing_generator,
+                seed=pointing_seed,
             )
             self.insert_after(StaticSLMField, "pointing_instability", pointing)
 

@@ -221,3 +221,37 @@ def test_load_rejects_wrong_class(name: str, tmp_path) -> None:
     other = SLMFFTAffine if name == "SLMFFT" else SLMFFT
     with pytest.raises(ValueError, match="saved from"):
         other.load(path)
+
+
+def test_checkpoint_preserves_pointing_instability(tmp_path) -> None:
+    """A model built with pointing (and a seed) round-trips through save/load: the
+    PointingInstability and its seed survive, and params match."""
+    from hologradpy.propagation.pointing_instability import PointingInstability
+
+    model = SLMCZT(
+        input_geometry=_input_geometry(),
+        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        camera_resolution=CAMERA_RESOLUTION,
+        camera_pixel_size=CAMERA_PIXEL_SIZE,
+        focal_length=0.1,
+        static_slm_field=_static_slm_field(),
+        camera_angle=5.0,
+        camera_shift=(1.0, 2.0),
+        pointing_focal_shift_std=2e-6,
+        pointing_seed=7,
+    )
+    assert model.has(PointingInstability)
+    _ = model()  # lazily create parameters
+    expected_params = {k: v.clone() for k, v in model.named_parameters()}
+
+    path = str(tmp_path / "czt_pointing.pt")
+    model.save(path)
+    restored = SLMCZT.load(path)
+
+    assert restored.has(PointingInstability)
+    # The seed survived (a plain int in the spec).
+    assert restored.get(PointingInstability).seed == 7
+    restored_params = dict(restored.named_parameters())
+    assert restored_params.keys() == expected_params.keys()
+    for key in expected_params:
+        torch.testing.assert_close(restored_params[key], expected_params[key])
