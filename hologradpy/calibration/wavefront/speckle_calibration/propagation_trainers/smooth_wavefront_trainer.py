@@ -108,8 +108,8 @@ class SmoothWavefrontTrainer(PropagationTrainer):
         target *= self.roi_mask_torch
 
         # TODO (PS): Make type hints work for the two lines below
-        amplitude: torch.Tensor = self.slm_camera_model.constant_field.amplitude
-        phase: torch.Tensor = self.slm_camera_model.constant_field.phase
+        amplitude: torch.Tensor = self.slm_camera_model.static_slm_field.amplitude
+        phase: torch.Tensor = self.slm_camera_model.static_slm_field.phase
 
         amplitude = (amplitude / amplitude.mean()).abs()
 

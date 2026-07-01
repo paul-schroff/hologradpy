@@ -72,7 +72,7 @@ class DatasetGenerator:
 
         virtual_slm: VirtualSLM = VirtualSLM(self.slm)
 
-        constant_field: StaticSLMField = StaticSLMField(
+        static_slm_field: StaticSLMField = StaticSLMField(
             init_field=torch.ones(self.slm.shape),
             pixel_pitch=virtual_slm.slm.pitch_um[0] * 1e-6,
         )
@@ -99,7 +99,7 @@ class DatasetGenerator:
             OrderedDict(
                 [
                     ("virtual_slm", virtual_slm),
-                    ("constant_field", constant_field),
+                    ("static_slm_field", static_slm_field),
                     ("fourier_lens", fourier_lens),
                     ("affine_transform", affine_transform),
                 ]

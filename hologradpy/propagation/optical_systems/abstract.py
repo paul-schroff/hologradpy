@@ -9,6 +9,8 @@ from ..virtual_slms.abstract import VirtualSLM
 
 from ..optics_module import OpticsModule
 from ..complex_amplitude import ComplexAmplitude, FieldGeometry
+from ..diagonal_elements import StaticSLMField
+from ..pointing_instability import PointingInstability
 
 
 T = TypeVar("T", bound=nn.Module)
@@ -52,6 +54,39 @@ class OpticalSystem(nn.Module):
 
         setattr(self, name, module)
         self._order.append(name)
+
+    def insert_after(
+        self,
+        reference: str | Type[OpticsModule],
+        name: str,
+        module: OpticsModule,
+    ) -> None:
+        """Insert ``module`` immediately after an existing layer.
+
+        ``reference`` is either a layer name or the type of an existing layer
+        (the first match is used).
+        """
+        if hasattr(self, name):
+            raise ValueError(f"Layer '{name}' already exists")
+
+        if isinstance(reference, str):
+            if reference not in self._order:
+                raise KeyError(f"No layer named '{reference}'")
+            index = self._order.index(reference)
+        else:
+            index = next(
+                (
+                    i
+                    for i, existing in enumerate(self._order)
+                    if isinstance(getattr(self, existing), reference)
+                ),
+                None,
+            )
+            if index is None:
+                raise KeyError(f"No module of type {reference.__name__}")
+
+        setattr(self, name, module)
+        self._order.insert(index + 1, name)
 
     def forward(
         self, complex_amplitude: ComplexAmplitude | None = None
@@ -230,6 +265,39 @@ class OpticalSystem(nn.Module):
 class SLMFourierLensModel(OpticalSystem):
     virtual_slm: VirtualSLM
     fourier_lens: OpticsModule
+
+    def __init__(
+        self,
+        input_geometry: FieldGeometry,
+        *,
+        focal_length: float | None = None,
+        pointing_focal_shift_std: float | tuple[float, float] | None = None,
+        pointing_generator: torch.Generator | None = None,
+        **modules: OpticsModule,
+    ) -> None:
+        """Build the named SLM -> Fourier-lens chain.
+
+        If ``pointing_focal_shift_std`` is given, a :class:`PointingInstability` is
+        built from it via :meth:`PointingInstability.from_focal_shift` (using this
+        model's ``focal_length``) and inserted immediately after the
+        ``StaticSLMField`` stage, so the (static) SLM-plane field carries a freshly
+        sampled beam-pointing tilt on every forward pass. ``pointing_generator``
+        seeds that sampling for reproducibility.
+        """
+        super().__init__(input_geometry, **modules)
+        self.pointing_focal_shift_std = pointing_focal_shift_std
+        if pointing_focal_shift_std is not None:
+            if focal_length is None:
+                raise ValueError(
+                    "focal_length is required to build a PointingInstability "
+                    "from pointing_focal_shift_std."
+                )
+            pointing = PointingInstability.from_focal_shift(
+                pointing_focal_shift_std,
+                focal_length,
+                generator=pointing_generator,
+            )
+            self.insert_after(StaticSLMField, "pointing_instability", pointing)
 
     def forward(
         self, complex_amplitude: ComplexAmplitude | None = None

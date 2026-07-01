@@ -1,3 +1,5 @@
+import torch
+
 from ..propagators import FourierLensFFT
 from ..diagonal_elements import StaticSLMField
 from ..geometric_transforms import PartialAffineTransform
@@ -9,7 +11,7 @@ from .abstract import SLMFourierLensModel
 
 class SLMFFTAffine(SLMFourierLensModel):
     virtual_slm: VirtualSLM
-    constant_field: StaticSLMField
+    static_slm_field: StaticSLMField
     fourier_lens: FourierLensFFT
     affine_transform: PartialAffineTransform
 
@@ -25,11 +27,16 @@ class SLMFFTAffine(SLMFourierLensModel):
         camera_angle: float = 0.0,
         camera_shift: tuple[float, float] = (0.0, 0.0),
         power_normalized: bool = True,
+        pointing_focal_shift_std: float | tuple[float, float] | None = None,
+        pointing_generator: torch.Generator | None = None,
     ) -> None:
         super().__init__(
             input_geometry=input_geometry,
+            focal_length=focal_length,
+            pointing_focal_shift_std=pointing_focal_shift_std,
+            pointing_generator=pointing_generator,
             virtual_slm=virtual_slm,
-            constant_field=static_slm_field,
+            static_slm_field=static_slm_field,
             fourier_lens=FourierLensFFT(
                 focal_length,
                 padded_resolution=padded_resolution,
@@ -58,9 +65,10 @@ class SLMFFTAffine(SLMFourierLensModel):
             "camera_resolution": tuple(self.affine_transform.resolution_out),
             "camera_pixel_size": camera_pixel_size,
             "focal_length": float(self.fourier_lens.focal_length.item()),
-            "static_slm_field": self.constant_field,
+            "static_slm_field": self.static_slm_field,
             "padded_resolution": self.fourier_lens._padded_resolution_init,
             "camera_angle": float(self.affine_transform.init_angle),
             "camera_shift": tuple(self.affine_transform.init_shift),
             "power_normalized": self.fourier_lens.power_normalized,
+            "pointing_focal_shift_std": self.pointing_focal_shift_std,
         }

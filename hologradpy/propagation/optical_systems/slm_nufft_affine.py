@@ -1,3 +1,5 @@
+import torch
+
 from ..propagators import FourierLensNUFFT
 from ..diagonal_elements import StaticSLMField
 from ..geometric_transforms import PartialAffineTransform
@@ -19,7 +21,7 @@ class SLMNUFFTAffine(SLMFourierLensModel):
     """
 
     virtual_slm: VirtualSLM
-    constant_field: StaticSLMField
+    static_slm_field: StaticSLMField
     fourier_lens: FourierLensNUFFT
     affine_transform: PartialAffineTransform
 
@@ -35,6 +37,8 @@ class SLMNUFFTAffine(SLMFourierLensModel):
         camera_angle: float = 0.0,
         camera_shift: tuple[float, float] = (0.0, 0.0),
         power_normalized: bool = True,
+        pointing_focal_shift_std: float | tuple[float, float] | None = None,
+        pointing_generator: torch.Generator | None = None,
     ) -> None:
         # The NUFFT outputs a slightly oversized grid so the learnable affine
         # has margin to shift/rotate without cropping signal.
@@ -45,8 +49,11 @@ class SLMNUFFTAffine(SLMFourierLensModel):
 
         super().__init__(
             input_geometry=input_geometry,
+            focal_length=focal_length,
+            pointing_focal_shift_std=pointing_focal_shift_std,
+            pointing_generator=pointing_generator,
             virtual_slm=virtual_slm,
-            constant_field=static_slm_field,
+            static_slm_field=static_slm_field,
             fourier_lens=FourierLensNUFFT(
                 focal_length,
                 resolution_out=nufft_resolution,
@@ -76,9 +83,10 @@ class SLMNUFFTAffine(SLMFourierLensModel):
             "camera_resolution": tuple(self.affine_transform.resolution_out),
             "camera_pixel_size": camera_pixel_size,
             "focal_length": float(self.fourier_lens.focal_length),
-            "static_slm_field": self.constant_field,
+            "static_slm_field": self.static_slm_field,
             "nufft_resolution": tuple(self.fourier_lens.resolution_out),
             "camera_angle": float(self.fourier_lens.angle_init),
             "camera_shift": tuple(self.fourier_lens.shift_init),
             "power_normalized": self.fourier_lens.power_normalized,
+            "pointing_focal_shift_std": self.pointing_focal_shift_std,
         }

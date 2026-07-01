@@ -9,8 +9,6 @@ transpose of ``forward``, and gradients flow to all three affine parameters
 
 from __future__ import annotations
 
-import math
-
 import pytest
 import torch
 
@@ -75,7 +73,7 @@ def test_czt_lens_power_normalized_conserves_power() -> None:
 def test_czt_lens_adjoint_is_conjugate_transpose() -> None:
     lens = FourierLensCZT(
         FOCAL_LENGTH, RESOLUTION, (5e-6, 8e-6),
-        shift=(1.0, 2.0), angle=math.radians(8), learnable=False,
+        shift=(1.0, 2.0), angle=8.0, learnable=False,
     )
     x = make_field((2, *RESOLUTION), 2, seed=0)
     lens(x)  # lazily initialise
@@ -117,7 +115,7 @@ def test_czt_lens_preserves_batch_rank_and_geometry() -> None:
     field = make_field((3, 2, *RESOLUTION), 2, seed=4)
     lens = FourierLensCZT(
         FOCAL_LENGTH, (10, 14), (5e-6, 8e-6), shift=(1.5, -2.0),
-        angle=math.radians(12),
+        angle=12.0,
     )
     out = lens(field)
     assert out._data.shape == (3, 2, 10, 14)

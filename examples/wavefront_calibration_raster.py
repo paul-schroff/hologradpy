@@ -20,9 +20,9 @@ from hologradpy.visualizer import GridCell, PlotBuilder, PlotLayout
 
 from hologradpy.propagation.optical_systems import SLMCZT
 from hologradpy.propagation.diagonal_elements import StaticSLMField
+from hologradpy.propagation.pointing_instability import PointingInstability
 
 from hologradpy.propagation.amplitude_profiles import gaussian_beam_intensity
-from hologradpy.propagation.phase_profiles import linear_phase
 from hologradpy.propagation.zernike import Zernike
 from hologradpy.utils import get_device, gpu_to_numpy, pad_from_roi
 
@@ -75,9 +75,12 @@ simulated_camera_model = SLMCZT(
     focal_length=0.25,
     static_slm_field=StaticSLMField(gaussian_beam),
     camera_angle=0,
-    camera_shift=(0, 0),
-    power_normalized=True,
+    camera_shift=(20, -10),
+    pointing_focal_shift_std=1e-6,
 )
+
+# Grab PointingInstability internally so we can read its per-frame tilt below.
+pointing_instability = simulated_camera_model.get(PointingInstability)
 
 camera = SimulatedCameraTorch(
     simulated_camera_model,
@@ -152,56 +155,36 @@ plt.figure()
 plt.imshow(slm.display, cmap="magma")
 plt.colorbar()
 
-# %% Drift-injection demo: simulate beam pointing drift and show it is tracked.
-# The simulator has no pointing parameter, so wrap slm.set_phase to add a global
-# tilt that grows each frame (a common-mode shift of every diffraction spot).
-grid_x_np, grid_y_np = [gpu_to_numpy(g) for g in slm.get_spatial_grid(device)]
-wavenumber = 2 * np.pi / (slm.wav_um * 1e-6)
-drift_step = (0.2e-6, -0.1e-6)  # (x, y) metres of camera shift added per display
-
-drift_state = {"n": 0}
-original_set_phase = slm.set_phase
-
-
-def drifting_set_phase(phase, *args, **kwargs):
-    tilt = linear_phase(
-        grid_x_np,
-        grid_y_np,
-        drift_state["n"] * drift_step[0],
-        drift_state["n"] * drift_step[1],
-        tilt_units="metres",
-        focal_length=0.25,
-        wavenumber=wavenumber,
-    )
-    drift_state["n"] += 1
-    return original_set_phase(phase + tilt, *args, **kwargs)
-
-
-slm.set_phase = drifting_set_phase
+# %% Pointing-noise demo: PointingInstability injects the jitter, the lattice tracks it.
 # Record the displayed SLM phase per superpixel so the scan can be visualized.
-phase, _, _ = calibrator.measure_phase(
-    number_of_superpixels_x=20,
-    number_of_superpixels_y=16,
-    superpixel_width=32,
-    superpixel_height=32,
-    linear_phase_tilt=(500e-6, 500e-6),
-    measured_intensity=intensity,
-    compensate_pointing=True,
-    lattice_phase_tilt=(-800e-6, -800e-6),
-    verbose=True,
-    record_displayed_phases=True,
-)
-slm.set_phase = original_set_phase  # restore
+with pointing_instability.record_samples():
+    phase, _, _ = calibrator.measure_phase(
+        number_of_superpixels_x=20,
+        number_of_superpixels_y=16,
+        superpixel_width=32,
+        superpixel_height=32,
+        linear_phase_tilt=(500e-6, 500e-6),
+        measured_intensity=intensity,
+        compensate_pointing=True,
+        lattice_phase_tilt=(-800e-6, -800e-6),
+        verbose=True,
+        record_displayed_phases=True,
+    )
 
 data = calibrator.visualization_data
 visualizer = RasterCalibratorVisualizer(data)
 
 visualizer.save_gif("wavefront_calibration_raster.gif", max_frames=1000, dpi=100)
 
-# Compare the tracked (lattice-measured) shift against the injected drift.
-frame_index = np.arange(len(data.lattice_shift_x))
-injected_x = frame_index * drift_step[0] + data.lattice_shift_x[0]
-injected_y = frame_index * drift_step[1] + data.lattice_shift_y[0]
+number_of_superpixels = len(data.lattice_shift_x)
+angles = pointing_instability.angle_history.cpu().numpy()  # (n, 2): [angle_x, angle_y]
+angle_x = angles[:, 0]
+angle_y = angles[:, 1]
+baseline = -(number_of_superpixels + 1)
+
+focal_length = simulated_camera_model.fourier_lens.focal_length
+injected_x = focal_length * (angle_x[-number_of_superpixels:] - angle_x[baseline])
+injected_y = focal_length * (angle_y[-number_of_superpixels:] - angle_y[baseline])
 
 drift_figure = visualizer.plot_drift_tracking(injected_x, injected_y)
 

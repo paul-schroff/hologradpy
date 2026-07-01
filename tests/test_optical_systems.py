@@ -51,17 +51,18 @@ def _static_slm_field() -> StaticSLMField:
     return StaticSLMField(_constant_field())
 
 
-def _make_slm_fft() -> SLMFFT:
+def _make_slm_fft(pointing_focal_shift_std=None) ->SLMFFT:
     return SLMFFT(
         input_geometry=_input_geometry(),
         virtual_slm=VirtualSLM(phase_scaling=1.0),
         static_slm_field=_static_slm_field(),
         focal_length=0.1,
         padded_resolution=PADDED_RESOLUTION,
+        pointing_focal_shift_std=pointing_focal_shift_std,
     )
 
 
-def _make_slm_fft_affine() -> SLMFFTAffine:
+def _make_slm_fft_affine(pointing_focal_shift_std=None) ->SLMFFTAffine:
     return SLMFFTAffine(
         input_geometry=_input_geometry(),
         virtual_slm=VirtualSLM(phase_scaling=1.0),
@@ -70,10 +71,11 @@ def _make_slm_fft_affine() -> SLMFFTAffine:
         focal_length=0.1,
         static_slm_field=_static_slm_field(),
         padded_resolution=PADDED_RESOLUTION,
+        pointing_focal_shift_std=pointing_focal_shift_std,
     )
 
 
-def _make_slm_nufft_affine() -> SLMNUFFTAffine:
+def _make_slm_nufft_affine(pointing_focal_shift_std=None) ->SLMNUFFTAffine:
     return SLMNUFFTAffine(
         input_geometry=_input_geometry(),
         virtual_slm=VirtualSLM(phase_scaling=1.0),
@@ -83,10 +85,11 @@ def _make_slm_nufft_affine() -> SLMNUFFTAffine:
         static_slm_field=_static_slm_field(),
         camera_angle=5.0,
         camera_shift=(1.0, 2.0),
+        pointing_focal_shift_std=pointing_focal_shift_std,
     )
 
 
-def _make_slm_czt() -> SLMCZT:
+def _make_slm_czt(pointing_focal_shift_std=None) ->SLMCZT:
     return SLMCZT(
         input_geometry=_input_geometry(),
         virtual_slm=VirtualSLM(phase_scaling=1.0),
@@ -96,6 +99,7 @@ def _make_slm_czt() -> SLMCZT:
         static_slm_field=_static_slm_field(),
         camera_angle=5.0,
         camera_shift=(1.0, 2.0),
+        pointing_focal_shift_std=pointing_focal_shift_std,
     )
 
 
@@ -145,6 +149,35 @@ def test_layers_named_and_ordered(name: str) -> None:
 def test_forward_repeatable(name: str) -> None:
     model = SYSTEM_FACTORIES[name]()
     torch.testing.assert_close(model()._data, model()._data)
+
+
+def test_insert_after_places_module_in_chain() -> None:
+    from hologradpy.propagation.pointing_instability import PointingInstability
+
+    model = _make_slm_czt()
+    model.insert_after(StaticSLMField, "jitter", PointingInstability(1e-4))
+    order = list(model.layers())
+    assert order[order.index("static_slm_field") + 1] == "jitter"
+    assert model["jitter"] is model.get(PointingInstability)
+    assert isinstance(model(), ComplexAmplitude)  # forward still runs
+
+
+@pytest.mark.parametrize("name", SYSTEM_IDS)
+def test_pointing_instability_inserted_after_static_field(name: str) -> None:
+    """Each SLM model builds a PointingInstability from pointing_focal_shift_std
+    (using its own focal_length) and inserts it right after its StaticSLMField
+    stage (whatever that layer happens to be named)."""
+    from hologradpy.propagation.pointing_instability import PointingInstability
+
+    # Factories all use focal_length=0.1, so tilt_std = focal_shift_std / 0.1.
+    model = SYSTEM_FACTORIES[name](pointing_focal_shift_std=2e-6)
+
+    assert model.has(PointingInstability)
+    order = list(model.layers())
+    static_name = next(n for n in order if isinstance(model[n], StaticSLMField))
+    assert order[order.index(static_name) + 1] == "pointing_instability"
+    assert model.get(PointingInstability).tilt_std == (2e-6 / 0.1, 2e-6 / 0.1)
+    assert isinstance(model(), ComplexAmplitude)  # forward still runs
 
 
 @pytest.mark.parametrize("name", SYSTEM_IDS)

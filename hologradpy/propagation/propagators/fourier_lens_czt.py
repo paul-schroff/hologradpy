@@ -21,7 +21,7 @@ class FourierLensCZT(OpticsModule):
     the chirp-z samples the exact spectrum at any spacing.
 
     ``scale_factor`` (per-axis zoom multiplier), ``shift`` (focal-plane offset in
-    output pixels) and ``angle`` (rotation in radians) are ``nn.Parameter`` s
+    output pixels) and ``angle`` (rotation in degrees) are ``nn.Parameter`` s
     (``requires_grad=learnable``), so the focal-plane affine map can be calibrated
     by gradient descent. ``angle`` rotates the input field with a differentiable
     three-shear FFT rotation; ``scale`` / ``shift`` enter the chirp-z directly.
@@ -46,7 +46,7 @@ class FourierLensCZT(OpticsModule):
 
         self.focal_length: float = focal_length
         self.shift_init: tuple[float, float] = shift
-        self.angle_init: float = angle
+        self.angle_init: float = angle  # degrees
         self.learnable: bool = learnable
         self.power_normalized: bool = power_normalized
 
@@ -110,10 +110,11 @@ class FourierLensCZT(OpticsModule):
         self: FourierLensCZT, field: Tensor, inverse: bool
     ) -> Tensor:
         """Rotate the (last two) field axes by the learnable angle (or its
-        negative for the adjoint). When the parameters are learnable the
+        negative for the adjoint). ``self.angle`` is in degrees and is converted to
+        radians for the shear rotation. When the parameters are learnable the
         differentiable tensor path is always taken so a gradient flows even at
         ``angle == 0``."""
-        angle = -self.angle if inverse else self.angle
+        angle = torch.deg2rad(-self.angle if inverse else self.angle)
         if self.learnable:
             return shear_rotate(field, angle)
         angle_value = float(angle)

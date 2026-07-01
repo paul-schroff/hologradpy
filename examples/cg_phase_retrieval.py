@@ -78,7 +78,7 @@ plt.imshow(gpu_to_numpy(init_intensity), cmap="turbo")
 plt.title("Initial Simulated Camera Image")
 plt.colorbar(label="Intensity (a.u.)")
 
-slm_power = slm_camera_model.constant_field.amplitude**2
+slm_power = slm_camera_model.static_slm_field.amplitude**2
 image_power = init_intensity.sum()
 
 print(f"SLM Power: {slm_power.sum().item()}")
