@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import TypedDict, Any  # , Self
+import functools
+from typing import Callable, TypedDict, Any  # , Self
 
 import torch
 from torch import nn, Tensor
@@ -16,83 +17,159 @@ class SaveDict(TypedDict):
     pixel_size_out: Tensor
 
 
+def _auto_init_forward(forward: Callable) -> Callable:
+    """Wrap a subclass ``forward`` so the module lazily initialises itself from
+    its input field on first use (replaces the old forward pre-hook)."""
+
+    @functools.wraps(forward)
+    def wrapper(self, complex_amplitude, *args, **kwargs):
+        if not self.initialized:
+            self._lazy_initialize(complex_amplitude)
+        return forward(self, complex_amplitude, *args, **kwargs)
+
+    wrapper._optics_wrapped = True
+    return wrapper
+
+
+def _auto_init_adjoint(adjoint: Callable) -> Callable:
+    """Wrap a subclass ``adjoint`` so it requires the module to be initialised
+    first -- its input is an output-plane field, so it cannot infer the input
+    geometry and must have seen a forward() / initialize_from_geometry()."""
+
+    @functools.wraps(adjoint)
+    def wrapper(self, complex_amplitude, *args, **kwargs):
+        self._ensure_initialized()
+        return adjoint(self, complex_amplitude, *args, **kwargs)
+
+    wrapper._optics_wrapped = True
+    return wrapper
+
+
 class OpticsModule(RecordingMixin, nn.Module):
+    """Base class for an optical element (a differentiable field transform).
+
+    Subclassing contract:
+    - Implement ``forward(field) -> field`` and, if invertible, ``adjoint(field)``.
+    - Initialisation is **automatic**: the module lazily initialises from the input
+      field on the first ``forward``; ``adjoint`` requires a prior ``forward`` (or
+      ``initialize_from_geometry``) because its input carries the *output*-plane
+      geometry. You never call an init/guard yourself.
+    - Build any device/geometry-dependent state (buffers, Parameters, transforms)
+      by overriding ``lazy_init(field)`` -- it runs once, before the first
+      forward/adjoint, with the input geometry available via ``pixel_size_in`` /
+      ``resolution_in`` / ``input_geometry``.
+    - Output sampling defaults to the input (sampling-preserving). To change it,
+      pass ``pixel_size_out`` / ``resolution_out`` to ``super().__init__()`` (when
+      known at construction) or call ``self.set_output_geometry(...)`` in
+      ``lazy_init``.
+    """
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        # Auto-wrap the subclass's forward/adjoint so initialisation is automatic
+        # and symmetric. Only wrap methods the subclass defines itself, and never
+        # double-wrap.
+        super().__init_subclass__(**kwargs)
+        forward = cls.__dict__.get("forward")
+        if forward is not None and not getattr(forward, "_optics_wrapped", False):
+            cls.forward = _auto_init_forward(forward)
+        adjoint = cls.__dict__.get("adjoint")
+        if adjoint is not None and not getattr(adjoint, "_optics_wrapped", False):
+            cls.adjoint = _auto_init_adjoint(adjoint)
     def __init__(
         self,
         pixel_size_out: tuple[float, float] | None = None,
         resolution_out: tuple[int, int] | None = None,
     ) -> None:
-        """Base class to simulate the propagation of light.
-        OpticsModule can be lazily initialised, meaning without
-        prior knowledge of the dimensions of the input ElectricField.
-        The input and output dimensions are initialised before the first
-        forward() call.
-
-        Args:
-            pixel_size_out (Tuple[float, float] | None, optional):
-                Output pixel size in meters (height, width). Defaults to
-                None.
-            resolution_out (Tuple[int, int] | None, optional): Output
-                resolution in pixels (height, width). Defaults to None.
+        """Args:
+        pixel_size_out (tuple[float, float] | None): Output pixel size in metres
+            (height, width) when known at construction. Defaults to None
+            (sampling-preserving, or set later via set_output_geometry()).
+        resolution_out (tuple[int, int] | None): Output resolution in pixels
+            (height, width) when known at construction. Defaults to None.
         """
         super().__init__()
-
         self._pixel_size_out_init = pixel_size_out
-
         self._resolution_out: tuple[int, int] | None = resolution_out
-
         self._input_geometry: FieldGeometry | None = None
-
         self._pixel_size_out: Tensor | None = None
-
-        self._init_hook = self.register_forward_pre_hook(self._initialize_from_input)
-
         self.initialized = False
 
     def lazy_init(self, complex_amplitude: ComplexAmplitude) -> None:
-        """Needs to assign values to:
-        - self._pixel_size_out
-        - self._resolution_out
+        """Build device/geometry-dependent state (buffers, Parameters, transforms).
+
+        Called once, automatically, before the first forward()/adjoint(), with the
+        input geometry available via self.pixel_size_in / resolution_in /
+        input_geometry. The output geometry is already set (to the input, or to the
+        pixel_size_out/resolution_out passed at construction); call
+        self.set_output_geometry(...) here to change it. The base builds nothing.
         """
+        return
+
+    def set_output_geometry(
+        self,
+        resolution: tuple[int, int] | None = None,
+        pixel_size: tuple[float, float] | Tensor | None = None,
+    ) -> None:
+        """Declare the module's output-plane sampling from within lazy_init().
+
+        Call this when the module changes resolution and/or pixel size; omitted
+        arguments keep the current default (the input geometry). ``pixel_size`` may
+        be a ``(height, width)`` tuple or a tensor.
+        """
+        if resolution is not None:
+            self._resolution_out = resolution
+        if pixel_size is not None:
+            if isinstance(pixel_size, Tensor):
+                self._pixel_size_out = pixel_size
+            else:
+                self._pixel_size_out = torch.tensor(
+                    pixel_size,
+                    device=self.pixel_size_in.device,
+                    dtype=self.pixel_size_in.dtype,
+                )
+
+    def _set_default_output_geometry(self) -> None:
+        """Default output geometry: the values passed at construction, else the
+        input geometry (sampling-preserving). Runs before lazy_init()."""
         if self._pixel_size_out_init is None:
             self._pixel_size_out = self.pixel_size_in
         else:
             self._pixel_size_out = torch.tensor(
                 self._pixel_size_out_init,
-                device=complex_amplitude.pixel_size.device,
-                dtype=complex_amplitude.pixel_size.dtype,
+                device=self.pixel_size_in.device,
+                dtype=self.pixel_size_in.dtype,
             )
-
         if self._resolution_out is None:
             self._resolution_out = self.resolution_in
 
-    def _lazy_initialize(self, complex_amplitude: ComplexAmplitude) -> None:
-        """Run lazy initialization from an input-plane field (or probe)."""
-        self._input_geometry = complex_amplitude.geometry
-        self.initialized = True
-
-        self.lazy_init(complex_amplitude)
-
+    def _finalize_output_geometry(self) -> None:
+        """Validate the output geometry is set and broadcast the output pixel size
+        across wavelengths."""
         if self._resolution_out is None or self._pixel_size_out is None:
             raise ValueError(
-                "OpticsModule subclasses must set _pixel_size_out and "
-                "_resolution_out in lazy_init()."
+                f"{type(self).__name__}: output geometry is unset after "
+                "lazy_init(). Pass pixel_size_out/resolution_out to __init__ or "
+                "call set_output_geometry() in lazy_init()."
             )
-
         if self._pixel_size_out.ndim == 1:
             self._pixel_size_out = self._pixel_size_out.unsqueeze(0)
         if (
             self._pixel_size_out.shape[0] == 1
-            and complex_amplitude.geometry.number_of_wavelengths > 1
+            and self.input_geometry.number_of_wavelengths > 1
         ):
             self._pixel_size_out = self._pixel_size_out.repeat(
-                complex_amplitude.geometry.number_of_wavelengths, 1
+                self.input_geometry.number_of_wavelengths, 1
             )
 
-        self._init_hook.remove()
-
-    def _initialize_from_input(self, module, inputs) -> None:
-        self._lazy_initialize(inputs[0])
+    def _lazy_initialize(self, complex_amplitude: ComplexAmplitude) -> None:
+        """Initialise from an input-plane field (or probe): record the input
+        geometry, set the default output geometry, let the subclass build its state
+        in lazy_init(), then validate + broadcast the output geometry."""
+        self._input_geometry = complex_amplitude.geometry
+        self.initialized = True
+        self._set_default_output_geometry()
+        self.lazy_init(complex_amplitude)
+        self._finalize_output_geometry()
 
     def initialize_from_geometry(
         self,

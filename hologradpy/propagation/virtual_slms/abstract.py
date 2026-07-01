@@ -30,8 +30,6 @@ class VirtualSLM(OpticsModule):
         self.init_phase: torch.Tensor | None = init_phase
 
     def lazy_init(self, complex_amplitude: ComplexAmplitude) -> None:
-        super().lazy_init(complex_amplitude)
-
         if self.init_phase is None:
             self.init_phase = torch.zeros(
                 self.resolution_in,

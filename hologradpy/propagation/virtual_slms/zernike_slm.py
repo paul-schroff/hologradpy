@@ -3,7 +3,6 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-from ..optics_module import OpticsModule
 from ..complex_amplitude import (
     ComplexAmplitude,
     broadcast_wavelength_operand,
@@ -59,10 +58,8 @@ class ZernikeSLM(VirtualSLM):
         self.unit_disk_mode: str = unit_disk_mode
 
     def lazy_init(self: ZernikeSLM, complex_amplitude: ComplexAmplitude) -> None:
-        # Set pixel_size_out / resolution_out without creating VirtualSLM's
-        # per-pixel phase Parameter, which ZernikeSLM does not use.
-        OpticsModule.lazy_init(self, complex_amplitude)
-
+        # Intentionally does NOT call VirtualSLM.lazy_init: ZernikeSLM builds its
+        # phase from Zernike coefficients, not VirtualSLM's per-pixel Parameter.
         number_of_wavelengths = complex_amplitude.number_of_wavelengths
 
         # Build the (n_coefficients, H, W) Zernike basis for the input

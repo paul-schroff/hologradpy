@@ -71,7 +71,6 @@ class DiagonalElement(OpticsModule):
         self: DiagonalElement, complex_amplitude: ComplexAmplitude
     ) -> ComplexAmplitude:
         """Conjugate transpose of :meth:`forward`."""
-        self._ensure_initialized()
         return self._modulate(complex_amplitude, self.get_transmission().conj())
 
 
@@ -84,8 +83,6 @@ class StaticSLMField(DiagonalElement):
         self.init_field: ComplexAmplitude | None = init_field
 
     def lazy_init(self: StaticSLMField, complex_amplitude: ComplexAmplitude) -> None:
-        super().lazy_init(complex_amplitude)
-
         if self.init_field is None:
             number_of_wavelengths = complex_amplitude.number_of_wavelengths
             # A uniform default field is wavelength-independent, but the
@@ -170,8 +167,6 @@ class SimpleLens(DiagonalElement):
         self.aperture_radius: float = aperture_radius
 
     def lazy_init(self: SimpleLens, complex_amplitude: ComplexAmplitude) -> None:
-        super().lazy_init(complex_amplitude)
-
         grid_x, grid_y = get_spatial_grid(
             self.resolution_in,
             tuple(self.pixel_size_in[0].tolist()),
@@ -233,8 +228,6 @@ class DoubletLens(DiagonalElement):
         self.shift: tuple[float, float] = shift
 
     def lazy_init(self: DoubletLens, complex_amplitude: ComplexAmplitude) -> None:
-        super().lazy_init(complex_amplitude)
-
         grid_x, grid_y = get_spatial_grid(
             self.resolution_in,
             tuple(self.pixel_size_in[0].tolist()),
@@ -296,8 +289,6 @@ class ZernikePhase(DiagonalElement):
         self.unit_disk_mode: str = unit_disk_mode
 
     def lazy_init(self: ZernikePhase, complex_amplitude: ComplexAmplitude) -> None:
-        super().lazy_init(complex_amplitude)
-
         # Build the (n_coefficients, H, W) Zernike basis for the input
         # resolution and keep it as a buffer.
         zernike = Zernike(

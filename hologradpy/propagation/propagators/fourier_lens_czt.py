@@ -51,12 +51,8 @@ class FourierLensCZT(OpticsModule):
         self.power_normalized: bool = power_normalized
 
     def lazy_init(self: FourierLensCZT, complex_amplitude: ComplexAmplitude) -> None:
-        self._pixel_size_out = torch.tensor(
-            self._pixel_size_out_init,
-            device=complex_amplitude.pixel_size.device,
-            dtype=complex_amplitude.pixel_size.dtype,
-        )
-
+        # Output geometry (pixel_size_out / resolution_out) is set from the
+        # constructor args by the base before this runs.
         self._input_resolution: tuple[int, int] = tuple(complex_amplitude.resolution)
         resolution_in = torch.tensor(
             self._input_resolution,
@@ -170,7 +166,6 @@ class FourierLensCZT(OpticsModule):
     ) -> ComplexAmplitude:
         """Conjugate transpose of :meth:`forward`: the chirp-z adjoint followed by
         the inverse rotation."""
-        self._ensure_initialized()
 
         flat_field, batch_spec = complex_amplitude.flatten_batch()
         scale = self.scale_factor.abs() * self._base_magnification

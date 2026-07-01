@@ -41,8 +41,11 @@ class FourierLensFFT(OpticsModule):
         self.kwargs = kwargs
 
     def lazy_init(self, complex_amplitude: ComplexAmplitude) -> None:
+        # This lens genuinely computes its output geometry from the input; it sets
+        # _resolution_out / _pixel_size_out directly (pixel_size_out is also a
+        # dynamic property below). Branch on which constructor arg was given.
         # Only padded_resolution is provided
-        if self._padded_resolution_init is not None and self._pixel_size_out is None:
+        if self._padded_resolution_init is not None:
             # check if the provided padded resolution is at least
             # as large as the input resolution
             if (
@@ -235,7 +238,6 @@ class FourierLensFFT(OpticsModule):
         return out
 
     def adjoint(self, complex_amplitude: ComplexAmplitude) -> ComplexAmplitude:
-        self._ensure_initialized()
 
         # Perform inverse 2D FFT and FFT shift if specified
         padded_complex_amplitude = self._transform.adjoint(complex_amplitude)

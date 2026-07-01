@@ -100,8 +100,7 @@ class PointingInstability(OpticsModule):
     def lazy_init(
         self: PointingInstability, complex_amplitude: ComplexAmplitude
     ) -> None:
-        # Sampling-preserving: output geometry == input geometry.
-        super().lazy_init(complex_amplitude)
+        # Sampling-preserving (output geometry == input); build the spatial grids.
         grid_x, grid_y = get_spatial_grid(
             self.resolution_in,
             tuple(self.pixel_size_in[0].tolist()),
@@ -155,7 +154,6 @@ class PointingInstability(OpticsModule):
     ) -> ComplexAmplitude:
         """Conjugate transpose of the most recent :meth:`forward` (the unitary
         inverse of the last sampled tilt): undo the tilt."""
-        self._ensure_initialized()
         if self._last_tilt is None:
             raise RuntimeError(
                 "PointingInstability.adjoint() needs a prior forward() -- it "

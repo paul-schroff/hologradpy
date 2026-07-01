@@ -54,8 +54,6 @@ class PartialAffineTransform(OpticsModule):
         self.rotation_center_shift: Parameter | None
 
     def lazy_init(self, complex_amplitude: ComplexAmplitude) -> None:
-        super().lazy_init(complex_amplitude)
-
         number_of_wavelengths = complex_amplitude.wavelength.numel()
 
         # Scaling factor

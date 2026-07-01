@@ -47,8 +47,6 @@ class AngularSpectrumMethod(OpticsModule):
     def lazy_init(
         self: AngularSpectrumMethod, complex_amplitude: ComplexAmplitude
     ) -> None:
-        super().lazy_init(complex_amplitude)
-
         resolution_in = complex_amplitude.resolution
 
         if self._padded_resolution_init is None:
@@ -129,5 +127,4 @@ class AngularSpectrumMethod(OpticsModule):
     ) -> ComplexAmplitude:
         """Back-propagation by ``-propagation_distance`` — the conjugate
         transpose of :meth:`forward`."""
-        self._ensure_initialized()
         return self._propagate(complex_amplitude, self.phase_factor.conj())

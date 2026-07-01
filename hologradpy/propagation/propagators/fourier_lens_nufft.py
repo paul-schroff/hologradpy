@@ -34,12 +34,8 @@ class FourierLensNUFFT(OpticsModule):
         self.power_normalized: bool = power_normalized
 
     def lazy_init(self: FourierLensNUFFT, complex_amplitude: ComplexAmplitude) -> None:
-        self._pixel_size_out = torch.tensor(
-            self._pixel_size_out_init,
-            device=complex_amplitude.pixel_size.device,
-            dtype=complex_amplitude.pixel_size.dtype,
-        )
-
+        # Output geometry (pixel_size_out / resolution_out) is set from the
+        # constructor args by the base before this runs.
         if self._padded_resolution_init is not None:
             # check if the provided padded resolution is at least
             # as large as the input resolution
@@ -206,8 +202,6 @@ class FourierLensNUFFT(OpticsModule):
         ``pixel_size_in``. The module must be initialised first (via ``forward``
         or ``initialize_from_geometry``).
         """
-        self._ensure_initialized()
-
         flat_field, batch_spec = complex_amplitude.flatten_batch()
         input_field = self._transform.adjoint(flat_field)
         if self.power_normalized:
