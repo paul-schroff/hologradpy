@@ -1,9 +1,12 @@
 from __future__ import annotations
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TypeVar, Type
 
 import torch
 import torch.nn as nn
+from torch import Tensor
 
 from ..virtual_slms.abstract import VirtualSLM
 
@@ -11,6 +14,7 @@ from ..optics_module import OpticsModule
 from ..complex_amplitude import ComplexAmplitude, FieldGeometry
 from ..diagonal_elements import StaticSLMField
 from ..pointing_instability import PointingInstability
+from ..recording import RecordingMixin
 
 
 T = TypeVar("T", bound=nn.Module)
@@ -112,6 +116,39 @@ class OpticalSystem(nn.Module):
 
     def has(self, module_type: Type[OpticsModule]) -> bool:
         return any(isinstance(getattr(self, n), module_type) for n in self._order)
+
+    def record(self, enabled: bool = True) -> None:
+        """Toggle recording on every layer that supports it (see
+        :class:`~hologradpy.propagation.recording.RecordingMixin`). Read the
+        per-layer result from :attr:`history`."""
+        for name in self._order:
+            module = getattr(self, name)
+            if isinstance(module, RecordingMixin):
+                module.record(enabled)
+
+    @contextmanager
+    def record_samples(self) -> Iterator[OpticalSystem]:
+        """Record every layer's declared values for the duration of the ``with``
+        block (recording is turned off again on exit). Read them from
+        :attr:`history`."""
+        self.record(True)
+        try:
+            yield self
+        finally:
+            self.record(False)
+
+    @property
+    def history(self) -> dict[str, dict[str, Tensor]]:
+        """Per-layer recording, ``{layer_name: {value_name: (n, ...) tensor}}``,
+        including only layers that recorded something."""
+        result: dict[str, dict[str, Tensor]] = {}
+        for name in self._order:
+            module = getattr(self, name)
+            if isinstance(module, RecordingMixin):
+                layer_history = module.history
+                if layer_history:
+                    result[name] = layer_history
+        return result
 
     def summary(self):
         for i, name in enumerate(self._order):

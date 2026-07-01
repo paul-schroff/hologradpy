@@ -6,6 +6,7 @@ from torch import nn, Tensor
 
 from .complex_amplitude import ComplexAmplitude, FieldGeometry
 from .fourier import get_spatial_grid
+from .recording import RecordingMixin
 
 
 class SaveDict(TypedDict):
@@ -15,7 +16,7 @@ class SaveDict(TypedDict):
     pixel_size_out: Tensor
 
 
-class OpticsModule(nn.Module):
+class OpticsModule(RecordingMixin, nn.Module):
     def __init__(
         self,
         pixel_size_out: tuple[float, float] | None = None,

@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from contextlib import contextmanager
-
 import torch
 from torch import Tensor
 
@@ -41,12 +38,9 @@ class PointingInstability(OpticsModule):
         self.tilt_std = self._as_pair(tilt_std)
         self.generator = generator
         # Last sampled tilt (and the angles), so adjoint() can invert the most
-        # recent forward() and tests can inspect the sampled angles.
+        # recent forward() and recordables() / tests can inspect the sampled angles.
         self._last_tilt: Tensor | None = None
         self._last_angle: tuple[Tensor, Tensor] | None = None
-        # Optional recording of every sampled tilt (see record / record_samples).
-        self._recording: bool = False
-        self._angle_history: list[Tensor] = []
 
     @classmethod
     def from_focal_shift(
@@ -82,34 +76,22 @@ class PointingInstability(OpticsModule):
         per-frame jitter (e.g. to verify a downstream pointing tracker)."""
         return self._last_angle
 
+    def recordables(self) -> dict[str, Tensor]:
+        """Record the sampled beam tilt each forward as ``{"angle": (angle_x,
+        angle_y)}`` (see
+        :class:`~hologradpy.propagation.recording.RecordingMixin`); empty before
+        the first :meth:`forward`."""
+        if self._last_angle is None:
+            return {}
+        angle_x, angle_y = self._last_angle
+        return {"angle": torch.stack((angle_x, angle_y))}
+
     @property
     def angle_history(self) -> Tensor:
-        """The beam tilts sampled while recording was on, as an ``(n, 2)`` tensor
-        ``[angle_x, angle_y]`` per :meth:`forward` (empty ``(0, 2)`` if none was
-        recorded). Populated by :meth:`record` / :meth:`record_samples`."""
-        if not self._angle_history:
-            return torch.empty((0, 2))
-        return torch.stack(self._angle_history)
-
-    def record(self, enabled: bool = True) -> None:
-        """Toggle recording of the per-:meth:`forward` sampled beam tilt.
-
-        Enabling clears any previously recorded history, so each recording starts
-        fresh; disabling keeps it. Read the result from :attr:`angle_history`.
-        """
-        self._recording = enabled
-        if enabled:
-            self._angle_history = []
-
-    @contextmanager
-    def record_samples(self) -> Iterator[PointingInstability]:
-        """Record sampled tilts for the duration of the ``with`` block (recording
-        is turned off again on exit). Read them from :attr:`angle_history`."""
-        self.record(True)
-        try:
-            yield self
-        finally:
-            self.record(False)
+        """The beam tilts recorded while :meth:`record` was on, as an ``(n, 2)``
+        tensor ``[angle_x, angle_y]`` per :meth:`forward` (empty ``(0, 2)`` if
+        none). Convenience alias for ``history["angle"]``."""
+        return self.history.get("angle", torch.empty((0, 2)))
 
     def lazy_init(
         self: PointingInstability, complex_amplitude: ComplexAmplitude
@@ -154,8 +136,6 @@ class PointingInstability(OpticsModule):
         tilt = self._sampled_tilt(complex_amplitude, angle_x, angle_y)
         self._last_angle = (angle_x, angle_y)
         self._last_tilt = tilt
-        if self._recording:
-            self._angle_history.append(torch.stack((angle_x, angle_y)).detach())
 
         out = complex_amplitude * tilt
         return out.with_geometry(
