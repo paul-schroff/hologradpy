@@ -168,8 +168,13 @@ class OpticsModule(RecordingMixin, nn.Module):
     def pixel_size_out(self) -> Tensor:
         """Output pixel size in meters.
 
+        Note: this is ``None`` until the module is lazily initialised (the tensor
+        is built in ``lazy_init``). This is intentional and relied upon -- callers
+        that need it before a forward pass fall back to the constructor value
+        ``_pixel_size_out_init`` (see ``SimulatedCameraTorch``).
+
         Returns:
-            Tensor: Output pixel size (height, width).
+            Tensor: Output pixel size (height, width), or ``None`` before init.
         """
         return self._pixel_size_out
 

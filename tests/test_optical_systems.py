@@ -151,6 +151,35 @@ def test_forward_repeatable(name: str) -> None:
     torch.testing.assert_close(model()._data, model()._data)
 
 
+def test_device_and_init_field_track_the_system() -> None:
+    model = _make_slm_czt()
+    assert isinstance(model.device, torch.device)
+    # The no-input field lives on the system's device and is cached.
+    assert model.init_field.device == model.device
+    assert model.init_field is model.init_field
+    assert isinstance(model(), ComplexAmplitude)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+def test_to_cuda_moves_device_and_init_field() -> None:
+    model = _make_slm_czt().to("cuda")
+    assert model.device.type == "cuda"
+    assert model.init_field.device.type == "cuda"
+    assert model().device.type == "cuda"  # no-input forward on the moved model
+
+
+def test_layer_name_collisions_are_rejected_clearly() -> None:
+    from hologradpy.propagation.pointing_instability import PointingInstability
+
+    model = _make_slm_czt()
+    # A name already used by a layer.
+    with pytest.raises(ValueError, match="already exists"):
+        model.add("virtual_slm", PointingInstability(1e-4))
+    # A name that would shadow a reserved nn.Module attribute.
+    with pytest.raises(ValueError, match="reserved attribute"):
+        model.add("forward", PointingInstability(1e-4))
+
+
 def test_insert_after_places_module_in_chain() -> None:
     from hologradpy.propagation.pointing_instability import PointingInstability
 

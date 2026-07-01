@@ -62,27 +62,67 @@ class OpticalSystem(nn.Module):
     def __init__(self, input_geometry: FieldGeometry, **modules: OpticsModule) -> None:
         super().__init__()
         self.input_geometry = input_geometry
-        self.device = input_geometry.pixel_size.device
 
-        self.init_field = ComplexAmplitude(
-            data=torch.ones(
-                input_geometry.resolution,
-                dtype=torch.complex64,
-                device=self.device,
-            ),
-            wavelength=input_geometry.wavelength,
-            pixel_size=input_geometry.pixel_size,
+        # A tiny non-persistent buffer tracks the module's device: it moves with
+        # ``.to(device)`` via ``nn.Module._apply`` (a plain Tensor, so no
+        # subclass-as-buffer edge cases) and stays out of ``state_dict``.
+        self.register_buffer(
+            "_device_probe",
+            torch.empty(0, device=input_geometry.pixel_size.device),
+            persistent=False,
         )
+        # ``init_field`` is rebuilt lazily (see the property) and cached until the
+        # device changes, so it stays correct after ``.to(device)`` without being
+        # rebuilt on every forward.
+        self._init_field_cache: ComplexAmplitude | None = None
 
         self._order: list[str] = []
 
         for name, module in modules.items():
             self.add(name, module)
 
-    def add(self, name: str, module: OpticsModule) -> None:
-        if hasattr(self, name):
-            raise ValueError(f"Layer '{name}' already exists")
+    @property
+    def device(self) -> torch.device:
+        """The device this system currently lives on (follows ``.to(device)``)."""
+        return self._device_probe.device
 
+    @property
+    def init_field(self) -> ComplexAmplitude:
+        """A unit-amplitude input-plane field, on the system's current device.
+
+        Cached and rebuilt only when the device changes, so repeated no-input
+        ``forward()`` calls do not re-allocate it.
+        """
+        if (
+            self._init_field_cache is None
+            or self._init_field_cache.device != self.device
+        ):
+            geometry = self.input_geometry
+            self._init_field_cache = ComplexAmplitude(
+                data=torch.ones(
+                    geometry.resolution,
+                    dtype=torch.complex64,
+                    device=self.device,
+                ),
+                wavelength=geometry.wavelength.to(self.device),
+                pixel_size=geometry.pixel_size.to(self.device),
+            )
+        return self._init_field_cache
+
+    def _reject_if_name_taken(self, name: str) -> None:
+        """Reject a layer name that is already used or collides with a reserved
+        ``nn.Module`` attribute/method (e.g. ``forward``, ``training``, ``to``),
+        which would otherwise silently shadow it."""
+        if name in self._order:
+            raise ValueError(f"Layer '{name}' already exists")
+        if hasattr(self, name):
+            raise ValueError(
+                f"Layer name '{name}' collides with a reserved attribute of "
+                f"{type(self).__name__} (e.g. an nn.Module method); pick another."
+            )
+
+    def add(self, name: str, module: OpticsModule) -> None:
+        self._reject_if_name_taken(name)
         setattr(self, name, module)
         self._order.append(name)
 
@@ -97,8 +137,7 @@ class OpticalSystem(nn.Module):
         ``reference`` is either a layer name or the type of an existing layer
         (the first match is used).
         """
-        if hasattr(self, name):
-            raise ValueError(f"Layer '{name}' already exists")
+        self._reject_if_name_taken(name)
 
         if isinstance(reference, str):
             if reference not in self._order:
@@ -245,10 +284,6 @@ class OpticalSystem(nn.Module):
             )
         return dict(spec)
 
-    def get_init_kwargs(self) -> dict[str, object]:
-        """Backward-compatible alias for the checkpoint spec."""
-        return dict(self.get_checkpoint_spec())
-
     @classmethod
     def from_checkpoint_spec(
         cls,
@@ -358,7 +393,6 @@ class SLMFourierLensModel(OpticalSystem):
         that sampling for reproducibility.
         """
         super().__init__(input_geometry, **modules)
-        self.pointing_focal_shift_std = pointing_focal_shift_std
         if pointing_focal_shift_std is not None:
             if focal_length is None:
                 raise ValueError(
@@ -371,8 +405,3 @@ class SLMFourierLensModel(OpticalSystem):
                 seed=pointing_seed,
             )
             self.insert_after(StaticSLMField, "pointing_instability", pointing)
-
-    def forward(
-        self, complex_amplitude: ComplexAmplitude | None = None
-    ) -> ComplexAmplitude:
-        return super().forward(complex_amplitude)

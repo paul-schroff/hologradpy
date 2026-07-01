@@ -18,6 +18,18 @@ from .fourier import get_spatial_grid
 from ..utils import unsqueeze_to
 
 
+def _real_dtype(dtype: torch.dtype) -> torch.dtype:
+    """Real dtype for geometry metadata (wavelength / pixel_size) that matches a
+    field of ``dtype``: the corresponding real dtype for a complex field (so a
+    ``complex128`` field gets ``float64`` geometry, ``complex64`` gets
+    ``float32``), the dtype itself if already real-floating, else the default."""
+    if dtype.is_complex:
+        return corresponding_real_dtype(dtype)
+    if dtype.is_floating_point:
+        return dtype
+    return torch.get_default_dtype()
+
+
 def broadcast_wavelength_operand(operand: Tensor, field_ndim: int) -> Tensor:
     """Align a per-wavelength operand to a field of the given rank.
 
@@ -171,9 +183,10 @@ class ComplexAmplitude(Tensor):
         wavelength: float | Tensor,
         pixel_size: tuple[float, float] | Tensor,
     ) -> tuple[Tensor, Tensor]:
+        geometry_dtype = _real_dtype(data.dtype)
         if isinstance(wavelength, float):
             wavelength = torch.tensor(
-                [wavelength], device=data.device, dtype=torch.float32
+                [wavelength], device=data.device, dtype=geometry_dtype
             )
         elif isinstance(wavelength, Tensor):
             if wavelength.ndim == 0:
@@ -185,7 +198,7 @@ class ComplexAmplitude(Tensor):
 
         if isinstance(pixel_size, tuple):
             pixel_size = torch.tensor(
-                [pixel_size], device=data.device, dtype=torch.float32
+                [pixel_size], device=data.device, dtype=geometry_dtype
             )
         elif isinstance(pixel_size, Tensor):
             if pixel_size.ndim == 1:
@@ -445,7 +458,7 @@ class ComplexAmplitude(Tensor):
             wavelength = self.geometry.wavelength
         elif isinstance(wavelength, float):
             wavelength = torch.tensor(
-                [wavelength], device=self.device, dtype=torch.float32
+                [wavelength], device=self.device, dtype=self.dtype_r
             )
         elif isinstance(wavelength, Tensor) and wavelength.ndim == 0:
             wavelength = wavelength.unsqueeze(0)
@@ -454,7 +467,7 @@ class ComplexAmplitude(Tensor):
             pixel_size = self.geometry.pixel_size
         elif isinstance(pixel_size, tuple):
             pixel_size = torch.tensor(
-                [pixel_size], device=self.device, dtype=torch.float32
+                [pixel_size], device=self.device, dtype=self.dtype_r
             )
         elif isinstance(pixel_size, Tensor) and pixel_size.ndim == 1:
             pixel_size = pixel_size.unsqueeze(0)
