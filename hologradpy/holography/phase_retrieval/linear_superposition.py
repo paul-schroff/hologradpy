@@ -23,26 +23,39 @@ class LinearSuperpositionPhaseRetriever(PhaseRetrieverBase):
         self.number_of_positions: int = target_positions.shape[0]
 
         if target_intensities is None:
-            self.target_intensities = torch.ones_like(target_positions[:, 0])
+            target_intensities = torch.ones_like(target_positions[:, 0])
         self.target_intensities: torch.Tensor = target_intensities
 
         if target_phases is None:
-            self.target_phases = torch.zeros_like(target_positions[:, 0])
+            target_phases = torch.zeros_like(target_positions[:, 0])
         self.target_phases: torch.Tensor = target_phases
 
     def retrieve_phase(self: LinearSuperpositionPhaseRetriever) -> torch.Tensor:
+        geometry = self.slm_camera_model.input_geometry
+        complex_dtype = (
+            torch.complex128
+            if geometry.wavelength.dtype == torch.float64
+            else torch.complex64
+        )
+        grid_x, grid_y = geometry.get_spatial_grid()
+        # Single-wavelength retriever: collapse the wavenumber to a scalar so it
+        # broadcasts against the grid regardless of whether the geometry stores a
+        # 0-dim or shape-(1,) wavelength.
+        wavenumber = geometry.wavenumber.reshape(())
+
         field_superposition = torch.zeros(
-            *self.slm_camera_model.virtual_slm.resolution_in,
-            dtype=self.slm_camera_model.virtual_slm.dtype_c,
+            *geometry.resolution,
+            dtype=complex_dtype,
             device=self.device,
         )
 
         for i in range(self.number_of_positions):
             blazed_grating = linear_phase(
-                *self.slm_camera_model.virtual_slm.get_spatial_grid_input(),
+                grid_x,
+                grid_y,
                 self.target_positions[i, 0],
                 self.target_positions[i, 1],
-                wavenumber=self.slm_camera_model.virtual_slm.wavenumber,
+                wavenumber=wavenumber,
                 focal_length=self.slm_camera_model.fourier_lens.focal_length,
             )
 

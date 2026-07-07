@@ -5,7 +5,7 @@ import math
 import torch
 from torch import Tensor
 
-
+# TODO: This file could use some tidying up.
 def _pad_axis(field: Tensor, axis: int, pad: int) -> Tensor:
     """Zero-pad ``pad`` samples on both sides of ``axis`` (complex-safe)."""
     shape = list(field.shape)

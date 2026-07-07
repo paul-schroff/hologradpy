@@ -10,6 +10,7 @@ from slmsuite.hardware.cameras.camera import Camera
 
 from ..propagation.optical_systems import SLMFourierLensModel
 from ..propagation.camera_sensor import CameraSensor
+from ..propagation.background_scatter import BackgroundScatter
 from ..utils import gpu_to_numpy, crop_to_roi
 
 
@@ -21,6 +22,7 @@ class SimulatedCameraTorch(Camera):
         name: str = "SimulatedCameraTorch",
         averaging: int = 1,
         capture_attempts: int = 1,
+        exposure_bounds: tuple[float, float] | None = (0.0, 1.0),
         hdr: bool = False,
         rot: float | str = "0",
         fliplr: bool = False,
@@ -33,6 +35,9 @@ class SimulatedCameraTorch(Camera):
         nd_filter_optical_density: float = 0.0,
         add_noise: bool = True,
         quantize: bool = True,
+        background_scatter_power: float | None = None,
+        background_scatter_grain_radius: float = 5e-6,
+        background_scatter_seed: int | None = None,
     ) -> None:
         """Initialize a simulated camera with a given SLM camera model.
 
@@ -42,6 +47,17 @@ class SimulatedCameraTorch(Camera):
         quantum efficiency, exposure, gain, full-well saturation, read noise and
         bit depth -- instead of a bare ``|E|^2``. The camera exposure
         (``set_exposure`` / ``autoexposure``) drives the sensor's exposure.
+
+        ``exposure_bounds_s`` defaults to ``(0.0, 1.0)`` so the simulated camera
+        advertises a 1 s maximum integration like real hardware; callers such as
+        ``CoarseMapper`` read this ceiling instead of hardcoding it.
+
+        When ``background_scatter_power`` is given, a static laser-speckle
+        stray-light background of that total power [W] (grain
+        ``background_scatter_grain_radius`` [m], reproducible via
+        ``background_scatter_seed``) is generated and inserted as a
+        :class:`BackgroundScatter` module immediately before the sensor, so it is
+        added before the ND filter.
         """
         # Camera geometry comes from the last *optical* module (the Fourier
         # lens / affine), not the sensor, whose output geometry mirrors its input.
@@ -63,6 +79,14 @@ class SimulatedCameraTorch(Camera):
         pixel_size_out = torch.as_tensor(pixel_size_out)
         camera_pixel_size_um = tuple((pixel_size_out * 1e6).tolist())
 
+        # WOI is defined in RAW sensor coordinates (slmsuite convention: the readout
+        # window is configured before the rot/flip transform, whereas self.shape is the
+        # post-transform shape and is swapped for rot90/270). Set before
+        # super().__init__, which already calls set_woi().
+        self._raw_shape: tuple[int, int] = tuple(
+            int(size) for size in output_module.resolution_out
+        )
+
         super().__init__(
             resolution=camera_resolution,
             bitdepth=bitdepth,
@@ -70,6 +94,7 @@ class SimulatedCameraTorch(Camera):
             name=name,
             averaging=averaging,
             capture_attempts=capture_attempts,
+            exposure_bounds_s=exposure_bounds,
             hdr=hdr,
             rot=rot,
             fliplr=fliplr,
@@ -81,8 +106,24 @@ class SimulatedCameraTorch(Camera):
         # Build the sensor and append it as the terminal module (reusing one the
         # model may already carry), so the model emits digital pixel values.
         if isinstance(slm_camera_model[-1], CameraSensor):
+            if background_scatter_power is not None:
+                raise ValueError(
+                    "background_scatter_power cannot be added when "
+                    "slm_camera_model already terminates in a CameraSensor; "
+                    "build the model without a pre-attached sensor."
+                )
             self.sensor = slm_camera_model[-1]
         else:
+            # A static laser-speckle stray-light background is added just before
+            # the sensor (so it passes through the ND filter, which lives in
+            # CameraSensor).
+            if background_scatter_power is not None:
+                self.background_scatter = BackgroundScatter(
+                    background_scatter_power,
+                    grain_radius=background_scatter_grain_radius,
+                    seed=background_scatter_seed,
+                )
+                slm_camera_model.add("background", self.background_scatter)
             self.sensor = CameraSensor(
                 quantum_efficiency=quantum_efficiency,
                 full_well_capacity=full_well_capacity,
@@ -96,7 +137,7 @@ class SimulatedCameraTorch(Camera):
             )
             slm_camera_model.add("sensor", self.sensor)
 
-        self.woi = (0, self.shape[1], 0, self.shape[0])  # (x, width, y, height)
+        self.woi = (0, self._raw_shape[1], 0, self._raw_shape[0])
 
     def _get_exposure_hw(self):
         return self.exposure_s
@@ -106,9 +147,10 @@ class SimulatedCameraTorch(Camera):
         self.exposure_s = exposure_s
 
     def set_woi(self, woi: tuple[int, int, int, int] | None = None) -> None:
-        """Set the region of interest (WOI) for the camera."""
+        """Set the region of interest (WOI) for the camera, in RAW sensor
+        coordinates (before the rot/flip transform)."""
         if woi is None:
-            woi = (0, self.shape[1], 0, self.shape[0])
+            woi = (0, self._raw_shape[1], 0, self._raw_shape[0])
         self.woi = woi
 
     def close(self) -> None:

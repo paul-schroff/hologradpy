@@ -60,10 +60,10 @@ plt.imshow(test_image)
 plt.colorbar()
 
 # %% Loading camera mapping data
-camera_mapping = CameraMapping.load("data/camera_mapping.pkl")
+camera_mapping = CameraMapping.load("../data/camera_mapping.pkl")
 
 # %%
-directory = "data/"
+directory = "../data/"
 
 calibrator = SpeckleCalibrator(
     slm,

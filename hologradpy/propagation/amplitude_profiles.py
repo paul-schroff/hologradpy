@@ -252,3 +252,45 @@ def gaussian_blur(input: torch.Tensor, beam_radius: float):
     input = unsqueeze_to(input, 4)
 
     return torch.nn.functional.conv2d(input, kernel, padding="same").squeeze()
+
+
+def laser_speckle_intensity(
+    resolution: tuple[int, int],
+    pixel_size: float,
+    grain_radius: float,
+    *,
+    device: torch.device | None = None,
+    dtype: torch.dtype = torch.float32,
+    generator: torch.Generator | None = None,
+) -> torch.Tensor:
+    """A static, laser-speckle intensity pattern.
+
+    Models a fixed scattering surface: complex Gaussian white noise is low-pass filtered
+    (Gaussian blur of radius ``grain_radius``) to set the speckle grain size, and the
+    squared magnitude gives the intensity. The first-order statistics are the expected
+    negative-exponential (``std/mean ~= 1``). The result is normalised to unit mean --
+    the physical scale is applied separately (e.g. by
+    :class:`~hologradpy.propagation.background_scatter.BackgroundScatter`, which scales
+    it to a total background power).
+
+    Args:
+        resolution: Output resolution ``(height, width)`` in pixels.
+        pixel_size: Pixel size in metres, used to convert ``grain_radius`` to pixels
+            (square pixels assumed).
+        grain_radius: Speckle grain radius in metres (the Gaussian-blur radius).
+        device: Device for the generated tensor.
+        dtype: Real dtype of the returned intensity map.
+        generator: Optional RNG for reproducible speckle.
+
+    Returns:
+        A ``(height, width)`` unit-mean speckle-intensity tensor.
+    """
+    height, width = resolution
+    grain_radius_pixels = max(grain_radius / pixel_size, 1.0)
+    real = torch.randn((height, width), device=device, generator=generator)
+    imaginary = torch.randn((height, width), device=device, generator=generator)
+    real = gaussian_blur(real, grain_radius_pixels)
+    imaginary = gaussian_blur(imaginary, grain_radius_pixels)
+    intensity = real**2 + imaginary**2
+    intensity = intensity / intensity.mean()
+    return intensity.to(dtype)

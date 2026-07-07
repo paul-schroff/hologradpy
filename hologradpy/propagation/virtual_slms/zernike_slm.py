@@ -24,7 +24,7 @@ class ZernikeSLM(VirtualSLM):
 
     Unlike :class:`VirtualSLM`, which learns a per-pixel phase, ``ZernikeSLM``
     learns ``(n_wavelengths, n_coefficients)`` Zernike coefficients. The
-    displayed phase is reconstructed from a fixed Zernike basis built lazily
+    desired phase is reconstructed from a fixed Zernike basis built lazily
     for the input field's resolution.
     """
 
@@ -101,14 +101,11 @@ class ZernikeSLM(VirtualSLM):
             "lc,chw->lhw", self.zernike_coefficients, self.zernike_basis
         )
 
-    def get_displayed_phase(self: ZernikeSLM) -> torch.Tensor:
-        """Phase as displayed on the SLM, wrapped into the modulation range."""
-        return self.get_phase().remainder(self.phase_scaling * 2 * torch.pi)
-
     def forward(
         self: ZernikeSLM, complex_amplitude: ComplexAmplitude
     ) -> ComplexAmplitude:
-        phase = self.get_displayed_phase()  # (n_wavelengths, H, W)
+        # Wrapped desired phase, per wavelength: (n_wavelengths, H, W).
+        phase = self.get_phase().remainder(self.phase_scaling * 2 * torch.pi)
 
         # Align the wavelength axis at dim -3 and broadcast over any leading
         # batch dimensions (dropping the wavelength axis for a 2D field).

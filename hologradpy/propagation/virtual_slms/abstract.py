@@ -19,6 +19,15 @@ if TYPE_CHECKING:
 
 
 class VirtualSLM(OpticsModule):
+    """Differentiable phase-only SLM module.
+
+    Sign convention: ``phase`` holds the *desired* optical phase. The field picks up
+    ``exp(1j * phase)`` (wrapped to the modulation range), matching the argument of
+    ``slmsuite.hardware.slms.slm.SLM.set_phase``. The value the hardware actually
+    displays is the negative of it since slmsuite negates before grayscale conversion 
+    (see :meth:`get_displayed_phase`).
+    """
+
     def __init__(
         self: VirtualSLM,
         phase_scaling: float,
@@ -66,6 +75,8 @@ class VirtualSLM(OpticsModule):
         )
 
     def set_phase(self, phase: torch.Tensor | NDArray) -> None:
+        """Set the desired optical phase (same argument convention as
+        ``slmsuite.SLM.set_phase``)."""
         if isinstance(phase, np.ndarray):
             self.phase.data = torch.tensor(
                 phase, dtype=self.phase.dtype, device=self.phase.device
@@ -73,19 +84,28 @@ class VirtualSLM(OpticsModule):
         else:
             self.phase.data = phase.to(dtype=self.phase.dtype, device=self.phase.device)
 
-    def get_displayed_phase(self) -> torch.Tensor:
-        """Returns the phase pattern as displayed on the SLM before grayscale
-        conversion.
-        """
-        return -self.phase.remainder(self.phase_scaling * 2 * torch.pi)
+    def get_phase(self) -> torch.Tensor:
+        """The desired optical phase imprinted on the field (before the modulation-range
+        wrap)."""
+        return self.phase
 
+    def get_displayed_phase(self) -> torch.Tensor:
+        """The phase pattern as displayed on the SLM before grayscale conversion: the 
+        hardware displays the negative of the desired phase.
+        """
+        return (-self.get_phase()).remainder(self.phase_scaling * 2 * torch.pi)
+
+    # TODO: Add discretization and pixel crosstallk here
     def apply_phase_transforms(self: VirtualSLM, phase: torch.Tensor) -> torch.Tensor:
-        return self.get_displayed_phase()
+        """Hook for subclasses to transform the applied phase; identity by default."""
+        return phase
 
     def forward(
         self: VirtualSLM, complex_amplitude: ComplexAmplitude
     ) -> ComplexAmplitude:
-        phase = self.get_displayed_phase()
+        # Wrap to the modulation range like the hardware, then imprint the
+        # desired phase.
+        phase = self.get_phase().remainder(self.phase_scaling * 2 * torch.pi)
 
         transformed_phase = unsqueeze_to(
             self.apply_phase_transforms(phase), complex_amplitude.ndim

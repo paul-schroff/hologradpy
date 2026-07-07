@@ -36,6 +36,7 @@ autoapi_dirs = ["../hologradpy"]
 intersphinx_mapping = {
     "numpy": ("https://numpy.org/doc/stable/", None),
     "matplotlib": ("https://matplotlib.org/stable/", None),
+    "slmsuite": ("https://slmsuite.readthedocs.io/en/latest/", None),
 }
 
 sphinx_gallery_conf = {

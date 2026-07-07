@@ -18,6 +18,7 @@ Two decoupled concerns:
 Because a panel only paints into the axes it is handed, panels from different
 visualizers can be mixed and matched into one :class:`PlotLayout` and rendered together.
 """
+# TODO: Sanity check and tidy up
 
 from __future__ import annotations
 
@@ -311,9 +312,14 @@ class BaseVisualizer:
         color: str = "red",
         size: float = 8.0,
         edgecolor: str = "white",
+        legend: bool = False,
         **kwargs,
     ) -> None:
-        """Overlay scatter points (markers only) on top of an image/axes."""
+        """Overlay scatter points (markers only) on top of an image/axes.
+
+        Pass ``label=...`` (forwarded to matplotlib) together with
+        ``legend=True`` on the last points layer of a cell to draw a legend.
+        """
         axs.plot(
             x,
             y,
@@ -324,6 +330,8 @@ class BaseVisualizer:
             linestyle="none",
             **kwargs,
         )
+        if legend:
+            axs.legend()
 
     @staticmethod
     def draw_line(
@@ -372,6 +380,42 @@ class BaseVisualizer:
         axs.set_yscale(yscale)
         if legend:
             axs.legend()
+
+    @staticmethod
+    def draw_quiver(
+        axs: Axes,
+        x,
+        y,
+        u,
+        v,
+        *,
+        scale: float | None = None,
+        color: str = "C0",
+        xlabel: str | None = None,
+        ylabel: str | None = None,
+        title: str | None = None,
+        invert_y: bool = False,
+    ) -> None:
+        """Draw a vector field ``(u, v)`` anchored at ``(x, y)`` in data units.
+
+        ``scale`` follows matplotlib's ``scale_units="xy"`` convention (drawn
+        length = vector length / scale, so ``scale < 1`` magnifies); ``None``
+        lets matplotlib autoscale. ``invert_y`` matches image coordinates
+        (y grows downward).
+        """
+        axs.quiver(
+            x, y, u, v,
+            angles="xy", scale_units="xy", scale=scale, color=color, width=0.004,
+        )
+        axs.set_aspect("equal", adjustable="datalim")
+        if invert_y:
+            axs.invert_yaxis()
+        if xlabel is not None:
+            axs.set_xlabel(xlabel)
+        if ylabel is not None:
+            axs.set_ylabel(ylabel)
+        if title is not None:
+            axs.set_title(title)
 
     def default_layout(self) -> PlotLayout:
         raise NotImplementedError
@@ -607,6 +651,30 @@ class PlotBuilder:
         """Layer scatter markers onto the named cell (after its image)."""
         return self._add(
             cell, lambda axs: BaseVisualizer.draw_points(axs, x, y, **style)
+        )
+
+    def draw_quiver(
+        self,
+        cell: str,
+        x,
+        y,
+        u,
+        v,
+        *,
+        scale: float | None = None,
+        color: str = "C0",
+        xlabel: str | None = None,
+        ylabel: str | None = None,
+        title: str | None = None,
+        invert_y: bool = False,
+    ) -> PlotBuilder:
+        """Draw a vector field into the named cell."""
+        return self._add(
+            cell,
+            lambda axs: BaseVisualizer.draw_quiver(
+                axs, x, y, u, v, scale=scale, color=color, xlabel=xlabel,
+                ylabel=ylabel, title=title, invert_y=invert_y,
+            ),
         )
 
     def build(self, *, suptitle: str | None = None) -> Figure:

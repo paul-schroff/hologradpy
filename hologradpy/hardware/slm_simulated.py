@@ -42,7 +42,13 @@ class SimulatedSLMTorch(SLM):
         )
 
     def _set_phase_hw(self, grayscales: NDArray | torch.Tensor) -> None:
-        self.virtual_slm.set_phase(grayscales / self.bitresolution * 2 * torch.pi)
+        # The virtual SLM is lazily initialised. Make sure its phase Parameter exists
+        # even if no image has been captured yet.
+        if not self.virtual_slm.initialized:
+            self.virtual_slm.initialize_from_geometry(self.input_geometry)
+        # slmsuite negates the desired phase when converting to grayscale, so undo that
+        # here. The virtual SLM expects the desired optical phase.
+        self.virtual_slm.set_phase(-(grayscales / self.bitresolution * 2 * torch.pi))
 
     def close(self) -> None:
         pass

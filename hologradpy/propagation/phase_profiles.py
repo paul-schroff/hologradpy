@@ -3,6 +3,7 @@
 from __future__ import annotations
 from typing import Literal, TypeVar
 
+import numpy as np
 from numpy.typing import NDArray
 import torch
 
@@ -11,6 +12,61 @@ from array_api_compat import array_namespace
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 TiltUnits = Literal["degrees", "radians", "metres", "lines_per_mm"]
 CurvatureUnits = Literal["radians_per_pixel_squared", "radians_per_metre_squared"]
+
+
+def tilt_to_angle(
+    tilt: ArrayLike,
+    tilt_units: TiltUnits = "metres",
+    wavenumber: float | None = None,
+    focal_length: float | None = None,
+) -> ArrayLike:
+    """Convert a tilt in ``tilt_units`` to the beam deflection angle in radians.
+
+    A linear phase ramp ``k * angle * x`` steers the focal spot. This is the single
+    place that maps every supported tilt representation onto that angle:
+
+    - ``"radians"``: the beam deflection angle directly.
+    - ``"degrees"``: the angle in degrees (small-angle, consistent with``"radians"``).
+    - ``"metres"``: a focal-plane displacement ``d``. Paraxially 
+        ``angle = d / focal_length``.
+    - ``"lines_per_mm"``: a grating spatial frequency ``nu``; the first order deflects 
+        by ``angle = nu * 1e3 * wavelength`` with ``wavelength = 2 * pi / wavenumber``.
+
+    Args:
+        tilt: Tilt value(s) in ``tilt_units``. tilt_units: One of ``"radians"``,
+            ``"degrees"``, ``"metres"``, ``"lines_per_mm"``.
+        wavenumber: Wavenumber ``2 * pi / wavelength`` [rad/m]. Required for
+            ``"lines_per_mm"``.
+        focal_length: Focal length of the downstream Fourier lens [m]. Required for 
+            ``"metres"``.
+
+    Returns:
+        The beam deflection angle in radians (same type/shape as ``tilt``).
+    """
+    match tilt_units:
+        case "radians":
+            return tilt
+        case "degrees":
+            return tilt * (np.pi / 180.0)
+        case "metres":
+            if focal_length is None:
+                raise ValueError(
+                    'focal_length must be provided when tilt_units is "metres".'
+                )
+            return tilt / focal_length
+        case "lines_per_mm":
+            if wavenumber is None:
+                raise ValueError(
+                    "wavenumber must be provided when tilt_units is "
+                    '"lines_per_mm".'
+                )
+            wavelength = 2 * np.pi / wavenumber
+            return tilt * 1e3 * wavelength
+        case _:
+            raise ValueError(
+                f"Unknown tilt_units {tilt_units!r}; expected one of "
+                '"radians", "degrees", "metres", "lines_per_mm".'
+            )
 
 
 def lens_phase(
@@ -110,7 +166,10 @@ def linear_phase(
     wavenumber: float | None = None,
     focal_length: float | None = None,
 ) -> ArrayLike:
-    """Calculates a linear phase on a 2D grid.
+    """Calculates a linear phase ramp on a 2D grid.
+
+    The phase is ``wavenumber * (angle_x * x + angle_y * y)``, where the beam
+    deflection angles are obtained from the tilt via :func:`tilt_to_angle`.
 
     Args:
         x (ArrayLike): X coordinates.
@@ -118,32 +177,19 @@ def linear_phase(
         tilt_x (float): Tilt in the x direction.
         tilt_y (float): Tilt in the y direction.
         tilt_units (TiltUnits, optional): Units for tilt. Defaults to "metres".
-        wavenumber (float | None, optional): Wavenumber required if
-            `tilt_units` is "degrees", "radians", or "metres". Defaults to
+        wavenumber (float | None, optional): Wavenumber ``2 * pi / wavelength``.
+            Always required; also sets the wavelength for "lines_per_mm". Defaults to 
             None.
-        focal_length (float | None, optional): Focal length required if
-            `tilt_units` is "metres". Defaults to None.
+        focal_length (float | None, optional): Focal length required if `tilt_units` is 
+            "metres". Defaults to None.
     Returns:
         ArrayLike: Linear phase.
     """
-    xp = array_namespace(x, y)
-    match tilt_units:
-        case "degrees":
-            slope_x = xp.tan(tilt_x) * wavenumber
-            slope_y = xp.tan(tilt_y) * wavenumber
-        case "radians":
-            slope_x = tilt_x * wavenumber
-            slope_y = tilt_y * wavenumber
-        case "metres":
-            if focal_length is None:
-                raise ValueError(
-                    'Focal length must be provided when tilt_units is "metres".'
-                )
-            slope_x = tilt_x / focal_length * wavenumber
-            slope_y = tilt_y / focal_length * wavenumber
-        case "lines_per_mm":
-            raise NotImplementedError("lines_per_mm not implemented yet")
-    return slope_x * x + slope_y * y
+    if wavenumber is None:
+        raise ValueError("wavenumber must be provided.")
+    angle_x = tilt_to_angle(tilt_x, tilt_units, wavenumber, focal_length)
+    angle_y = tilt_to_angle(tilt_y, tilt_units, wavenumber, focal_length)
+    return wavenumber * (angle_x * x + angle_y * y)
 
 
 def quadratic_phase(

@@ -1,5 +1,3 @@
-"""Random beam-pointing instability: a sampled phase tilt (beam-angle jitter)."""
-
 from __future__ import annotations
 
 import torch
@@ -8,7 +6,7 @@ from torch import Tensor
 from .optics_module import OpticsModule
 from .complex_amplitude import ComplexAmplitude, broadcast_wavelength_operand
 from .fourier import get_spatial_grid
-from .phase_profiles import linear_phase
+from .phase_profiles import linear_phase, tilt_to_angle
 
 
 class PointingInstability(OpticsModule):
@@ -63,7 +61,10 @@ class PointingInstability(OpticsModule):
         """
         std_x, std_y = cls._as_pair(focal_shift_std)
         return cls(
-            (std_x / focal_length, std_y / focal_length),
+            (
+                tilt_to_angle(std_x, "metres", focal_length=focal_length),
+                tilt_to_angle(std_y, "metres", focal_length=focal_length),
+            ),
             seed=seed,
         )
 

@@ -68,4 +68,4 @@ class CGPhaseRetriever(PhaseRetrieverBase):
 
         if self.slm_camera_model.device.type == "cuda":
             torch.cuda.empty_cache()
-        return self.slm_camera_model.virtual_slm.get_displayed_phase()
+        return self.slm_camera_model.virtual_slm.get_phase().detach()

@@ -2,6 +2,7 @@ from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.stats import norm
 
 from slmsuite.hardware.slms.slm import SLM
 from slmsuite.hardware.cameras.camera import Camera
@@ -15,6 +16,182 @@ from ...propagation.amplitude_profiles import (
 from ...analysis.fitting import fit_gaussian_beam_intensity
 from ...propagation.fourier import get_spatial_grid
 from ...utils import gpu_to_numpy, find_roi, crop_to_roi
+
+# Analysis window half-width in focal-spot radii
+_WINDOW_SPOT_RADII = 12.0
+
+# Enclosure threshold (fraction of the peak height)
+_ENCLOSURE_EDGE_FRACTION = 0.6
+
+# 1/e^2-intensity HWHM
+_HALF_MAX_RADIUS_FACTOR = np.sqrt(np.log(2) / 2)
+
+# Median absolute deviation to Gaussian sigma
+_MAD_TO_SIGMA = 1.0 / norm.ppf(0.75)
+
+# TODO: The background noise on cameras is Possonian
+def background_noise(image: NDArray) -> float:
+    """Robust estimate of the background noise sigma of ``image``.
+
+    Uses the median absolute deviation (MAD) scaled to a Gaussian standard deviation, so
+    a few bright spot pixels do not inflate the estimate the way the plain standard
+    deviation would.
+    """
+    median = float(np.median(image))
+    return _MAD_TO_SIGMA * float(np.median(np.abs(image - median)))
+
+
+def has_prominent_peak(
+    image: NDArray,
+    camera: Camera,
+    signal_to_noise_ratio: float = 8.0,
+    lower_relative_intensity_threshold: float = 0.1,
+) -> bool:
+    """Whether ``image`` holds a peak prominent enough to be real signal.
+
+    The two spot-shape-agnostic gates shared with :func:`detect_spot`: the peak must
+    rise above the background by both ``signal_to_noise_ratio`` noise sigma and
+    ``lower_relative_intensity_threshold`` of the camera's full-scale value. Unlike
+    ``detect_spot`` this makes no single-spot assumption, so it also suits a multi-spot
+    array (e.g. confirming an autoexposed calibration array did not simply rail on read
+    noise).
+
+    Args:
+        image: Captured camera frame.
+        camera: Supplies the full-scale pixel value (``camera.bitresolution``). Only 
+            read, never captured from or mutated.
+        signal_to_noise_ratio: Peak must exceed the background by this many noise sigma.
+        lower_relative_intensity_threshold: Peak must also reach this fraction of the 
+            camera's full-scale value.
+    """
+    prominence = float(image.max()) - float(np.median(image))
+    sigma = max(background_noise(image), np.finfo(float).eps)
+    return (
+        prominence >= signal_to_noise_ratio * sigma
+        and prominence
+        >= lower_relative_intensity_threshold * float(camera.bitresolution)
+    )
+
+
+def detect_spot(
+    image: NDArray,
+    spot_radius: float,
+    camera: Camera,
+    signal_to_noise_ratio: float = 8.0,
+    lower_relative_intensity_threshold: float = 0.1,
+) -> tuple[int, int] | None:
+    """Locate one localized bright spot in ``image``, or return ``None``.
+
+    A sequence of rejection tests, all sized from the physical spot radius, tell a
+    genuine focal spot apart from noise, stray light or the clipped tail of an order
+    sitting just off the sensor. Intended for the coarse search, where most frames
+    contain no on-sensor spot.
+
+    Args:
+        image: Captured camera frame. spot_radius: Diffraction-limited focal-spot radius
+        (1/e^2 intensity) in metres.
+        camera: Supplies the pixel pitch (``camera.pitch_um``) and the full-scale pixel 
+            value (``camera.bitresolution``); only read, never captured from or mutated.
+        signal_to_noise_ratio: Peak must exceed the background by this many noise sigma.
+        lower_relative_intensity_threshold: Peak must also reach this fraction of the 
+            camera's full-scale value.
+
+    Returns:
+        The ``(row, column)`` of the spot peak, or ``None`` if no spot is found.
+    """
+    pixel_pitch = min(camera.pitch_um) * 1e-6
+    spot_radius_px = spot_radius / pixel_pitch
+
+    # Checking for prominence (peak-vs-noise SNR and peak-vs-full-scale gates).
+    if not has_prominent_peak(
+        image,
+        camera,
+        signal_to_noise_ratio=signal_to_noise_ratio,
+        lower_relative_intensity_threshold=lower_relative_intensity_threshold,
+    ):
+        return None
+
+    background = float(np.median(image))
+    prominence = float(image.max()) - background
+    row, column = np.unravel_index(int(np.argmax(image)), image.shape)
+
+    # Making sure detected maximum is not sitting at the border of the frame.
+    border_margin = max(int(round(spot_radius_px)), 1)
+    if (
+        min(row, image.shape[0] - 1 - row) < border_margin
+        or min(column, image.shape[1] - 1 - column) < border_margin
+    ):
+        return None
+
+    half_window = int(round(_WINDOW_SPOT_RADII * spot_radius_px))
+    top = max(row - half_window, 0)
+    left = max(column - half_window, 0)
+    window = image[top:row + half_window + 1, left:column + half_window + 1]
+
+    # Checking the spot has a reasonable size
+    half_max_radius_px = _HALF_MAX_RADIUS_FACTOR * spot_radius_px
+    min_core_pixels = max(int(round(0.25 * np.pi * half_max_radius_px**2)), 1)
+    core = (window - background) > 0.5 * prominence
+    if int(core.sum()) < min_core_pixels:
+        return None
+
+    edge_maximum = float(
+        max(
+            window[0, :].max(),
+            window[-1, :].max(),
+            window[:, 0].max(),
+            window[:, -1].max(),
+        )
+    )
+    if edge_maximum - background > _ENCLOSURE_EDGE_FRACTION * prominence:
+        return None
+
+    return int(row), int(column)
+
+
+def addressable_half_extent(slm: SLM, focal_length: float) -> tuple[float, float]:
+    """Half-extent ``(x, y)`` of the focal-plane region the SLM can address, in metres: 
+    the first-order deflection of a grating at the SLM's Nyquist frequency, 
+    ``wavelength * focal_length / (2 * pitch)`` per axis. Focal spots cannot be placed 
+    beyond it (the grating would alias).
+    """
+    wavelength = slm.wav_um * 1e-6
+    return (
+        wavelength * focal_length / (2.0 * slm.pitch_um[0] * 1e-6),
+        wavelength * focal_length / (2.0 * slm.pitch_um[1] * 1e-6),
+    )
+
+
+def disc_mask(
+    shape: tuple[int, int], center: tuple[float, float], radius: float
+) -> NDArray:
+    """Boolean pixel mask, True inside the disc of ``radius`` around ``center``.
+
+    Args:
+        shape: Image shape ``(height, width)``.
+        center: Disc centre ``(x, y)`` in pixels.
+        radius: Disc radius in pixels.
+    """
+    rows, columns = np.indices(shape)
+    return (columns - center[0]) ** 2 + (rows - center[1]) ** 2 <= radius**2
+
+
+def metres_to_pixel(
+    position: tuple[float, float],
+    pitch: NDArray,
+    camera_shape: tuple[int, int],
+) -> tuple[float, float]:
+    """Camera-plane ``(x, y)`` metres -> ``(x, y)`` camera pixels (full sensor).
+
+    Args:
+        position: (x, y) position in metres, relative to the sensor centre.
+        pitch: Camera pixel pitch in metres, (x, y).
+        camera_shape: Sensor resolution (height, width).
+    """
+    return (
+        position[0] / pitch[0] + camera_shape[1] // 2,
+        position[1] / pitch[1] + camera_shape[0] // 2,
+    )
 
 
 def get_diffraction_spot_position(

@@ -16,7 +16,7 @@ from hologradpy.propagation.amplitude_profiles import gaussian_beam_intensity
 from hologradpy.utils import get_device
 
 device = get_device(verbose=True)
-data_path = "data/"
+data_path = "../data/"
 # %matplotlib qt5
 
 # %% Initializing simulated SLM and camera
@@ -26,7 +26,9 @@ slm_geometry = FieldGeometry(
     wavelength=torch.tensor(0.630e-6, device=device),
 )
 
-slm = SimulatedSLMTorch(input_geometry=slm_geometry, bitdepth=8)
+slm = SimulatedSLMTorch(
+    input_geometry=slm_geometry, bitdepth=8
+)
 
 gaussian_intensity = gaussian_beam_intensity(
     *slm.get_spatial_grid(),
@@ -36,6 +38,7 @@ gaussian_beam = ComplexAmplitude(
     gaussian_intensity.sqrt() + 0j,
     wavelength=slm_geometry.wavelength,
     pixel_size=slm_geometry.pixel_size,
+    power=1e-3,
 )
 
 simulated_camera_model = SLMFFTAffine(
@@ -48,16 +51,22 @@ simulated_camera_model = SLMFFTAffine(
     padded_resolution=(2048, 2048),
     camera_angle=0,
     camera_shift=(0, 0),
+    power_normalized=True,
 )
 
-camera = SimulatedCameraTorch(simulated_camera_model)
+camera = SimulatedCameraTorch(
+    simulated_camera_model,
+    nd_filter_optical_density=5.0,
+    quantum_efficiency=0.01,
+)
+camera.set_exposure(100e-6)
 
-camera.set_exposure(0.001)
 test_image = camera.get_image()
 
 plt.figure()
 plt.imshow(test_image, cmap="turbo")
 plt.title("Initial Simulated Camera Image")
+plt.colorbar()
 
 # %%
 slm_camera_model = SLMFFT(
@@ -73,14 +82,12 @@ camera_mapper = CheckerboardMapper(
     slm=slm,
     camera=camera,
     slm_camera_model=slm_camera_model,
-    device=device,
 )
 
 camera_mapping = camera_mapper.map_camera(
     number_of_squares=(7, 9),
     square_size=16,
     number_of_cg_iterations=50,
-    checkerboard_center="top-left",
 )
 
 # %% Saving results
@@ -131,8 +138,4 @@ plt.plot(
 )
 plt.title("Simulated Camera Image with Detected Corners")
 
-plt.figure()
-plt.imshow(slm_phase, cmap="magma")
-plt.colorbar()
-plt.title("SLM Phase")
 # %%
