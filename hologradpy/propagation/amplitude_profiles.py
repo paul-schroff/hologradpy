@@ -3,8 +3,12 @@
 from __future__ import annotations
 from typing import TypeVar
 
+import numpy as np
 from numpy.typing import NDArray
+from scipy.special import erf as erf_scipy
+
 import torch
+from torch import erf as erf_torch
 
 from array_api_compat import array_namespace
 
@@ -13,7 +17,27 @@ from ..utils import unsqueeze_to
 
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 
+def get_focal_spot_radius(
+    beam_radius: float,
+    wavelength: float,
+    focal_length: float,
+) -> float:
+    """Calculates the radius of the focal spot for a Gaussian beam with a given
+    `beam_radius`, focussed by a lens with a given `focal_length`.
 
+    Args:
+        beam_radius (float): The radius of the Gaussian beam at the lens in
+            meters.
+        wavelength (float): The wavelength of the light in meters.
+        focal_length (float): The focal length of the lens in meters.
+
+    Returns:
+        float: The radius of the focal spot in meters.
+    """
+    return (wavelength * focal_length) / (torch.pi * beam_radius)
+
+
+# Intensity profiles
 def gaussian_beam_intensity(
     x: ArrayLike,
     y: ArrayLike,
@@ -45,27 +69,6 @@ def gaussian_beam_intensity(
         * xp.exp(-2 * ((x - shift_x) ** 2 + (y - shift_y) ** 2) / (beam_radius**2))
         + offset
     )
-
-
-def get_focal_spot_radius(
-    beam_radius: float,
-    wavelength: float,
-    focal_length: float,
-) -> float:
-    """Calculates the radius of the focal spot for a Gaussian beam with a given
-    `beam_radius`, focussed by a lens with a given `focal_length`.
-
-    Args:
-        beam_radius (float): The radius of the Gaussian beam at the lens in
-            meters.
-        wavelength (float): The wavelength of the light in meters.
-        focal_length (float): The focal length of the lens in meters.
-
-    Returns:
-        float: The radius of the focal spot in meters.
-    """
-    return (wavelength * focal_length) / (torch.pi * beam_radius)
-
 
 def super_gaussian(
     x: ArrayLike,
@@ -103,7 +106,6 @@ def super_gaussian(
         * xp.exp(-2 * (xp.abs(y - shift_y) / sigma_y) ** number_of_pixels_y)
         + offset
     )
-
 
 def gaussian_spot_array(
     x: ArrayLike,
@@ -147,8 +149,7 @@ def gaussian_spot_array(
             )
     return spots
 
-
-def ring_gauss(
+def gaussian_ring(
     x: ArrayLike,
     y: ArrayLike,
     shift_x: int,
@@ -178,7 +179,83 @@ def ring_gauss(
         / ring_sigma ** 2
     )
 
+def top_hat_gaussian_shoulders(
+    x: ArrayLike, 
+    shift: float,
+    plateau_width: float, 
+    shoulder_radius: float,
+    amplitude: float,
+) -> ArrayLike:
+    """This function describes the convolution of a boxcar function with the
+    intensity profile of a Gaussian beam, resulting in a top hat with soft shoulders.
+    The Gaussian beam radius determines `shoulder_radius`. The width of the flat
+    plateu is specified by `plateau_width` (1 - 1/e^4 intensity threshold). The width
+    of the original boxcar function is `plateu_width - 2 * shoulder_radius`.
 
+    Args:
+        x (ArrayLike): x coordinates.
+        shift (float): Center of the top hat.
+        plateau_width (float): Width of the flat plateau (1 - 1/e^4 intensity
+            threshold).
+        shoulder_radius (float): Radius of the Gaussian shoulders.
+        amplitude (float): Amplitude of the top hat.
+
+    Returns:
+        ArrayLike: Top hat with Gaussian shoulders.
+    """
+    xp = array_namespace(x)
+    backend_name = xp.__name__.split(".")[1]
+    if backend_name == "torch":
+        erf = erf_torch
+    elif backend_name == "numpy":
+        erf = erf_scipy
+    else:
+        raise ValueError(f"Unsupported array namespace: {xp}")
+
+    width = plateau_width + 2 * shoulder_radius
+    a = amplitude * xp.sqrt(2) * shoulder_radius
+    x = x - shift
+    return 0.5 * (erf((width - 2 * x) / a) + erf((width + 2 * x) / a))
+
+def top_hat_2D(
+    x: ArrayLike,
+    y: ArrayLike,
+    shift_x: float,
+    shift_y: float,
+    plateau_width_x: float,
+    plateau_width_y: float,
+    shoulder_radius_x: float,
+    shoulder_radius_y: float,
+    amplitude: float,
+) -> ArrayLike:
+    """2D top hat with Gaussian shoulders.
+
+    Args:
+        x (ArrayLike): X meshgrid.
+        y (ArrayLike): Y meshgrid.
+        shift_x (float): X-offset of the top hat.
+        shift_y (float): Y-offset of the top hat.
+        plateau_width_x (float): Width of the flat plateau in the x-direction 
+            (1 - 1/e^4 intensity threshold).
+        plateau_width_y (float): Width of the flat plateau in the y-direction 
+            (1 - 1/e^4 intensity threshold).
+        shoulder_radius_x (float): Radius of the Gaussian shoulders in the x-direction.
+        shoulder_radius_y (float): Radius of the Gaussian shoulders in the y-direction.
+        amplitude (float): Amplitude of the top hat.
+
+    Returns:
+        ArrayLike: 2D top hat with Gaussian shoulders.
+    """
+    x_term = top_hat_gaussian_shoulders(
+        x, shift_x, plateau_width_x, shoulder_radius_x, amplitude
+    )
+    y_term = top_hat_gaussian_shoulders(
+        y, shift_y, plateau_width_y, shoulder_radius_y, 1.0
+    )
+    return x_term * y_term
+
+
+# Binary masks
 def rectangular_mask(
     x: ArrayLike,
     y: ArrayLike,
