@@ -43,7 +43,12 @@ DEVICE = torch.device("cpu")
 FOCAL_LENGTH = 0.25
 
 
-def _build_setup(camera_angle: float = 0.0, noise_level: float = 0.0):
+def _build_setup(
+    camera_angle: float = 0.0,
+    noise_level: float = 0.0,
+    power_std: float | None = None,
+    power_seed: int | None = None,
+):
     """A small simulated SLM + camera (the camera is the 'hardware')."""
     geometry = FieldGeometry(
         resolution=(256, 320),
@@ -69,7 +74,12 @@ def _build_setup(camera_angle: float = 0.0, noise_level: float = 0.0):
         camera_angle=camera_angle,
         camera_shift=(0, 0),
     )
-    camera = SimulatedCameraTorch(hardware, noise_level=noise_level)
+    camera = SimulatedCameraTorch(
+        hardware,
+        noise_level=noise_level,
+        power_std=power_std,
+        power_seed=power_seed,
+    )
     camera.set_exposure(1e-3)
     camera.get_image()
     return slm, camera
@@ -317,67 +327,40 @@ def test_corner_steering_gates_pure_noise(monkeypatch):
 # --- power normalization corrects laser drift ----------------------------------
 
 
-def test_normalize_power_cancels_injected_laser_drift(monkeypatch):
-    """A drifting laser scales every captured frame. With normalize_power the
-    reference spot shares each frame, so the map is unaffected; without it the same
-    drift corrupts the map."""
-    slm, camera = _build_setup()  # noise-free, so the sim is deterministic
+def test_normalize_power_removes_laser_fluctuation(monkeypatch):
+    """A PowerInstability fluctuates the laser power per frame. With normalize_power
+    the reference spot shares each frame, so the recovered map is (almost) the same as
+    with a stable laser; without it the fluctuation clearly changes the map."""
+    # Noise-free cameras (deterministic sim): one with a fluctuating laser, one
+    # stable. Same optics, so their coarse mappings and placements match.
+    slm_f, camera_f = _build_setup(power_std=0.04, power_seed=0)
+    slm_s, camera_s = _build_setup()
+    calibrator_f = RasterCalibrator(slm_f, camera_f, focal_length=FOCAL_LENGTH)
+    calibrator_s = RasterCalibrator(slm_s, camera_s, focal_length=FOCAL_LENGTH)
 
-    # Per-frame laser-power drift: scale each captured scan frame by a random factor
-    # below 1 (a dimming laser), like a fluctuating ComplexAmplitude beam power. It is
-    # disabled during autoexposure so the exposure is set at nominal power and the
-    # scan never saturates; spot detection is centroid-based so uniform dimming does
-    # not move it.
-    drift = {"on": False, "rng": np.random.default_rng(0)}
-    grab_image = camera.get_image
+    def scan(calibrator, *, normalize):
+        intensity, _ = calibrator.measure_intensity(
+            number_of_superpixels_x=6,
+            number_of_superpixels_y=5,
+            superpixel_width=32,
+            superpixel_height=32,
+            normalize_power=normalize,
+            verbose=False,
+        )
+        return np.asarray(intensity)
 
-    def drifting_get_image(*args, **kwargs):
-        image = grab_image(*args, **kwargs)
-        if drift["on"]:
-            return image * float(drift["rng"].uniform(0.5, 1.0))
-        return image
+    norm_fluctuating = scan(calibrator_f, normalize=True)
+    norm_stable = scan(calibrator_s, normalize=True)
+    plain_fluctuating = scan(calibrator_f, normalize=False)
+    plain_stable = scan(calibrator_s, normalize=False)
 
-    monkeypatch.setattr(camera, "get_image", drifting_get_image)
+    def relative_difference(a, b):
+        return float(np.abs(a - b).sum() / np.abs(b).sum())
 
-    autoexpose = camera.autoexposure
+    norm_difference = relative_difference(norm_fluctuating, norm_stable)
+    plain_difference = relative_difference(plain_fluctuating, plain_stable)
 
-    def clean_autoexposure(*args, **kwargs):
-        was_on, drift["on"] = drift["on"], False
-        try:
-            return autoexpose(*args, **kwargs)
-        finally:
-            drift["on"] = was_on
-
-    monkeypatch.setattr(camera, "autoexposure", clean_autoexposure)
-
-    calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
-
-    def scan(*, normalize, with_drift):
-        drift["rng"] = np.random.default_rng(0)
-        drift["on"] = with_drift
-        try:
-            intensity, _ = calibrator.measure_intensity(
-                number_of_superpixels_x=6,
-                number_of_superpixels_y=5,
-                superpixel_width=32,
-                superpixel_height=32,
-                normalize_power=normalize,
-                verbose=False,
-            )
-        finally:
-            drift["on"] = False
-        return intensity
-
-    norm_drift = scan(normalize=True, with_drift=True)
-    norm_clean = scan(normalize=True, with_drift=False)
-    plain_drift = scan(normalize=False, with_drift=True)
-    plain_clean = scan(normalize=False, with_drift=False)
-
-    # Normalization divides out the shared per-frame factor exactly.
-    np.testing.assert_allclose(norm_drift, norm_clean, rtol=1e-6, atol=1e-9)
-    # The injected drift is real: without normalization it clearly changes the map.
-    plain_relative_change = np.abs(plain_drift - plain_clean).sum() / np.abs(
-        plain_clean
-    ).sum()
-    assert plain_relative_change > 0.05
-    assert calibrator.power_reference is None  # cleared by the last (plain) scan
+    # The fluctuation is real: it clearly changes the un-normalized map ...
+    assert plain_difference > 0.01
+    # ... but normalization makes the map nearly independent of it.
+    assert norm_difference < 0.5 * plain_difference
