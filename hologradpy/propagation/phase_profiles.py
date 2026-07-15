@@ -260,3 +260,36 @@ def analytic_phase_guess(
         x, y, curvature, aspect_ratio, curvature_units
     )
     return linear_phase_term + quadratic_phase_term
+
+
+def binary_phase_grating(
+    shape: tuple[int, int],
+    axis: int = 1,
+    high: float = np.pi,
+    low: float = 0.0,
+) -> NDArray[np.float_]:
+    """A period-2-pixel binary phase grating (the SLM Nyquist grating).
+
+    Every other line along ``axis`` is set to ``high`` and the rest to ``low``.
+    Applied to the unmodulated SLM area it deflects the light into the plus and minus
+    first Nyquist orders, away from the bright zeroth order, instead of leaving a flat
+    phase.
+
+    Args:
+        shape (tuple[int, int]): Output shape (height, width).
+        axis (int, optional): Axis whose lines alternate. ``1`` (the default)
+            alternates columns for a vertical grating, ``0`` alternates rows.
+        high (float, optional): Phase of every other line. Defaults to ``np.pi``.
+        low (float, optional): Phase of the remaining lines. Defaults to ``0.0``.
+
+    Returns:
+        NDArray[np.float_]: The grating phase, shape ``shape``.
+    """
+    grating = np.full(shape, low, dtype=float)
+    if axis == 1:
+        grating[:, 1::2] = high
+    elif axis == 0:
+        grating[1::2, :] = high
+    else:
+        raise ValueError("axis must be 0 or 1.")
+    return grating

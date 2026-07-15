@@ -11,6 +11,8 @@ from slmsuite.hardware.cameras.camera import Camera
 from ..propagation.optical_systems import SLMFourierLensModel
 from ..propagation.camera_sensor import CameraSensor
 from ..propagation.background_scatter import BackgroundScatter
+from ..propagation.power_instability import PowerInstability
+from ..propagation.diagonal_elements import StaticSLMField
 from ..utils import gpu_to_numpy, crop_to_roi
 
 
@@ -38,6 +40,8 @@ class SimulatedCameraTorch(Camera):
         background_scatter_power: float | None = None,
         background_scatter_grain_radius: float = 5e-6,
         background_scatter_seed: int | None = None,
+        power_std: float | None = None,
+        power_seed: int | None = None,
     ) -> None:
         """Initialize a simulated camera with a given SLM camera model.
 
@@ -58,6 +62,11 @@ class SimulatedCameraTorch(Camera):
         ``background_scatter_seed``) is generated and inserted as a
         :class:`BackgroundScatter` module immediately before the sensor, so it is
         added before the ND filter.
+
+        When ``power_std`` is given, a :class:`PowerInstability` (a fluctuating laser
+        that scales the field power by a factor drawn ~ N(1, power_std) each frame) is
+        inserted just after the model's ``StaticSLMField``, reproducible via
+        ``power_seed``.
         """
         # Camera geometry comes from the last *optical* module (the Fourier
         # lens / affine), not the sensor, whose output geometry mirrors its input.
@@ -102,6 +111,14 @@ class SimulatedCameraTorch(Camera):
         )
 
         self.slm_camera_model: SLMFourierLensModel = slm_camera_model
+
+        # A fluctuating laser: scale the SLM-plane field power by a fresh N(1,
+        # power_std) factor each frame, inserted right after the static beam.
+        if power_std is not None:
+            self.power_instability = PowerInstability(power_std, seed=power_seed)
+            slm_camera_model.insert_after(
+                StaticSLMField, "power_instability", self.power_instability
+            )
 
         # Build the sensor and append it as the terminal module (reusing one the
         # model may already carry), so the model emits digital pixel values.
@@ -158,11 +175,15 @@ class SimulatedCameraTorch(Camera):
 
     def autoexposure(self, *args, **kwargs):
         # TODO: Ideally, self.autoexposure should work with self.woi, this is
-        # just a temporary workaround.
+        # just a temporary workaround. Restore the window even if autoexposure
+        # raises (e.g. it rails), so a caller catching that error still captures
+        # the intended window rather than the full frame.
         stored_woi = deepcopy(self.woi)
         self.set_woi(None)
-        output = super().autoexposure(*args, **kwargs)
-        self.set_woi(stored_woi)
+        try:
+            output = super().autoexposure(*args, **kwargs)
+        finally:
+            self.set_woi(stored_woi)
         return output
 
     def _get_image_hw(

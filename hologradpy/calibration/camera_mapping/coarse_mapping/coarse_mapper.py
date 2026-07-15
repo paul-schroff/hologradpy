@@ -15,7 +15,7 @@ from slmsuite.hardware.cameras.camera import Camera
 from slmsuite.holography.analysis import get_orientation_transformation
 
 from ....propagation.optical_systems import SLMFourierLensModel
-from ....propagation.phase_profiles import linear_phase
+from ....propagation.phase_profiles import linear_phase, binary_phase_grating
 from ....propagation.fourier import get_spatial_grid
 from ....propagation.amplitude_profiles import get_focal_spot_radius
 from ....holography.phase_retrieval import LinearSuperpositionPhaseRetriever
@@ -632,8 +632,7 @@ class CoarseMapper(CameraMapper):
         peak_before = window_peak(image)
         # 2-px-period 0/pi vertical binary grating: diffracts the light into the
         # Nyquist-edge +/-1 orders, leaving no zeroth order.
-        grating = np.zeros(self.slm.shape)
-        grating[:, 1::2] = np.pi
+        grating = binary_phase_grating(self.slm.shape)
         self.slm.set_phase(grating)
         suppressed = np.asarray(self.camera.get_image())
         return window_peak(suppressed) < 0.5 * peak_before

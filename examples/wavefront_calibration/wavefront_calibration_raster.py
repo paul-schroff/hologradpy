@@ -24,6 +24,7 @@ from hologradpy.propagation.pointing_instability import PointingInstability
 
 from hologradpy.propagation.amplitude_profiles import gaussian_beam_intensity
 from hologradpy.propagation.zernike import Zernike
+from hologradpy.analysis.fitting import remove_tilt
 from hologradpy.utils import get_device, gpu_to_numpy, pad_from_roi
 
 device = get_device(verbose=True)
@@ -48,7 +49,7 @@ zernike = Zernike(
     number_of_radial_orders=10,
     device=device,
 )
-coefficients = torch.rand(zernike.number_of_zernikes, device=device) * 1
+coefficients = torch.rand(zernike.number_of_zernikes, device=device) * 0.2
 zernike_phase = zernike.get_phase(coefficients)
 
 plt.figure()
@@ -74,14 +75,17 @@ simulated_camera_model = SLMCZT(
     camera_pixel_size=(3.45e-6, 3.45e-6),
     focal_length=0.25,
     static_slm_field=StaticSLMField(gaussian_beam),
-    camera_angle=0,
-    camera_shift=(20, -10),
-    pointing_focal_shift_std=1e-6,
+    camera_angle=10,
+    camera_shift=(50, -20),
+    pointing_focal_shift_std=0.25e-6,
 )
 
 # Grab PointingInstability internally so we can read its per-frame tilt below.
 pointing_instability = simulated_camera_model.get(PointingInstability)
 
+# The simulated camera adds a fluctuating laser power (a PowerInstability drawing
+# ~ N(1, power_std) each frame); measure_intensity(normalize_power=True) divides it
+# out with a reference spot.
 camera = SimulatedCameraTorch(
     simulated_camera_model,
     quantum_efficiency=0.01,
@@ -89,6 +93,8 @@ camera = SimulatedCameraTorch(
     noise_level=4.0,
     nd_filter_optical_density=3,
     bitdepth=10,
+    power_std=0.05,
+    power_seed=0,
 )
 
 camera.set_exposure(40e-6)
@@ -131,14 +137,14 @@ plt.colorbar()
 # %% Initializing the calibrator
 calibrator = RasterCalibrator(slm, camera, focal_length=0.25)
 
-# %% Calibrate intesity
+# %% Calibrate intensity, correcting the fluctuating laser power
 camera.set_woi(None)
 intensity, camera_images = calibrator.measure_intensity(
     number_of_superpixels_x=20,
     number_of_superpixels_y=16,
     superpixel_width=64,
     superpixel_height=64,
-    linear_phase_tilt=(500e-6, 500e-6),
+    normalize_power=True,
     verbose=True,
 )
 # %%
@@ -155,6 +161,13 @@ plt.figure()
 plt.imshow(slm.display, cmap="magma")
 plt.colorbar()
 
+# The reference spot tracks the injected laser-power drift that normalization removed.
+plt.figure()
+plt.plot(calibrator.power_reference)
+plt.xlabel("Superpixel index")
+plt.ylabel("Reference spot power [counts]")
+plt.title("Injected laser-power drift tracked by the reference spot")
+
 # %% Pointing-noise demo: PointingInstability injects the jitter, the lattice tracks it.
 # Record the displayed SLM phase per superpixel so the scan can be visualized.
 with pointing_instability.record_samples():
@@ -163,10 +176,8 @@ with pointing_instability.record_samples():
         number_of_superpixels_y=16,
         superpixel_width=32,
         superpixel_height=32,
-        linear_phase_tilt=(500e-6, 500e-6),
         measured_intensity=intensity,
         compensate_pointing=True,
-        lattice_phase_tilt=(-800e-6, -800e-6),
         verbose=True,
         record_displayed_phases=True,
     )
@@ -174,7 +185,7 @@ with pointing_instability.record_samples():
 data = calibrator.visualization_data
 visualizer = RasterCalibratorVisualizer(data)
 
-visualizer.save_gif("wavefront_calibration_raster.gif", max_frames=1000, dpi=100)
+visualizer.save_gif("wavefront_calibration_raster.gif", max_frames=128, dpi=50, fps=4)
 
 number_of_superpixels = len(data.lattice_shift_x)
 angles = pointing_instability.angle_history.cpu().numpy()  # (n, 2): [angle_x, angle_y]
@@ -189,13 +200,30 @@ injected_y = focal_length * (angle_y[-number_of_superpixels:] - angle_y[baseline
 drift_figure = visualizer.plot_drift_tracking(injected_x, injected_y)
 
 # %% Compare the (drift-compensated) detected phase to the ground truth.
-ground_truth = gpu_to_numpy(zernike_phase)
-detected_phase = -phase  # measure_phase returns the opposite-sign phase
-difference = ground_truth - detected_phase
+# Compare only over the illuminated aperture (the beam's 1/e^2 intensity disk) and
+# remove piston and tilt from each phase first.
+beam_intensity = gpu_to_numpy(gaussian_intensity)
+aperture_mask = beam_intensity >= beam_intensity.max() * np.exp(-2)
 
-phase_min = min(ground_truth.min(), detected_phase.min())
-phase_max = max(ground_truth.max(), detected_phase.max())
-difference_limit = np.abs(difference).max()
+ground_truth = remove_tilt(gpu_to_numpy(zernike_phase), mask=aperture_mask)
+# measure_phase returns the opposite-sign phase.
+detected_phase = remove_tilt(-phase, mask=aperture_mask)
+difference = ground_truth - detected_phase
+difference = difference - np.mean(difference[aperture_mask])
+
+rmse = np.sqrt(np.mean(difference[aperture_mask] ** 2))
+wavelength_error = 1 / (rmse / 2 / np.pi)
+print(f"Wavefront residual RMSE over the 1/e^2 aperture: {rmse:.4f} rad")
+print(f"Wavefront residual RMSE over the 1/e^2 aperture: lambda/{wavelength_error:.2f}")
+
+# Blank everything outside the aperture so the plots show only the compared region.
+ground_truth = np.where(aperture_mask, ground_truth, np.nan)
+detected_phase = np.where(aperture_mask, detected_phase, np.nan)
+difference = np.where(aperture_mask, difference, np.nan)
+
+phase_min = float(np.nanmin([ground_truth, detected_phase]))
+phase_max = float(np.nanmax([ground_truth, detected_phase]))
+difference_limit = float(np.nanmax(np.abs(difference)))
 aspect_ratio = ground_truth.shape[0] / ground_truth.shape[1]
 
 comparison_layout = PlotLayout(column_width=4.0)
@@ -212,7 +240,7 @@ comparison_figure = (
         cmap="magma",
         vmin=phase_min,
         vmax=phase_max,
-        title="Ground truth phase",
+        title="Ground truth phase (piston/tilt removed)",
     )
     .draw_image(
         "detected",
@@ -220,7 +248,7 @@ comparison_figure = (
         cmap="magma",
         vmin=phase_min,
         vmax=phase_max,
-        title="Detected phase",
+        title="Detected phase (piston/tilt removed)",
     )
     .draw_image(
         "difference",
@@ -228,7 +256,7 @@ comparison_figure = (
         cmap="seismic",
         vmin=-difference_limit,
         vmax=difference_limit,
-        title="Difference (ground truth - detected)",
+        title=f"Difference (RMSE = {rmse:.3f} rad)",
     )
     .build()
 )

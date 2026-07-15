@@ -41,7 +41,12 @@ class RasterVisualizationData(VisualizationData):
     per-superpixel series are in scan order (aligned with ``superpixel_coordinates``).
     Lattice fields are ``None`` unless pointing compensation was on;
     ``displayed_slm_phases`` is ``None`` unless ``record_displayed_phases`` was
-    requested (it is one full-resolution frame per superpixel).
+    requested (it is one full-resolution frame per superpixel). ``full_frame_image``
+    is a single full-sensor snapshot of the first scan frame (interference pattern,
+    optical lattice and zeroth order together), also recorded only when
+    ``record_displayed_phases`` was requested. ``full_frame_marker_positions`` maps
+    each feature label to its ``(x, y)`` camera pixel (``None`` for a feature absent
+    from the scan, e.g. the lattice without pointing compensation).
     """
 
     camera_images: NDArray
@@ -55,6 +60,8 @@ class RasterVisualizationData(VisualizationData):
     lattice_shift_x_err: NDArray | None = None
     lattice_shift_y_err: NDArray | None = None
     displayed_slm_phases: NDArray | None = None
+    full_frame_image: NDArray | None = None
+    full_frame_marker_positions: dict[str, tuple[float, float] | None] | None = None
 
 
 class RasterCalibratorVisualizer(AnimatedVisualizer):
@@ -241,3 +248,65 @@ class RasterCalibratorVisualizer(AnimatedVisualizer):
                 legend=True,
             )
         return builder.build()
+
+    def plot_full_frame(
+        self, cmap: str = "turbo", vmax: float | None = None
+    ) -> Figure:
+        """Plot the full-sensor snapshot of the first scan frame.
+
+        The snapshot shows the interference pattern, the optical lattice and the
+        zeroth order together on the camera, with a linear colorbar in raw camera
+        counts. Each recorded feature is marked and labelled, so the zeroth order and
+        the (dim, edge-lit) lattice can be located even when they sit near the noise
+        floor. By default the color scale is clipped to a small fraction of the peak
+        so the bright interference spot saturates and those faint features come up;
+        pass an explicit ``vmax`` (for example the image maximum) to override.
+        """
+        import matplotlib.pyplot as plt
+
+        if self.data.full_frame_image is None:
+            raise RuntimeError(
+                "No full-frame snapshot recorded; run measure_phase with "
+                "record_displayed_phases=True."
+            )
+        image = np.asarray(self.data.full_frame_image, dtype=float)
+        if vmax is None:
+            # A few percent of the peak. The interference spot and its fringes cover
+            # many pixels at high counts, so a percentile clip stays too bright to
+            # reveal the faint lattice / zeroth order (a small fraction of the peak);
+            # clip to that fraction instead, so the bright spot saturates.
+            vmax = max(0.05 * float(image.max()), float(np.median(image)) + 1.0)
+        figure, axs = plt.subplots()
+        axs.set_xticks([])
+        axs.set_yticks([])
+        mappable = axs.imshow(image, cmap=cmap, vmin=0.0, vmax=float(vmax))
+
+        marker_styles = {
+            "interference pattern": ("o", "white"),
+            "optical lattice": ("s", "white"),
+            "zeroth order": ("x", "red"),
+        }
+        positions = self.data.full_frame_marker_positions or {}
+        labelled = False
+        for label, position in positions.items():
+            if position is None:
+                continue
+            marker, color = marker_styles.get(label, ("+", "white"))
+            axs.plot(
+                position[0],
+                position[1],
+                marker=marker,
+                markerfacecolor="none",
+                markeredgecolor=color,
+                color=color,
+                markersize=13,
+                linestyle="none",
+                label=label,
+            )
+            labelled = True
+        if labelled:
+            axs.legend(loc="upper right", fontsize=8)
+
+        axs.set_title("Full-frame snapshot")
+        figure.colorbar(mappable, ax=axs, label="camera counts")
+        return figure

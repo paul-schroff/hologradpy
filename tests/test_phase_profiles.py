@@ -15,7 +15,11 @@ import numpy as np
 import pytest
 import torch
 
-from hologradpy.propagation.phase_profiles import linear_phase, tilt_to_angle
+from hologradpy.propagation.phase_profiles import (
+    linear_phase,
+    tilt_to_angle,
+    binary_phase_grating,
+)
 
 WAVELENGTH = 0.63e-6
 WAVENUMBER = 2 * math.pi / WAVELENGTH
@@ -132,3 +136,31 @@ def test_linear_phase_torch_backend_matches_numpy():
         wavenumber=WAVENUMBER, focal_length=FOCAL_LENGTH,
     )
     np.testing.assert_allclose(phase_torch.numpy(), phase_numpy, rtol=1e-12)
+
+
+# --- binary_phase_grating -----------------------------------------------------
+
+
+def test_binary_phase_grating_default_columns():
+    grating = binary_phase_grating((4, 6))
+    assert grating.shape == (4, 6)
+    # Odd columns are pi, even columns are 0 (a vertical period-2 grating).
+    np.testing.assert_allclose(grating[:, 0::2], 0.0)
+    np.testing.assert_allclose(grating[:, 1::2], np.pi)
+
+
+def test_binary_phase_grating_axis0_rows():
+    grating = binary_phase_grating((5, 3), axis=0)
+    np.testing.assert_allclose(grating[0::2, :], 0.0)
+    np.testing.assert_allclose(grating[1::2, :], np.pi)
+
+
+def test_binary_phase_grating_custom_levels():
+    grating = binary_phase_grating((2, 4), high=1.5, low=-0.5)
+    np.testing.assert_allclose(grating[:, 0::2], -0.5)
+    np.testing.assert_allclose(grating[:, 1::2], 1.5)
+
+
+def test_binary_phase_grating_invalid_axis():
+    with pytest.raises(ValueError):
+        binary_phase_grating((2, 2), axis=2)

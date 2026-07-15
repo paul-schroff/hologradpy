@@ -359,7 +359,7 @@ def test_coarse_mapping_with_zeroth_order_off_sensor():
 
     # The fine mapper, seeded with the coarse mapping, places the array on the
     # actual sensor and never probes the (unreachable) zeroth order.
-    mapper = SpotArrayMapper(slm, camera, model, device=DEVICE)
+    mapper = SpotArrayMapper(slm, camera, model)
     mapping = mapper.map_camera(
         number_of_spots=8, seed=1, coarse_mapping=coarse
     )
@@ -385,7 +385,7 @@ def test_coarse_mapping_survives_pointing_instability():
     # The seeded fine mapper still matches almost all its spots (a common
     # per-frame tilt is absorbed by the affine translation; the odd edge spot may
     # be jittered out now that the array fills the sensor).
-    mapper = SpotArrayMapper(slm, camera, model, device=DEVICE)
+    mapper = SpotArrayMapper(slm, camera, model)
     mapping = mapper.map_camera(
         number_of_spots=8, seed=1, coarse_mapping=coarse
     )

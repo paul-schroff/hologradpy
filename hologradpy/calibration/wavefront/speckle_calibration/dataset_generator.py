@@ -153,9 +153,6 @@ class DatasetGenerator:
             ]
         )
 
-        grating = np.zeros(self.slm.shape)
-        grating[:, ::2] = np.pi
-
         for i in range(self.number_of_random_patterns):
             print(
                 f"Generating phase pattern {i + 1} of {self.number_of_random_patterns}."
