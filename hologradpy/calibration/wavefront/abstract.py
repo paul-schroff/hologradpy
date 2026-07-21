@@ -11,8 +11,8 @@ from torch import Tensor
 
 from ...hardware import Camera, SLM, as_camera, as_slm
 
-from ...propagation.complex_amplitude import ComplexAmplitude
-from ...propagation.fourier import get_spatial_grid
+from ...optics.complex_amplitude import ComplexAmplitude
+from ...grids import get_spatial_grid
 from ...visualizer import VisualizationData
 
 from ...analysis.fitting import fit_gaussian_beam_intensity

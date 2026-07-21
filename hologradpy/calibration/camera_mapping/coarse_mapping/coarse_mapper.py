@@ -12,10 +12,10 @@ from ....geometry import AffineTransform
 
 from ....hardware import Camera, SLM
 
-from ....propagation.optical_systems import SLMFourierLensModel
-from ....propagation.phase_profiles import linear_phase, binary_phase_grating
-from ....propagation.fourier import get_spatial_grid, metres_to_pixel
-from ....propagation.amplitude_profiles import get_focal_spot_radius
+from ....optics.systems import SLMFourierLensModel
+from ....profiles.phase import linear_phase, binary_phase_grating
+from ....grids import get_spatial_grid, metres_to_pixel
+from ....profiles.amplitude import get_focal_spot_radius
 from ....holography.phase_retrieval import LinearSuperpositionPhaseRetriever
 from ....analysis.fitting import fit_gaussian_beam_intensity
 from ....utils import gpu_to_numpy

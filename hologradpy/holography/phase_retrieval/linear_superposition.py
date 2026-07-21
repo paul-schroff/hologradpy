@@ -4,9 +4,9 @@ import torch
 
 from .abstract import PhaseRetrieverBase
 
-from ...propagation.optical_systems import SLMFourierLensModel
+from ...optics.systems import SLMFourierLensModel
 
-from ...propagation.phase_profiles import linear_phase
+from ...profiles.phase import linear_phase
 
 
 class LinearSuperpositionPhaseRetriever(PhaseRetrieverBase):

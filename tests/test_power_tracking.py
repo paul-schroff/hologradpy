@@ -12,8 +12,8 @@ from __future__ import annotations
 import pytest
 import torch
 
-from hologradpy.propagation.complex_amplitude import ComplexAmplitude
-from hologradpy.propagation.propagators.fourier_lens_fft import FourierLensFFT
+from hologradpy.optics.complex_amplitude import ComplexAmplitude
+from hologradpy.optics.modules.propagators import FourierLensFFT
 
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
@@ -63,7 +63,7 @@ def test_power_argument_in_constructor() -> None:
 
 
 def test_power_argument_in_from_geometry() -> None:
-    from hologradpy.propagation.complex_amplitude import FieldGeometry
+    from hologradpy.optics.complex_amplitude import FieldGeometry
 
     geometry = FieldGeometry(WAVELENGTH, PIXEL_SIZE, (4, 5))
     field = ComplexAmplitude.from_geometry(geometry, power=5e-3)

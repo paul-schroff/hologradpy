@@ -19,7 +19,7 @@ from slmsuite.hardware.slms.slm import SLM
 
 from ..geometry import AffineTransform
 from ..utils import gpu_to_numpy
-from ..propagation.optical_systems import VirtualSlm
+from ..optics.systems import VirtualSlm
 from .phase_retrieval import PhaseRetrieval
 from .. import patterns as pt
 from ..hardware import hardware as hw

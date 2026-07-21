@@ -8,7 +8,7 @@ from .abstract import PhaseRetrieverBase
 from ...utils import Timer
 from ..loss_functions import LossIntensityMSE
 
-from ...propagation.optical_systems import SLMFourierLensModel
+from ...optics.systems import SLMFourierLensModel
 
 
 # TODO: Add convergence error metrics

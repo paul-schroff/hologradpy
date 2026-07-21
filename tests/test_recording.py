@@ -8,9 +8,9 @@ aggregates their histories.
 import pytest
 import torch
 
-from hologradpy.propagation.complex_amplitude import ComplexAmplitude, FieldGeometry
-from hologradpy.propagation.optics_module import OpticsModule
-from hologradpy.propagation.optical_systems.abstract import OpticalSystem
+from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
+from hologradpy.optics.modules.abstract import OpticsModule
+from hologradpy.optics.systems.abstract import OpticalSystem
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 

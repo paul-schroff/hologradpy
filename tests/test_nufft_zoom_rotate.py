@@ -13,7 +13,7 @@ import math
 import pytest
 import torch
 
-from hologradpy.propagation.fourier import KbNufftZoomRotate
+from hologradpy.optics.fourier_transforms import KbNufftZoomRotate
 
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")

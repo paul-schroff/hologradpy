@@ -1,5 +1,5 @@
 """Behaviour locks for the propagators after they were refactored to compose
-the ``hologradpy.propagation.fourier`` transforms.
+the ``hologradpy.optics.fourier_transforms`` transforms.
 
 * ``FourierLensNUFFT`` -> ``KbNufftZoomRotate``: a characterization golden pins
   the migrated output to values captured from the pre-refactor implementation
@@ -18,14 +18,14 @@ import math
 import pytest
 import torch
 
-from hologradpy.propagation.complex_amplitude import ComplexAmplitude
-from hologradpy.propagation.propagators.fourier_lens_fft import FourierLensFFT
-from hologradpy.propagation.propagators.fourier_lens_nufft import FourierLensNUFFT
-from hologradpy.propagation.propagators.fourier_lens_czt import FourierLensCZT
-from hologradpy.propagation.propagators.angular_spectrum_method import (
+from hologradpy.optics.complex_amplitude import ComplexAmplitude
+from hologradpy.optics.modules.propagators import (
+    FourierLensFFT,
+    FourierLensNUFFT,
+    FourierLensCZT,
     AngularSpectrumMethod,
 )
-from hologradpy.propagation.fourier import (
+from hologradpy.optics.fourier_transforms import (
     FastFourierTransform,
     ChirpZZoom,
     fft_2d,

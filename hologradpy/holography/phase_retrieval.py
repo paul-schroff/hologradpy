@@ -7,7 +7,7 @@ from numpy.typing import NDArray
 import torch
 import torchmin
 
-from ..propagation.optical_systems import VirtualSlm
+from ..optics.systems import VirtualSlm
 
 from ..utils import gpu_to_numpy
 

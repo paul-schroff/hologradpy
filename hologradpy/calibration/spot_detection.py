@@ -12,14 +12,14 @@ from scipy.stats import norm
 
 from ..hardware import Camera, SLM, as_camera, as_slm
 
-from ..propagation.phase_profiles import linear_phase
-from ..propagation.amplitude_profiles import (
-    circular_mask,
+from ..profiles.phase import linear_phase
+from ..profiles.amplitude import (
     get_focal_spot_radius,
 )
+from ..profiles.masks import circular_mask
 
 from ..analysis.fitting import fit_gaussian_beam_intensity
-from ..propagation.fourier import get_spatial_grid
+from ..grids import get_spatial_grid
 from ..utils import gpu_to_numpy
 from ..roi import ROI
 

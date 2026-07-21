@@ -22,13 +22,13 @@ from ...spot_detection import (
 )
 from ...camera_mapping.coarse_mapping.coarse_mapper import CoarseMapper
 from ...camera_mapping.abstract import CameraMapping
-from ....propagation import SLMFourierLensModel
-from ....propagation.optical_systems import SLMFFT
-from ....propagation.virtual_slms import VirtualSLM
-from ....propagation.diagonal_elements import StaticSLMField
-from ....propagation.complex_amplitude import ComplexAmplitude, FieldGeometry
-from ....propagation.fourier import get_spatial_grid
-from ....propagation.phase_profiles import linear_phase, binary_phase_grating
+from ....optics import SLMFourierLensModel
+from ....optics.systems import SLMFFT
+from ....optics.modules.virtual_slms import VirtualSLM
+from ....optics.modules.diagonal_elements import StaticSLMField
+from ....optics.complex_amplitude import ComplexAmplitude, FieldGeometry
+from ....grids import get_spatial_grid
+from ....profiles.phase import linear_phase, binary_phase_grating
 
 from ....utils import gpu_to_numpy, Timer
 

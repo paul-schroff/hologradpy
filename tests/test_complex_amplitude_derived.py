@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from hologradpy.propagation.complex_amplitude import ComplexAmplitude
+from hologradpy.optics.complex_amplitude import ComplexAmplitude
 
 from .registry import make_field
 from .registry import MODULE_FACTORIES, RANK_CASES

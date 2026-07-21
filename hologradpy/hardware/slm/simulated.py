@@ -4,8 +4,8 @@ import numpy as np
 import torch
 from numpy.typing import NDArray
 
-from ...propagation.complex_amplitude import FieldGeometry
-from ...propagation.virtual_slms import VirtualSLM
+from ...optics.complex_amplitude import FieldGeometry
+from ...optics.modules.virtual_slms import VirtualSLM
 
 from .abstract import SLM
 

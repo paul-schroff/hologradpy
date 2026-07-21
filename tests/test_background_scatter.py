@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 import torch
 
-from hologradpy.propagation.amplitude_profiles import laser_speckle_intensity
-from hologradpy.propagation.background_scatter import BackgroundScatter
-from hologradpy.propagation.complex_amplitude import ComplexAmplitude
+from hologradpy.profiles.amplitude import laser_speckle_intensity
+from hologradpy.optics.modules.hardware_models import BackgroundScatter
+from hologradpy.optics.complex_amplitude import ComplexAmplitude
 
 DEVICE = torch.device("cpu")
 PITCH = 3.45e-6

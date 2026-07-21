@@ -12,9 +12,9 @@ from __future__ import annotations
 import pytest
 import torch
 
-from hologradpy.propagation.complex_amplitude import ComplexAmplitude
-from hologradpy.propagation.propagators.fourier_lens_czt import FourierLensCZT
-from hologradpy.propagation.fourier import fft_2d
+from hologradpy.optics.complex_amplitude import ComplexAmplitude
+from hologradpy.optics.modules.propagators import FourierLensCZT
+from hologradpy.optics.fourier_transforms import fft_2d
 
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")

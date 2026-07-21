@@ -44,10 +44,10 @@ from hologradpy.hardware import (
     register_slm_backend,
 )
 
-from hologradpy.propagation.complex_amplitude import ComplexAmplitude, FieldGeometry
-from hologradpy.propagation.optical_systems import SLMFFTAffine
-from hologradpy.propagation.diagonal_elements import StaticSLMField
-from hologradpy.propagation.amplitude_profiles import gaussian_beam_intensity
+from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
+from hologradpy.optics.systems import SLMFFTAffine
+from hologradpy.optics.modules.diagonal_elements import StaticSLMField
+from hologradpy.profiles.amplitude import gaussian_beam_intensity
 from hologradpy.utils import get_device
 
 device = get_device(verbose=True)

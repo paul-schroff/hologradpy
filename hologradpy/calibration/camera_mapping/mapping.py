@@ -1,7 +1,7 @@
 """The :class:`CameraMapping` result value object, produced by a camera mapper.
 
 Kept separate from the mapper (``abstract.py``), which needs an optical model and so
-pulls in :mod:`hologradpy.propagation`. This module has no such dependency, so it can
+pulls in :mod:`hologradpy.optics`. This module has no such dependency, so it can
 be imported from lower layers (e.g. as a type in a propagation model) without a cycle.
 """
 

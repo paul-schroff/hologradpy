@@ -11,13 +11,13 @@ from hologradpy.hardware import (
 
 from hologradpy.calibration import SpeckleCalibrator, CameraMapping
 
-from hologradpy.propagation.optical_systems import SLMNUFFTAffine
-from hologradpy.propagation.diagonal_elements import StaticSLMField
-from hologradpy.propagation.complex_amplitude import (
+from hologradpy.optics.systems import SLMNUFFTAffine
+from hologradpy.optics.modules.diagonal_elements import StaticSLMField
+from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude, FieldGeometry,
 )
 
-from hologradpy.propagation.amplitude_profiles import gaussian_beam_intensity
+from hologradpy.profiles.amplitude import gaussian_beam_intensity
 from hologradpy.utils import (
     get_device,
 )

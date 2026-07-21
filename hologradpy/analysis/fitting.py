@@ -11,8 +11,8 @@ from scipy.ndimage import gaussian_filter
 from scipy.optimize import curve_fit
 
 
-from ..propagation.amplitude_profiles import gaussian_beam_intensity
-from ..propagation.zernike import Zernike
+from ..profiles.amplitude import gaussian_beam_intensity
+from ..profiles.zernike import Zernike
 
 
 def interferometric_fringes(

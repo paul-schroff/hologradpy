@@ -19,14 +19,14 @@ import torch  # noqa: E402
 
 from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch  # noqa: E402
 from hologradpy.hardware import as_slm  # noqa: E402
-from hologradpy.propagation.complex_amplitude import (  # noqa: E402
+from hologradpy.optics.complex_amplitude import (  # noqa: E402
     ComplexAmplitude,
     FieldGeometry,
 )
-from hologradpy.propagation.optical_systems import SLMFFT, SLMCZT  # noqa: E402
-from hologradpy.propagation.diagonal_elements import StaticSLMField  # noqa: E402
-from hologradpy.propagation.virtual_slms import VirtualSLM  # noqa: E402
-from hologradpy.propagation.amplitude_profiles import (  # noqa: E402
+from hologradpy.optics.systems import SLMFFT, SLMCZT  # noqa: E402
+from hologradpy.optics.modules.diagonal_elements import StaticSLMField  # noqa: E402
+from hologradpy.optics.modules.virtual_slms import VirtualSLM  # noqa: E402
+from hologradpy.profiles.amplitude import (  # noqa: E402
     gaussian_beam_intensity,
     get_focal_spot_radius,
 )

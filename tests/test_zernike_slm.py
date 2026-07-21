@@ -11,8 +11,8 @@ from __future__ import annotations
 import pytest
 import torch
 
-from hologradpy.propagation.complex_amplitude import ComplexAmplitude
-from hologradpy.propagation.virtual_slms.zernike_slm import ZernikeSLM
+from hologradpy.optics.complex_amplitude import ComplexAmplitude
+from hologradpy.optics.modules.virtual_slms.zernike_slm import ZernikeSLM
 
 from .registry import ZERNIKE_RADIAL_ORDERS, make_field
 

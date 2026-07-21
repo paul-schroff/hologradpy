@@ -10,8 +10,8 @@ init/guard by hand.
 import pytest
 import torch
 
-from hologradpy.propagation.complex_amplitude import ComplexAmplitude, FieldGeometry
-from hologradpy.propagation.optics_module import OpticsModule
+from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
+from hologradpy.optics.modules.abstract import OpticsModule
 
 GEOMETRY = FieldGeometry(
     resolution=(4, 4),

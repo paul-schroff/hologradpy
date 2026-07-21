@@ -14,7 +14,7 @@ import math
 import pytest
 import torch
 
-from hologradpy.propagation.fourier import (
+from hologradpy.optics.fourier_transforms import (
     fft_2d,
     ChirpZZoom,
     shear_rotate,

@@ -2,24 +2,24 @@
 import matplotlib.pyplot as plt
 
 from hologradpy.holography.phase_retrieval import CGPhaseRetriever
-from hologradpy.propagation.phase_profiles import lens_phase
-from hologradpy.propagation.amplitude_profiles import (
+from hologradpy.profiles.phase import lens_phase
+from hologradpy.profiles.amplitude import (
     gaussian_beam_intensity,
-    rectangular_mask,
     gaussian_blur,
 )
+from hologradpy.profiles.masks import rectangular_mask
 from hologradpy.utils import (
     get_device,
     gpu_to_numpy,
 )
 
-from hologradpy.propagation.complex_amplitude import (
+from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
     FieldGeometry,
 )
-from hologradpy.propagation.optical_systems import SLMFFT
-from hologradpy.propagation.diagonal_elements import StaticSLMField
-from hologradpy.propagation.virtual_slms import VirtualSLM
+from hologradpy.optics.systems import SLMFFT
+from hologradpy.optics.modules.diagonal_elements import StaticSLMField
+from hologradpy.optics.modules.virtual_slms import VirtualSLM
 
 from hologradpy.holography.vortices import VortexAnnihilator
 

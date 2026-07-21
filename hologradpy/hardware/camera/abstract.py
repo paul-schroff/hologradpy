@@ -19,7 +19,7 @@ from scipy.ndimage import binary_erosion, label
 
 from array_api_compat import array_namespace
 
-from ...propagation.fourier import get_spatial_grid as _spatial_grid
+from ...grids import get_spatial_grid as _spatial_grid
 from ...roi import ROI
 
 

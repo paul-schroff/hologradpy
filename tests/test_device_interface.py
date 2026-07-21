@@ -39,13 +39,13 @@ from hologradpy.hardware import (  # noqa: E402
 )
 from slmsuite.hardware.cameras.camera import Camera as SLMSuiteCamera  # noqa: E402
 from slmsuite.hardware.slms.slm import SLM as SLMSuiteSLM  # noqa: E402
-from hologradpy.propagation.complex_amplitude import (  # noqa: E402
+from hologradpy.optics.complex_amplitude import (  # noqa: E402
     ComplexAmplitude,
     FieldGeometry,
 )
-from hologradpy.propagation.optical_systems import SLMCZT  # noqa: E402
-from hologradpy.propagation.diagonal_elements import StaticSLMField  # noqa: E402
-from hologradpy.propagation.amplitude_profiles import (  # noqa: E402
+from hologradpy.optics.systems import SLMCZT  # noqa: E402
+from hologradpy.optics.modules.diagonal_elements import StaticSLMField  # noqa: E402
+from hologradpy.profiles.amplitude import (  # noqa: E402
     gaussian_beam_intensity,
 )
 

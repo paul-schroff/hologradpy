@@ -16,13 +16,13 @@ from hologradpy.calibration.camera_mapping import (
     CoarseMapperVisualizer,
 )
 
-from hologradpy.propagation.optical_systems import SLMFFT, SLMFFTAffine
-from hologradpy.propagation.diagonal_elements import StaticSLMField
-from hologradpy.propagation.virtual_slms import VirtualSLM
-from hologradpy.propagation.complex_amplitude import ComplexAmplitude, FieldGeometry
+from hologradpy.optics.systems import SLMFFT, SLMFFTAffine
+from hologradpy.optics.modules.diagonal_elements import StaticSLMField
+from hologradpy.optics.modules.virtual_slms import VirtualSLM
+from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 
-from hologradpy.propagation.amplitude_profiles import gaussian_beam_intensity
-from hologradpy.propagation.zernike import Zernike
+from hologradpy.profiles.amplitude import gaussian_beam_intensity
+from hologradpy.profiles.zernike import Zernike
 from hologradpy.utils import get_device
 
 device = get_device(verbose=True)

@@ -5,11 +5,13 @@ import numpy as np
 import torch
 from numpy.typing import NDArray
 
-from ...propagation.optical_systems import SLMFourierLensModel
-from ...propagation.camera_sensor import CameraSensor
-from ...propagation.background_scatter import BackgroundScatter
-from ...propagation.power_instability import PowerInstability
-from ...propagation.diagonal_elements import StaticSLMField
+from ...optics.systems import SLMFourierLensModel
+from ...optics.modules.hardware_models import (
+    CameraSensor,
+    BackgroundScatter,
+    PowerInstability,
+)
+from ...optics.modules.diagonal_elements import StaticSLMField
 from ...utils import gpu_to_numpy
 from ...roi import ROI
 from .abstract import Camera, get_orientation_transformation

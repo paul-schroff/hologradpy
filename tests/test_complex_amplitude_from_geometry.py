@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from hologradpy.propagation.complex_amplitude import (
+from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
     FieldGeometry,
 )

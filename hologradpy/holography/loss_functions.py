@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from ..propagation.complex_amplitude import ComplexAmplitude
+from ..optics.complex_amplitude import ComplexAmplitude
 
 
 class LossFunctionBase:

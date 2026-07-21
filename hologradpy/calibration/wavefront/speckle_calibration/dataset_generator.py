@@ -22,15 +22,15 @@ from ..abstract import WavefrontCalibrationData
 
 from ...camera_mapping import CameraMapping
 
-from ....propagation.amplitude_profiles import circular_mask
+from ....profiles.masks import circular_mask
 from ....utils import get_device
 from ....roi import ROI
-from ....propagation.fourier import get_spatial_grid
-from ....propagation.optical_systems import SLMFourierLensModel
-from ....propagation.propagators import FourierLensFFT
-from ....propagation.virtual_slms import VirtualSLM
-from ....propagation.diagonal_elements import StaticSLMField
-from ....propagation.geometric_transforms import GeometricWarp
+from ....grids import get_spatial_grid
+from ....optics.systems import SLMFourierLensModel
+from ....optics.modules.propagators import FourierLensFFT
+from ....optics.modules.virtual_slms import VirtualSLM
+from ....optics.modules.diagonal_elements import StaticSLMField
+from ....optics.modules.geometric_transforms import GeometricWarp
 
 
 class DatasetGenerator:

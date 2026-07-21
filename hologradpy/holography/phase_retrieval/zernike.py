@@ -5,7 +5,7 @@ import torchmin
 
 from ...utils import Timer
 
-from ...propagation.optical_systems import SLMFourierLensModel
+from ...optics.systems import SLMFourierLensModel
 
 from .abstract import PhaseRetrieverBase
 from ..loss_functions import LossIntensityMSE

@@ -13,7 +13,7 @@ from ..calibration_dataset import DatasetDescriptor
 from ....camera_mapping import CameraMapping
 
 from .....roi import ROI
-from .....propagation.optical_systems import SLMFourierLensModel
+from .....optics.systems import SLMFourierLensModel
 
 
 # TODO (PS): A save and load method for the propagator would be nice.

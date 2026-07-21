@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from hologradpy.propagation.diagonal_elements import ZernikePhase
+from hologradpy.optics.modules.diagonal_elements import ZernikePhase
 
 from .registry import ZERNIKE_RADIAL_ORDERS, make_field
 

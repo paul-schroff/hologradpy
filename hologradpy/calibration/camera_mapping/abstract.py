@@ -4,7 +4,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ...hardware import Camera, SLM, as_camera, as_slm
-from ...propagation import SLMFourierLensModel
+from ...optics import SLMFourierLensModel
 from ...geometry import AffineTransform
 
 # CameraMapping (the result value object) lives in mapping.py, which stays free of the

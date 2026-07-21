@@ -10,25 +10,25 @@ from __future__ import annotations
 
 import torch
 
-from hologradpy.propagation.complex_amplitude import ComplexAmplitude
-from hologradpy.propagation.propagators.fourier_lens_fft import FourierLensFFT
-from hologradpy.propagation.propagators.fourier_lens_nufft import (
+from hologradpy.optics.complex_amplitude import ComplexAmplitude
+from hologradpy.optics.modules.propagators import FourierLensFFT
+from hologradpy.optics.modules.propagators.fourier_lens_nufft import (
     FourierLensNUFFT,
 )
-from hologradpy.propagation.diagonal_elements import (
+from hologradpy.optics.modules.diagonal_elements import (
     StaticSLMField,
     SimpleLens,
     DoubletLens,
     ZernikePhase,
 )
-from hologradpy.propagation.geometric_transforms import (
+from hologradpy.optics.modules.geometric_transforms import (
     GeometricWarp,
 )
-from hologradpy.propagation.propagators.angular_spectrum_method import (
+from hologradpy.optics.modules.propagators.angular_spectrum_method import (
     AngularSpectrumMethod,
 )
-from hologradpy.propagation.virtual_slms.abstract import VirtualSLM
-from hologradpy.propagation.virtual_slms.zernike_slm import ZernikeSLM
+from hologradpy.optics.modules.virtual_slms.abstract import VirtualSLM
+from hologradpy.optics.modules.virtual_slms.zernike_slm import ZernikeSLM
 
 
 RESOLUTION: tuple[int, int] = (16, 16)

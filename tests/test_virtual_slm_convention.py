@@ -16,11 +16,11 @@ import torch
 
 from hologradpy.hardware import SimulatedSLMTorch
 from hologradpy.holography.phase_retrieval import LinearSuperpositionPhaseRetriever
-from hologradpy.propagation.amplitude_profiles import gaussian_beam_intensity
-from hologradpy.propagation.complex_amplitude import ComplexAmplitude, FieldGeometry
-from hologradpy.propagation.diagonal_elements import StaticSLMField
-from hologradpy.propagation.optical_systems import SLMCZT, SLMFFT
-from hologradpy.propagation.phase_profiles import linear_phase
+from hologradpy.profiles.amplitude import gaussian_beam_intensity
+from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
+from hologradpy.optics.modules.diagonal_elements import StaticSLMField
+from hologradpy.optics.systems import SLMCZT, SLMFFT
+from hologradpy.profiles.phase import linear_phase
 from hologradpy.utils import gpu_to_numpy
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")

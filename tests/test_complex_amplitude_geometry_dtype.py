@@ -8,7 +8,7 @@ their own dtype (unchanged behaviour).
 
 import torch
 
-from hologradpy.propagation.complex_amplitude import ComplexAmplitude
+from hologradpy.optics.complex_amplitude import ComplexAmplitude
 
 
 def _field(dtype: torch.dtype) -> ComplexAmplitude:

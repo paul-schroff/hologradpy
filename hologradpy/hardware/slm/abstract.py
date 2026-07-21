@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from numpy.typing import NDArray
 
-from ...propagation.fourier import get_spatial_grid as _spatial_grid
+from ...grids import get_spatial_grid as _spatial_grid
 
 
 class SLM(ABC):

@@ -10,14 +10,14 @@ from ....geometry import AffineTransform
 from ....hardware import Camera, SLM
 from ....roi import ROI
 
-from ....propagation.amplitude_profiles import checkerboard
+from ....profiles.amplitude import checkerboard
 from ..coarse_mapping.coarse_mapper import CoarseMapper
 
-from ....propagation.optical_systems import SLMFFT
+from ....optics.systems import SLMFFT
 from ....utils import gpu_to_numpy
-from ....propagation.phase_profiles import analytic_phase_guess
-from ....propagation.amplitude_profiles import rectangular_mask
-from ....propagation.fourier import get_spatial_grid
+from ....profiles.phase import analytic_phase_guess
+from ....profiles.masks import rectangular_mask
+from ....grids import get_spatial_grid
 
 from ....holography.phase_retrieval import CGPhaseRetriever
 from ....holography.vortices.vortex_annihilator import VortexAnnihilator

@@ -10,7 +10,7 @@ from hologradpy.hardware import (
     open_slm,
 )
 
-from hologradpy.propagation.complex_amplitude import (
+from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
     FieldGeometry,
 )
@@ -22,12 +22,12 @@ from hologradpy.calibration import (
 )
 from hologradpy.visualizer import GridCell, PlotBuilder, PlotLayout
 
-from hologradpy.propagation.optical_systems import SLMCZT
-from hologradpy.propagation.diagonal_elements import StaticSLMField
-from hologradpy.propagation.pointing_instability import PointingInstability
+from hologradpy.optics.systems import SLMCZT
+from hologradpy.optics.modules.diagonal_elements import StaticSLMField
+from hologradpy.optics.modules.hardware_models.pointing_instability import PointingInstability
 
-from hologradpy.propagation.amplitude_profiles import gaussian_beam_intensity
-from hologradpy.propagation.zernike import Zernike
+from hologradpy.profiles.amplitude import gaussian_beam_intensity
+from hologradpy.profiles.zernike import Zernike
 from hologradpy.analysis.fitting import remove_tilt
 from hologradpy.utils import get_device, gpu_to_numpy
 

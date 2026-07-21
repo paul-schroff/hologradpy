@@ -14,11 +14,11 @@ import pytest
 import torch
 from scipy.constants import Planck, speed_of_light
 
-from hologradpy.propagation.complex_amplitude import ComplexAmplitude, FieldGeometry
-from hologradpy.propagation.camera_sensor import CameraSensor
-from hologradpy.propagation.diagonal_elements import StaticSLMField
-from hologradpy.propagation.virtual_slms.abstract import VirtualSLM
-from hologradpy.propagation.optical_systems import SLMFFTAffine
+from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
+from hologradpy.optics.modules.hardware_models import CameraSensor
+from hologradpy.optics.modules.diagonal_elements import StaticSLMField
+from hologradpy.optics.modules.virtual_slms.abstract import VirtualSLM
+from hologradpy.optics.systems import SLMFFTAffine
 from hologradpy.hardware import SimulatedCameraTorch
 from hologradpy.roi import ROI
 

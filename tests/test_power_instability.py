@@ -2,8 +2,8 @@
 
 import torch
 
-from hologradpy.propagation.complex_amplitude import ComplexAmplitude, FieldGeometry
-from hologradpy.propagation.power_instability import PowerInstability
+from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
+from hologradpy.optics.modules.hardware_models import PowerInstability
 
 GEOMETRY = FieldGeometry(
     resolution=(8, 8),

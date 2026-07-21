@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 import torch
 
-from hologradpy.propagation.phase_profiles import (
+from hologradpy.profiles.phase import (
     linear_phase,
     tilt_to_angle,
     binary_phase_grating,

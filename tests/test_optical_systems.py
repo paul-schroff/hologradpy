@@ -11,18 +11,18 @@ from __future__ import annotations
 import pytest
 import torch
 
-from hologradpy.propagation.complex_amplitude import (
+from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
     FieldGeometry,
 )
-from hologradpy.propagation.optical_systems import (
+from hologradpy.optics.systems import (
     SLMFFT,
     SLMFFTAffine,
     SLMNUFFTAffine,
     SLMCZT,
 )
-from hologradpy.propagation.diagonal_elements import StaticSLMField
-from hologradpy.propagation.virtual_slms.abstract import VirtualSLM
+from hologradpy.optics.modules.diagonal_elements import StaticSLMField
+from hologradpy.optics.modules.virtual_slms.abstract import VirtualSLM
 
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
@@ -169,7 +169,9 @@ def test_to_cuda_moves_device_and_init_field() -> None:
 
 
 def test_layer_name_collisions_are_rejected_clearly() -> None:
-    from hologradpy.propagation.pointing_instability import PointingInstability
+    from hologradpy.optics.modules.hardware_models import (
+        PointingInstability,
+    )
 
     model = _make_slm_czt()
     # A name already used by a layer.
@@ -181,7 +183,9 @@ def test_layer_name_collisions_are_rejected_clearly() -> None:
 
 
 def test_insert_after_places_module_in_chain() -> None:
-    from hologradpy.propagation.pointing_instability import PointingInstability
+    from hologradpy.optics.modules.hardware_models import (
+        PointingInstability,
+    )
 
     model = _make_slm_czt()
     model.insert_after(StaticSLMField, "jitter", PointingInstability(1e-4))
@@ -196,7 +200,9 @@ def test_pointing_instability_inserted_after_static_field(name: str) -> None:
     """Each SLM model builds a PointingInstability from pointing_focal_shift_std
     (using its own focal_length) and inserts it right after its StaticSLMField
     stage (whatever that layer happens to be named)."""
-    from hologradpy.propagation.pointing_instability import PointingInstability
+    from hologradpy.optics.modules.hardware_models import (
+        PointingInstability,
+    )
 
     # Factories all use focal_length=0.1, so tilt_std = focal_shift_std / 0.1.
     model = SYSTEM_FACTORIES[name](pointing_focal_shift_std=2e-6)
@@ -255,7 +261,9 @@ def test_load_rejects_wrong_class(name: str, tmp_path) -> None:
 def test_checkpoint_preserves_pointing_instability(tmp_path) -> None:
     """A model built with pointing (and a seed) round-trips through save/load: the
     PointingInstability and its seed survive, and params match."""
-    from hologradpy.propagation.pointing_instability import PointingInstability
+    from hologradpy.optics.modules.hardware_models import (
+        PointingInstability,
+    )
 
     model = SLMCZT(
         input_geometry=_input_geometry(),

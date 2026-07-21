@@ -4,7 +4,7 @@ from typing import Callable
 import torch
 from numpy.typing import NDArray
 
-from ...propagation.optical_systems import SLMFourierLensModel
+from ...optics.systems import SLMFourierLensModel
 
 
 # TODO: Add saving functionality
