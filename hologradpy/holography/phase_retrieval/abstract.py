@@ -40,7 +40,7 @@ class PhaseRetrieverBase:
         for name, parameter in named_parameters.items():
             parameter.requires_grad = name == parameter_name
 
-    def set_target(self, target: NDArray) -> None:
+    def set_target(self, target: torch.Tensor) -> None:
         pass
 
     def set_loss_function(self, loss_function: Callable) -> None:
