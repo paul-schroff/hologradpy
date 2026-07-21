@@ -13,6 +13,8 @@ from .calibration_dataset import DatasetDescriptor
 
 from ..abstract import WavefrontCalibratorBase, WavefrontCalibrationData
 
+from ....analysis.fitting import remove_tilt
+
 from ...camera_mapping import CameraMapping
 
 from ....utils import get_device
@@ -109,7 +111,7 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
         slm_mask = intensity > 0.005 * np.max(intensity)
 
         phase = np.angle(field)
-        phase_no_tilt = self.trainer.remove_phase_tilt(phase, slm_mask)
+        phase_no_tilt = remove_tilt(phase, mask=slm_mask)
 
         zernike_coefficients = self.fit_zernike(phase_no_tilt)
 

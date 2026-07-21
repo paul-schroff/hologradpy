@@ -7,8 +7,6 @@ import torch
 
 from .calibration_dataset import TrainingSample
 
-from ....utils import crop_to_roi
-
 
 # Pytorch Dataset transform classes for the speckle calibration dataset
 # TODO: Check if they should be subclassed from a pytorch base class
@@ -50,7 +48,7 @@ class CropToRoi(object):
 
     def __call__(self, sample: TrainingSample) -> TrainingSample:
         camera_image = sample["camera_image"]
-        sample["camera_image"] = crop_to_roi(camera_image, self.roi)
+        sample["camera_image"] = self.roi.crop(camera_image)
         return sample
 
 

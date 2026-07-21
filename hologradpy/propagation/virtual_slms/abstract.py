@@ -15,7 +15,7 @@ from ..complex_amplitude import ComplexAmplitude
 from slmsuite.hardware.slms.slm import SLM
 
 if TYPE_CHECKING:
-    from ...hardware.slm_data import SLMData
+    from ...hardware.slm import SLMData
 
 
 class VirtualSLM(OpticsModule):
@@ -54,7 +54,7 @@ class VirtualSLM(OpticsModule):
         slm: SLM,
         init_phase: torch.Tensor | None = None,
     ) -> VirtualSLM:
-        if slm.pitch_um[0] != slm.pitch_um[1]:
+        if slm.pixel_size[0] != slm.pixel_size[1]:
             raise ValueError("Non-square pixel pitch is not supported.")
         return cls(
             phase_scaling=slm.phase_scaling,
@@ -67,7 +67,7 @@ class VirtualSLM(OpticsModule):
         slm_data: SLMData,
         init_phase: torch.Tensor | None = None,
     ) -> VirtualSLM:
-        if slm_data.pitch_um[0] != slm_data.pitch_um[1]:
+        if slm_data.pixel_size[0] != slm_data.pixel_size[1]:
             raise ValueError("Non-square pixel pitch is not supported.")
         return cls(
             phase_scaling=slm_data.phase_scaling,

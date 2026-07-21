@@ -4,7 +4,7 @@ import inspect
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TypeVar, Type
+from typing import TypeVar, Type, TYPE_CHECKING
 
 import torch
 import torch.nn as nn
@@ -17,6 +17,10 @@ from ..complex_amplitude import ComplexAmplitude, FieldGeometry
 from ..diagonal_elements import StaticSLMField
 from ..pointing_instability import PointingInstability
 from ..recording import RecordingMixin
+from ...geometry import SupportsPartialAffine
+
+if TYPE_CHECKING:
+    from ...calibration.camera_mapping.abstract import CameraMapping
 
 
 T = TypeVar("T", bound=nn.Module)
@@ -387,10 +391,10 @@ class SLMFourierLensModel(OpticalSystem):
 
         If ``pointing_focal_shift_std`` is given, a :class:`PointingInstability` is
         built from it via :meth:`PointingInstability.from_focal_shift` (using this
-        model's ``focal_length``) and inserted immediately after the
-        ``StaticSLMField`` stage, so the (static) SLM-plane field carries a freshly
-        sampled beam-pointing tilt on every forward pass. ``pointing_seed`` seeds
-        that sampling for reproducibility.
+        model's ``focal_length``) and inserted immediately after the ``StaticSLMField``
+        stage, so the (static) SLM-plane field carries a freshly sampled beam-pointing
+        tilt on every forward pass. ``pointing_seed`` seeds that sampling for
+        reproducibility.
         """
         super().__init__(input_geometry, **modules)
         if pointing_focal_shift_std is not None:
@@ -405,3 +409,47 @@ class SLMFourierLensModel(OpticalSystem):
                 seed=pointing_seed,
             )
             self.insert_after(StaticSLMField, "pointing_instability", pointing)
+
+    def _affine_module(self) -> SupportsPartialAffine | None:
+        """The module carrying the focal-plane ``(scale_factor, shift, angle)``
+        registration, or ``None`` when this model has none.
+
+        The default is ``None``: a plain FFT system carries no affine and cannot be
+        calibrated from a mapping. The affine-carrying subclasses override this to
+        return their own carrier (a :class:`GeometricWarp`, or the ``FourierLensCZT``
+        that bakes the affine into the lens).
+        """
+        return None
+
+    def calibrate_from_mapping(self, mapping: CameraMapping) -> None:
+        """Seed the focal-plane affine from a fitted camera ``mapping``.
+
+        Composes the mapping's :attr:`~hologradpy.calibration.camera_mapping\
+        .CameraMapping.partial_affine` (camera -> model similarity) as a residual onto
+        the learnable ``(scale_factor, shift, angle)`` of the system's affine module, so
+        a coarse mapping can warm-start the differentiable registration. The system is
+        run once first to ensure its lazy parameters exist. Raises ``TypeError`` for a
+        model that carries no affine module.
+        """
+        affine_module = self._affine_module()
+        if affine_module is None:
+            raise TypeError(
+                f"{type(self).__name__} has no affine module to calibrate from a "
+                "mapping."
+            )
+        self()
+        affine_module.apply_partial_affine(mapping.partial_affine)
+
+    def addressable_half_extent(self) -> tuple[float, float]:
+        """Half-extent ``(x, y)`` of the focal-plane region the SLM can address, in
+        metres: the first-order deflection of a grating at the SLM Nyquist frequency,
+        ``wavelength * focal_length / (2 * pitch)`` per axis. Focal spots cannot be
+        placed beyond it (the grating would alias).
+        """
+        wavelength = float(self.input_geometry.wavelength)
+        pitch_y, pitch_x = (float(pitch) for pitch in self.input_geometry.pixel_size)
+        focal_length = float(self.fourier_lens.focal_length)
+        return (
+            wavelength * focal_length / (2.0 * pitch_x),
+            wavelength * focal_length / (2.0 * pitch_y),
+        )

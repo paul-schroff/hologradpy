@@ -1,6 +1,6 @@
 from ..propagators import FourierLensNUFFT
 from ..diagonal_elements import StaticSLMField
-from ..geometric_transforms import PartialAffineTransform
+from ..geometric_transforms import GeometricWarp
 from ..virtual_slms.abstract import VirtualSLM
 from ..complex_amplitude import FieldGeometry
 
@@ -11,9 +11,10 @@ class SLMNUFFTAffine(SLMFourierLensModel):
     """SLM -> Fourier lens (NUFFT) -> affine camera registration.
 
     The ``FourierLensNUFFT`` carries a fixed coarse geometric transform
-    (``camera_shift`` / ``camera_angle``, applied via its k-space trajectory)
-    and maps onto a slightly oversized grid at the camera pixel size. The
-    ``PartialAffineTransform`` then performs the *learnable* fine registration
+    (``camera_shift`` ``(x, y)`` output pixels / ``camera_angle`` degrees, applied
+    via its k-space trajectory) and maps onto a slightly oversized grid at the
+    camera pixel size. The
+    ``GeometricWarp`` then performs the *learnable* fine registration
     onto the camera resolution, because the NUFFT cannot learn those geometric
     parameters efficiently.
     """
@@ -21,7 +22,7 @@ class SLMNUFFTAffine(SLMFourierLensModel):
     virtual_slm: VirtualSLM
     static_slm_field: StaticSLMField
     fourier_lens: FourierLensNUFFT
-    affine_transform: PartialAffineTransform
+    affine_transform: GeometricWarp
 
     @capture_init
     def __init__(
@@ -61,8 +62,11 @@ class SLMNUFFTAffine(SLMFourierLensModel):
                 angle=camera_angle,
                 power_normalized=power_normalized,
             ),
-            affine_transform=PartialAffineTransform(
+            affine_transform=GeometricWarp(
                 resolution_out=camera_resolution,
                 pixel_size_out=camera_pixel_size,
             ),
         )
+
+    def _affine_module(self) -> GeometricWarp:
+        return self.affine_transform

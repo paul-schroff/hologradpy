@@ -6,8 +6,10 @@ from torch.nn import Parameter
 
 from ..fourier import ChirpZZoom, shear_rotate
 
+from ...geometry import PartialAffineTransform
 from ..optics_module import OpticsModule
 from ..complex_amplitude import ComplexAmplitude
+from ...geometry import recalibrated_partial_affine
 
 
 class FourierLensCZT(OpticsModule):
@@ -20,11 +22,12 @@ class FourierLensCZT(OpticsModule):
     and the optical power is represented faithfully. No zero-padding is needed --
     the chirp-z samples the exact spectrum at any spacing.
 
-    ``scale_factor`` (per-axis zoom multiplier), ``shift`` (focal-plane offset in
-    output pixels) and ``angle`` (rotation in degrees) are ``nn.Parameter`` s
-    (``requires_grad=learnable``), so the focal-plane affine map can be calibrated
-    by gradient descent. ``angle`` rotates the input field with a differentiable
-    three-shear FFT rotation; ``scale`` / ``shift`` enter the chirp-z directly.
+    ``scale_factor`` (per-axis zoom multiplier, ``(x, y)``), ``shift`` (focal-plane
+    offset in output pixels, ``(x, y)``) and ``angle`` (rotation in degrees) are
+    ``nn.Parameter`` s (``requires_grad=learnable``), so the focal-plane affine map
+    can be calibrated by gradient descent. ``angle`` rotates the input field with a
+    differentiable three-shear FFT rotation; ``scale`` / ``shift`` enter the chirp-z
+    directly.
 
     The geometry is per-wavelength: the base magnification is ``lambda * f /
     (pixel_in * resolution_in * pixel_out)``, so that with the parameters at their
@@ -60,7 +63,10 @@ class FourierLensCZT(OpticsModule):
             dtype=complex_amplitude.dtype_r,
         )
 
-        # Per-wavelength base magnification, indexed (axis0 = y, axis1 = x).
+        # Per-wavelength base magnification in (x, y). Built from the (y, x)
+        # array-axis pixel_size / resolution and flipped once here into the (x, y)
+        # focal-plane convention the chirp-z and the learnable params share. This is
+        # the single boundary between the array-axis and focal-plane conventions.
         self._base_magnification: Tensor = (
             complex_amplitude.wavelength.unsqueeze(-1)
             * self.focal_length
@@ -69,10 +75,12 @@ class FourierLensCZT(OpticsModule):
                 * resolution_in.unsqueeze(0)
                 * self._pixel_size_out.unsqueeze(0)
             )
-        )  # (n_wl, 2)
+        ).flip(-1)  # (n_wl, 2): (x, y)
 
         real_dtype = complex_amplitude.dtype_r
         device = complex_amplitude.device
+        # scale_factor and shift are (x, y), matching the geometry / GeometricWarp
+        # convention and the (x, y) base magnification, so they combine directly.
         self.scale_factor = Parameter(
             torch.ones(2, dtype=real_dtype, device=device),
             requires_grad=self.learnable,
@@ -85,6 +93,47 @@ class FourierLensCZT(OpticsModule):
             torch.tensor(self.angle_init, dtype=real_dtype, device=device),
             requires_grad=self.learnable,
         )
+
+    def apply_partial_affine(self, transform: PartialAffineTransform) -> None:
+        """Seed the learnable ``scale_factor`` / ``shift`` / ``angle`` from a fitted
+        camera -> model similarity, composing it as a residual onto the current
+        values (see :func:`~hologradpy.geometry.partial_affine\
+        .recalibrated_partial_affine`).
+
+        The lens stores ``shift`` and ``scale_factor`` as (x, y), matching the
+        transform's point convention, so no axis swap is needed. The chirp-z ``shift``
+        is a sampling-window offset, which moves the image the opposite way, so it is
+        the negative of the image-plane translation the residual carries.
+        """
+        if not hasattr(self, "scale_factor"):
+            raise RuntimeError(
+                "FourierLensCZT must be initialised before apply_partial_affine "
+                "(run the system once)."
+            )
+        center = (self.resolution_out[1] // 2, self.resolution_out[0] // 2)
+        scale, angle_deg, shift = recalibrated_partial_affine(
+            float(self.scale_factor.mean()),
+            float(self.angle),
+            (-float(self.shift[0]), -float(self.shift[1])),  # window offset -> image
+            transform,
+            center,
+        )
+        with torch.no_grad():
+            self.scale_factor.copy_(
+                torch.tensor(
+                    [scale, scale],
+                    dtype=self.scale_factor.dtype,
+                    device=self.scale_factor.device,
+                )
+            )
+            self.shift.copy_(
+                torch.tensor(
+                    [-shift[0], -shift[1]],  # image translation -> window offset
+                    dtype=self.shift.dtype,
+                    device=self.shift.device,
+                )
+            )
+            self.angle.copy_(torch.as_tensor(angle_deg, dtype=self.angle.dtype))
 
     def _power_prefactor(self: FourierLensCZT) -> Tensor:
         """Fourier-lens amplitude prefactor ``(du*dv) / (lambda*f)`` per
@@ -121,14 +170,13 @@ class FourierLensCZT(OpticsModule):
     def _chirp_z(self: FourierLensCZT, scale: Tensor) -> ChirpZZoom:
         """Build the per-wavelength scale + shift chirp-z (rotation is applied to
         the field separately). ``scale`` is the effective per-axis magnification
-        ``(axis0 = y, axis1 = x)``; the chirp-z window is offset by ``shift``
-        output pixels."""
-        magnification = (scale[1], scale[0])  # (x, y)
+        ``(x, y)``; the chirp-z window is offset by ``shift`` output pixels."""
+        magnification = (scale[0], scale[1])  # (x, y)
 
         height, width = self._input_resolution
-        step_x = (2 * torch.pi / width) / scale[1]
-        step_y = (2 * torch.pi / height) / scale[0]
-        shift = (self.shift[1] * step_x, self.shift[0] * step_y)  # (x, y)
+        step_x = (2 * torch.pi / width) / scale[0]
+        step_y = (2 * torch.pi / height) / scale[1]
+        shift = (self.shift[0] * step_x, self.shift[1] * step_y)  # (x, y)
 
         return ChirpZZoom(
             self._input_resolution,
@@ -145,7 +193,7 @@ class FourierLensCZT(OpticsModule):
         flat_field, batch_spec = complex_amplitude.flatten_batch()  # (N, n_wl, H, W)
         field = self._apply_rotation(flat_field, inverse=False)
 
-        scale = self.scale_factor.abs() * self._base_magnification  # (n_wl, 2)
+        scale = self.scale_factor.abs() * self._base_magnification  # (n_wl, 2): (x, y)
         outputs = [
             self._chirp_z(scale[wavelength]).forward(field[:, wavelength])
             for wavelength in range(field.shape[1])

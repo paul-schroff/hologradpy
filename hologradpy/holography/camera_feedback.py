@@ -17,6 +17,7 @@ import torch
 from slmsuite.hardware.cameras.camera import Camera
 from slmsuite.hardware.slms.slm import SLM
 
+from ..geometry import AffineTransform
 from ..utils import gpu_to_numpy
 from ..propagation.optical_systems import VirtualSlm
 from .phase_retrieval import PhaseRetrieval
@@ -179,10 +180,11 @@ def camera_calibration(
     cbar0.set_label("pixel value")
     axs3[0].set_title("Smoothened camera image")
 
-    tf, mask = cv.estimateAffine2D(
+    affine = AffineTransform.fit(
         cornersT + slm_obj.npix_pad * slm_obj.pix_res // 2 - n_crop, cornersH
     )
-    itf = cv.invertAffineTransform(tf)
+    tf = affine.as_matrix(homogeneous=False)
+    itf = affine.inverse().as_matrix(homogeneous=False)
 
     imgCaltf = cv.warpAffine(
         imgCal,

@@ -7,7 +7,7 @@ from .coarse_mapping import (
 )
 from .spot_array_mapping import SpotArrayMapper
 from .visualizer import CameraMapperVisualizer
-from .utils import get_diffraction_spot_position
+from ..spot_detection import get_diffraction_spot_position
 
 __all__ = [
     CameraMapping,

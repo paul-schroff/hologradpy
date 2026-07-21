@@ -64,8 +64,11 @@ class FourierLensNUFFT(OpticsModule):
             dtype=complex_amplitude.dtype_r,
         )
 
-        # Calculating scale to achieve the desired output pixel size
-        self._scale: Float[Tensor, "n_wavelenghts 2"] = (
+        # Per-wavelength focal-plane zoom in (x, y). Built from the (y, x) array-axis
+        # pixel_size / padded resolution and flipped once here into the (x, y)
+        # focal-plane convention the transform and the learnable params share. This is
+        # the single boundary between the array-axis and focal-plane conventions.
+        self._scale: Float[Tensor, "n_wavelengths 2"] = (  # noqa: F722
             complex_amplitude.wavelength.unsqueeze(-1)
             * self.focal_length
             / (
@@ -73,8 +76,10 @@ class FourierLensNUFFT(OpticsModule):
                 * self._padded_resolution_tensor.unsqueeze(0)
             )
             / self._pixel_size_out.unsqueeze(0)
-        )
+        ).flip(-1)
 
+        # scale_factor and shift are (x, y), matching the geometry / GeometricWarp
+        # convention and the (x, y) internal scale, so they combine directly.
         self.scale_factor: Float[Tensor, "2"] = Parameter(
             torch.ones(
                 2,
@@ -84,7 +89,7 @@ class FourierLensNUFFT(OpticsModule):
             requires_grad=False,
         )
 
-        # Shift from the center of the in pixels
+        # Shift of the focal plane in output pixels, (x, y).
         self.shift: Float[Tensor, "2"] = Parameter(
             torch.tensor(
                 self.shift_init,
@@ -112,9 +117,9 @@ class FourierLensNUFFT(OpticsModule):
         """Map the per-wavelength ``lambda*f`` geometry to the unit-free
         ``(magnification, shift, angle)`` of a :class:`KbNufftZoomRotate`.
 
-        ``self._scale`` is the per-axis focal-plane zoom, indexed ``(axis0=y,
-        axis1=x)``; the transform expects magnification / shift in ``(x, y)``
-        order, so the two axes are swapped. The base sample grid has bin spacing
+        ``scale_factor``, ``shift`` and ``self._scale`` are all (x, y), matching the
+        transform, so they combine directly with no axis swap. The base sample grid
+        has bin spacing
         ``2*pi / padded_resolution`` (rad/sample on the padded grid), divided by
         the scale -- which is exactly ``get_zoom_frequency_grid`` with
         ``resolution = padded_resolution`` and ``magnification = scale``. The
@@ -124,13 +129,14 @@ class FourierLensNUFFT(OpticsModule):
         """
         scale: Tensor = (
             self.scale_factor.abs().unsqueeze(0) * self._scale
-        )  # (n_wl, 2): [0] = y, [1] = x
-        magnification = torch.stack((scale[:, 1], scale[:, 0]), dim=-1)  # (x, y)
+        )  # (n_wl, 2): (x, y)
+
+        magnification = scale  # (x, y)
 
         two_pi = 2 * torch.pi
         padded_height, padded_width = self._padded_resolution
-        shift_x = -two_pi * self.shift[1] / (padded_width * scale[:, 1])
-        shift_y = -two_pi * self.shift[0] / (padded_height * scale[:, 0])
+        shift_x = -two_pi * self.shift[0] / (padded_width * scale[:, 0])
+        shift_y = -two_pi * self.shift[1] / (padded_height * scale[:, 1])
         shift = torch.stack((shift_x, shift_y), dim=-1)  # (n_wl, 2): (x, y)
 
         angle_radians = float(torch.deg2rad(self.angle))

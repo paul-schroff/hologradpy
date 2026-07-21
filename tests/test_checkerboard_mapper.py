@@ -19,8 +19,7 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 import torch  # noqa: E402
 
-from hologradpy.hardware.slm_simulated import SimulatedSLMTorch  # noqa: E402
-from hologradpy.hardware.camera_simulated import SimulatedCameraTorch  # noqa: E402
+from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch  # noqa: E402
 from hologradpy.propagation.complex_amplitude import (  # noqa: E402
     ComplexAmplitude,
     FieldGeometry,
@@ -35,9 +34,6 @@ from hologradpy.propagation.zernike import Zernike  # noqa: E402
 from hologradpy.calibration.camera_mapping import (  # noqa: E402
     CheckerboardMapper,
     CoarseMapper,
-)
-from hologradpy.calibration.camera_mapping.utils import (  # noqa: E402
-    addressable_half_extent,
 )
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
@@ -89,7 +85,7 @@ def _build_setup(
     slm = SimulatedSLMTorch(input_geometry=slm_geometry, bitdepth=8)
 
     gaussian_intensity = gaussian_beam_intensity(
-        *slm.get_spatial_grid(), beam_radius=1e-3
+        *slm_geometry.get_spatial_grid(), beam_radius=1e-3
     )
     ideal_beam = ComplexAmplitude(
         gaussian_intensity.sqrt() + 0j,
@@ -242,7 +238,7 @@ def test_auto_square_size_within_quarter_nyquist(mapper, coarse_mapping):
     pixel_size_out = lens.pixel_size_out.tolist()[0]  # (y, x) metres
     resolution_out = tuple(lens.resolution_out)
     focal_length = float(lens.focal_length)
-    camera_shape = tuple(mapper.camera.shape)
+    camera_shape = tuple(mapper.camera.resolution)
 
     _, square_size, _ = mapper._place_checkerboard(
         NUMBER_OF_SQUARES,
@@ -254,7 +250,7 @@ def test_auto_square_size_within_quarter_nyquist(mapper, coarse_mapping):
         camera_shape,
     )
     rows, columns = NUMBER_OF_SQUARES
-    addressable = addressable_half_extent(mapper.slm, focal_length)  # (x, y) m
+    addressable = mapper.slm_camera_model.addressable_half_extent()  # (x, y) m
 
     assert square_size >= 4
     # Board width (model px) <= 1/4 Nyquist-rectangle width = 0.5 * addressable

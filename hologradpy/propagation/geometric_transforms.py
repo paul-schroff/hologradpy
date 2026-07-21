@@ -9,23 +9,24 @@ from kornia.geometry.transform import get_affine_matrix2d
 from kornia.geometry import warp_perspective
 
 from ..utils import unsqueeze_to
+from ..geometry import PartialAffineTransform
 from .optics_module import OpticsModule, SaveDict
 from .complex_amplitude import ComplexAmplitude
+from ..geometry import recalibrated_partial_affine
 
 
-# TODO: Consolidate the scattered geometric-transform logic. An affine
-# registration is currently fitted and applied in several disconnected places:
-# cv2.estimateAffine2D in CheckerboardMapper and holography.camera_feedback, the
-# bare transform / inverse_transform matrix stored on CameraMapping (with
-# hand-rolled point math, e.g. the zeroth_order_position calculation), and this
-# differentiable PartialAffineTransform. A shared, backend-agnostic
-# AffineTransform value object (fit from point sets, transform points,
-# invert/compose) under a single documented coordinate convention would remove
-# the duplication. PartialAffineTransform would remain the differentiable
-# field-warp adapter and could be initialised from such a fitted transform.
-class PartialAffineTransform(OpticsModule):
+class GeometricWarp(OpticsModule):
+    """Differentiable geometric warp of the field (a resampling transform).
+
+    Warps the field with kornia ``warp_perspective`` on a 3x3 matrix, so it is affine
+    (and, structurally, perspective) capable. The map is parameterized by learnable
+    ``scale_factor`` / ``shift`` / ``angle`` (a partial affine), which the affine
+    optical systems calibrate. The backend-agnostic value-object transforms (fit,
+    decompose, compose, invert) live in :mod:`hologradpy.geometry`.
+    """
+
     def __init__(
-        self: PartialAffineTransform,
+        self: GeometricWarp,
         resolution_out: tuple[int, int],
         pixel_size_out: tuple[float, float],
         scale_factor: tuple[float, float] = (1, 1),
@@ -130,7 +131,7 @@ class PartialAffineTransform(OpticsModule):
     @classmethod
     def from_file(
         cls, path: str, device: torch.device = "cpu"
-    ) -> PartialAffineTransform:
+    ) -> GeometricWarp:
         state: SaveDict = torch.load(path, map_location=device, weights_only=False)
         state_dict = state["state_dict"]
         return cls(
@@ -144,6 +145,43 @@ class PartialAffineTransform(OpticsModule):
             ),
         )
 
+    def apply_partial_affine(self, transform: PartialAffineTransform) -> None:
+        """Seed the learnable ``scale_factor`` / ``shift`` / ``angle`` from a fitted
+        camera -> model similarity, composing it as a residual onto the current
+        values (see :func:`~hologradpy.geometry.partial_affine\
+        .recalibrated_partial_affine`).
+
+        The warp's ``shift`` and ``scale_factor`` are (x, y), matching the transform's
+        point convention, so no axis swap is needed here.
+        """
+        if self.scale_factor is None:
+            raise RuntimeError(
+                "GeometricWarp must be initialised before apply_partial_affine "
+                "(run the system once)."
+            )
+        center = (self.resolution_out[1] // 2, self.resolution_out[0] // 2)
+        scale, angle_deg, shift = recalibrated_partial_affine(
+            float(self.scale_factor.mean()),
+            float(self.angle[0]),
+            (float(self.shift[0]), float(self.shift[1])),
+            transform,
+            center,
+        )
+        with torch.no_grad():
+            self.scale_factor.copy_(
+                torch.tensor(
+                    [scale, scale],
+                    dtype=self.scale_factor.dtype,
+                    device=self.scale_factor.device,
+                )
+            )
+            self.shift.copy_(
+                torch.tensor(
+                    list(shift), dtype=self.shift.dtype, device=self.shift.device
+                )
+            )
+            self.angle.copy_(torch.full_like(self.angle, angle_deg))
+
     def get_affine_matrix(self) -> torch.Tensor:
         return get_affine_matrix2d(
             unsqueeze_to((self.shift_center + self.shift), 2),
@@ -153,7 +191,7 @@ class PartialAffineTransform(OpticsModule):
         )
 
     def forward(
-        self: PartialAffineTransform, complex_amplitude: ComplexAmplitude
+        self: GeometricWarp, complex_amplitude: ComplexAmplitude
     ) -> ComplexAmplitude:
         """Applies a partial affine transformation to a field of arbitrary
         batch rank ``(*batch, n_wl, H, W)``.

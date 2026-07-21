@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pytest
 import torch
 from scipy.constants import Planck, speed_of_light
@@ -18,7 +19,8 @@ from hologradpy.propagation.camera_sensor import CameraSensor
 from hologradpy.propagation.diagonal_elements import StaticSLMField
 from hologradpy.propagation.virtual_slms.abstract import VirtualSLM
 from hologradpy.propagation.optical_systems import SLMFFTAffine
-from hologradpy.hardware.camera_simulated import SimulatedCameraTorch
+from hologradpy.hardware import SimulatedCameraTorch
+from hologradpy.roi import ROI
 
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
@@ -153,7 +155,7 @@ def test_simulated_camera_appends_sensor_and_emits_pixels() -> None:
     assert isinstance(model[-1], CameraSensor)
     assert camera.sensor is model[-1]
 
-    image = camera._get_image_hw(backend="torch")
+    image = camera._capture_frame()
     assert image.shape == (24, 24)
     assert torch.all(image == image.floor())
     assert image.min() >= 0
@@ -165,5 +167,30 @@ def test_camera_exposure_drives_sensor() -> None:
     camera = SimulatedCameraTorch(model, full_well_capacity=1e6)
 
     camera.set_exposure(5e-3)
-    camera._get_image_hw(backend="torch")
+    camera._capture_frame()
     assert camera.sensor.exposure_time == float(camera.exposure_s)
+
+
+def test_get_image_torch_backend_matches_numpy() -> None:
+    """backend="torch" runs the full pipeline (orientation, ROI crop, averaging) on
+    tensors and matches the numpy path value for value."""
+    model = _make_model()
+    camera = SimulatedCameraTorch(
+        model, rot="90", fliplr=True, add_noise=False, full_well_capacity=1e6
+    )
+    camera.set_exposure(1e-3)
+    camera.set_roi(ROI(2, 3, 10, 8))
+
+    tensor_image = camera.get_image(backend="torch")
+    assert isinstance(tensor_image, torch.Tensor)
+    assert tuple(tensor_image.shape) == (10, 8)
+
+    numpy_image = camera.get_image()
+    np.testing.assert_array_equal(numpy_image, tensor_image.cpu().numpy())
+
+    tensor_summed = camera.get_image(averaging=3, backend="torch")
+    numpy_summed = camera.get_image(averaging=3)
+    np.testing.assert_array_equal(numpy_summed, tensor_summed.cpu().numpy())
+
+    with pytest.raises(ValueError):
+        camera.get_image(backend="nonsense")

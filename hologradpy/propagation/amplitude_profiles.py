@@ -144,8 +144,8 @@ def gaussian_spot_array(
                 x,
                 y,
                 beam_radius,
-                shift_x=j * spot_separation - horizontal_extent // 2 - shift_y,
-                shift_y=i * spot_separation - vertical_extent // 2 - shift_x,
+                shift_x=j * spot_separation - horizontal_extent // 2 - shift_x,
+                shift_y=i * spot_separation - vertical_extent // 2 - shift_y,
             )
     return spots
 
@@ -371,3 +371,60 @@ def laser_speckle_intensity(
     intensity = real**2 + imaginary**2
     intensity = intensity / intensity.mean()
     return intensity.to(dtype)
+
+
+def checkerboard(
+    resolution: tuple[int, int],
+    number_of_squares: tuple[int, int],
+    square_size: int | None = None,
+    shift_x: int = 0,
+    shift_y: int = 0,
+    dark_square_brightness: float = 0.0,
+    light_square_brightness: float = 1.0,
+    device: torch.device | None = None,
+) -> NDArray | torch.Tensor:
+    """A checkerboard pattern, centred (and shifted) in a zero border.
+
+    The cheap integer pattern is built with numpy and returned as a numpy array, or as
+    a torch tensor on ``device`` when one is given.
+
+    Args:
+        resolution: Output resolution ``(height, width)`` in pixels.
+        number_of_squares: Number of squares along the ``(y, x)`` axes.
+        square_size: Side length of each square in pixels. If ``None``, the largest
+            that fits ``number_of_squares`` into ``resolution``.
+        shift_x: Horizontal (x) shift of the board in pixels.
+        shift_y: Vertical (y) shift of the board in pixels.
+        dark_square_brightness: Value of the dark squares.
+        light_square_brightness: Value of the light squares.
+        device: If given, return a torch tensor on that device, otherwise numpy.
+
+    Returns:
+        A ``(height, width)`` array with the checkerboard pattern.
+    """
+    height, width = resolution
+    number_of_squares_y, number_of_squares_x = number_of_squares
+    if square_size is None:
+        square_size = min(
+            width // number_of_squares_x, height // number_of_squares_y
+        )
+    board_height = number_of_squares_y * square_size
+    board_width = number_of_squares_x * square_size
+
+    rows = np.arange(board_height)[:, None]
+    columns = np.arange(board_width)[None, :]
+    parity = ((columns // square_size) + (rows // square_size)) % 2
+    board = dark_square_brightness + parity * (
+        light_square_brightness - dark_square_brightness
+    )
+
+    # Centre the board in a zero border, then apply the (x, y) shift. The caller sizes
+    # the board so it stays within the frame.
+    output = np.zeros((height, width))
+    top = (height - board_height) // 2 + shift_y
+    left = (width - board_width) // 2 + shift_x
+    output[top : top + board_height, left : left + board_width] = board
+
+    if device is not None:
+        return torch.as_tensor(output, dtype=torch.float32, device=device)
+    return output

@@ -12,10 +12,8 @@ from ..calibration_dataset import DatasetDescriptor
 
 from ....camera_mapping import CameraMapping
 
-from .....utils import crop_to_roi, find_roi
-from .....propagation.amplitude_profiles import gaussian_beam_intensity
+from .....roi import ROI
 from .....propagation.optical_systems import SLMFourierLensModel
-from .....analysis.fitting import curve_fit_2d
 
 
 # TODO (PS): A save and load method for the propagator would be nice.
@@ -33,16 +31,16 @@ class PropagationTrainer:
     ) -> None:
         self.dataset_descriptor: DatasetDescriptor = dataset_descriptor
         self.load_path: str = load_path
-        self.slm_data: SLMDisplayData = self.dataset_descriptor.slm_data
-        self.camera_data: CameraData = self.dataset_descriptor.camera_data
+        self.slm_data = self.dataset_descriptor.slm_data
+        self.camera_data = self.dataset_descriptor.camera_data
         self.camera_mapping: CameraMapping = self.dataset_descriptor.camera_mapping
         self.device: str = device
 
         if roi_mask is None:
             roi_mask = self.dataset_descriptor.roi_masks[0]
 
-        self.roi: tuple[int, int, int, int] = find_roi(roi_mask, pad=0)
-        self.roi_mask: NDArray[np.float_] = crop_to_roi(roi_mask, self.roi)
+        self.roi: ROI = ROI.detect(roi_mask, pad=0)
+        self.roi_mask: NDArray[np.float_] = self.roi.crop(roi_mask)
         self.roi_size: tuple[int, ...] = self.roi_mask.shape
 
         self.slm_camera_model: SLMFourierLensModel = slm_camera_model
@@ -123,75 +121,6 @@ class PropagationTrainer:
             """
         )
 
-    def fit_gaussian_beam(
-        self, intensity: NDArray[np.complex_]
-    ) -> tuple[float, float, float, float]:
-        """
-        Fits a Gaussian beam to the measured intensity and returns the beam
-        parameters: center_x, center_y, waist_x, waist_y.
-
-        Args:
-            None
-        Returns:
-            center_x (float): x-coordinate of the beam center.
-            center_y (float): y-coordinate of the beam center.
-            waist_x (float): x-coordinate of the beam waist.
-            waist_y (float): y-coordinate of the beam waist.
-        """
-
-        max_intensity = np.max(intensity)
-        max_index = np.unravel_index(np.argmax(intensity), intensity.shape)
-
-        beam_waist_estimate = np.min(self.slm_data.size) / 4
-
-        fit_guess = [
-            beam_waist_estimate,
-            self.slm_data.spatial_grid_x[max_index[0], max_index[1]],
-            self.slm_data.spatial_grid_y[max_index[0], max_index[1]],
-            max_intensity,
-            0.0,
-        ]
-
-        optmized_parameters, _ = curve_fit_2d(
-            self.slm_data.spatial_grid_x,
-            self.slm_data.spatial_grid_y,
-            intensity,
-            gaussian_beam_intensity,
-            *fit_guess,
-        )
-
-        center_x = optmized_parameters[0]
-        center_y = optmized_parameters[1]
-        waist_x = optmized_parameters[3]
-        waist_y = optmized_parameters[4]
-
-        return center_x, center_y, waist_x, waist_y
-
-    def remove_phase_tilt(
-        self,
-        phase: NDArray[np.complex_],
-        mask: NDArray[np.bool_] | None = None,
-    ) -> NDArray[np.complex_]:
-        if mask is None:
-            mask = np.ones_like(phase, dtype=np.bool_)
-
-        def tilt(x, y, slope_x, slope_y, offset):
-            return slope_x * x + slope_y * y + offset
-
-        optimized_parameters, _ = curve_fit_2d(
-            self.slm_data.spatial_grid_x[mask],
-            self.slm_data.spatial_grid_y[mask],
-            phase[mask],
-            tilt,
-            0.0,  # Initial guess for slope_x
-            0.0,  # Initial guess for slope_y
-            0.0,  # Initial guess for offset
-        )
-
-        fitted_tilt = tilt(
-            self.slm_data.spatial_grid_x,
-            self.slm_data.spatial_grid_y,
-            *optimized_parameters,
-        )
-
-        return phase - fitted_tilt
+    # Gaussian-beam fitting lives on WavefrontCalibratorBase.fit_gaussian_beam, and
+    # piston/tilt removal on analysis.fitting.remove_tilt; both were duplicated here
+    # and have been removed.

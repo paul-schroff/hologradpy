@@ -3,8 +3,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from hologradpy.hardware.slm_simulated import SimulatedSLMTorch
-from hologradpy.hardware.camera_simulated import SimulatedCameraTorch
+from hologradpy.hardware import (
+    SimulatedSLMTorch,
+    SimulatedCameraTorch,
+    open_camera,
+    open_slm,
+)
 
 from hologradpy.propagation.complex_amplitude import (
     ComplexAmplitude,
@@ -25,7 +29,7 @@ from hologradpy.propagation.pointing_instability import PointingInstability
 from hologradpy.propagation.amplitude_profiles import gaussian_beam_intensity
 from hologradpy.propagation.zernike import Zernike
 from hologradpy.analysis.fitting import remove_tilt
-from hologradpy.utils import get_device, gpu_to_numpy, pad_from_roi
+from hologradpy.utils import get_device, gpu_to_numpy
 
 device = get_device(verbose=True)
 
@@ -36,7 +40,7 @@ slm_geometry = FieldGeometry(
     wavelength=torch.tensor(0.630e-6, device=device),
 )
 
-slm = SimulatedSLMTorch(input_geometry=slm_geometry, bitdepth=8)
+slm = open_slm(SimulatedSLMTorch, input_geometry=slm_geometry, bitdepth=8)
 
 gaussian_intensity = gaussian_beam_intensity(
     *slm.get_spatial_grid(device),
@@ -86,8 +90,9 @@ pointing_instability = simulated_camera_model.get(PointingInstability)
 # The simulated camera adds a fluctuating laser power (a PowerInstability drawing
 # ~ N(1, power_std) each frame); measure_intensity(normalize_power=True) divides it
 # out with a reference spot.
-camera = SimulatedCameraTorch(
-    simulated_camera_model,
+camera = open_camera(
+    SimulatedCameraTorch,
+    slm_camera_model=simulated_camera_model,
     quantum_efficiency=0.01,
     full_well_capacity=11e3,
     noise_level=4.0,
@@ -122,7 +127,7 @@ plt.colorbar()
 
 # Pad the cropped spot image back to the full sensor so the detected pixel
 # position lines up with the image.
-calibration_image = pad_from_roi(calibration_image, calibration_roi, camera.shape)
+calibration_image = calibration_roi.pad(calibration_image, camera.shape)
 
 plt.figure()
 plt.imshow(calibration_image, cmap="turbo")
@@ -138,7 +143,7 @@ plt.colorbar()
 calibrator = RasterCalibrator(slm, camera, focal_length=0.25)
 
 # %% Calibrate intensity, correcting the fluctuating laser power
-camera.set_woi(None)
+camera.set_roi(None)
 intensity, camera_images = calibrator.measure_intensity(
     number_of_superpixels_x=20,
     number_of_superpixels_y=16,

@@ -23,7 +23,7 @@ from hologradpy.propagation.virtual_slms import VirtualSLM
 
 from hologradpy.holography.vortices import VortexAnnihilator
 
-from hologradpy.hardware.slm_simulated import SimulatedSLMTorch
+from hologradpy.hardware import SimulatedSLMTorch, open_slm
 
 import torch
 
@@ -36,7 +36,7 @@ slm_geometry = FieldGeometry(
     wavelength=torch.tensor(0.670e-6, device=device),
 )
 
-slm = SimulatedSLMTorch(input_geometry=slm_geometry, bitdepth=8)
+slm = open_slm(SimulatedSLMTorch, input_geometry=slm_geometry, bitdepth=8)
 
 # %% Set up the SLM and camera modules
 beam_radius = 4e-3  # beam radius in mm
@@ -58,7 +58,7 @@ plt.colorbar(label="Intensity [a.u.]")
 init_slm_phase = lens_phase(
     *slm_grid,
     focal_length=1.5,
-    wavenumber=2 * torch.pi / (slm.wav_um * 1e-6),
+    wavenumber=2 * torch.pi / slm.wavelength,
 ).to(torch.float32)
 
 slm_camera_model = SLMFFT(

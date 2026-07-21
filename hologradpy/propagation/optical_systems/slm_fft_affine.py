@@ -1,6 +1,6 @@
 from ..propagators import FourierLensFFT
 from ..diagonal_elements import StaticSLMField
-from ..geometric_transforms import PartialAffineTransform
+from ..geometric_transforms import GeometricWarp
 from ..virtual_slms.abstract import VirtualSLM
 from ..complex_amplitude import FieldGeometry
 
@@ -8,10 +8,17 @@ from .abstract import SLMFourierLensModel, capture_init
 
 
 class SLMFFTAffine(SLMFourierLensModel):
+    """SLM -> padded-FFT Fourier lens -> affine camera registration.
+
+    A :class:`FourierLensFFT` maps onto the padded focal plane and a learnable
+    :class:`GeometricWarp` registers it onto the camera. ``camera_angle`` (degrees)
+    / ``camera_shift`` (output pixels, ``(x, y)``) seed the warp.
+    """
+
     virtual_slm: VirtualSLM
     static_slm_field: StaticSLMField
     fourier_lens: FourierLensFFT
-    affine_transform: PartialAffineTransform
+    affine_transform: GeometricWarp
 
     @capture_init
     def __init__(
@@ -41,10 +48,13 @@ class SLMFFTAffine(SLMFourierLensModel):
                 padded_resolution=padded_resolution,
                 power_normalized=power_normalized,
             ),
-            affine_transform=PartialAffineTransform(
+            affine_transform=GeometricWarp(
                 resolution_out=camera_resolution,
                 pixel_size_out=camera_pixel_size,
                 shift=camera_shift,
                 angle=camera_angle,
             ),
         )
+
+    def _affine_module(self) -> GeometricWarp:
+        return self.affine_transform

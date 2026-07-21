@@ -19,8 +19,7 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 import torch  # noqa: E402
 
-from hologradpy.hardware.slm_simulated import SimulatedSLMTorch  # noqa: E402
-from hologradpy.hardware.camera_simulated import SimulatedCameraTorch  # noqa: E402
+from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch  # noqa: E402
 from hologradpy.propagation.complex_amplitude import (  # noqa: E402
     ComplexAmplitude,
     FieldGeometry,
@@ -40,7 +39,7 @@ from hologradpy.calibration.camera_mapping import (  # noqa: E402
     CoarseMapper,
     SpotArrayMapper,
 )
-from hologradpy.calibration.camera_mapping.utils import disc_mask  # noqa: E402
+from hologradpy.calibration.spot_detection import disc_mask  # noqa: E402
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -57,7 +56,7 @@ def _build_setup(camera_angle: float = 0.0):
     slm = SimulatedSLMTorch(input_geometry=slm_geometry, bitdepth=8)
 
     gaussian_intensity = gaussian_beam_intensity(
-        *slm.get_spatial_grid(), beam_radius=1e-3
+        *slm_geometry.get_spatial_grid(), beam_radius=1e-3
     )
     gaussian_beam = ComplexAmplitude(
         gaussian_intensity.sqrt() + 0j,

@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 import torch
 
-from hologradpy.hardware.slm_simulated import SimulatedSLMTorch
+from hologradpy.hardware import SimulatedSLMTorch
 from hologradpy.holography.phase_retrieval import LinearSuperpositionPhaseRetriever
 from hologradpy.propagation.amplitude_profiles import gaussian_beam_intensity
 from hologradpy.propagation.complex_amplitude import ComplexAmplitude, FieldGeometry
@@ -39,7 +39,7 @@ def setup():
         wavelength=torch.tensor(WAVELENGTH),
     )
     slm = SimulatedSLMTorch(input_geometry=geometry, bitdepth=8)
-    intensity = gaussian_beam_intensity(*slm.get_spatial_grid(), beam_radius=1e-3)
+    intensity = gaussian_beam_intensity(*geometry.get_spatial_grid(), beam_radius=1e-3)
     beam = ComplexAmplitude(
         intensity.sqrt() + 0j,
         wavelength=geometry.wavelength,
@@ -66,7 +66,7 @@ def setup():
     czt_model()
 
     grating = linear_phase(
-        *slm.get_spatial_grid(),
+        *geometry.get_spatial_grid(),
         *TARGET,
         focal_length=FOCAL_LENGTH,
         wavenumber=float(2 * np.pi / WAVELENGTH),

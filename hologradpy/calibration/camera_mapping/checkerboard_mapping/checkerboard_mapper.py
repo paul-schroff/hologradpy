@@ -5,16 +5,16 @@ from numpy.typing import NDArray
 
 from checkerboard import detect_checkerboard
 from scipy.ndimage import gaussian_filter
-from cv2 import estimateAffine2D, invertAffineTransform
+from ....geometry import AffineTransform
 
-from slmsuite.hardware.slms.slm import SLM
-from slmsuite.hardware.cameras.camera import Camera
+from ....hardware import Camera, SLM
+from ....roi import ROI
 
-from ..utils import checkerboard, addressable_half_extent
+from ....propagation.amplitude_profiles import checkerboard
 from ..coarse_mapping.coarse_mapper import CoarseMapper
 
 from ....propagation.optical_systems import SLMFFT
-from ....utils import gpu_to_numpy, find_roi
+from ....utils import gpu_to_numpy
 from ....propagation.phase_profiles import analytic_phase_guess
 from ....propagation.amplitude_profiles import rectangular_mask
 from ....propagation.fourier import get_spatial_grid
@@ -92,8 +92,8 @@ class CheckerboardMapper(CameraMapper):
         simulation_pixel_size = lens.pixel_size_out.tolist()[0]  # (y, x) metres
         resolution_out = tuple(lens.resolution_out)  # (height, width)
         focal_length = float(lens.focal_length)
-        pitch = [self.camera.pitch_um[i] * 1e-6 for i in range(2)]  # (x, y)
-        camera_shape = tuple(self.camera.shape)  # (height, width)
+        pitch = self.camera.pixel_size[::-1]  # (x, y) for Cartesian geometry
+        camera_shape = tuple(self.camera.resolution)  # (height, width)
         focal_spot_radius = float(abs(coarse_mapping.focal_spot_radius))
 
         # Choose the board centre (model-pixel shift), the square size, and the
@@ -123,12 +123,9 @@ class CheckerboardMapper(CameraMapper):
             device=self.device,
             dtype=torch.float32,
         )
-        signal_region_roi = find_roi(target, pad=square_size * 2)
+        signal_region_roi = ROI.detect(target, pad=square_size * 2)
         signal_region = torch.zeros_like(target, device=self.device) > 1
-        signal_region[
-            signal_region_roi[0] : signal_region_roi[1],
-            signal_region_roi[2] : signal_region_roi[3],
-        ] = True
+        signal_region[signal_region_roi.rows, signal_region_roi.columns] = True
 
         board_shift_meters = (
             board_shift[0] * simulation_pixel_size[1],
@@ -154,7 +151,9 @@ class CheckerboardMapper(CameraMapper):
             (center_camera[0] - camera_shape[1] / 2) * pitch[0],
             (center_camera[1] - camera_shape[0] / 2) * pitch[1],
         )
-        camera_grid = get_spatial_grid(self.camera.shape, pitch, device=self.device)
+        camera_grid = get_spatial_grid(
+            self.camera.resolution, self.camera.pixel_size, device=self.device
+        )
         roi_mask_camera = rectangular_mask(
             *camera_grid,
             width=square_size * squares_plus[0] * magnification * pitch[0],
@@ -213,17 +212,18 @@ class CheckerboardMapper(CameraMapper):
         if exposure_time is not None:
             self.camera.set_exposure(exposure_time)
         else:
-            # Autoexpose on a window around the board
-            board_window = (
-                center_camera[0],
-                square_size * squares_plus[0] * magnification,
-                center_camera[1],
-                square_size * squares_plus[1] * magnification,
+            # Autoexpose on a region around the board (center_camera is (x, y)).
+            board_roi = ROI.centered(
+                (center_camera[1], center_camera[0]),  # (row, col)
+                (
+                    square_size * squares_plus[1] * magnification,  # height
+                    square_size * squares_plus[0] * magnification,  # width
+                ),
             )
-            self.camera.autoexposure(
+            self.camera.autoexpose(
                 set_fraction=0.95,
-                exposure_bounds_s=(0, 1),
-                window=board_window,
+                exposure_bounds=(0, 1),
+                roi=board_roi,
                 verbose=self.verbose,
             )
 
@@ -261,8 +261,9 @@ class CheckerboardMapper(CameraMapper):
                 )
 
         # Fitting affine transformation to detected and calculated corners
-        transform, _ = estimateAffine2D(detected_corners, calculated_corners)
-        inverse_transform = invertAffineTransform(transform)
+        affine = AffineTransform.fit(detected_corners, calculated_corners)
+        transform = affine.as_matrix(homogeneous=False)
+        inverse_transform = affine.inverse().as_matrix(homogeneous=False)
         reprojection_errors, reprojection_rms = self.calculate_reprojection_error(
             detected_corners, calculated_corners, transform
         )
@@ -321,7 +322,7 @@ class CheckerboardMapper(CameraMapper):
         magnification = float(np.sqrt(abs(np.linalg.det(inverse[:, :2]))))
         height, width = camera_shape
         model_centre = np.array([resolution_out[1] / 2.0, resolution_out[0] / 2.0])
-        addressable = addressable_half_extent(self.slm, focal_length)  # (x, y) m
+        addressable = self.slm_camera_model.addressable_half_extent()  # (x, y) m
 
         if square_size is None:
             # <= 1/4 of the Nyquist-rectangle width per axis, and ~half the sensor.
@@ -363,7 +364,9 @@ class CheckerboardMapper(CameraMapper):
                 "The checkerboard cannot be placed clear of the zeroth order on "
                 "this sensor. Reduce number_of_squares / square_size."
             )
-        model_point = centre_camera @ transform[:, :2].T + transform[:, 2]
+        model_point = AffineTransform.from_matrix(transform).transform_points(
+            centre_camera
+        )[0]
         shift = (
             int(round(model_point[0] - model_centre[0])),
             int(round(model_point[1] - model_centre[1])),
@@ -387,7 +390,7 @@ class CheckerboardMapper(CameraMapper):
         Returns:
             NDArray: Averaged camera image.
         """
-        averaged_camera_image = np.zeros(self.camera.shape)
+        averaged_camera_image = np.zeros(self.camera.resolution)
         for i in range(number_of_shifts):
             shifted_slm_phase = slm_phase + i * 2 * np.pi / number_of_shifts
             self.slm.set_phase(shifted_slm_phase)

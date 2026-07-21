@@ -8,31 +8,33 @@ from numpy.typing import NDArray
 
 import torch
 
-from cv2 import invertAffineTransform
+from ....geometry import AffineTransform
 
-from slmsuite.hardware.slms.slm import SLM
-from slmsuite.hardware.cameras.camera import Camera
-from slmsuite.holography.analysis import get_orientation_transformation
+from ....hardware import Camera, SLM
 
 from ....propagation.optical_systems import SLMFourierLensModel
 from ....propagation.phase_profiles import linear_phase, binary_phase_grating
-from ....propagation.fourier import get_spatial_grid
+from ....propagation.fourier import get_spatial_grid, metres_to_pixel
 from ....propagation.amplitude_profiles import get_focal_spot_radius
 from ....holography.phase_retrieval import LinearSuperpositionPhaseRetriever
 from ....analysis.fitting import fit_gaussian_beam_intensity
-from ....utils import crop_to_roi, gpu_to_numpy, pad_from_roi
+from ....utils import gpu_to_numpy
+from ....roi import ROI
 
-from ..utils import (
+from ...spot_detection import (
     _WINDOW_SPOT_RADII,
-    addressable_half_extent,
     detect_spot,
     disc_mask,
     get_diffraction_spot_position,
     has_prominent_peak,
-    metres_to_pixel,
 )
+from ...exposure import expose_until_spot
 
-from ....hardware.camera_data import CameraData, probe_orientation
+from ....hardware.camera import (
+    CameraData,
+    get_orientation_transformation,
+    probe_orientation,
+)
 
 from ..abstract import CameraMapper, CameraMapping
 from .visualizer import CoarseVisualizationData
@@ -142,11 +144,10 @@ class CoarseMapper(CameraMapper):
         pixel_size_out = output_module.pixel_size_out.tolist()[0]  # (y, x) metres
         resolution_out = tuple(output_module.resolution_out)       # (height, width)
         focal_length = float(self.slm_camera_model.fourier_lens.focal_length)
-        camera_pitch = np.asarray(self.camera.pitch_um, dtype=float) * 1e-6  # (x, y)
-        camera_shape = tuple(self.camera.shape)  # (height, width)
+        camera_pixel_size = np.asarray(self.camera.pixel_size, dtype=float)  # (y, x) m
+        camera_pitch = camera_pixel_size[::-1]  # (x, y) for Cartesian geometry
+        camera_shape = tuple(self.camera.resolution)  # (height, width)
 
-        # TODO: The diffefrent x/y, h/w conventions are pretty confusing. Try to 
-        # standardize this.
         field_of_view = (
             camera_shape[1] * camera_pitch[0],
             camera_shape[0] * camera_pitch[1],
@@ -154,11 +155,11 @@ class CoarseMapper(CameraMapper):
 
         if beam_diameter is None:
             beam_diameter = min(
-                self.slm.shape[i] * self.slm.pitch_um[i] * 1e-6 for i in range(2)
+                self.slm.resolution[i] * self.slm.pixel_size[i] for i in range(2)
             )
         spot_radius = get_focal_spot_radius(
             beam_radius=0.5 * beam_diameter,
-            wavelength=self.slm.wav_um * 1e-6,
+            wavelength=self.slm.wavelength,
             focal_length=focal_length,
         )
 
@@ -181,7 +182,7 @@ class CoarseMapper(CameraMapper):
             0.1 * min(field_of_view), 2.0 * _WINDOW_SPOT_RADII * spot_radius
         )
 
-        addressable = addressable_half_extent(self.slm, focal_length)
+        addressable = self.slm_camera_model.addressable_half_extent()
         if search_radius is None:
             # Cover the full SLM Nyquist-addressable rectangle.
             half_extent = addressable
@@ -259,32 +260,25 @@ class CoarseMapper(CameraMapper):
             probe_tilts=probe_tilts,
             exposure_time=exposure_time,
             focal_length=focal_length,
-            pitch=camera_pitch,
+            camera_pixel_size=camera_pixel_size,
             camera_shape=camera_shape,
             field_of_view=field_of_view,
         )
 
         detected = np.asarray(probes.camera_points, dtype=np.float64)
         calculated = np.asarray(probes.simulated_points, dtype=np.float64)
-        design = np.hstack([detected, np.ones((len(detected), 1))])
 
-        # TODO: Potentially move all affine-transform related logic into its own module
-        affine, *_ = np.linalg.lstsq(design, calculated, rcond=None)
-        transform = affine.T
-        inverse_transform = invertAffineTransform(transform)
+        affine = AffineTransform.fit(detected, calculated, robust=False)
+        transform = affine.as_matrix(homogeneous=False)
+        inverse_transform = affine.inverse().as_matrix(homogeneous=False)
         reprojection_errors, reprojection_rms = self.calculate_reprojection_error(
             detected, calculated, transform
         )
 
         center = (resolution_out[0] // 2, resolution_out[1] // 2)
-        zeroth_order_position = (
-            inverse_transform[1, 0] * center[0]
-            + inverse_transform[1, 1] * center[1]
-            + inverse_transform[1, 2],
-            inverse_transform[0, 0] * center[0]
-            + inverse_transform[0, 1] * center[1]
-            + inverse_transform[0, 2],
-        )
+        # Zeroth order = model-plane centre mapped back to the camera; stored (y, x).
+        centre_camera = affine.inverse().transform_points([center])[0]
+        zeroth_order_position = (float(centre_camera[1]), float(centre_camera[0]))
 
         # Warn about sensor regions the SLM cannot address (limited diffraction angle):
         # sample the sensor on a grid, map to focal-plane metres and compare with the
@@ -295,7 +289,7 @@ class CoarseMapper(CameraMapper):
             indexing="ij",
         )
         pixels = np.column_stack([columns.ravel(), rows.ravel()])
-        simulated = pixels @ transform[:, :2].T + transform[:, 2]
+        simulated = affine.transform_points(pixels)
         metres_x = (simulated[:, 0] - resolution_out[1] / 2) * pixel_size_out[1]
         metres_y = (simulated[:, 1] - resolution_out[0] / 2) * pixel_size_out[0]
         outside = (np.abs(metres_x) > addressable[0]) | (
@@ -357,11 +351,9 @@ class CoarseMapper(CameraMapper):
     def _linear_rotation_degrees(linear: NDArray) -> float:
         """Rotation [deg] of a 2x2 linear map (reflection factored out), matching
         CameraMapping.rotation_degrees."""
-        u, _, vt = np.linalg.svd(linear)
-        if np.linalg.det(u @ vt) < 0:
-            u[:, -1] *= -1
-        rotation = u @ vt
-        return float(np.degrees(np.arctan2(rotation[1, 0], rotation[0, 0])))
+        return AffineTransform.from_matrix(
+            np.column_stack([linear, [0.0, 0.0]])
+        ).rotation_degrees
 
     def _suggest_camera_orientation(
         self, transform: NDArray, camera_shape: tuple[int, int]
@@ -433,7 +425,9 @@ class CoarseMapper(CameraMapper):
         corners = np.array(
             [[0, 0], [width, 0], [width, height], [0, height]], dtype=np.float64
         )
-        sensor_polygon = corners @ transform[:, :2].T + transform[:, 2]
+        sensor_polygon = AffineTransform.from_matrix(transform).transform_points(
+            corners
+        )
         walk_image = (
             np.maximum.reduce(self._walk_frames) if self._walk_frames else None
         )
@@ -454,7 +448,7 @@ class CoarseMapper(CameraMapper):
         probe_tilts: list[tuple[float, float]],
         exposure_time: float | None,
         focal_length: float,
-        pitch: NDArray,
+        camera_pixel_size: NDArray,
         camera_shape: tuple[int, int],
         field_of_view: tuple[float, float],
     ) -> _ProbeMeasurements:
@@ -487,8 +481,10 @@ class CoarseMapper(CameraMapper):
                     f"Probe {probe} could not be fitted: {error}"
                 ) from error
 
-            camera_points.append(metres_to_pixel((x, y), pitch, camera_shape))
-            camera_frames.append(pad_from_roi(cropped, roi, camera_shape))
+            camera_points.append(
+                metres_to_pixel((x, y), camera_pixel_size, camera_shape)
+            )
+            camera_frames.append(roi.pad(cropped, camera_shape))
             if index == 0:
                 focal_spot_radius = float(abs(radius))
 
@@ -586,8 +582,8 @@ class CoarseMapper(CameraMapper):
         ).retrieve_phase()
         self.slm.set_phase(gpu_to_numpy(phase))
         try:
-            array_exposure = self.camera.autoexposure(
-                set_fraction=0.5, exposure_bounds_s=(0, 1), verbose=False
+            array_exposure = self.camera.autoexpose(
+                set_fraction=0.5, exposure_bounds=(0, 1), verbose=False
             )
         except RuntimeError:
             return None  # Autoexposure railed: no signal.
@@ -599,7 +595,7 @@ class CoarseMapper(CameraMapper):
             return None
 
         exposure = float(array_exposure) / targets.shape[0]
-        bounds = self.camera.exposure_bounds_s
+        bounds = self.camera.exposure_bounds
         hardware_minimum = bounds[0] if bounds is not None else None
         if hardware_minimum is not None and exposure < hardware_minimum:
             warnings.warn(
@@ -622,7 +618,7 @@ class CoarseMapper(CameraMapper):
         background (unchanged by the SLM) untouched. The spot is the zeroth order if its
         intensity at the same position drops when the grating is displayed."""
         row, column = np.unravel_index(int(np.argmax(image)), image.shape)
-        spot_radius_px = spot_radius / (min(self.camera.pitch_um) * 1e-6)
+        spot_radius_px = spot_radius / (min(self.camera.pixel_size))
         half = max(int(round(2.0 * spot_radius_px)), 2)
 
         def window_peak(frame: NDArray) -> float:
@@ -632,7 +628,7 @@ class CoarseMapper(CameraMapper):
         peak_before = window_peak(image)
         # 2-px-period 0/pi vertical binary grating: diffracts the light into the
         # Nyquist-edge +/-1 orders, leaving no zeroth order.
-        grating = binary_phase_grating(self.slm.shape)
+        grating = binary_phase_grating(self.slm.resolution)
         self.slm.set_phase(grating)
         suppressed = np.asarray(self.camera.get_image())
         return window_peak(suppressed) < 0.5 * peak_before
@@ -655,23 +651,23 @@ class CoarseMapper(CameraMapper):
         """Measure the focal-spot 1/e^2 radius by fitting a Gaussian to the found spot, 
         replacing the initial estimate. Falls back to the guess if the fit fails."""
         self._display_tilt(tilt, focal_length)
-        self.camera.autoexposure(
-            set_fraction=0.5, exposure_bounds_s=(0, 1), verbose=False
+        self.camera.autoexpose(
+            set_fraction=0.5, exposure_bounds=(0, 1), verbose=False
         )
         image = np.asarray(self.camera.get_image())
         row, column = np.unravel_index(int(np.argmax(image)), image.shape)
-        spot_radius_px = spot_radius_guess / (min(self.camera.pitch_um) * 1e-6)
+        spot_radius_px = spot_radius_guess / (min(self.camera.pixel_size))
         half_window = max(int(round(_WINDOW_SPOT_RADII * spot_radius_px)), 1)
         height, width = image.shape
-        roi = (
+        roi = ROI.from_bounds(
             max(row - half_window, 0),
             min(row + half_window + 1, height),
             max(column - half_window, 0),
             min(column + half_window + 1, width),
         )
-        cropped = crop_to_roi(image, roi)
-        grid = get_spatial_grid(self.camera.shape, self.camera.pitch_um * 1e-6)
-        cropped_grid = [crop_to_roi(axis, roi) for axis in grid]
+        cropped = roi.crop(image)
+        grid = get_spatial_grid(self.camera.resolution, self.camera.pixel_size)
+        cropped_grid = [roi.crop(axis) for axis in grid]
         try:
             popt, _ = fit_gaussian_beam_intensity(
                 *cropped_grid, cropped, beam_radius_guess=spot_radius_guess
@@ -723,7 +719,7 @@ class CoarseMapper(CameraMapper):
         self.camera.set_exposure(exposure / 30.0)
         self._display_tilt((-tilt[0], -tilt[1]), focal_length)
         image = np.asarray(self.camera.get_image())
-        if float(image.max()) >= 0.5 * float(self.camera.bitresolution):
+        if float(image.max()) >= 0.5 * float(self.camera.adu_levels):
             return (-tilt[0], -tilt[1])
         self.camera.set_exposure(exposure)
         return tilt
@@ -750,7 +746,7 @@ class CoarseMapper(CameraMapper):
         if shifted_peak is None:
             return False
         shifted_row, shifted_column = shifted_peak
-        pixel_pitch = np.asarray(self.camera.pitch_um, dtype=float) * 1e-6  # (x, y)
+        pixel_pitch = self.camera.pixel_size[::-1]  # (x, y) for Cartesian geometry
         shift_x = (shifted_column - column) * pixel_pitch[0]
         shift_y = (shifted_row - row) * pixel_pitch[1]
         return bool(np.hypot(shift_x, shift_y) < spot_radius)
@@ -779,7 +775,7 @@ class CoarseMapper(CameraMapper):
         # the ZOD mask (radius one window) applied in the derivative captures.
         offset = 2.0 * _WINDOW_SPOT_RADII * spot_radius
         mask_radius_px = _WINDOW_SPOT_RADII * spot_radius / (
-            min(self.camera.pitch_um) * 1e-6
+            min(self.camera.pixel_size)
         )
 
         def measure(
@@ -879,11 +875,11 @@ class CoarseMapper(CameraMapper):
         self, tilt: tuple[float, float], focal_length: float
     ) -> None:
         """Display a full-frame linear-phase tilt on the hardware SLM."""
-        slm_grid = get_spatial_grid(self.slm.shape, self.slm.pitch_um * 1e-6)
+        slm_grid = get_spatial_grid(self.slm.resolution, self.slm.pixel_size)
         phase = linear_phase(
             *slm_grid,
             *tilt,
-            wavenumber=2 * np.pi / (self.slm.wav_um * 1e-6),
+            wavenumber=2 * np.pi / (self.slm.wavelength),
             focal_length=focal_length,
         )
         self.slm.set_phase(gpu_to_numpy(phase))
@@ -902,38 +898,7 @@ class CoarseMapper(CameraMapper):
             self.camera.set_exposure(exposure_time)
             image = np.asarray(self.camera.get_image())
             return image if detect_spot(image, spot_radius, self.camera) else None
-        return self._find_spot_adaptive_exposure(spot_radius)
-
-    def _find_spot_adaptive_exposure(
-        self,
-        spot_radius: float,
-        max_steps: int = 4,
-        dark_threshold_fraction: float = 0.05,
-        saturation_step_fraction: float = 0.05,
-    ) -> NDArray | None:
-        """Capture at the current tilt. If no spot detected, jump the exposure once 
-        and retry, up to max_steps times. Returns the frame with a detected spot, or 
-        None when the frame is well exposed but without spot."""
-        full_scale = float(self.camera.bitresolution)
-        bounds = self.camera.exposure_bounds_s
-        max_exposure_s = float(bounds[1]) if bounds is not None else 1.0
-        exposure = float(self.camera.get_exposure())
-        for _ in range(max_steps):
-            image = np.asarray(self.camera.get_image())
-            if detect_spot(image, spot_radius, self.camera):
-                return image
-            peak = float(image.max())
-            if peak >= full_scale - 1:  # Sensor saturated, decrease exposure
-                exposure *= saturation_step_fraction
-            elif (
-                peak < dark_threshold_fraction * full_scale 
-                and exposure < max_exposure_s
-            ):
-                exposure = min(exposure / saturation_step_fraction, max_exposure_s)
-            else:
-                return None  # well exposed but no spot found
-            self.camera.set_exposure(exposure)
-        return None
+        return expose_until_spot(self.camera, spot_radius)
 
     @staticmethod
     def _peak_centroid(

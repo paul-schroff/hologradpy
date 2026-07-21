@@ -35,6 +35,24 @@ def get_spatial_grid(
     return spatial_grid_x, spatial_grid_y
 
 
+def metres_to_pixel(
+    position: tuple[float, float],
+    pixel_size: tuple[float, float],
+    resolution: tuple[int, int],
+) -> tuple[float, float]:
+    """Plane ``(x, y)`` metres (relative to the centre) to ``(x, y)`` pixels, the
+    inverse of :func:`get_spatial_grid`.
+
+    ``pixel_size`` is ``(y, x)`` metres and ``resolution`` is ``(height, width)``, so
+    x uses the width pitch and y the height pitch. Works for any plane (the camera
+    sensor or a model output grid) given that plane's pitch and shape.
+    """
+    return (
+        position[0] / pixel_size[1] + resolution[1] // 2,
+        position[1] / pixel_size[0] + resolution[0] // 2,
+    )
+
+
 def get_frequency_grid(
     resolution: tuple[int, int],
     pixel_size: tuple[float, float],

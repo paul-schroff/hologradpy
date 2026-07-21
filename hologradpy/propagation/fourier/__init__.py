@@ -1,6 +1,7 @@
 from .grids import (
     get_pixel_grid,
     get_spatial_grid,
+    metres_to_pixel,
     get_frequency_grid,
     get_zoom_frequency_grid,
 )
@@ -13,6 +14,7 @@ from .czt import ChirpZZoom
 __all__ = [
     "get_pixel_grid",
     "get_spatial_grid",
+    "metres_to_pixel",
     "get_frequency_grid",
     "get_zoom_frequency_grid",
     "fft_2d",

@@ -17,8 +17,7 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 import torch  # noqa: E402
 
-from hologradpy.hardware.slm_simulated import SimulatedSLMTorch  # noqa: E402
-from hologradpy.hardware.camera_simulated import SimulatedCameraTorch  # noqa: E402
+from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch  # noqa: E402
 from hologradpy.propagation.complex_amplitude import (  # noqa: E402
     ComplexAmplitude,
     FieldGeometry,
@@ -33,9 +32,6 @@ from hologradpy.calibration import (  # noqa: E402
     get_diffraction_spot_position,
 )
 from hologradpy.calibration.camera_mapping import CameraMapping  # noqa: E402
-from hologradpy.calibration.camera_mapping.utils import (  # noqa: E402
-    addressable_half_extent,
-)
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -56,7 +52,9 @@ def _build_setup(
         wavelength=torch.tensor(0.630e-6, device=DEVICE),
     )
     slm = SimulatedSLMTorch(input_geometry=geometry, bitdepth=8)
-    intensity = gaussian_beam_intensity(*slm.get_spatial_grid(), beam_radius=2.0e-3)
+    intensity = gaussian_beam_intensity(
+        *geometry.get_spatial_grid(), beam_radius=2.0e-3
+    )
     beam = ComplexAmplitude(
         intensity.sqrt() + 0j,
         wavelength=geometry.wavelength,
@@ -152,7 +150,7 @@ def test_main_placement_is_diagonal_and_clears_dc(mirror):
     assert 0 < target[0] < width and 0 < target[1] < height  # on sensor
     assert np.hypot(*offset) >= 2 * max(roi) - 1e-6  # clears DC by 2 * roi
     assert abs(abs(offset[0]) - abs(offset[1])) < 1e-6  # on a 45 deg diagonal
-    addressable = np.asarray(addressable_half_extent(slm, FOCAL_LENGTH))
+    addressable = np.asarray(calibrator._addressable_half_extent())
     assert np.all(np.abs(tilt) <= 0.9 * addressable + 1e-9)  # reachable
 
 
@@ -204,7 +202,7 @@ def _corner_setup():
     slm, camera = _build_setup(noise_level=6.0)
     calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
     corner = 32
-    height, width = slm.shape
+    height, width = slm.resolution
     corner_slices = [
         (slice(0, corner), slice(0, corner)),
         (slice(0, corner), slice(width - corner, width)),
@@ -239,8 +237,8 @@ def test_capture_averaged_reduces_noise(monkeypatch):
 def test_corner_steering_recovers_offset_under_noise(monkeypatch):
     calibrator, corner_slices, roi, spot_center, window = _corner_setup()
     window_height, window_width = window
-    pitch_x = calibrator.camera.pitch_um[1] * 1e-6
-    pitch_y = calibrator.camera.pitch_um[0] * 1e-6
+    pitch_x = calibrator.camera.pixel_size[1]
+    pitch_y = calibrator.camera.pixel_size[0]
     lattice_tilt = (300e-6, 300e-6)
     shift_px = (7, -5)  # spot offset from the window centre, in pixels
 

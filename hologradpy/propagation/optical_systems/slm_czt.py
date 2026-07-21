@@ -14,7 +14,7 @@ class SLMCZT(SLMFourierLensModel):
     ``scale_factor`` / ``shift`` / ``angle``, so the focal-plane affine map is
     learned inside the (exact, power-correct) lens itself and maps directly onto
     the camera resolution at the camera pixel size. ``camera_angle`` (degrees) /
-    ``camera_shift`` (output pixels) seed those learnable parameters.
+    ``camera_shift`` (output pixels, ``(x, y)``) seed those learnable parameters.
     """
 
     virtual_slm: VirtualSLM
@@ -53,3 +53,6 @@ class SLMCZT(SLMFourierLensModel):
                 power_normalized=power_normalized,
             ),
         )
+
+    def _affine_module(self) -> FourierLensCZT:
+        return self.fourier_lens

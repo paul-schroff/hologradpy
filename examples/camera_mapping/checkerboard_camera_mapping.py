@@ -2,8 +2,12 @@
 import matplotlib.pyplot as plt
 import torch
 
-from hologradpy.hardware.slm_simulated import SimulatedSLMTorch
-from hologradpy.hardware.camera_simulated import SimulatedCameraTorch
+from hologradpy.hardware import (
+    SimulatedSLMTorch,
+    SimulatedCameraTorch,
+    open_camera,
+    open_slm,
+)
 
 from hologradpy.calibration.camera_mapping import CheckerboardMapper
 
@@ -26,8 +30,8 @@ slm_geometry = FieldGeometry(
     wavelength=torch.tensor(0.630e-6, device=device),
 )
 
-slm = SimulatedSLMTorch(
-    input_geometry=slm_geometry, bitdepth=8
+slm = open_slm(
+    SimulatedSLMTorch, input_geometry=slm_geometry, bitdepth=8
 )
 
 gaussian_intensity = gaussian_beam_intensity(
@@ -54,8 +58,9 @@ simulated_camera_model = SLMFFTAffine(
     power_normalized=True,
 )
 
-camera = SimulatedCameraTorch(
-    simulated_camera_model,
+camera = open_camera(
+    SimulatedCameraTorch,
+    slm_camera_model=simulated_camera_model,
     nd_filter_optical_density=5.0,
     quantum_efficiency=0.01,
 )

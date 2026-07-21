@@ -1,14 +1,13 @@
-from copy import deepcopy
 from datetime import datetime
 
 import numpy as np
 import torch
 from numpy.typing import NDArray
 
-from slmsuite.hardware.slms.slm import SLM
-from slmsuite.hardware.cameras.camera import Camera
-
 from scipy.ndimage import gaussian_filter
+
+from ....hardware import Camera, SLM
+from ....roi import ROI
 
 from . import SuperpixelSlicer
 from .visualizer import RasterVisualizationData
@@ -17,14 +16,12 @@ from ..abstract import WavefrontCalibratorBase, WavefrontCalibrationData
 from ..utils import inpaint
 from ....analysis.unwrapping import unwrap_nonuniform
 
-from ...camera_mapping.utils import (
+from ...spot_detection import (
     get_diffraction_spot_position,
-    addressable_half_extent,
     background_noise,
 )
 from ...camera_mapping.coarse_mapping.coarse_mapper import CoarseMapper
 from ...camera_mapping.abstract import CameraMapping
-from ....hardware.utils import set_camera_woi
 from ....propagation import SLMFourierLensModel
 from ....propagation.optical_systems import SLMFFT
 from ....propagation.virtual_slms import VirtualSLM
@@ -33,7 +30,7 @@ from ....propagation.complex_amplitude import ComplexAmplitude, FieldGeometry
 from ....propagation.fourier import get_spatial_grid
 from ....propagation.phase_profiles import linear_phase, binary_phase_grating
 
-from ....utils import gpu_to_numpy, roi_bounds, Timer
+from ....utils import gpu_to_numpy, Timer
 
 from ....analysis.fitting import (
     interferometric_fringes,
@@ -78,12 +75,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
         so ``padded_resolution`` only sets the sampling. It is chosen so the model
         samples the focal plane near the camera pitch.
         """
-        wavelength = self.slm.wav_um * 1e-6
-        slm_pitch = (self.slm.pitch_um[0] * 1e-6, self.slm.pitch_um[1] * 1e-6)  # y, x
-        camera_pitch = (
-            self.camera.pitch_um[0] * 1e-6,
-            self.camera.pitch_um[1] * 1e-6,
-        )  # y, x
+        wavelength = self.slm.wavelength
+        slm_pitch = tuple(self.slm.pixel_size)  # (y, x) metres
+        camera_pitch = tuple(self.camera.pixel_size)  # (y, x) metres
         padded_resolution = tuple(
             int(
                 np.clip(
@@ -92,20 +86,20 @@ class RasterCalibrator(WavefrontCalibratorBase):
                         * self.focal_length
                         / (camera_pitch[axis] * slm_pitch[axis])
                     ),
-                    self.slm.shape[axis],
+                    self.slm.resolution[axis],
                     2048,
                 )
             )
             for axis in range(2)
         )
         geometry = FieldGeometry(
-            resolution=tuple(self.slm.shape),
+            resolution=tuple(self.slm.resolution),
             pixel_size=torch.tensor(slm_pitch, device=self.device),
             wavelength=torch.tensor(wavelength, device=self.device),
         )
         beam = ComplexAmplitude(
             torch.ones(
-                tuple(self.slm.shape), dtype=torch.complex64, device=self.device
+                tuple(self.slm.resolution), dtype=torch.complex64, device=self.device
             ),
             wavelength=geometry.wavelength,
             pixel_size=geometry.pixel_size,
@@ -136,6 +130,22 @@ class RasterCalibrator(WavefrontCalibratorBase):
             self.slm, self.camera, self._slm_camera_model
         ).map_camera()
 
+    def _addressable_half_extent(self) -> tuple[float, float]:
+        """The focal-plane addressable half-extent ``(x, y)`` in metres, from the SLM to
+        camera model.
+
+        The model is built on the fly when the coarse mapper has not run yet, and is
+        *not* cached. Caching it would flip :meth:`_orientation_matrix` onto its
+        model-geometry branch (which needs ``pixel_size_out``) before the model has
+        produced an output. The query itself only reads the input geometry and focal
+        length, so it works on an unrun model.
+        """
+        # TODO: this is not exactly elegant.
+        model = self._slm_camera_model
+        if model is None:
+            model = self._build_slm_camera_model()
+        return model.addressable_half_extent()
+
     def _orientation_matrix(self) -> NDArray[np.float_]:
         """2x2 map from camera-plane metres to model / focal-plane metres from
         ``self.camera_mapping``.
@@ -146,25 +156,22 @@ class RasterCalibrator(WavefrontCalibratorBase):
         (correct for a camera imaging the focal plane, magnification 1). Used to both
         place the tilts and orient the fringe/lattice fits, so they stay consistent.
         """
-        linear = np.asarray(self.camera_mapping.transform, dtype=np.float64)[:, :2]
+        affine = self.camera_mapping.affine
         camera_pitch = np.asarray(
-            [self.camera.pitch_um[1] * 1e-6, self.camera.pitch_um[0] * 1e-6]
-        )  # x, y
+            [self.camera.pixel_size[1], self.camera.pixel_size[0]]
+        )  # (x, y)
         if self._slm_camera_model is not None:
             output = self._slm_camera_model[-1]
             pixel_size_out = output.pixel_size_out.tolist()[0]  # y, x
             pixel_size_out = np.asarray([pixel_size_out[1], pixel_size_out[0]])  # x, y
-            return np.diag(pixel_size_out) @ linear @ np.diag(1.0 / camera_pitch)
-        left, _, right = np.linalg.svd(linear)
-        return left @ right  # orthonormal, preserves the mirror
+            return np.diag(pixel_size_out) @ affine.linear @ np.diag(1.0 / camera_pitch)
+        return affine.rotation_matrix  # orthonormal, preserves the mirror
 
     def _rotation_matrix(self) -> NDArray[np.float_]:
         """Orthonormal rotation+mirror part of the camera->model transform, from the
         SVD of its linear block (no scale). Identity for an aligned camera, so it
         orients the fits without touching an aligned scan."""
-        linear = np.asarray(self.camera_mapping.transform, dtype=np.float64)[:, :2]
-        left, _, right = np.linalg.svd(linear)
-        return left @ right
+        return self.camera_mapping.affine.rotation_matrix
 
     def _orient_grid(self, grid: list[NDArray]) -> list[NDArray]:
         """Rotate a camera-plane ``(x, y)`` metre grid into the model / SLM axes via
@@ -190,7 +197,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 self.camera_mapping.zeroth_order_position[0],
             ]
         )  # x, y
-        height, width = self.camera.shape
+        height, width = self.camera.resolution
         centre = np.array([width / 2.0, height / 2.0])
         signs = np.sign(centre - zeroth)
         signs[signs == 0] = 1.0  # tie (DC on a centre line) -> positive diagonal
@@ -212,11 +219,11 @@ class RasterCalibrator(WavefrontCalibratorBase):
         zeroth = np.asarray(
             [mapping.zeroth_order_position[1], mapping.zeroth_order_position[0]]
         )  # x, y camera px
-        height, width = self.camera.shape
+        height, width = self.camera.resolution
         centre = np.array([width / 2.0, height / 2.0])
         camera_pitch = np.asarray(
-            [self.camera.pitch_um[1] * 1e-6, self.camera.pitch_um[0] * 1e-6]
-        )  # x, y
+            [self.camera.pixel_size[1], self.camera.pixel_size[0]]
+        )  # (x, y)
 
         # Keep the pattern ROI (plus a spot-radius margin) inside the sensor. A
         # symmetric margin avoids relying on the (height, width) vs (width, height)
@@ -252,7 +259,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
         tilt = self._orientation_matrix() @ ((target - zeroth) * camera_pitch)
 
         # Clamp into the SLM's Nyquist-addressable reach (direction preserved).
-        limit = 0.9 * np.asarray(addressable_half_extent(self.slm, self.focal_length))
+        # TODO: Remove hardcoded 0.9
+        limit = 0.9 * np.asarray(self._addressable_half_extent())
         scale = min(1.0, float(np.min(limit / np.maximum(np.abs(tilt), 1e-12))))
         tilt = tilt * scale
         return (float(tilt[0]), float(tilt[1])), (float(target[0]), float(target[1]))
@@ -321,7 +329,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
             *linear_phase_tilt,
             tilt_units="metres",
             focal_length=self.focal_length,
-            wavenumber=2 * np.pi / (self.slm.wav_um * 1e-6),
+            wavenumber=2 * np.pi / (self.slm.wavelength),
         )
 
     def _capture_averaged(
@@ -329,22 +337,11 @@ class RasterCalibrator(WavefrontCalibratorBase):
         exposure_time: float,
         frame_averages: int,
     ) -> NDArray[np.float_]:
-        """Mean of ``frame_averages`` camera frames at ``exposure_time``.
-
-        The simulated (and any real) camera draws fresh read and shot noise per
-        frame, so the mean has ``frame_averages`` times lower noise variance. This
-        is used where the signal is dim (single corner spots, the lattice baseline)
-        and the extra frames are cheap because they are taken only a handful of
-        times, not once per scanned superpixel.
-
-        The camera's own ``get_image(averaging=...)`` does the batch capture (it
-        sums the frames), so this only divides by the count to return the mean.
-        """
-        frames = max(1, int(frame_averages))
-        summed = np.asarray(
-            self.camera.get_image(exposure_time, averaging=frames), dtype=float
-        )
-        return summed / frames
+        """Mean of ``frame_averages`` camera frames at ``exposure_time`` (see
+        :meth:`hologradpy.hardware.camera.Camera.get_averaged_image`). Used where the
+        signal is dim (single corner spots, the lattice baseline), a handful of times
+        rather than once per scanned superpixel."""
+        return self.camera.get_averaged_image(exposure_time, frame_averages)
 
     def calibrate_lattice_corner_tilts(
         self,
@@ -382,7 +379,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
 
         center_x, center_y = int(spot_center_pixels[0]), int(spot_center_pixels[1])
-        sensor_height, sensor_width = self.camera.shape
+        sensor_height, sensor_width = self.camera.resolution
+        # TODO: Remove hardcoded 4x window size
         window_width = min(4 * roi_size[1], sensor_width)
         window_height = min(4 * roi_size[0], sensor_height)
         window_x0 = int(
@@ -391,14 +389,18 @@ class RasterCalibrator(WavefrontCalibratorBase):
         window_y0 = int(
             np.clip(center_y - window_height // 2, 0, sensor_height - window_height)
         )
-        self.camera.set_woi([window_x0, window_width, window_y0, window_height])
+        self.camera.set_roi(
+            ROI(window_y0, window_x0, window_height, window_width)
+        )
 
-        autoexposure_window = [center_x, window_width, center_y, window_height]
+        autoexposure_roi = ROI.centered(
+            (center_y, center_x), (window_height, window_width)
+        )
 
         # Grid referenced to the spot centre (0 = spot centre), so the fitted
         # centre is directly the offset from it even when the window was clamped.
-        pitch_x = self.camera.pitch_um[1] * 1e-6
-        pitch_y = self.camera.pitch_um[0] * 1e-6
+        pitch_x = self.camera.pixel_size[1]
+        pitch_y = self.camera.pixel_size[0]
         grid_x, grid_y = np.meshgrid(
             (np.arange(window_width) - (center_x - window_x0)) * pitch_x,
             (np.arange(window_height) - (center_y - window_y0)) * pitch_y,
@@ -406,27 +408,27 @@ class RasterCalibrator(WavefrontCalibratorBase):
         grid = [grid_x, grid_y]
 
         corner_size = corner_slices[0][0].stop - corner_slices[0][0].start
-        aperture_radius = corner_size * self.slm.pitch_um[0] * 1e-6 / 2
+        aperture_radius = corner_size * self.slm.pixel_size[1] / 2
         spot_radius_guess = (
-            (self.slm.wav_um * 1e-6) * self.focal_length
+            (self.slm.wavelength) * self.focal_length
             / (np.pi * aperture_radius)
         )
 
         corner_tilts = []
         for corner_slice in corner_slices:
-            corner_phase = np.zeros(self.slm.shape)
+            corner_phase = np.zeros(self.slm.resolution)
             corner_phase[corner_slice] = base_grating[corner_slice]
             self.slm.set_phase(corner_phase)
 
             corner_exposure = exposure_time
             if corner_exposure is None:
-                bounds = self.camera.exposure_bounds_s
+                bounds = self.camera.exposure_bounds
                 try:
-                    corner_exposure = self.camera.autoexposure(
+                    corner_exposure = self.camera.autoexpose(
                         set_fraction=_AUTOEXPOSURE_SET_FRACTION,
-                        exposure_bounds_s=bounds,
-                        window=autoexposure_window,
-                        timeout_s=self.autoexposure_timeout_s,
+                        exposure_bounds=bounds,
+                        roi=autoexposure_roi,
+                        timeout=self.autoexposure_timeout_s,
                     )
                 except RuntimeError:
                     corner_exposure = bounds[1] if bounds is not None else 1.0
@@ -469,12 +471,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
     ) -> tuple[int, int]:
         """Return (n_superpixels_x, n_superpixels_y) for the superpixel size
         closest to the target, using divisors of the SLM dimensions."""
-        factors_x = [
-            i for i in range(1, self.slm.shape[1] + 1) if self.slm.shape[1] % i == 0
-        ]
-        factors_y = [
-            i for i in range(1, self.slm.shape[0] + 1) if self.slm.shape[0] % i == 0
-        ]
+        height, width = self.slm.resolution
+        factors_x = [i for i in range(1, width + 1) if width % i == 0]
+        factors_y = [i for i in range(1, height + 1) if height % i == 0]
         superpixel_width = min(
             factors_x, key=lambda x: abs(x - target_superpixel_width)
         )
@@ -482,8 +481,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
             factors_y, key=lambda x: abs(x - target_superpixel_height)
         )
         return (
-            self.slm.shape[1] // superpixel_width,
-            self.slm.shape[0] // superpixel_height,
+            width // superpixel_width,
+            height // superpixel_height,
         )
 
     def get_superpixel_size(
@@ -493,19 +492,16 @@ class RasterCalibrator(WavefrontCalibratorBase):
     ) -> tuple[int, int]:
         """Return (superpixel_width, superpixel_height) using the closest divisors of
         the SLM dimensions to slm_size / target_superpixels. """
-        factors_x = [
-            i for i in range(1, self.slm.shape[1] + 1) if self.slm.shape[1] % i == 0
-        ]
-        factors_y = [
-            i for i in range(1, self.slm.shape[0] + 1) if self.slm.shape[0] % i == 0
-        ]
+        height, width = self.slm.resolution
+        factors_x = [i for i in range(1, width + 1) if width % i == 0]
+        factors_y = [i for i in range(1, height + 1) if height % i == 0]
         superpixel_width = min(
             factors_x,
-            key=lambda x: abs(x - self.slm.shape[1] / target_superpixels_x),
+            key=lambda x: abs(x - self.slm.resolution[1] / target_superpixels_x),
         )
         superpixel_height = min(
             factors_y,
-            key=lambda x: abs(x - self.slm.shape[0] / target_superpixels_y),
+            key=lambda x: abs(x - self.slm.resolution[0] / target_superpixels_y),
         )
         return superpixel_width, superpixel_height
 
@@ -517,13 +513,13 @@ class RasterCalibrator(WavefrontCalibratorBase):
         """Return the full null-to-null width of the sinc-squared diffraction
         pattern in the Fourier plane for a rectangular aperture, in camera pixels.
         """
-        wavelength = self.slm.wav_um * 1e-6
+        wavelength = self.slm.wavelength
 
-        pitch_x = self.slm.pitch_um[1] * 1e-6
-        pitch_y = self.slm.pitch_um[0] * 1e-6
+        pitch_x = self.slm.pixel_size[1]
+        pitch_y = self.slm.pixel_size[0]
 
-        camera_pitch_x = self.camera.pitch_um[1] * 1e-6
-        camera_pitch_y = self.camera.pitch_um[0] * 1e-6
+        camera_pitch_x = self.camera.pixel_size[1]
+        camera_pitch_y = self.camera.pixel_size[0]
 
         roi_width = int(
             2
@@ -540,7 +536,6 @@ class RasterCalibrator(WavefrontCalibratorBase):
         )
         return roi_width, roi_height
 
-    # TODO: Add power tracking during measurement
     def measure_intensity(
         self,
         number_of_superpixels_x: int,
@@ -653,12 +648,12 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 units="pixels",
                 verbose=verbose,
             )
-            main_x0, main_x1, main_y0, main_y1 = roi_bounds(
-                spot_center, camera_roi_size
-            )
-            ref_x0, ref_x1, ref_y0, ref_y1 = roi_bounds(
-                reference_center, camera_roi_size
-            )
+            main_y0, main_y1, main_x0, main_x1 = ROI.centered(
+                (spot_center[1], spot_center[0]), camera_roi_size
+            ).to_bounds()
+            ref_y0, ref_y1, ref_x0, ref_x1 = ROI.centered(
+                (reference_center[1], reference_center[0]), camera_roi_size
+            ).to_bounds()
             woi_x0 = min(main_x0, ref_x0)
             woi_y0 = min(main_y0, ref_y0)
             woi_width = max(main_x1, ref_x1) - woi_x0
@@ -666,14 +661,14 @@ class RasterCalibrator(WavefrontCalibratorBase):
             if (
                 woi_x0 < 0
                 or woi_y0 < 0
-                or woi_x0 + woi_width > self.camera.shape[1]
-                or woi_y0 + woi_height > self.camera.shape[0]
+                or woi_x0 + woi_width > self.camera.resolution[1]
+                or woi_y0 + woi_height > self.camera.resolution[0]
             ):
                 raise ValueError(
                     "The main and reference spots do not both fit on the sensor; "
                     "reduce camera_roi_size."
                 )
-            self.camera.set_woi([woi_x0, woi_width, woi_y0, woi_height])
+            self.camera.set_roi(ROI(woi_y0, woi_x0, woi_height, woi_width))
             main_box = (
                 slice(main_y0 - woi_y0, main_y0 - woi_y0 + camera_roi_size[0]),
                 slice(main_x0 - woi_x0, main_x0 - woi_x0 + camera_roi_size[1]),
@@ -683,18 +678,20 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 slice(ref_x0 - woi_x0, ref_x0 - woi_x0 + camera_roi_size[1]),
             )
         else:
-            set_camera_woi(self.camera, spot_center, camera_roi_size)
+            self.camera.set_roi(
+                ROI.centered((spot_center[1], spot_center[0]), camera_roi_size)
+            )
 
         slicer = SuperpixelSlicer(
-            self.slm.shape,
+            self.slm.resolution,
             number_of_superpixels_x,
             number_of_superpixels_y,
             superpixel_width,
             superpixel_height,
             start_index_x=0,
             start_index_y=0,
-            end_index_x=self.slm.shape[1],
-            end_index_y=self.slm.shape[0],
+            end_index_x=self.slm.resolution[1],
+            end_index_y=self.slm.resolution[0],
         )
 
         linear_slm_phase = self.get_blazed_grating(linear_phase_tilt)
@@ -702,13 +699,13 @@ class RasterCalibrator(WavefrontCalibratorBase):
         # Background: a vertical binary 0/pi grating (every other pixel column) instead
         # of a flat zero phase, so the unmodulated SLM area diffracts into higher
         # diffraction orders instead of the bright central zeroth-order.
-        base_phase = binary_phase_grating(self.slm.shape)
+        base_phase = binary_phase_grating(self.slm.resolution)
         if normalize_power:
             # Central superpixel holds the reference grating on every frame.
             base_phase[slicer.central_slice] = reference_grating[slicer.central_slice]
 
         # Weights array to handle overlapping superpixels
-        weights = np.zeros(self.slm.shape)
+        weights = np.zeros(self.slm.resolution)
 
         # Display central sub-aperture on SLM and check if camera is
         # over-exposed.
@@ -719,15 +716,25 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
         self.slm.set_phase(slm_phase_central_superpixel)
 
-        # Find camera exposure time.
-        exposure_time = self.camera.autoexposure(
-            set_fraction=_AUTOEXPOSURE_SET_FRACTION,
-            exposure_bounds_s=(0, 1),
-            window=[
-                spot_center[0], camera_roi_size[1],
-                spot_center[1], camera_roi_size[0],
-            ],
-            timeout_s=self.autoexposure_timeout_s,
+        # Find camera exposure time. With power normalization the reference spot is the
+        # divisor, so nothing in the frame may clip: a saturated pixel stops tracking
+        # the laser power and breaks the normalization. Expose the whole frame to half
+        # the dynamic range, keeping the brightest feature (the zeroth order) clear of
+        # saturation. Without normalization, expose the main spot for maximum signal.
+        if normalize_power:
+            autoexposure_roi = None
+            autoexposure_fraction = 0.5
+        else:
+            autoexposure_roi = ROI.centered(
+                (spot_center[1], spot_center[0]),
+                (camera_roi_size[0], camera_roi_size[1]),
+            )
+            autoexposure_fraction = _AUTOEXPOSURE_SET_FRACTION
+        exposure_time = self.camera.autoexpose(
+            set_fraction=autoexposure_fraction,
+            exposure_bounds=(0, 1),
+            roi=autoexposure_roi,
+            timeout=self.autoexposure_timeout_s,
         )
 
         camera_images = np.zeros(
@@ -736,7 +743,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 *camera_roi_size,
             )
         )
-        superpixel_power = np.zeros(self.slm.shape)
+        superpixel_power = np.zeros(self.slm.resolution)
         power_reference = [] if normalize_power else None
 
         # Take camera images
@@ -881,10 +888,10 @@ class RasterCalibrator(WavefrontCalibratorBase):
         timer = Timer(verbose=verbose)
         timer.start()
 
-        wavenumber = 2 * np.pi / (self.slm.wav_um * 1e-6)
+        wavenumber = 2 * np.pi / (self.slm.wavelength)
 
         if measured_intensity is None:
-            intensity = np.ones(self.slm.shape)
+            intensity = np.ones(self.slm.resolution)
         else:
             beam_radius, shift_x, shift_y = self.fit_gaussian_beam(measured_intensity)
             intensity = gpu_to_numpy(
@@ -893,18 +900,18 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 )
             )
 
-        base_phase = binary_phase_grating(self.slm.shape)
+        base_phase = binary_phase_grating(self.slm.resolution)
 
         slicer = SuperpixelSlicer(
-            self.slm.shape,
+            self.slm.resolution,
             number_of_superpixels_x,
             number_of_superpixels_y,
             superpixel_width,
             superpixel_height,
             start_index_x=0,
             start_index_y=0,
-            end_index_x=self.slm.shape[1],
-            end_index_y=self.slm.shape[0],
+            end_index_x=self.slm.resolution[1],
+            end_index_y=self.slm.resolution[0],
             intensity=intensity,
             max_correction_factor=4,
         )
@@ -957,7 +964,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 if verbose:
                     print(f"Auto lattice_phase_tilt (m): {lattice_phase_tilt}")
 
-            height, width = self.slm.shape
+            height, width = self.slm.resolution
             corner_slices = [
                 (slice(0, corner_size), slice(0, corner_size)),
                 (slice(0, corner_size), slice(width - corner_size, width)),
@@ -994,10 +1001,10 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 base_phase[corner_slice] = grating[corner_slice]
 
             lattice_separation_x = (
-                (width - corner_size) * self.slm.pitch_um[1] * 1e-6
+                (width - corner_size) * self.slm.pixel_size[1]
             )
             lattice_separation_y = (
-                (height - corner_size) * self.slm.pitch_um[0] * 1e-6
+                (height - corner_size) * self.slm.pixel_size[0]
             )
             k_lattice_x = wavenumber * np.sin(
                 np.arctan(lattice_separation_x / self.focal_length)
@@ -1032,12 +1039,12 @@ class RasterCalibrator(WavefrontCalibratorBase):
         if compensate_pointing:
             # lattice_center was detected above (used to centre the corner-steering
             # detection window); reuse it to place the lattice ROI on the same spot.
-            main_x0, main_x1, main_y0, main_y1 = roi_bounds(
-                main_center, camera_roi_size
-            )
-            lat_x0, lat_x1, lat_y0, lat_y1 = roi_bounds(
-                lattice_center, lattice_roi_size
-            )
+            main_y0, main_y1, main_x0, main_x1 = ROI.centered(
+                (main_center[1], main_center[0]), camera_roi_size
+            ).to_bounds()
+            lat_y0, lat_y1, lat_x0, lat_x1 = ROI.centered(
+                (lattice_center[1], lattice_center[0]), lattice_roi_size
+            ).to_bounds()
             woi_x0 = min(main_x0, lat_x0)
             woi_y0 = min(main_y0, lat_y0)
             woi_width = max(main_x1, lat_x1) - woi_x0
@@ -1045,14 +1052,14 @@ class RasterCalibrator(WavefrontCalibratorBase):
             if (
                 woi_x0 < 0
                 or woi_y0 < 0
-                or woi_x0 + woi_width > self.camera.shape[1]
-                or woi_y0 + woi_height > self.camera.shape[0]
+                or woi_x0 + woi_width > self.camera.resolution[1]
+                or woi_y0 + woi_height > self.camera.resolution[0]
             ):
                 raise ValueError(
                     "The main and lattice spots do not both fit on the sensor; "
                     "reduce lattice_phase_tilt or the ROI sizes."
                 )
-            self.camera.set_woi([woi_x0, woi_width, woi_y0, woi_height])
+            self.camera.set_roi(ROI(woi_y0, woi_x0, woi_height, woi_width))
 
             # (row_slice, col_slice) of each sub-image within the captured WOI.
             main_box = (
@@ -1064,7 +1071,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 slice(lat_x0 - woi_x0, lat_x0 - woi_x0 + lattice_roi_size[1]),
             )
         else:
-            set_camera_woi(self.camera, main_center, camera_roi_size)
+            self.camera.set_roi(
+                ROI.centered((main_center[1], main_center[0]), camera_roi_size)
+            )
 
         linear_slm_phase = self.get_blazed_grating(linear_phase_tilt)
 
@@ -1093,13 +1102,13 @@ class RasterCalibrator(WavefrontCalibratorBase):
         self.slm.set_phase(exposure_test_phase)
 
         # Find camera exposure time.
-        exposure_time = self.camera.autoexposure(
-            set_fraction=0.9, exposure_bounds_s=(0, 1),
-            window=[
-                main_center[0], camera_roi_size[1],
-                main_center[1], camera_roi_size[0],
-            ],
-            timeout_s=self.autoexposure_timeout_s,
+        exposure_time = self.camera.autoexpose(
+            set_fraction=0.9, exposure_bounds=(0, 1),
+            roi=ROI.centered(
+                (main_center[1], main_center[0]),
+                (camera_roi_size[0], camera_roi_size[1]),
+            ),
+            timeout=self.autoexposure_timeout_s,
         )
 
         camera_images = np.zeros((len(slicer.slices), *camera_roi_size))
@@ -1108,7 +1117,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         main_grid = self._orient_grid([
             gpu_to_numpy(grid)
             for grid in get_spatial_grid(
-                camera_roi_size, self.camera.pitch_um * 1e-6
+                camera_roi_size, self.camera.pixel_size  # (x,y)->(y,x)
             )
         ])
 
@@ -1125,7 +1134,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
             lattice_grid = self._orient_grid([
                 gpu_to_numpy(grid)
                 for grid in get_spatial_grid(
-                    lattice_roi_size, self.camera.pitch_um * 1e-6
+                    lattice_roi_size, self.camera.pixel_size  # (x,y)->(y,x)
                 )
             ])
             # Captured and fitted lattice ROI images, kept for troubleshooting
@@ -1179,10 +1188,10 @@ class RasterCalibrator(WavefrontCalibratorBase):
             if record_displayed_phases and full_frame_image is None:
                 # Lift the scan WOI just for this frame so the snapshot spans the
                 # whole sensor
-                stored_woi = deepcopy(self.camera.woi)
-                self.camera.set_woi(None)
+                stored_roi = self.camera.roi
+                self.camera.set_roi(None)
                 full_frame_image = np.asarray(self.camera.get_image(exposure_time))
-                self.camera.set_woi(stored_woi)
+                self.camera.set_roi(stored_roi)
 
             full_image = self.camera.get_image(exposure_time)
 
@@ -1195,13 +1204,11 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
             superpixel_separation_x = (
                 (superpixel_center_x - reference_superpixel_center_x)
-                * self.slm.pitch_um[1]
-                * 1e-6
+                * self.slm.pixel_size[1]
             )
             superpixel_separation_y = (
                 (superpixel_center_y - reference_superpixel_center_y)
-                * self.slm.pitch_um[0]
-                * 1e-6
+                * self.slm.pixel_size[0]
             )
 
             # Measure the camera-plane displacement from beam pointing drift via the
@@ -1310,9 +1317,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
         )
 
         # Weights array to handle overlapping superpixels
-        weights = np.zeros(self.slm.shape)
-        measured_mask = np.zeros(self.slm.shape, dtype=bool)
-        phase_slm = np.zeros(self.slm.shape)
+        weights = np.zeros(self.slm.resolution)
+        measured_mask = np.zeros(self.slm.resolution, dtype=bool)
+        phase_slm = np.zeros(self.slm.resolution)
 
         for i, superpixel_slice in enumerate(slicer.slices):
             weights[superpixel_slice] += 1
@@ -1392,18 +1399,18 @@ class RasterCalibrator(WavefrontCalibratorBase):
             number_of_superpixels_x, number_of_superpixels_y = (
                 self.get_number_of_superpixels(*superpixel_size)
             )
-            superpixel_width = self.slm.shape[1] // number_of_superpixels_x
-            superpixel_height = self.slm.shape[0] // number_of_superpixels_y
+            superpixel_width = self.slm.resolution[1] // number_of_superpixels_x
+            superpixel_height = self.slm.resolution[0] // number_of_superpixels_y
         elif superpixel_size is None and number_of_superpixels is not None:
             superpixel_width, superpixel_height = self.get_superpixel_size(
                 *number_of_superpixels
             )
-            number_of_superpixels_x = self.slm.shape[1] // superpixel_width
-            number_of_superpixels_y = self.slm.shape[0] // superpixel_height
+            number_of_superpixels_x = self.slm.resolution[1] // superpixel_width
+            number_of_superpixels_y = self.slm.resolution[0] // superpixel_height
         elif superpixel_size is None and number_of_superpixels is None:
             superpixel_width, superpixel_height = self.get_superpixel_size()
-            number_of_superpixels_x = self.slm.shape[1] // superpixel_width
-            number_of_superpixels_y = self.slm.shape[0] // superpixel_height
+            number_of_superpixels_x = self.slm.resolution[1] // superpixel_width
+            number_of_superpixels_y = self.slm.resolution[0] // superpixel_height
         else:
             number_of_superpixels_x, number_of_superpixels_y = number_of_superpixels
             superpixel_width, superpixel_height = superpixel_size

@@ -9,8 +9,7 @@ from numpy.typing import NDArray
 import torch
 from torch import Tensor
 
-from slmsuite.hardware.slms.slm import SLM
-from slmsuite.hardware.cameras.camera import Camera
+from ...hardware import Camera, SLM, as_camera, as_slm
 
 from ...propagation.complex_amplitude import ComplexAmplitude
 from ...propagation.fourier import get_spatial_grid
@@ -53,8 +52,8 @@ class WavefrontCalibratorBase:
             device (torch.device): Torch device for calculations.
             virtual_slm (VirtualSLM): Virtual SLM to be calibrated.
         """
-        self.camera: Camera = camera
-        self.slm: SLM = slm
+        self.camera: Camera = as_camera(camera)
+        self.slm: SLM = as_slm(slm)
         self.device: torch.device = device
 
     @property
@@ -68,10 +67,9 @@ class WavefrontCalibratorBase:
         Returns:
             tuple[Tensor, Tensor]: The x and y coordinates of the SLM pixels.
         """
-        resolution = self.slm.shape
-        pixel_size = (self.slm.pitch_um[0] * 1e-6, self.slm.pitch_um[1] * 1e-6)
-
-        return get_spatial_grid(resolution, pixel_size, device=self.device)
+        return get_spatial_grid(
+            self.slm.resolution, self.slm.pixel_size, device=self.device
+        )
 
     def calibrate(self) -> WavefrontCalibrationData:
         """
@@ -96,7 +94,7 @@ class WavefrontCalibratorBase:
             tuple[float, float, float]: The fitted beam radius and shifts in
                 x and y.
         """
-        beam_radius_guess = min(self.slm.shape) * self.slm.pitch_um[0] * 1e-6 / 2
+        beam_radius_guess = min(self.slm.resolution) * self.slm.pixel_size[1] / 2
 
         popt, _ = fit_gaussian_beam_intensity(
             *self.spatial_grid_slm, measured_intensity, beam_radius_guess, blur_sigma=10

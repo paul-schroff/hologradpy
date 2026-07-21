@@ -22,7 +22,7 @@ from hologradpy.propagation.diagonal_elements import (
     ZernikePhase,
 )
 from hologradpy.propagation.geometric_transforms import (
-    PartialAffineTransform,
+    GeometricWarp,
 )
 from hologradpy.propagation.propagators.angular_spectrum_method import (
     AngularSpectrumMethod,
@@ -55,7 +55,7 @@ MODULE_FACTORIES: dict[str, callable] = {
         pixel_size_out=(5e-6, 5e-6),
     ),
     "StaticSLMField": lambda: StaticSLMField(),
-    "PartialAffineTransform": lambda: PartialAffineTransform(
+    "GeometricWarp": lambda: GeometricWarp(
         resolution_out=RESOLUTION,
         pixel_size_out=PIXEL_SIZE,
         angle=5.0,

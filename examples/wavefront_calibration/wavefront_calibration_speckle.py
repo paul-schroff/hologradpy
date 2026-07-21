@@ -2,11 +2,16 @@
 import matplotlib.pyplot as plt
 import torch
 
-from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch
+from hologradpy.hardware import (
+    SimulatedSLMTorch,
+    SimulatedCameraTorch,
+    open_camera,
+    open_slm,
+)
 
 from hologradpy.calibration import SpeckleCalibrator, CameraMapping
 
-from hologradpy.propagation.optical_systems import SLMFFTAffine, SLMNUFFTAffine
+from hologradpy.propagation.optical_systems import SLMNUFFTAffine
 from hologradpy.propagation.diagonal_elements import StaticSLMField
 from hologradpy.propagation.complex_amplitude import (
     ComplexAmplitude, FieldGeometry,
@@ -26,7 +31,7 @@ input_geometry = FieldGeometry(
     wavelength=torch.tensor(630e-9, device=device),
 )
 
-slm = SimulatedSLMTorch(input_geometry=input_geometry, bitdepth=8)
+slm = open_slm(SimulatedSLMTorch, input_geometry=input_geometry, bitdepth=8)
 
 gaussian_beam_amplitude = gaussian_beam_intensity(
     *slm.get_spatial_grid(device=device),
@@ -50,7 +55,9 @@ simulated_camera_model = SLMNUFFTAffine(
     camera_shift=(-20, 10),
 )
 
-camera = SimulatedCameraTorch(simulated_camera_model, bitdepth=12)
+camera = open_camera(
+    SimulatedCameraTorch, slm_camera_model=simulated_camera_model, bitdepth=12
+)
 
 # %% Test image capture
 camera.set_exposure(0.001)

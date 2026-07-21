@@ -7,24 +7,22 @@ import torch
 from numpy.typing import NDArray
 from scipy.optimize import linear_sum_assignment
 
-from cv2 import invertAffineTransform
+from ....geometry import AffineTransform
 
-from slmsuite.hardware.slms.slm import SLM
-from slmsuite.hardware.cameras.camera import Camera
+from ....hardware import Camera, SLM
 
 from ....propagation.optical_systems import SLMFourierLensModel
-from ....propagation.fourier import get_spatial_grid
+from ....propagation.fourier import get_spatial_grid, metres_to_pixel
 from ....propagation.amplitude_profiles import get_focal_spot_radius
 from ....analysis.fitting import fit_gaussian_beam_intensity
-from ....utils import gpu_to_numpy, crop_to_roi
+from ....utils import gpu_to_numpy
+from ....roi import ROI
 from ....holography.phase_retrieval import LinearSuperpositionPhaseRetriever
 
-from ..utils import (
+from ...spot_detection import (
     _WINDOW_SPOT_RADII,
-    addressable_half_extent,
     background_noise,
     disc_mask,
-    metres_to_pixel,
 )
 from ..coarse_mapping.coarse_mapper import CoarseMapper
 
@@ -132,8 +130,8 @@ class SpotArrayMapper(CameraMapper):
         pixel_size_out = lens.pixel_size_out.tolist()[0]    # (y, x) metres
         resolution_out = tuple(lens.resolution_out)         # (height, width)
         focal_length = float(lens.focal_length)
-        pitch = np.asarray(self.camera.pitch_um, dtype=float) * 1e-6  # (x, y) metres
-        camera_shape = tuple(self.camera.shape)             # (height, width)
+        pitch = np.asarray(self.camera.pixel_size, dtype=float)  # (y, x) metres
+        camera_shape = tuple(self.camera.resolution)        # (height, width)
 
         if coarse_mapping is None:
             coarse_mapping = CoarseMapper(
@@ -141,11 +139,11 @@ class SpotArrayMapper(CameraMapper):
             ).map_camera()
 
         aperture_radius = 0.5 * min(
-            self.slm.shape[i] * self.slm.pitch_um[i] * 1e-6 for i in range(2)
+            self.slm.resolution[i] * self.slm.pixel_size[i] for i in range(2)
         )
         diffraction_limit = get_focal_spot_radius(
             beam_radius=aperture_radius,
-            wavelength=self.slm.wav_um * 1e-6,
+            wavelength=self.slm.wavelength,
             focal_length=focal_length,
         )
         focal_spot_radius = float(
@@ -222,8 +220,8 @@ class SpotArrayMapper(CameraMapper):
             [camera_shape[1] / 2.0, camera_shape[0] / 2.0],
             device=self.device, dtype=sampled_pixels.dtype,
         )
-        model_pixels = (
-            sampled_pixels.cpu().numpy() @ transform[:, :2].T + transform[:, 2]
+        model_pixels = AffineTransform.from_matrix(transform).transform_points(
+            sampled_pixels.cpu().numpy()
         )
         metres = np.column_stack(
             [
@@ -232,7 +230,7 @@ class SpotArrayMapper(CameraMapper):
             ]
         )
         # Drop targets the SLM cannot reach (beyond its Nyquist deflection).
-        addressable = addressable_half_extent(self.slm, focal_length)
+        addressable = self.slm_camera_model.addressable_half_extent()
         reachable = (np.abs(metres[:, 0]) <= _ADDRESSABLE_MARGIN * addressable[0]) & (
             np.abs(metres[:, 1]) <= _ADDRESSABLE_MARGIN * addressable[1]
         )
@@ -356,12 +354,14 @@ class SpotArrayMapper(CameraMapper):
 
         # Robust affine: least squares with iterative median-based outlier rejection.
         inliers = np.ones(len(detected), dtype=bool)
-        design = np.hstack([detected, np.ones((len(detected), 1))])
+        affine = AffineTransform.fit(detected, calculated, robust=False)
         for _ in range(3):
-            affine, *_ = np.linalg.lstsq(
-                design[inliers], calculated[inliers], rcond=None
+            affine = AffineTransform.fit(
+                detected[inliers], calculated[inliers], robust=False
             )
-            residuals = np.linalg.norm(design @ affine - calculated, axis=1)
+            residuals = np.linalg.norm(
+                affine.transform_points(detected) - calculated, axis=1
+            )
             threshold = max(5.0 * float(np.median(residuals[inliers])), 1.0)
             new_inliers = residuals <= threshold
             if np.array_equal(new_inliers, inliers):
@@ -372,7 +372,7 @@ class SpotArrayMapper(CameraMapper):
                 f"Only {int(inliers.sum())} of {len(detected_points)} matched "
                 "spots are consistent with an affine transform. Need at least 3."
             )
-        transform = affine.T
+        transform = affine.as_matrix(homogeneous=False)
 
         detected = detected[inliers]
         calculated = calculated[inliers]
@@ -403,7 +403,9 @@ class SpotArrayMapper(CameraMapper):
                 "affine outlier" if index in matched_camera else "unmatched"
             )
 
-        inverse_transform = invertAffineTransform(transform)
+        inverse_transform = (
+            AffineTransform.from_matrix(transform).inverse().as_matrix(homogeneous=False)
+        )
         reprojection_errors, reprojection_rms = self.calculate_reprojection_error(
             detected, calculated, transform
         )
@@ -481,33 +483,23 @@ class SpotArrayMapper(CameraMapper):
         zeroth_order_mask: NDArray[np.bool_],
         relative_target_brightness: float = 0.8,
         tolerance: float = 0.1,
-        max_iterations: int = 10,
-        underexposed_factor: float = 10.0,
-        overexposed_factor: float = 0.5,
     ) -> None:
-        """Set the exposure so the brightest array spot reaches 
-        ``relative_target_brightness`` of the camera's dynamic range, masked the 
-        zeroth-order.
+        """Set the exposure so the brightest array spot reaches
+        ``relative_target_brightness`` of the camera's dynamic range, with the
+        zeroth order masked out.
 
-        ``Camera.autoexposure`` cannot be used here: it only knows rectangular windows,
-        and any window guaranteed to contain the (arbitrarily oriented) array also
-        contains the much brighter zeroth order.
+        A rectangular ``autoexpose`` window cannot be used here: any window guaranteed
+        to contain the (arbitrarily oriented) array also contains the much brighter
+        zeroth order. The boolean ``mask`` drops the zeroth order so the peak tracks the
+        array, and ``raise_on_rail`` is disabled so a dim array settles at the exposure
+        bound rather than raising.
         """
-        full_scale = float(self.camera.bitresolution)
-        target = relative_target_brightness * full_scale
-        exposure = float(self.camera.get_exposure())
-        for _ in range(max_iterations):
-            peak = float(np.max(self.camera.get_image() * (~zeroth_order_mask)))
-            if peak <= 0:
-                exposure *= underexposed_factor
-            elif peak >= full_scale - 1:  # peak at the max ADU (saturated)
-                # Clipped: the true peak is unknown, so step down and re-probe.
-                exposure *= overexposed_factor
-            elif abs(peak - target) <= tolerance * target:
-                return
-            else:
-                exposure *= target / peak
-            self.camera.set_exposure(exposure)
+        self.camera.autoexpose(
+            set_fraction=relative_target_brightness,
+            tolerance=tolerance,
+            mask=~zeroth_order_mask,
+            raise_on_rail=False,
+        )
 
     @classmethod
     def _detect_peaks(
@@ -691,13 +683,12 @@ class SpotArrayMapper(CameraMapper):
         for _ in range(2):
             if matched.sum() < 3:
                 break
-            design = np.hstack(
-                [targets[target_indices[matched]], np.ones((int(matched.sum()), 1))]
+            matching_affine = AffineTransform.fit(
+                targets[target_indices[matched]],
+                detected[detected_indices[matched]],
+                robust=False,
             )
-            affine, *_ = np.linalg.lstsq(
-                design, detected[detected_indices[matched]], rcond=None
-            )
-            mapped = np.hstack([targets, np.ones((targets.shape[0], 1))]) @ affine
+            mapped = matching_affine.transform_points(targets)
             cost = np.linalg.norm(mapped[:, None, :] - detected[None, :, :], axis=-1)
             target_indices, detected_indices = linear_sum_assignment(cost)
             matched = cost[target_indices, detected_indices] < tolerance
@@ -723,10 +714,10 @@ class SpotArrayMapper(CameraMapper):
         bottom = int(np.clip(round(peak[1]) + half, top + 1, rows))
         left = int(np.clip(round(peak[0]) - half, 0, cols - 1))
         right = int(np.clip(round(peak[0]) + half, left + 1, cols))
-        roi = (top, bottom, left, right)
+        roi = ROI.from_bounds(top, bottom, left, right)
 
-        cropped_image = crop_to_roi(image, roi)
-        cropped_grid = [crop_to_roi(grid, roi) for grid in camera_grid]
+        cropped_image = roi.crop(image)
+        cropped_grid = [roi.crop(grid) for grid in camera_grid]
         # Blur only seeds the centroid guess. Scale it to the spot size (in camera
         # pixels), not the large default that would flatten a small per-spot ROI.
         blur_sigma = max(float(radius_guess / pitch.min()), 1.0)

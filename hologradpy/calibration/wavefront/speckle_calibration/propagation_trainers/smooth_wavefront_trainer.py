@@ -1,12 +1,10 @@
 from __future__ import annotations
 from typing import Tuple, Callable
-from collections import OrderedDict
 
 import numpy as np
 from numpy.typing import NDArray
 
 import torch
-from torch import nn
 from torch.utils.data import DataLoader, Subset
 from torchvision.transforms import Compose
 
@@ -23,8 +21,6 @@ from ..dataset_transforms import (
     TransformToTensor,
 )
 
-from .....propagation.virtual_slms import VirtualSLM
-from .....propagation.optical_systems import SLMNUFFTAffine
 from .....utils import unsqueeze_to
 
 

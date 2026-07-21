@@ -17,8 +17,8 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 import torch  # noqa: E402
 
-from hologradpy.hardware.slm_simulated import SimulatedSLMTorch  # noqa: E402
-from hologradpy.hardware.camera_simulated import SimulatedCameraTorch  # noqa: E402
+from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch  # noqa: E402
+from hologradpy.hardware import as_slm  # noqa: E402
 from hologradpy.propagation.complex_amplitude import (  # noqa: E402
     ComplexAmplitude,
     FieldGeometry,
@@ -40,9 +40,8 @@ from hologradpy.calibration.camera_mapping import (  # noqa: E402
 from hologradpy.calibration.camera_mapping.coarse_mapping.coarse_mapper import (  # noqa: E402
     _PROBE_SPACING_FRACTION,
 )
-from hologradpy.calibration.camera_mapping.utils import (  # noqa: E402
+from hologradpy.calibration.spot_detection import (  # noqa: E402
     _WINDOW_SPOT_RADII,
-    addressable_half_extent,
     background_noise,
     detect_spot,
 )
@@ -69,7 +68,7 @@ def _build_setup(
         wavelength=torch.tensor(0.630e-6, device=DEVICE),
     )
     slm = SimulatedSLMTorch(input_geometry=geometry, bitdepth=8)
-    intensity = gaussian_beam_intensity(*slm.get_spatial_grid(), beam_radius=1e-3)
+    intensity = gaussian_beam_intensity(*geometry.get_spatial_grid(), beam_radius=1e-3)
     beam = ComplexAmplitude(
         intensity.sqrt() + 0j,
         wavelength=geometry.wavelength,
@@ -155,8 +154,8 @@ def test_orientation_properties_anisotropic_scale():
 
 
 def test_addressable_half_extent_is_nyquist_deflection():
-    slm, _, _ = _build_setup()
-    half = addressable_half_extent(slm, focal_length=0.25)
+    _, _, model = _build_setup()
+    half = model.addressable_half_extent()
     expected = 0.630e-6 * 0.25 / (2 * 12.5e-6)
     assert half[0] == pytest.approx(expected)
     assert half[1] == pytest.approx(expected)
@@ -181,8 +180,11 @@ BITRESOLUTION = 1024
 
 
 def _fake_camera(pixel_um=PIXEL_UM, bitresolution=BITRESOLUTION):
-    # detect_spot only reads .pitch_um and .bitresolution.
-    return SimpleNamespace(pitch_um=(pixel_um, pixel_um), bitresolution=bitresolution)
+    # detect_spot reads native .pixel_size (y, x) metres and .adu_levels.
+    pitch_m = pixel_um * 1e-6
+    return SimpleNamespace(
+        pixel_size=np.array([pitch_m, pitch_m]), adu_levels=bitresolution
+    )
 
 
 def _gaussian_frame(shape, center, amplitude, sigma_px, *, background=5.0,
@@ -321,7 +323,7 @@ def test_camera_mapping_records_camera_data_and_pickles(tmp_path):
     path = str(tmp_path / "coarse_mapping.pkl")
     coarse.save(path)
     loaded = CameraMapping.load(path)
-    assert loaded.camera_data.shape == camera.shape
+    assert loaded.camera_data.resolution == tuple(camera.shape)
 
 
 def test_coarse_mapping_accepts_initial_tilt():
@@ -336,7 +338,7 @@ def test_coarse_mapping_initial_tilt_without_spot_raises():
     # Zeroth order off the sensor: tilt (0, 0) lands no spot on the sensor, so
     # the supplied seed is rejected.
     slm, camera, model = _build_setup(
-        camera_angle=10.0, camera_shift=(100, 60), camera_resolution=(120, 160)
+        camera_angle=10.0, camera_shift=(60, 100), camera_resolution=(120, 160)
     )
     with pytest.raises(ValueError):
         CoarseMapper(slm, camera, model).map_camera(initial_tilt=(0.0, 0.0))
@@ -347,7 +349,7 @@ def test_coarse_mapping_with_zeroth_order_off_sensor():
     search must find the sensor, and the zeroth-order position is extrapolated
     (legitimately off the sensor)."""
     slm, camera, model = _build_setup(
-        camera_angle=10.0, camera_shift=(100, 60), camera_resolution=(120, 160)
+        camera_angle=10.0, camera_shift=(60, 100), camera_resolution=(120, 160)
     )
     coarse = CoarseMapper(slm, camera, model).map_camera()
 
@@ -414,16 +416,20 @@ def test_coarse_mapping_survives_background_scatter():
 def _calibration_args(slm, resolution):
     """(focal_length, half_extent, search_step, spot_radius) for
     _calibrate_exposure, mirroring how map_camera derives them."""
+    slm = as_slm(slm)  # the mapper works on the native (adapter) interface
     focal_length = 0.25
     beam_diameter = min(
-        slm.shape[i] * slm.pitch_um[i] * 1e-6 for i in range(2)
+        slm.resolution[i] * slm.pixel_size[i] for i in range(2)
     )
     spot_radius = get_focal_spot_radius(
         beam_radius=0.5 * beam_diameter,
-        wavelength=slm.wav_um * 1e-6,
+        wavelength=slm.wavelength,
         focal_length=focal_length,
     )
-    half_extent = addressable_half_extent(slm, focal_length)
+    half_extent = (
+        slm.wavelength * focal_length / (2.0 * slm.pixel_size[1]),
+        slm.wavelength * focal_length / (2.0 * slm.pixel_size[0]),
+    )
     field_of_view = (resolution[1] * 30e-6, resolution[0] * 30e-6)
     search_step = (
         _PROBE_SPACING_FRACTION * min(field_of_view)
@@ -437,7 +443,7 @@ def test_calibrate_exposure_uses_visible_array():
     visible, so _calibrate_exposure returns a fixed exposure (not the per-probe-
     ladder sentinel None)."""
     slm, camera, model = _build_setup(
-        camera_angle=10.0, camera_shift=(100, 60), camera_resolution=(120, 160)
+        camera_angle=10.0, camera_shift=(60, 100), camera_resolution=(120, 160)
     )
     mapper = CoarseMapper(slm, camera, model)
     exposure = mapper._calibrate_exposure(*_calibration_args(slm, (120, 160)))
@@ -458,7 +464,7 @@ def test_calibrate_exposure_rejects_speckle_as_zeroth_order():
     order. The zero-tilt probe latches onto a speckle grain, but the 0/pi-grating
     confirmation rejects it (it does not dim), so the array path is taken."""
     slm, camera, model = _build_setup(
-        camera_angle=10.0, camera_shift=(100, 60), camera_resolution=(120, 160),
+        camera_angle=10.0, camera_shift=(60, 100), camera_resolution=(120, 160),
         background_scatter_power=2e-8, background_scatter_grain_radius=60e-6,
     )
     mapper = CoarseMapper(slm, camera, model)
@@ -476,9 +482,9 @@ def test_calibrate_exposure_warns_and_clamps_below_hardware_bound():
     """A per-probe exposure below the camera's minimum hardware exposure warns
     the user and clamps to the bound."""
     slm, camera, model = _build_setup(
-        camera_angle=10.0, camera_shift=(100, 60), camera_resolution=(120, 160)
+        camera_angle=10.0, camera_shift=(60, 100), camera_resolution=(120, 160)
     )
-    camera.exposure_bounds_s = (5e-3, 1.0)  # force a large hardware minimum
+    camera._exposure_bounds = (5e-3, 1.0)  # force a large hardware minimum
     mapper = CoarseMapper(slm, camera, model)
     with pytest.warns(UserWarning, match="below the camera's minimum"):
         exposure = mapper._calibrate_exposure(*_calibration_args(slm, (120, 160)))
@@ -489,14 +495,14 @@ def test_calibrate_exposure_falls_back_on_autoexposure_rail(monkeypatch):
     """A genuinely too-dim array rails the autoexposure; the helper returns None
     so the per-probe ladder takes over."""
     slm, camera, model = _build_setup(
-        camera_angle=10.0, camera_shift=(100, 60), camera_resolution=(120, 160)
+        camera_angle=10.0, camera_shift=(60, 100), camera_resolution=(120, 160)
     )
     mapper = CoarseMapper(slm, camera, model)
 
     def rail(*args, **kwargs):
         raise RuntimeError("autoexposure has railed")
 
-    monkeypatch.setattr(camera, "autoexposure", rail)
+    monkeypatch.setattr(camera, "autoexpose", rail)
     assert mapper._calibrate_exposure(*_calibration_args(slm, (120, 160))) is None
 
 
@@ -504,7 +510,7 @@ def test_map_camera_falls_back_to_ladder_when_calibration_returns_none(monkeypat
     """When calibration returns None (dim array / rail), map_camera still maps
     correctly via the per-probe ladder."""
     slm, camera, model = _build_setup(
-        camera_angle=10.0, camera_shift=(100, 60), camera_resolution=(120, 160)
+        camera_angle=10.0, camera_shift=(60, 100), camera_resolution=(120, 160)
     )
     mapper = CoarseMapper(slm, camera, model)
     monkeypatch.setattr(mapper, "_calibrate_exposure", lambda *a, **k: None)
@@ -522,7 +528,7 @@ def test_coarse_visualization_data_populated_and_visualizer_renders():
     from matplotlib.figure import Figure
 
     slm, camera, model = _build_setup(
-        camera_angle=10.0, camera_shift=(100, 60), camera_resolution=(120, 160)
+        camera_angle=10.0, camera_shift=(60, 100), camera_resolution=(120, 160)
     )
     mapping = CoarseMapper(slm, camera, model).map_camera()
 

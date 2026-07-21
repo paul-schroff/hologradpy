@@ -23,13 +23,14 @@ from ..abstract import WavefrontCalibrationData
 from ...camera_mapping import CameraMapping
 
 from ....propagation.amplitude_profiles import circular_mask
-from ....utils import get_device, find_roi
+from ....utils import get_device
+from ....roi import ROI
 from ....propagation.fourier import get_spatial_grid
 from ....propagation.optical_systems import SLMFourierLensModel
 from ....propagation.propagators import FourierLensFFT
 from ....propagation.virtual_slms import VirtualSLM
 from ....propagation.diagonal_elements import StaticSLMField
-from ....propagation.geometric_transforms import PartialAffineTransform
+from ....propagation.geometric_transforms import GeometricWarp
 
 
 class DatasetGenerator:
@@ -86,11 +87,12 @@ class DatasetGenerator:
             fft_kwargs={"norm": "ortho"},
         )
 
-        affine_transform: PartialAffineTransform = PartialAffineTransform(
+        affine_transform: GeometricWarp = GeometricWarp(
             resolution_in=fourier_lens.padded_resolution,
             resolution_out=self.camera.shape,
             pixel_size_in=fourier_lens.pixel_size_out,
-            pixel_size_out=tuple(self.camera.pitch_um * 1e-6),
+            # pitch_um is (x, y); pixel_size_out is (y, x) = (height, width).
+            pixel_size_out=tuple(self.camera.pitch_um[::-1] * 1e-6),
             device=device,
             verbose=False,
         )
@@ -180,7 +182,10 @@ class DatasetGenerator:
             self.data_filenames.append(sample_filename)
 
         # Generating the ROI mask based on the camera mapping and extent
-        camera_grid = get_spatial_grid(self.camera.shape, self.camera.pitch_um * 1e-6)
+        # pitch_um is (x, y); get_spatial_grid wants pixel_size (y, x), so reverse.
+        camera_grid = get_spatial_grid(
+            self.camera.shape, self.camera.pitch_um[::-1] * 1e-6
+        )
 
         # TODO: Fix this
         shift_pixels = tuple(
@@ -223,10 +228,15 @@ class DatasetGenerator:
             if i == 0:
                 # Find ROI and reformat to window
                 # (x_center, width, y_center, height)
-                roi = find_roi(self.roi_mask, pad=0)
+                roi = ROI.detect(self.roi_mask, pad=0)
 
-                width, height = roi[3] - roi[2], roi[1] - roi[0]
-                window = (roi[2] + width // 2, width, roi[0] + height // 2, height)
+                width, height = roi.width, roi.height
+                window = (
+                    roi.left_column + width // 2,
+                    width,
+                    roi.top_row + height // 2,
+                    height,
+                )
                 print(roi)
                 print(window)
 

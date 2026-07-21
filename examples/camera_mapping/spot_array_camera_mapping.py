@@ -3,8 +3,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from hologradpy.hardware.slm_simulated import SimulatedSLMTorch
-from hologradpy.hardware.camera_simulated import SimulatedCameraTorch
+from hologradpy.hardware import (
+    SimulatedSLMTorch,
+    SimulatedCameraTorch,
+    open_camera,
+    open_slm,
+)
 
 from hologradpy.calibration.camera_mapping import (
     CoarseMapper,
@@ -23,7 +27,7 @@ from hologradpy.utils import get_device
 
 device = get_device(verbose=True)
 data_path = "../data/"
-%matplotlib qt5
+# %matplotlib qt5
 
 # %% Initializing simulated SLM and camera
 slm_geometry = FieldGeometry(
@@ -32,7 +36,7 @@ slm_geometry = FieldGeometry(
     wavelength=torch.tensor(0.630e-6, device=device),
 )
 
-slm = SimulatedSLMTorch(input_geometry=slm_geometry, bitdepth=8)
+slm = open_slm(SimulatedSLMTorch, input_geometry=slm_geometry, bitdepth=8)
 
 gaussian_intensity = gaussian_beam_intensity(
     *slm.get_spatial_grid(device),
@@ -77,8 +81,9 @@ simulated_camera_model = SLMCZT(
     camera_shift=(20, -10),
 )
 
-camera = SimulatedCameraTorch(
-    simulated_camera_model,
+camera = open_camera(
+    SimulatedCameraTorch,
+    slm_camera_model=simulated_camera_model,
     quantum_efficiency=0.01,
     full_well_capacity=11e3,
     noise_level=4.0,
