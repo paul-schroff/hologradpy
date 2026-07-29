@@ -238,8 +238,13 @@ class FourierLensFFT(OpticsModule):
         return out
 
     def adjoint(self, complex_amplitude: ComplexAmplitude) -> ComplexAmplitude:
+        """Conjugate transpose of :meth:`forward`, which is not its inverse.
 
-        # Perform inverse 2D FFT and FFT shift if specified
+        The forward is ``c * F(pad(x))``, so the adjoint is ``c * crop(F^H(y))``:
+        cropping is the adjoint of the zero-padding, and ``F^H = N * ifft``
+        because the shared transform is backward-normalised, where ``N`` is the
+        number of samples on the padded grid.
+        """
         padded_complex_amplitude = self._transform.adjoint(complex_amplitude)
 
         out: ComplexAmplitude = crop_to_shape_2D(
@@ -250,6 +255,8 @@ class FourierLensFFT(OpticsModule):
             wavelength=complex_amplitude.wavelength,
             pixel_size=self.pixel_size_in,
         )
+        
+        out = out * float(self.resolution_out[0] * self.resolution_out[1])
 
         if self.power_normalized:
             out = out * self._power_prefactor(out.ndim)

@@ -74,6 +74,54 @@ def test_gradient_flows_when_wrapper_carries_graph(name: str) -> None:
     assert grad.abs().sum() > 0
 
 
+def test_intensity_gradient_conjugation_is_correct() -> None:
+    """The dispatch backward must apply the complex conjugation.
+
+    Regression for a dropped conjugate/negative bit in the wrapper's
+    ``__torch_dispatch__``: ``_make_wrapper_subclass`` does not carry those lazy
+    bits, so a conj view produced by complex autograd's ``mul`` backward was
+    re-wrapped without them, silently dropping the conjugation. ``|c * exp(i *
+    phase)|**2 == |c|**2`` is independent of ``phase``, so its gradient must be
+    zero; the bug instead produced a spurious ``2 * Im(c**2)``.
+    """
+    constant = torch.tensor(
+        [[1 + 2j, 3 - 1j], [0.5 + 0.7j, -1 + 0.3j]], dtype=torch.complex128
+    )
+    phase = torch.tensor(
+        [[0.3, -0.5], [1.1, 0.2]], dtype=torch.float64, requires_grad=True
+    )
+
+    field = ComplexAmplitude(constant, 800e-9, (10e-6, 10e-6)) * torch.exp(1j * phase)
+    field.intensity.sum().backward()
+
+    torch.testing.assert_close(phase.grad, torch.zeros_like(phase), atol=1e-9, rtol=0)
+
+
+def test_gradient_matches_plain_torch_through_complex_multiply() -> None:
+    """A gradient through a complex dispatch multiply must match plain torch.
+
+    The wrapper autograd previously dropped the conjugation for complex operands
+    (correct only when the operand was real-valued), corrupting the gradient of
+    any field produced by a complex per-pixel multiply (e.g. a ``VirtualSLM`` or
+    ``StaticSLMField``)."""
+    constant = torch.tensor(
+        [[1 + 2j, 3 - 1j], [0.5 + 0.7j, -1 + 0.3j]], dtype=torch.complex128
+    )
+    weight = torch.tensor(
+        [[1 + 0.5j, -2 - 1j], [0.5, 1.5 - 0.7j]], dtype=torch.complex128
+    )
+    start = torch.tensor([[0.3, -0.5], [1.1, 0.2]], dtype=torch.float64)
+
+    phase = start.clone().requires_grad_(True)
+    field = ComplexAmplitude(constant, 800e-9, (10e-6, 10e-6)) * torch.exp(1j * phase)
+    (field.as_tensor() * weight).real.sum().backward()
+
+    reference = start.clone().requires_grad_(True)
+    (constant * torch.exp(1j * reference) * weight).real.sum().backward()
+
+    torch.testing.assert_close(phase.grad, reference.grad)
+
+
 def test_numpy_is_detached_copy() -> None:
     field = make_field((16, 16), 1)
     array = field.numpy()

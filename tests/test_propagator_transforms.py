@@ -110,14 +110,20 @@ def test_fourier_lens_fft_forward_is_padded_fft() -> None:
     torch.testing.assert_close(out, expected)
 
 
-def test_fourier_lens_fft_adjoint_is_cropped_ifft() -> None:
+def test_fourier_lens_fft_adjoint_is_scaled_cropped_ifft() -> None:
+    """The adjoint is the conjugate transpose, so ``N`` times the cropped ifft.
+
+    ``ifft`` carries a ``1 / N`` under ``norm="backward"``, and undoing that
+    factor is what makes this the conjugate transpose rather than the inverse.
+    """
     lens = FourierLensFFT(focal_length=0.1, power_normalized=False)
     field = make_field((2, H, W), 2, seed=0)
     lens(field)  # lazily initialise
 
     spectrum = make_field((2, 2 * H, 2 * W), 2, seed=2, pixel_size=PIXEL_OUT)
     restored = lens.adjoint(spectrum)._data
-    expected = crop_to_shape_2D(ifft_2d(spectrum), (H, W))._data
+    number_of_samples = (2 * H) * (2 * W)
+    expected = number_of_samples * crop_to_shape_2D(ifft_2d(spectrum), (H, W))._data
     torch.testing.assert_close(restored, expected)
 
 

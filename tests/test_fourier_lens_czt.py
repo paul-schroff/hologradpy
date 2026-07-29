@@ -91,7 +91,9 @@ def test_czt_lens_parameters_are_learnable() -> None:
     field = make_field((2, *RESOLUTION), 2, seed=2)
     lens = FourierLensCZT(FOCAL_LENGTH, RESOLUTION, (5e-6, 8e-6))
 
-    lens(field)._data.abs().pow(2).sum().backward()
+    # as_tensor(), not _data: the field returned by a resampling module keeps
+    # its autograd graph on the wrapper and its inner tensor is detached.
+    lens(field).as_tensor().abs().pow(2).sum().backward()
 
     # angle starts at 0 but still receives a gradient (differentiable shear).
     for name in ("scale_factor", "shift", "angle"):

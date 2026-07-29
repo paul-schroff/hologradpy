@@ -85,6 +85,39 @@ class _WrapperToTensor(torch.autograd.Function):
         return ComplexAmplitude(grad, geometry.wavelength, geometry.pixel_size)
 
 
+class _TensorToWrapper(torch.autograd.Function):
+    """Wrap a plain ``Tensor`` as a :class:`ComplexAmplitude`, on-graph.
+
+    The mirror image of :class:`_WrapperToTensor`, and the reason it is needed:
+    ``_make_wrapper_subclass`` produces an autograd **leaf**. Building a wrapper
+    straight from a graph-carrying tensor therefore creates a wrapper with no
+    edge back to it, so a module that goes on to work through
+    ``__torch_dispatch__`` records its own gradients against that leaf and the
+    gradient never reaches the tensor the field was built from.
+
+    Routing the crossing through this ``Function`` supplies the missing edge, so
+    the graph survives in both directions. This is the pattern PyTorch's own
+    wrapper subclasses use (compare ``DTensor._FromTorchTensor``).
+    """
+
+    @staticmethod
+    def forward(
+        ctx,
+        data: Tensor,
+        wavelength: Tensor,
+        pixel_size: Tensor,
+    ) -> "ComplexAmplitude":
+        # The inner tensor is detached: the graph belongs on the wrapper, which
+        # autograd links back to ``data`` through this Function.
+        return ComplexAmplitude(data.detach(), wavelength, pixel_size)
+
+    @staticmethod
+    def backward(ctx, grad: "ComplexAmplitude") -> tuple[Tensor, None, None]:
+        inner = grad._data if isinstance(grad, ComplexAmplitude) else grad
+        # wavelength / pixel_size are geometry metadata and never differentiable.
+        return inner, None, None
+
+
 @dataclass(frozen=True)
 class FieldGeometry:
     wavelength: Tensor
@@ -160,6 +193,15 @@ class ComplexAmplitude(Tensor):
         pixel_size: tuple[float, float] | Tensor,
         power: float | Tensor | None = None,
     ):
+        """Wrap ``data`` as a field with the given geometry.
+
+        Note on autograd: this builds the wrapper with
+        ``_make_wrapper_subclass``, which is a *leaf*. If ``data`` carries a
+        graph, the field is **not** connected to it, so a gradient flowing back
+        through any ``__torch_dispatch__`` operation stops at this wrapper and
+        never reaches ``data``. Use :meth:`from_tensor` whenever the input may
+        be on-graph (it falls back to this constructor when it is not).
+        """
         if isinstance(data, ComplexAmplitude):
             # Unwrap to the raw inner tensor for storage. The autograd graph
             # (grad_fn / requires_grad) lives on the outer
@@ -491,17 +533,44 @@ class ComplexAmplitude(Tensor):
 
         Returns:
             tuple[Tensor, BatchSpec]: The ``(N, n_wavelengths, H, W)`` tensor
-            (a view of ``self._data``) and the spec needed to restore rank.
+            (sharing storage with ``self._data``) and the spec needed to
+            restore rank.
         """
         height, width = self.resolution
         n_wavelengths = self.number_of_wavelengths
+        data = self.as_tensor()
 
         if self.ndim == 2:
             spec = BatchSpec(leading_shape=(), original_ndim=2)
-            return self._data.reshape(1, 1, height, width), spec
+            return data.reshape(1, 1, height, width), spec
 
         spec = BatchSpec(leading_shape=tuple(self.shape[:-3]), original_ndim=self.ndim)
-        return self._data.reshape(-1, n_wavelengths, height, width), spec
+        return data.reshape(-1, n_wavelengths, height, width), spec
+
+    @classmethod
+    def from_tensor(
+        cls,
+        data: Tensor,
+        wavelength: float | Tensor,
+        pixel_size: tuple[float, float] | Tensor,
+    ) -> ComplexAmplitude:
+        """Build a field from a plain tensor, preserving the autograd graph.
+
+        Prefer this over calling the constructor directly whenever ``data`` may
+        carry a graph. The constructor goes through ``_make_wrapper_subclass``,
+        which produces an autograd *leaf*, so the resulting field would be
+        disconnected from ``data`` and any gradient flowing back through a
+        ``__torch_dispatch__`` operation would stop at the wrapper. See
+        :class:`_TensorToWrapper`.
+
+        For a graph-free tensor this is exactly the constructor.
+        """
+        if isinstance(data, Tensor) and data.requires_grad:
+            wavelength, pixel_size = cls._sanitize_inputs(
+                data, wavelength, pixel_size
+            )
+            return _TensorToWrapper.apply(data, wavelength, pixel_size)
+        return cls(data, wavelength, pixel_size)
 
     @classmethod
     def unflatten_batch(
@@ -540,7 +609,9 @@ class ComplexAmplitude(Tensor):
                 *spec.leading_shape, n_wavelengths, height_out, width_out
             )
 
-        return cls(out, wavelength, pixel_size)
+        # from_tensor, not the constructor: a resampling module reaches here with
+        # an on-graph tensor, and the constructor would strand it on a leaf.
+        return cls.from_tensor(out, wavelength, pixel_size)
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args=(), kwargs=None):
@@ -582,7 +653,18 @@ class ComplexAmplitude(Tensor):
                     )
 
         def unwrap(x):
-            return x._data if isinstance(x, cls) else x
+            if not isinstance(x, cls):
+                return x
+            inner = x._data
+            # ``_make_wrapper_subclass`` does not carry the lazy conjugate / negative
+            # bit, so a conj/neg *view* (as complex autograd's ``mul`` backward
+            # produces) would be re-wrapped without its bit, silently dropping the
+            # conjugation and corrupting gradients of complex fields. Materialize it.
+            if inner.is_conj():
+                inner = inner.resolve_conj()
+            if inner.is_neg():
+                inner = inner.resolve_neg()
+            return inner
 
         # Special handling for slicing to update wavelength
         if func == torch.ops.aten.slice.Tensor:

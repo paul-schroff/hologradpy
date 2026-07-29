@@ -22,7 +22,13 @@ def _fft_shear(field: Tensor, axis: int, shifts: Tensor) -> Tensor:
     zero-padded first so the cyclic FFT shift does not wrap real signal around the edge.
     """
     length = field.shape[axis]
-    pad = int(math.ceil(float(shifts.abs().max()))) + 1
+    # floor, not ceil: ``ceil`` singles out a shift of exactly zero (giving one
+    # sample of padding where any nonzero shift gives two), which changes the
+    # transform length discontinuously at zero and corrupts the gradient with
+    # respect to the rotation angle right where the calibration starts.
+    # ``floor(x) + 1 > x`` for every ``x``, so this still pads enough to keep
+    # the cyclic shift from wrapping real signal around the edge.
+    pad = int(math.floor(float(shifts.abs().max()))) + 1
     padded = _pad_axis(field, axis, pad)
     padded_length = length + 2 * pad
 

@@ -23,9 +23,14 @@ def _czt_forward_last(field: Tensor, omega: Tensor) -> Tensor:
 
     step = omega[1] - omega[0]
     omega0 = omega[0]
-    n = torch.arange(length, device=device, dtype=torch.float32)
-    k = torch.arange(points, device=device, dtype=torch.float32)
-    m = torch.arange(-(length - 1), points, device=device, dtype=torch.float32)
+    # The index ramps follow the precision of omega. Pinning them to float32
+    # caps the whole transform at roughly 1e-7 even for a complex128 field,
+    # because the chirp phases grow as step * n**2 and lose their low-order
+    # bits well before the field dtype would.
+    dtype = omega.dtype
+    n = torch.arange(length, device=device, dtype=dtype)
+    k = torch.arange(points, device=device, dtype=dtype)
+    m = torch.arange(-(length - 1), points, device=device, dtype=dtype)
 
     pre_chirp = torch.exp(-1j * (omega0 * n + 0.5 * step * n * n))
     kernel = torch.exp(0.5j * step * m * m)
@@ -53,9 +58,11 @@ def _czt_adjoint_last(samples: Tensor, omega: Tensor, length: int) -> Tensor:
 
     step = omega[1] - omega[0]
     omega0 = omega[0]
-    n = torch.arange(length, device=device, dtype=torch.float32)
-    k = torch.arange(points, device=device, dtype=torch.float32)
-    m = torch.arange(-(points - 1), length, device=device, dtype=torch.float32)
+    # Matches the forward transform: the ramps follow omega's precision.
+    dtype = omega.dtype
+    n = torch.arange(length, device=device, dtype=dtype)
+    k = torch.arange(points, device=device, dtype=dtype)
+    m = torch.arange(-(points - 1), length, device=device, dtype=dtype)
 
     samples = samples * torch.exp(-1j * omega * (length // 2))
 

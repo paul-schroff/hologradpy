@@ -103,6 +103,40 @@ def test_shear_rotate_conserves_power() -> None:
     assert abs(power_out / power_in - 1.0) < 1e-3
 
 
+@pytest.mark.parametrize("angle", [0.0, 1e-6, 0.05, 0.3, -0.4])
+def test_shear_rotate_angle_gradient_matches_finite_differences(
+    angle: float,
+) -> None:
+    """The gradient w.r.t. the angle is right, including at exactly zero.
+
+    The internal zero padding is sized from the largest shift, so rounding it
+    up singled out a shift of exactly zero: it got one sample of padding where
+    any nonzero shift got two, and the transform length changed discontinuously
+    across zero. That corrupted the gradient precisely at the default angle a
+    calibration starts from.
+    """
+    # Double precision: a central difference of this size is swamped by float32
+    # rounding, which would mask the very defect being checked.
+    field = _elliptical_gaussian(32, 6.0, 4.0, 0.0).to(torch.complex128)
+    weight = _elliptical_gaussian(32, 9.0, 3.0, 0.7).to(torch.complex128)
+
+    def loss(value: torch.Tensor) -> torch.Tensor:
+        return (shear_rotate(field, value) * weight).real.sum()
+
+    parameter = torch.tensor(angle, dtype=torch.float64, requires_grad=True)
+    loss(parameter).backward()
+
+    step = 1e-5
+    numeric = (
+        loss(torch.tensor(angle + step, dtype=torch.float64))
+        - loss(torch.tensor(angle - step, dtype=torch.float64))
+    ) / (2 * step)
+
+    torch.testing.assert_close(
+        parameter.grad, numeric.detach(), rtol=1e-4, atol=1e-6
+    )
+
+
 def test_shear_rotate_matches_analytic_rotation_with_correct_direction() -> None:
     # Asymmetric (elongated) Gaussian: rotating it must match the analytically
     # rotated ellipse and clearly NOT the opposite rotation.
