@@ -34,10 +34,19 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
 
-# A panel paints into the axes it is handed and returns a mappable if it wants a
-# colorbar. Defined precisely for type checkers; at runtime it is just Callable so the
-# module needs no eager matplotlib import (Axes / ScalarMappable are
-# TYPE_CHECKING-only).
+# One colormap per kind of quantity, package wide.
+INTENSITY_CMAP = "viridis"
+PHASE_CMAP = "twilight"
+DIFFERENCE_CMAP = "seismic"
+
+
+def foreground_color() -> str:
+    # TODO: Move imports to top of file
+    from matplotlib import rcParams
+
+    return rcParams["text.color"]
+
+
 if TYPE_CHECKING:
     Panel = Callable[[Axes], ScalarMappable | None]
 else:
@@ -45,14 +54,7 @@ else:
 
 
 class VisualizationData:
-    """Base for a result's visualization payload.
-
-    A concrete subclass (e.g. ``RasterVisualizationData``) carries the arrays, fits and
-    coordinates a visualizer needs to render a result. Kept as a plain, domain-agnostic
-    marker base so result dataclasses across the codebase can expose a
-    ``visualization_data: VisualizationData | None`` field -- and save / load it --
-    without depending on any one producer.
-    """
+    """Base for a result's visualization payload."""
 
 
 @dataclass
@@ -104,6 +106,7 @@ class PlotLayout:
         margins: tuple[float, float, float, float] = (0.12, 0.12, 0.6, 0.18),
         colorbar_width: float = 0.15,
         colorbar_pad: float = 0.08,
+        colorbar_label_width: float = 0.45,
     ) -> None:
         # margins: (left, right, top, bottom) in inches.
         self.column_width = column_width
@@ -112,6 +115,7 @@ class PlotLayout:
         self.margins = margins
         self.colorbar_width = colorbar_width
         self.colorbar_pad = colorbar_pad
+        self.colorbar_label_width = colorbar_label_width
 
         self._rows: list[list[GridCell]] = []
         self.figure: Figure | None = None
@@ -136,64 +140,112 @@ class PlotLayout:
             margins=self.margins,
             colorbar_width=self.colorbar_width,
             colorbar_pad=self.colorbar_pad,
+            colorbar_label_width=self.colorbar_label_width,
         )
         clone._rows = [[replace(cell) for cell in row] for row in self._rows]
         return clone
 
-    def _cell_height(self, cell: GridCell) -> float | None:
+    def _cell_height(self, cell: GridCell, column_width: float) -> float | None:
         """Natural cell height [inches], or None when sizing defers to the row."""
         if cell.height is not None:
             return cell.height
         if cell.aspect == "auto":
             return None
-        width = (
-            cell.colspan * self.column_width + (cell.colspan - 1) * self.col_gap
-        )
+        width = self._cell_width(cell, column_width)
         ratio = 1.0 if cell.aspect == "equal" else float(cell.aspect)
         return width * ratio
 
+    def _cell_width(self, cell: GridCell, column_width: float) -> float:
+        return cell.colspan * column_width + (cell.colspan - 1) * self.col_gap
+
+    def _row_columns(self, row: list[GridCell]) -> int:
+        return sum(cell.colspan for cell in row)
+
+    def _row_gutter(self, row: list[GridCell]) -> float:
+        """Width taken by colorbars and tick labels."""
+        gutter = self.colorbar_pad + self.colorbar_width
+        return sum(gutter for cell in row if cell.colorbar) + sum(
+            self.colorbar_label_width for cell in row[:-1] if cell.colorbar
+        )
+
+    @staticmethod
+    def _ratio(cell: GridCell) -> float:
+        return 1.0 if cell.aspect == "equal" else float(cell.aspect)
+
+    def _matches_heights(self, row: list[GridCell]) -> bool:
+        """True if a row can be scaled to a shared cell height."""
+        return bool(row) and all(
+            cell.aspect != "auto" and cell.height is None for cell in row
+        )
+
+    def _row_plan(
+        self, row: list[GridCell], figure_width: float, left: float, right: float
+    ) -> tuple[list[float], float]:
+        """Cell widths for one row, and their heights."""
+        if self._matches_heights(row):
+            available = (
+                figure_width
+                - left
+                - right
+                - (len(row) - 1) * self.col_gap
+                - self._row_gutter(row)
+            )
+            weights = [cell.colspan / self._ratio(cell) for cell in row]
+            widths = [available * weight / sum(weights) for weight in weights]
+            return widths, max(
+                width * self._ratio(cell) for width, cell in zip(widths, row)
+            )
+
+        columns = self._row_columns(row)
+        column_width = (
+            self.column_width
+            if columns == 0
+            else (
+                figure_width
+                - left
+                - right
+                - max(columns - 1, 0) * self.col_gap
+                - self._row_gutter(row)
+            )
+            / columns
+        )
+        widths = [self._cell_width(cell, column_width) for cell in row]
+        heights = [
+            height
+            for height in (self._cell_height(cell, column_width) for cell in row)
+            if height is not None
+        ]
+        return widths, max(heights) if heights else column_width
+
     def build(self, suptitle: str | None = None) -> Figure:
-        """Create the figure and all cell axes; return the figure."""
+        """Creates the figure and all cell axes.  Returns the figure."""
+        # TODO: Move imports to top of the file
         import matplotlib.pyplot as plt
         from mpl_toolkits.axes_grid1 import Divider, Size
 
-        number_of_columns = max(
-            sum(cell.colspan for cell in row) for row in self._rows
-        )
-        row_heights = []
-        for row in self._rows:
-            heights = [
-                height
-                for height in (self._cell_height(cell) for cell in row)
-                if height is not None
-            ]
-            row_heights.append(max(heights) if heights else self.column_width)
-
-        # A column needs a colorbar gutter if a (colspan-1) cell ending in it asks for
-        # one. Colorbars are placed in their own Divider cell -- not via
-        # make_axes_locatable -- so the single Divider positions everything and the
-        # panels stay aligned.
-        column_has_colorbar = [False] * number_of_columns
-        for row in self._rows:
-            column = 0
-            for cell in row:
-                if cell.colorbar:
-                    column_has_colorbar[column + cell.colspan - 1] = True
-                column += cell.colspan
-
         left, right, top, bottom = self.margins
-        # The last column's colorbar ticks/labels sit in the right margin; widen it so
-        # they are not clipped.
-        if column_has_colorbar[-1]:
-            right += 0.45
-        gutter = self.colorbar_pad + self.colorbar_width
-        figure_width = (
-            left
-            + right
-            + number_of_columns * self.column_width
-            + (number_of_columns - 1) * self.col_gap
-            + sum(gutter for has in column_has_colorbar if has)
-        )
+        # A colorbar at the end of a row puts its ticks in the right margin, so widen
+        # it or they are clipped.
+        if any(row and row[-1].colorbar for row in self._rows):
+            right += self.colorbar_label_width
+
+        def natural_width(row: list[GridCell]) -> float:
+            columns = self._row_columns(row)
+            return (
+                left
+                + right
+                + columns * self.column_width
+                + max(columns - 1, 0) * self.col_gap
+                + self._row_gutter(row)
+            )
+
+        figure_width = max(natural_width(row) for row in self._rows)
+
+        row_plans = [
+            self._row_plan(row, figure_width, left, right) for row in self._rows
+        ]
+        row_heights = [height for _, height in row_plans]
+
         figure_height = (
             top
             + bottom
@@ -203,27 +255,9 @@ class PlotLayout:
 
         figure = plt.figure(figsize=(figure_width, figure_height))
 
-        # Horizontal sizes: left margin, then per column a content cell, an optional
-        # colorbar gutter (pad + bar), and a gap. Record the Divider index of each
-        # column's content cell and colorbar cell.
-        horizontal: list = [Size.Fixed(left)]
-        content_index: list[int] = []
-        colorbar_index: list[int | None] = []
-        for column in range(number_of_columns):
-            horizontal.append(Size.Fixed(self.column_width))
-            content_index.append(len(horizontal) - 1)
-            if column_has_colorbar[column]:
-                horizontal.append(Size.Fixed(self.colorbar_pad))
-                horizontal.append(Size.Fixed(self.colorbar_width))
-                colorbar_index.append(len(horizontal) - 1)
-            else:
-                colorbar_index.append(None)
-            if column < number_of_columns - 1:
-                horizontal.append(Size.Fixed(self.col_gap))
-        horizontal.append(Size.Fixed(right))
-
         # Vertical sizes are bottom-to-top: bottom margin, rows in reverse order
-        # interleaved with gaps, then top margin.
+        # interleaved with gaps, then top margin. Shared by every row's divider, which
+        # is what keeps the rows aligned even though their columns differ.
         vertical: list = [Size.Fixed(bottom)]
         for index, height in enumerate(reversed(row_heights)):
             vertical.append(Size.Fixed(height))
@@ -231,28 +265,45 @@ class PlotLayout:
                 vertical.append(Size.Fixed(self.row_gap))
         vertical.append(Size.Fixed(top))
 
-        divider = Divider(figure, (0, 0, 1, 1), horizontal, vertical, aspect=False)
-
         number_of_rows = len(self._rows)
-        for row_index, row in enumerate(self._rows):
-            ny = 1 + 2 * (number_of_rows - 1 - row_index)
-            column = 0
-            for cell in row:
-                last_column = column + cell.colspan - 1
-                nx = content_index[column]
-                nx1 = content_index[last_column] + 1
-                axs = figure.add_axes(
-                    divider.get_position(),
-                    axes_locator=divider.new_locator(nx=nx, nx1=nx1, ny=ny),
-                )
-                self.axes[cell.name] = axs
+        for row_index, (row, (widths, _)) in enumerate(zip(self._rows, row_plans)):
+            # One divider per row, over that row's own cells. Colorbars sit in their
+            # own divider cell rather than coming from make_axes_locatable, so the
+            # panels and their bars are placed by the same absolute sizing.
+            horizontal: list = [Size.Fixed(left)]
+            slots: list[tuple[int, int | None]] = []
+            for position, (cell, width) in enumerate(zip(row, widths)):
+                horizontal.append(Size.Fixed(width))
+                content = len(horizontal) - 1
+                colorbar = None
                 if cell.colorbar:
-                    cbar_nx = colorbar_index[last_column]
+                    horizontal.append(Size.Fixed(self.colorbar_pad))
+                    horizontal.append(Size.Fixed(self.colorbar_width))
+                    colorbar = len(horizontal) - 1
+                if position < len(row) - 1:
+                    # The bar's tick labels overhang into this gap, so widen it when
+                    # there is a bar to its left.
+                    horizontal.append(
+                        Size.Fixed(
+                            self.col_gap
+                            + (self.colorbar_label_width if cell.colorbar else 0.0)
+                        )
+                    )
+                slots.append((content, colorbar))
+            horizontal.append(Size.Fixed(right))
+
+            divider = Divider(figure, (0, 0, 1, 1), horizontal, vertical, aspect=False)
+            ny = 1 + 2 * (number_of_rows - 1 - row_index)
+            for cell, (content, colorbar) in zip(row, slots):
+                self.axes[cell.name] = figure.add_axes(
+                    divider.get_position(),
+                    axes_locator=divider.new_locator(nx=content, ny=ny),
+                )
+                if colorbar is not None:
                     self.colorbar_axes[cell.name] = figure.add_axes(
                         divider.get_position(),
-                        axes_locator=divider.new_locator(nx=cbar_nx, ny=ny),
+                        axes_locator=divider.new_locator(nx=colorbar, ny=ny),
                     )
-                column += cell.colspan
 
         # Share x-axes once every axes exists.
         for row in self._rows:

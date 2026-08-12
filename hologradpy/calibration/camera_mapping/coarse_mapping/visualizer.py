@@ -20,6 +20,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ....visualizer import (
+    INTENSITY_CMAP,
     BaseVisualizer,
     GridCell,
     Panel,
@@ -169,14 +170,16 @@ class CoarseMapperVisualizer(BaseVisualizer):
                 )
                 axs.set_title(title)
                 return None
-            return BaseVisualizer.draw_image(axs, image, cmap="turbo", title=title)
+            return BaseVisualizer.draw_image(
+                axs, image, cmap=INTENSITY_CMAP, title=title
+            )
 
         return panel
 
     def _probes_panel(self, axs):
         """The 4-probe composite with the detected spot positions overlaid."""
         mappable = BaseVisualizer.draw_image(
-            axs, np.asarray(self.data.probe_image), cmap="turbo",
+            axs, np.asarray(self.data.probe_image), cmap=INTENSITY_CMAP,
             title="Final 4 affine probes",
         )
         detected = np.asarray(self.data.detected_points, dtype=float)

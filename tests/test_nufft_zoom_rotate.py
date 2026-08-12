@@ -1,4 +1,4 @@
-"""Unit tests for ``KbNufftZoomRotate`` -- the scaled + shifted + rotated NUFFT
+"""Unit tests for ``KbNufftPartialAffine`` -- the scaled + shifted + rotated NUFFT
 zoom that ``FourierLensNUFFT`` composes.
 
 The two properties that matter at the transform level are: ``adjoint`` is the
@@ -13,7 +13,7 @@ import math
 import pytest
 import torch
 
-from hologradpy.optics.fourier_transforms import KbNufftZoomRotate
+from hologradpy.fourier_transforms import KbNufftPartialAffine
 
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
@@ -28,7 +28,7 @@ def _complex(*shape: int, seed: int = 0) -> torch.Tensor:
 
 
 def test_adjoint_is_conjugate_transpose() -> None:
-    transform = KbNufftZoomRotate(
+    transform = KbNufftPartialAffine(
         resolution=(12, 16),
         resolution_out=(12, 16),
         magnification=(1.3, 1.1),
@@ -56,8 +56,8 @@ def test_rotation_rotates_the_trajectory() -> None:
         shift=(0.2, -0.1),
         grid_size=(24, 32),
     )
-    base = KbNufftZoomRotate(angle=0.0, **common)
-    rotated = KbNufftZoomRotate(angle=angle, **common)
+    base = KbNufftPartialAffine(angle=0.0, **common)
+    rotated = KbNufftPartialAffine(angle=angle, **common)
 
     cos, sin = math.cos(angle), math.sin(angle)
     expected_x = base.frequencies[0] * cos - base.frequencies[1] * sin
@@ -70,7 +70,7 @@ def test_rotation_rotates_the_trajectory() -> None:
 def test_per_wavelength_trajectory_shape() -> None:
     """A per-wavelength magnification yields one trajectory per wavelength."""
     magnification = torch.tensor([[1.0, 1.0], [1.5, 1.2], [2.0, 0.8]])
-    transform = KbNufftZoomRotate(
+    transform = KbNufftPartialAffine(
         resolution=(8, 8),
         resolution_out=(8, 8),
         magnification=magnification,

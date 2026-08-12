@@ -8,8 +8,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from functools import reduce
 from typing import Callable
-import pickle
-import time
 import warnings
 
 import numpy as np
@@ -21,6 +19,7 @@ from array_api_compat import array_namespace
 
 from ...grids import get_spatial_grid as _spatial_grid
 from ...roi import ROI
+from ...serialization import SaveableRecord
 
 
 class Camera(ABC):
@@ -317,9 +316,9 @@ class Camera(ABC):
         roi: ROI | None = None,
         mask: NDArray[np.bool_] | None = None,
         exposure_bounds: tuple[float, float] | None = None,
-        overexposed_factor: float = 0.1,
+        overexposed_factor: float = 0.01,
         raise_on_rail: bool = True,
-        timeout: float = 5.0,
+        max_iterations: int = 5,
         detect_stuck_pixels: bool = False,
         verbose: bool = False,
     ) -> float:
@@ -333,16 +332,14 @@ class Camera(ABC):
         always dropped as well. ``roi`` selects a window of the *full* sensor, so the
         current :attr:`roi` is reset for the measurement and restored afterwards.
 
-        The loop targets ``set_fraction`` directly. Each step scales the exposure toward
-        the target, clipped to a 0.5x-2x change. When the peak is clipped the true peak
-        is hidden, so the reduction is instead sized by the saturated fraction: gentle
-        when only the peak clips, stronger as more of the region saturates, floored at
-        ``overexposed_factor``. If that under-shoots, the next frame is still clipped
-        and it reduces again, so a flat top or speckle field falls back to a geometric
-        descent. It stops at ``tolerance`` or after ``timeout`` seconds. If the exposure
-        rails against ``exposure_bounds`` (falling back to :attr:`exposure_bounds`, then
-        unbounded), it raises ``RuntimeError`` when ``raise_on_rail`` is set, otherwise
-        it settles at the bound and returns.
+        The loop targets ``set_fraction`` directly. Each step scales the exposure to hit
+        the target. When the peak is clipped the true peak is hidden and no such step
+        can be computed, so it cuts by ``overexposed_factor`` and looks again. It stops
+        at ``tolerance`` or after ``max_iterations`` frames, whichever comes first, and
+        warns if it stopped without reaching the target. If the exposure rails against
+        ``exposure_bounds`` (falling back to :attr:`exposure_bounds`, then unbounded),
+        it raises ``RuntimeError`` when ``raise_on_rail`` is set, otherwise it settles
+        at the bound and returns.
 
         The exposure is read back after each step, so the loop works from the value the
         camera actually applied rather than the one requested. A real camera tunes in
@@ -399,26 +396,21 @@ class Camera(ABC):
         try:
             image_max, sat_fraction = measure()
             error = np.abs(image_max - set_value) / self.adu_levels
-            best_exposure, best_error = exposure, error
-            tried = {exposure}
-            start = time.perf_counter()
 
-            while error > tolerance and time.perf_counter() - start < timeout:
+            clipped = image_max >= clipped_value
+            best_exposure = exposure
+            best_error = np.inf if clipped else error
+            tried = {exposure}
+            unconverged_reason: str | None = None
+            iterations = 0
+
+            while (error > tolerance or clipped) and iterations < max_iterations:
+                iterations += 1
                 if image_max >= clipped_value:
-                    # Overexposed: the reading is pinned at the top, so the true peak
-                    # is hidden. The saturated fraction is a monotone cue to how far
-                    # over we are, so reduce toward the target assuming near saturation
-                    # (factor set_fraction) and more as more of the region clips,
-                    # floored at overexposed_factor. If it under-shoots, the next frame
-                    # stays clipped and reduces again, so the cue never affects
-                    # correctness: a flat top or speckle field falls back to geometric.
-                    reduction = max(
-                        overexposed_factor, set_fraction * (1.0 - sat_fraction)
-                    )
-                    desired = exposure * reduction
+                    # Overexposed
+                    desired = exposure * overexposed_factor
                 else:
-                    # Proportional step toward the target, clipped to 0.5x -> 2x.
-                    desired = exposure / np.clip(image_max / set_value, 0.5, 2.0)
+                    desired = exposure * set_value / max(image_max, 1.0)
 
                 requested = float(
                     np.clip(desired, exposure_bounds[0], exposure_bounds[1])
@@ -431,6 +423,9 @@ class Camera(ABC):
                         )
                     self.set_exposure(requested)
                     exposure = self.get_exposure()
+                    unconverged_reason = (
+                        f"the exposure railed against its bounds {exposure_bounds}"
+                    )
                     break
 
                 self.set_exposure(requested)
@@ -440,7 +435,8 @@ class Camera(ABC):
                 exposure = self.get_exposure()
                 image_max, sat_fraction = measure()
                 error = np.abs(image_max - set_value) / self.adu_levels
-                if error < best_error:
+                clipped = image_max >= clipped_value
+                if not clipped and error < best_error:
                     best_exposure, best_error = exposure, error
 
                 if verbose:
@@ -452,15 +448,34 @@ class Camera(ABC):
                 # If the camera lands on an exposure already tried (a request below its
                 # step resolution, or an oscillation between two adjacent steps that
                 # both miss the target), the discrete steps cannot get closer, so settle
-                # on the best exposure seen instead of looping to the timeout.
+                # on the best exposure seen instead of spending the rest of the budget.
                 if exposure in tried:
                     if best_exposure != exposure:
                         self.set_exposure(best_exposure)
                     exposure = best_exposure
+                    if best_error > tolerance:
+                        unconverged_reason = (
+                            "the camera has no finer exposure step to take"
+                        )
                     break
                 tried.add(exposure)
+            else:
+                if error > tolerance or clipped:
+                    unconverged_reason = (
+                        f"the budget of {max_iterations} frames ran out"
+                    )
         finally:
             self.set_roi(stored_roi)
+
+        if unconverged_reason is not None:
+            warnings.warn(
+                f"Autoexposure did not reach its target: {unconverged_reason}. The "
+                f"region peaks at {image_max:.0f} of {self.adu_levels} "
+                f"({image_max / self.adu_levels:.1%}) against a target of "
+                f"{set_fraction:.0%}, at an exposure of {exposure:.3e} s. The frames "
+                "that follow are exposed as reported here, not as asked for.",
+                stacklevel=2,
+            )
 
         # Reuse the frames the loop captured to find stuck pixels, avoiding a second
         # sweep. Only reached when the loop converged or settled, not when it railed.
@@ -544,7 +559,7 @@ def probe_orientation(
 
 
 @dataclass(frozen=True, unsafe_hash=True)
-class CameraData:
+class CameraData(SaveableRecord):
     """A native snapshot of a camera's geometry and exposure state."""
 
     name: str
@@ -577,12 +592,4 @@ class CameraData:
             orientation=orientation,
         )
 
-    def save(self, filename: str):
-        with open(filename, "wb") as file:
-            pickle.dump(self, file)
-
-    @staticmethod
-    def load(filename: str) -> CameraData:
-        with open(filename, "rb") as file:
-            camera_data: CameraData = pickle.load(file)
-        return camera_data
+    # save / load come from SaveableRecord.

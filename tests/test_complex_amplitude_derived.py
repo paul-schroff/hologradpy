@@ -103,7 +103,7 @@ def test_gradient_matches_plain_torch_through_complex_multiply() -> None:
     The wrapper autograd previously dropped the conjugation for complex operands
     (correct only when the operand was real-valued), corrupting the gradient of
     any field produced by a complex per-pixel multiply (e.g. a ``VirtualSLM`` or
-    ``StaticSLMField``)."""
+    ``PixelwiseSLMField``)."""
     constant = torch.tensor(
         [[1 + 2j, 3 - 1j], [0.5 + 0.7j, -1 + 0.3j]], dtype=torch.complex128
     )

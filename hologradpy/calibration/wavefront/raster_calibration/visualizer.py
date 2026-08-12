@@ -17,6 +17,8 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ....visualizer import (
+    INTENSITY_CMAP,
+    PHASE_CMAP,
     AnimatedVisualizer,
     GridCell,
     Panel,
@@ -130,7 +132,7 @@ class RasterCalibratorVisualizer(AnimatedVisualizer):
         return self.draw_image(
             axs,
             self._phase_frame(self.data.displayed_slm_phases[frame]),
-            cmap="magma",
+            cmap=PHASE_CMAP,
             title="displayed SLM phase",
         )
 
@@ -138,7 +140,7 @@ class RasterCalibratorVisualizer(AnimatedVisualizer):
         mappable = self.draw_image(
             axs,
             self._phase_frame(self.data.measured_phase),
-            cmap="twilight",
+            cmap=PHASE_CMAP,
             title="measured SLM phase",
         )
         coordinates = self.data.superpixel_coordinates
@@ -156,7 +158,7 @@ class RasterCalibratorVisualizer(AnimatedVisualizer):
         )
         array = fits[frame] if show_fit else images[frame]
         return self.draw_image(
-            axs, array, cmap="turbo", vmin=0, vmax=shared_max, title=title
+            axs, array, cmap=INTENSITY_CMAP, vmin=0, vmax=shared_max, title=title
         )
 
     def default_layout(self) -> PlotLayout:
@@ -250,7 +252,7 @@ class RasterCalibratorVisualizer(AnimatedVisualizer):
         return builder.build()
 
     def plot_full_frame(
-        self, cmap: str = "turbo", vmax: float | None = None
+        self, cmap: str = INTENSITY_CMAP, vmax: float | None = None
     ) -> Figure:
         """Plot the full-sensor snapshot of the first scan frame.
 

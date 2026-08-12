@@ -30,7 +30,7 @@ from hologradpy.optics.systems import (  # noqa: E402
     SLMFFT,
     SLMFFTAffine,
 )
-from hologradpy.optics.modules.diagonal_elements import StaticSLMField  # noqa: E402
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField  # noqa: E402
 from hologradpy.optics.modules.virtual_slms import VirtualSLM  # noqa: E402
 from hologradpy.profiles.amplitude import (  # noqa: E402
     gaussian_beam_intensity,
@@ -136,7 +136,7 @@ def _czt(geometry, beam, virtual_slm, angle, shift):
         camera_resolution=CAM_RES,
         camera_pixel_size=CAM_PIX,
         focal_length=FOCAL,
-        static_slm_field=StaticSLMField(beam),
+        slm_field=PixelwiseSLMField(beam),
         camera_angle=angle,
         camera_shift=shift,
     )
@@ -149,7 +149,7 @@ def _fft_affine(geometry, beam, virtual_slm, angle, shift):
         camera_resolution=CAM_RES,
         camera_pixel_size=CAM_PIX,
         focal_length=FOCAL,
-        static_slm_field=StaticSLMField(beam),
+        slm_field=PixelwiseSLMField(beam),
         padded_resolution=(1024, 1024),
         camera_angle=angle,
         camera_shift=shift,
@@ -199,7 +199,7 @@ def test_calibrate_from_mapping_rejects_system_without_affine_module():
     model = SLMFFT(
         input_geometry=geometry,
         virtual_slm=VirtualSLM(phase_scaling=1.0),
-        static_slm_field=StaticSLMField(beam),
+        slm_field=PixelwiseSLMField(beam),
         focal_length=FOCAL,
         padded_resolution=(512, 512),
     )

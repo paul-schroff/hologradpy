@@ -75,12 +75,12 @@ class _WrapperToTensor(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, field: "ComplexAmplitude") -> Tensor:
+    def forward(ctx, field: ComplexAmplitude) -> Tensor:
         ctx.geometry = field.geometry
         return field._data
 
     @staticmethod
-    def backward(ctx, grad: Tensor) -> "ComplexAmplitude":
+    def backward(ctx, grad: Tensor) -> ComplexAmplitude:
         geometry = ctx.geometry
         return ComplexAmplitude(grad, geometry.wavelength, geometry.pixel_size)
 
@@ -106,13 +106,13 @@ class _TensorToWrapper(torch.autograd.Function):
         data: Tensor,
         wavelength: Tensor,
         pixel_size: Tensor,
-    ) -> "ComplexAmplitude":
+    ) -> ComplexAmplitude:
         # The inner tensor is detached: the graph belongs on the wrapper, which
         # autograd links back to ``data`` through this Function.
         return ComplexAmplitude(data.detach(), wavelength, pixel_size)
 
     @staticmethod
-    def backward(ctx, grad: "ComplexAmplitude") -> tuple[Tensor, None, None]:
+    def backward(ctx, grad: ComplexAmplitude) -> tuple[Tensor, None, None]:
         inner = grad._data if isinstance(grad, ComplexAmplitude) else grad
         # wavelength / pixel_size are geometry metadata and never differentiable.
         return inner, None, None

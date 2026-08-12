@@ -6,7 +6,7 @@ import torchmin
 from .abstract import PhaseRetrieverBase
 
 from ...utils import Timer
-from ..loss_functions import LossIntensityMSE
+from ...loss_functions import LossIntensityMSE
 
 from ...optics.systems import SLMFourierLensModel
 
@@ -50,7 +50,7 @@ class CGPhaseRetriever(PhaseRetrieverBase):
     def closure(self):
         self.optimizer.zero_grad()
         complex_amplitude = self.slm_camera_model()
-        loss = self.loss_function.loss(complex_amplitude)
+        loss = self.loss_function(complex_amplitude)
         print(f"Loss: {loss.item()}")
         return loss
 

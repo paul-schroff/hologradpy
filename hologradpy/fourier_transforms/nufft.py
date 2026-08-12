@@ -73,9 +73,8 @@ def _build_rotated_trajectory(
     )
 
 
-class KbNufftZoomRotate(FourierBase):
-    """Scaled + shifted + rotated Fourier transform onto a zoom window via the
-    Kaiser-Bessel NUFFT (``torchkbnufft``).
+class KbNufftPartialAffine(FourierBase):
+    """A partial affine of the spectrum via the Kaiser-Bessel NUFFT (``torchkbnufft``).
 
     The sample points come from :func:`_build_rotated_trajectory` -- the same
     scaled + shifted window the chirp-z zoom uses, with an extra rotation that,

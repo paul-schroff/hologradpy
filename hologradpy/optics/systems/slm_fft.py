@@ -1,7 +1,7 @@
 from ..complex_amplitude import FieldGeometry
 
 from ..modules.propagators import FourierLensFFT
-from ..modules.diagonal_elements import StaticSLMField
+from ..modules.slm_fields import SLMField
 from ..modules.virtual_slms.abstract import VirtualSLM
 
 from .abstract import SLMFourierLensModel, capture_init
@@ -9,7 +9,7 @@ from .abstract import SLMFourierLensModel, capture_init
 
 class SLMFFT(SLMFourierLensModel):
     virtual_slm: VirtualSLM
-    static_slm_field: StaticSLMField
+    slm_field: SLMField
     fourier_lens: FourierLensFFT
 
     @capture_init
@@ -17,7 +17,7 @@ class SLMFFT(SLMFourierLensModel):
         self,
         input_geometry: FieldGeometry,
         virtual_slm: VirtualSLM,
-        static_slm_field: StaticSLMField,
+        slm_field: SLMField,
         focal_length: float,
         padded_resolution: tuple[int, int] = (2048, 2048),
         pointing_focal_shift_std: float | tuple[float, float] | None = None,
@@ -29,7 +29,7 @@ class SLMFFT(SLMFourierLensModel):
             pointing_focal_shift_std=pointing_focal_shift_std,
             pointing_seed=pointing_seed,
             virtual_slm=virtual_slm,
-            static_slm_field=static_slm_field,
+            slm_field=slm_field,
             fourier_lens=FourierLensFFT(
                 focal_length, padded_resolution=padded_resolution
             ),

@@ -77,6 +77,7 @@ class OpticsModule(RecordingMixin, nn.Module):
         adjoint = cls.__dict__.get("adjoint")
         if adjoint is not None and not getattr(adjoint, "_optics_wrapped", False):
             cls.adjoint = _auto_init_adjoint(adjoint)
+
     def __init__(
         self,
         pixel_size_out: tuple[float, float] | None = None,
@@ -290,7 +291,6 @@ class OpticsModule(RecordingMixin, nn.Module):
         state = torch.load(path, weights_only=False)
         self.load_state_dict(state["state_dict"])
 
-    # TODO: Add Self type hint once upgraded to Python>=3.11
     @classmethod
     def from_file(cls, path: str, device: torch.device = "cpu"):
         raise NotImplementedError(

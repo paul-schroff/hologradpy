@@ -1,5 +1,5 @@
 from __future__ import annotations
-import pickle
+from abc import ABC, abstractmethod
 from datetime import datetime
 from dataclasses import dataclass
 
@@ -13,33 +13,31 @@ from ...hardware import Camera, SLM, as_camera, as_slm
 
 from ...optics.complex_amplitude import ComplexAmplitude
 from ...grids import get_spatial_grid
+from ...serialization import SaveableRecord
 from ...visualizer import VisualizationData
 
 from ...analysis.fitting import fit_gaussian_beam_intensity
 
 
 @dataclass
-class WavefrontCalibrationData:
+class WavefrontCalibrationData(SaveableRecord):
     timestamp: datetime
     name: str
     complex_amplitude: ComplexAmplitude
     metadata: dict
     visualization_data: VisualizationData | None = None
 
-    def save(self, filename: str):
-        with open(filename, "wb") as file:
-            pickle.dump(self, file)
-
-    @staticmethod
-    def load(filename: str) -> WavefrontCalibrationData:
-        with open(filename, "rb") as file:
-            calibration_data: WavefrontCalibrationData = pickle.load(file)
-        return calibration_data
+    # save / load come from SaveableRecord.
 
 
-class WavefrontCalibratorBase:
-    """
-    Class to calibrate the intensity and the phase at the SLM.
+class WavefrontCalibratorBase(ABC):
+    """Base for calibrators that measure the amplitude and phase at the SLM.
+
+    Concrete calibrators differ widely in how they take their measurements, so
+    the only shared contract is :meth:`calibrate`: run the measurement and
+    return a :class:`WavefrontCalibrationData`. Everything the two current
+    implementations happen to share (device wrapping, the SLM spatial grid, the
+    Gaussian-beam fit) lives here as concrete helpers.
     """
 
     def __init__(self, slm: SLM, camera: Camera, device: torch.device = "cpu"):
@@ -71,16 +69,14 @@ class WavefrontCalibratorBase:
             self.slm.resolution, self.slm.pixel_size, device=self.device
         )
 
-    def calibrate(self) -> WavefrontCalibrationData:
+    @abstractmethod
+    def calibrate(self, *args, **kwargs) -> WavefrontCalibrationData:
+        """Run the calibration and return the measured SLM-plane wavefront.
+
+        The arguments are specific to each calibrator, since the measurement
+        strategies have little in common. Only the return type is part of the
+        contract.
         """
-        Calibrate the SLM wavefront consisting of the amplitude and the phase
-        at the SLM.
-        Returns:
-            WavefrontCalibrationData: The calibrated wavefront data.
-        """
-        raise NotImplementedError(
-            "The calibrate method should be implemented in the derived class."
-        )
 
     def fit_gaussian_beam(
         self,
@@ -96,8 +92,15 @@ class WavefrontCalibratorBase:
         """
         beam_radius_guess = min(self.slm.resolution) * self.slm.pixel_size[1] / 2
 
+        # The fit runs on the CPU with numpy, so bring the coordinate grid over from the
+        # (possibly CUDA) device.
+        grid_x, grid_y = self.spatial_grid_slm
         popt, _ = fit_gaussian_beam_intensity(
-            *self.spatial_grid_slm, measured_intensity, beam_radius_guess, blur_sigma=10
+            grid_x.cpu(),
+            grid_y.cpu(),
+            measured_intensity,
+            beam_radius_guess,
+            blur_sigma=10,
         )
 
         beam_radius = popt[0]
@@ -105,19 +108,3 @@ class WavefrontCalibratorBase:
         shift_y = popt[2]
 
         return beam_radius, shift_x, shift_y
-
-    def fit_zernike(self, measured_phase: NDArray[np.float_]) -> NDArray[np.float_]:
-        """Fit a Zernike polynomial to the measured phase.
-
-        Args:
-            measured_phase (NDArray[np.float_]): The measured phase from the
-                camera.
-
-        Returns:
-            NDArray[np.float_]: The fitted Zernike coefficients.
-        """
-        # TODO: Implement the Zernike fitting method.
-        raise NotImplementedError(
-            "The fit_zernike method should be implemented in the derived class."
-        )
-        # TODO: Finish implementing this

@@ -35,9 +35,9 @@ import torch
 from hologradpy.optics.complex_amplitude import ComplexAmplitude
 from hologradpy.optics.modules.diagonal_elements import (
     SimpleLens,
-    StaticSLMField,
     ZernikePhase,
 )
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.geometric_transforms import GeometricWarp
 from hologradpy.optics.modules.propagators import (
     FourierLensCZT,
@@ -107,7 +107,7 @@ MODULE_FACTORIES: dict[str, callable] = {
         shift=(1.0, 1.0),
     ),
     "SimpleLens": lambda: SimpleLens(focal_length=0.1, aperture_radius=1e-3),
-    "StaticSLMField": lambda: StaticSLMField(),
+    "PixelwiseSLMField": lambda: PixelwiseSLMField(),
     "VirtualSLM": lambda: VirtualSLM(phase_scaling=1.0),
     "ZernikePhase": lambda: ZernikePhase(
         number_of_radial_orders=3,

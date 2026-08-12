@@ -24,8 +24,12 @@ class VirtualSLM(OpticsModule):
     Sign convention: ``phase`` holds the *desired* optical phase. The field picks up
     ``exp(1j * phase)`` (wrapped to the modulation range), matching the argument of
     ``slmsuite.hardware.slms.slm.SLM.set_phase``. The value the hardware actually
-    displays is the negative of it since slmsuite negates before grayscale conversion 
+    displays is the negative of it since slmsuite negates before grayscale conversion
     (see :meth:`get_displayed_phase`).
+
+    The phase may be a single pattern ``(H, W)`` or a batch ``(N, H, W)``. A batch
+    produces a field of rank ``(N, n_wavelengths, H, W)`` from a single forward pass, so
+    a whole set of patterns propagates at once.
     """
 
     def __init__(
@@ -76,13 +80,28 @@ class VirtualSLM(OpticsModule):
 
     def set_phase(self, phase: torch.Tensor | NDArray) -> None:
         """Set the desired optical phase (same argument convention as
-        ``slmsuite.SLM.set_phase``)."""
+        ``slmsuite.SLM.set_phase``).
+
+        Accepts either a single pattern ``(H, W)`` or a batch ``(N, H, W)``. A batch is
+        imprinted in one forward pass, which is far cheaper than looping: the whole
+        chain then runs once on a batched field instead of once per pattern.
+        """
         if isinstance(phase, np.ndarray):
-            self.phase.data = torch.tensor(
-                phase, dtype=self.phase.dtype, device=self.phase.device
+            phase = torch.as_tensor(phase)
+        phase = phase.to(dtype=self.phase.dtype, device=self.phase.device)
+
+        if phase.ndim not in (2, 3):
+            raise ValueError(
+                f"Phase must be a single (H, W) pattern or a batch of them "
+                f"(N, H, W), got shape {tuple(phase.shape)}."
             )
-        else:
-            self.phase.data = phase.to(dtype=self.phase.dtype, device=self.phase.device)
+        if tuple(phase.shape[-2:]) != tuple(self.resolution_in):
+            raise ValueError(
+                f"Phase resolution {tuple(phase.shape[-2:])} does not match the "
+                f"SLM resolution {tuple(self.resolution_in)}."
+            )
+
+        self.phase.data = phase
 
     def get_phase(self) -> torch.Tensor:
         """The desired optical phase imprinted on the field (before the modulation-range
@@ -106,10 +125,14 @@ class VirtualSLM(OpticsModule):
         # Wrap to the modulation range like the hardware, then imprint the
         # desired phase.
         phase = self.get_phase().remainder(self.phase_scaling * 2 * torch.pi)
+        phase = self.apply_phase_transforms(phase)
 
-        transformed_phase = unsqueeze_to(
-            self.apply_phase_transforms(phase), complex_amplitude.ndim
-        )
+        if phase.ndim >= 3:
+            # A batch of patterns (N, H, W). Insert the wavelength axis to get
+            # (N, 1, H, W).
+            transformed_phase = phase.unsqueeze(-3)
+        else:
+            transformed_phase = unsqueeze_to(phase, complex_amplitude.ndim)
 
         # Avoid in-place modification so each forward pass builds an
         # independent autograd graph for repeated optimizer closure calls.

@@ -17,7 +17,7 @@ from hologradpy.calibration.camera_mapping import (
 )
 
 from hologradpy.optics.systems import SLMFFT, SLMFFTAffine
-from hologradpy.optics.modules.diagonal_elements import StaticSLMField
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 
@@ -77,7 +77,7 @@ simulated_camera_model = SLMFFTAffine(
     camera_resolution=(960, 1440),
     camera_pixel_size=(3.45e-6, 3.45e-6),
     focal_length=0.25,
-    static_slm_field=StaticSLMField(aberrated_beam),
+    slm_field=PixelwiseSLMField(aberrated_beam),
     padded_resolution=(2048, 2048),
     camera_angle=15,
     camera_shift=(900, 300),
@@ -107,7 +107,7 @@ plt.colorbar()
 slm_camera_model = SLMFFT(
     input_geometry=slm_geometry,
     virtual_slm=VirtualSLM(phase_scaling=1.0),
-    static_slm_field=StaticSLMField(gaussian_beam),
+    slm_field=PixelwiseSLMField(gaussian_beam),
     focal_length=0.25,
     padded_resolution=(2048, 2048),
 )

@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 
 from ....utils import pad_to_shape_2D, crop_to_shape_2D
-from ...fourier_transforms import FastFourierTransform, FourierBase
+from ....fourier_transforms import FastFourierTransform, FourierBase
 
 from ..abstract import OpticsModule
 from ...complex_amplitude import (
@@ -26,7 +26,7 @@ class AngularSpectrumMethod(OpticsModule):
     :class:`FastFourierTransform`, for which the transform conserves energy and
     :meth:`adjoint` (back-propagation with the conjugate transfer function) is
     the exact conjugate transpose of :meth:`forward`. A different transform (e.g.
-    a ``ChirpZZoom`` for a zoomed / off-axis angular spectrum) can be supplied;
+    a ``ChirpZPartialAffine`` for a zoomed / off-axis angular spectrum) can be supplied.
     the transfer function is evaluated at that transform's ``frequencies``. Note
     that for a non-unitary transform ``adjoint`` is the conjugate transpose, not
     the inverse, so the round trip is a band-limited variant of ``F^-1 H F``.

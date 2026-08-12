@@ -8,6 +8,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+from matplotlib.colors import to_hex  # noqa: E402
 import pytest  # noqa: E402
 from PIL import Image  # noqa: E402
 
@@ -24,6 +25,9 @@ from hologradpy.calibration.wavefront.abstract import (  # noqa: E402
 )
 from hologradpy.calibration.wavefront.raster_calibration.visualizer import (  # noqa: E402
     RasterVisualizationData,
+)
+from hologradpy.calibration.wavefront.speckle_calibration.visualizer import (  # noqa: E402
+    SpeckleVisualizationData,
 )
 
 
@@ -164,6 +168,85 @@ def test_plotbuilder_line_rows_with_sharex():
     plt.close(figure)
 
 
+def _cell_size(layout, name):
+    """One cell's size in inches, which is what the eye actually compares.
+
+    The cells are placed by a Divider locator, which only resolves at draw time, so
+    the position before a draw is still the full figure rect.
+    """
+    layout.figure.canvas.draw()
+    width, height = layout.figure.get_size_inches()
+    box = layout.axes[name].get_position()
+    return box.width * width, box.height * height
+
+
+def test_cells_of_different_shapes_come_out_the_same_height():
+    """A square image beside a wide one should line up along the row, with the wide one
+    given the extra width it needs. Sizing both the same width instead leaves the wide
+    one letterboxed inside a cell taller than itself."""
+    layout = PlotLayout()
+    layout.add_row([GridCell("square", aspect=1.0), GridCell("wide", aspect=0.5)])
+    layout.build()
+
+    square_width, square_height = _cell_size(layout, "square")
+    wide_width, wide_height = _cell_size(layout, "wide")
+
+    assert wide_height == pytest.approx(square_height, rel=1e-6)
+    # Aspect ratios untouched: each cell is still the shape it asked for.
+    assert square_height / square_width == pytest.approx(1.0, rel=1e-6)
+    assert wide_height / wide_width == pytest.approx(0.5, rel=1e-6)
+    assert wide_width == pytest.approx(2 * square_width, rel=1e-6)
+    plt.close(layout.figure)
+
+
+def test_cells_of_the_same_shape_stay_equally_wide():
+    """The common case must not move: matching heights across a uniform row is just the
+    equal-width layout it always had."""
+    layout = PlotLayout()
+    layout.add_row([GridCell("a", aspect=0.8), GridCell("b", aspect=0.8)])
+    layout.build()
+
+    assert _cell_size(layout, "a")[0] == pytest.approx(
+        _cell_size(layout, "b")[0], rel=1e-6
+    )
+    plt.close(layout.figure)
+
+
+def test_a_colorbar_gets_room_for_its_tick_labels():
+    """The labels hang off the right of the bar, into whatever comes next. Without an
+    allowance they run into the neighbouring panel, which is what the default col_gap
+    of 0.3 inches left them doing."""
+    layout = PlotLayout()
+    layout.add_row([GridCell("left", colorbar=True), GridCell("right")])
+    layout.build()
+    layout.figure.canvas.draw()  # the Divider locator only resolves at draw time
+
+    left_box = layout.axes["left"].get_position()
+    bar_box = layout.colorbar_axes["left"].get_position()
+    right_box = layout.axes["right"].get_position()
+    figure_width = layout.figure.get_size_inches()[0]
+    gap = (right_box.x0 - bar_box.x1) * figure_width
+
+    assert bar_box.x0 > left_box.x1  # the bar sits outside its panel
+    assert gap == pytest.approx(
+        layout.col_gap + layout.colorbar_label_width, rel=1e-6
+    )
+    plt.close(layout.figure)
+
+
+def test_a_line_row_keeps_equal_columns():
+    """A line plot has no natural height, so there is nothing to match it against and
+    the row falls back to equal columns."""
+    layout = PlotLayout()
+    layout.add_row([GridCell("image", aspect=0.5), GridCell("curve", aspect="auto")])
+    layout.build()
+
+    assert _cell_size(layout, "image")[0] == pytest.approx(
+        _cell_size(layout, "curve")[0], rel=1e-6
+    )
+    plt.close(layout.figure)
+
+
 def test_plotlayout_copy_is_independent():
     layout = PlotLayout(column_width=4.0)
     layout.add_row([GridCell("a"), GridCell("b")])
@@ -248,3 +331,242 @@ def test_plot_drift_tracking_with_and_without_injected():
     )
     assert len(figure_residual.axes) == 2  # tracked + residual
     plt.close(figure_residual)
+
+
+# --- speckle comparison panels --------------------------------------------------
+
+
+def _fake_speckle_data(
+    *,
+    with_truth: bool = True,
+    loss_component_history: dict[str, list[float]] | None = None,
+) -> SpeckleVisualizationData:
+    """A payload shaped like one a speckle calibration records.
+
+    The recovered field is the injected one plus a small ripple, so the difference
+    panels have something to show and its RMS is a number the test can predict.
+    """
+    rows, columns = np.mgrid[0:16, 0:16] / 15.0
+    amplitude = np.exp(-((rows - 0.5) ** 2 + (columns - 0.5) ** 2) / 0.1)
+    injected_phase = 2.0 * rows - 1.5 * columns
+    injected = amplitude * np.exp(1j * injected_phase)
+
+    mask = amplitude > 0.1 * amplitude.max()
+    return SpeckleVisualizationData(
+        camera_image=np.abs(injected) ** 2,
+        roi_mask=mask,
+        phase_pattern=np.angle(injected),
+        measured_roi=np.abs(injected) ** 2,
+        predicted_roi=np.abs(injected) ** 2,
+        recovered_amplitude=amplitude,
+        recovered_phase=injected_phase + 0.05 * np.sin(8 * rows),
+        loss_history=[1.0, 0.5],
+        loss_component_history=loss_component_history or {},
+        injected_field=injected if with_truth else None,
+        beam_mask=mask if with_truth else None,
+    )
+
+
+# --- convergence panel ------------------------------------------------------------
+
+
+THREE_TERMS = {
+    "intensity mse": [0.7, 0.3],
+    "phase smoothness": [0.2, 0.15],
+    "amplitude smoothness": [0.1, 0.05],
+}
+
+
+def _loss_axes(visualizer):
+    """The convergence panel, found by its title rather than its position."""
+    figure = visualizer.render()
+    axs = next(a for a in figure.axes if a.get_title() == "convergence")
+    return figure, axs
+
+
+def test_the_convergence_panel_draws_the_total_and_each_term():
+    """The point of recording the terms: a flat total can be the mismatch still falling
+    while a prior climbs to meet it, and only the separate curves show that."""
+    visualizer = _fake_speckle_data(loss_component_history=THREE_TERMS).visualizer()
+
+    figure, axs = _loss_axes(visualizer)
+
+    labels = [line.get_label() for line in axs.get_lines()]
+    assert labels == [
+        "total",
+        "intensity mse",
+        "phase smoothness",
+        "amplitude smoothness",
+    ]
+    assert axs.get_legend() is not None
+    plt.close(figure)
+
+
+def test_the_total_curve_follows_the_theme():
+    """It used to be hard coded black, which is invisible on a dark background. A PSF
+    fit draws that one curve and nothing else, so the whole panel came out empty."""
+    with plt.style.context("dark_background"):
+        visualizer = _fake_speckle_data(
+            loss_component_history=THREE_TERMS
+        ).visualizer()
+        figure, axs = _loss_axes(visualizer)
+        total = axs.get_lines()[0]
+
+        assert to_hex(total.get_color()) == to_hex(plt.rcParams["text.color"])
+        assert to_hex(total.get_color()) != to_hex(plt.rcParams["figure.facecolor"])
+
+    plt.close(figure)
+
+
+def test_the_convergence_panel_skips_a_lone_term():
+    """A PSF calibration fits against the mismatch alone, so its one component curve
+    would sit exactly on the total and say nothing."""
+    visualizer = _fake_speckle_data(
+        loss_component_history={"intensity mse": [1.0, 0.5]}
+    ).visualizer()
+
+    figure, axs = _loss_axes(visualizer)
+
+    assert len(axs.get_lines()) == 1
+    assert axs.get_legend() is None
+    plt.close(figure)
+
+
+def test_a_record_without_the_terms_still_draws_its_total():
+    """Payloads pickled before the terms were recorded have to keep rendering, which is
+    what the field's default is for."""
+    visualizer = _fake_speckle_data().visualizer()
+
+    figure, axs = _loss_axes(visualizer)
+
+    assert len(axs.get_lines()) == 1
+    assert axs.get_yscale() == "log"
+    plt.close(figure)
+
+
+def test_a_term_starting_at_zero_leaves_the_log_axis_alone():
+    """A smoothness prior on a field that starts flat is exactly zero for the first
+    epoch, every single run. Letting that pick the scale would flatten a loss that falls
+    two decades, so the total governs it and the zero simply has no point."""
+    terms = dict(THREE_TERMS)
+    terms["amplitude smoothness"] = [0.0, 0.05]
+    visualizer = _fake_speckle_data(loss_component_history=terms).visualizer()
+
+    figure, axs = _loss_axes(visualizer)
+
+    assert axs.get_yscale() == "log"
+    plt.close(figure)
+
+
+def test_a_non_positive_total_drops_the_panel_to_a_linear_axis():
+    """A cost with a negative term, such as an efficiency reward, has no log axis to
+    draw on and must not lose points to one."""
+    data = _fake_speckle_data(loss_component_history=THREE_TERMS)
+    data.loss_history = [1.0, -0.5]
+    visualizer = data.visualizer()
+
+    figure, axs = _loss_axes(visualizer)
+
+    assert axs.get_yscale() == "linear"
+    plt.close(figure)
+
+
+def test_speckle_comparison_draws_six_cells():
+    """Injected, recovered and difference, for phase and amplitude."""
+    visualizer = _fake_speckle_data().visualizer()
+
+    figure = visualizer.render_comparison()
+
+    titles = {axs.get_title() for axs in figure.axes if axs.get_title()}
+    assert any("injected phase" in title for title in titles)
+    assert any("recovered phase" in title for title in titles)
+    assert any("phase difference" in title for title in titles)
+    assert any("injected amplitude" in title for title in titles)
+    assert any("recovered amplitude" in title for title in titles)
+    assert any("amplitude difference" in title for title in titles)
+    plt.close(figure)
+
+
+def test_speckle_comparison_difference_is_symmetric_about_zero():
+    """The neutral colour has to mean agreement, which only holds if the limits are
+    symmetric. Otherwise a residual of zero reads as some arbitrary colour."""
+    visualizer = _fake_speckle_data().visualizer()
+
+    figure = visualizer.render_comparison()
+
+    difference_images = [
+        image
+        for axs in figure.axes
+        if "difference" in axs.get_title()
+        for image in axs.get_images()
+    ]
+    assert difference_images
+    for image in difference_images:
+        low, high = image.get_clim()
+        assert low == pytest.approx(-high)
+    plt.close(figure)
+
+
+def test_speckle_comparison_without_truth_says_why():
+    """A calibration from a real bench has nothing to compare against. Asking has to
+    name what is missing rather than drawing empty axes."""
+    data = _fake_speckle_data(with_truth=False)
+
+    # The diagnostics figure is unaffected by the absence.
+    figure = data.visualizer().render()
+    plt.close(figure)
+
+    with pytest.raises(RuntimeError, match="static_slm_field"):
+        data.visualizer().render_comparison()
+
+
+def test_speckle_payload_predating_the_comparison_still_renders():
+    """The two fields were added with defaults so that records pickled before they
+    existed keep working. Constructing without them is that case."""
+    data = SpeckleVisualizationData(
+        camera_image=np.zeros((8, 8)),
+        roi_mask=np.ones((8, 8), dtype=bool),
+        measured_roi=np.zeros((4, 4)),
+        predicted_roi=np.zeros((4, 4)),
+        recovered_amplitude=np.ones((8, 8)),
+        recovered_phase=np.zeros((8, 8)),
+    )
+
+    assert data.injected_field is None
+    assert data.beam_mask is None
+    assert data.phase_pattern is None
+
+    figure = data.visualizer().render()
+
+    # The pattern cell is simply absent rather than the whole figure failing.
+    titles = [axs.get_title() for axs in figure.axes if axs.get_title()]
+    assert "camera + ROI" in titles
+    assert "SLM phase pattern" not in titles
+    plt.close(figure)
+
+
+def test_the_dataset_figure_needs_a_pattern_to_be_worth_drawing():
+    """Without one it would be a single cell the full diagnostics already carries, so
+    it says so rather than drawing a lone camera frame."""
+    data = SpeckleVisualizationData(
+        camera_image=np.zeros((8, 8)), roi_mask=np.ones((8, 8), dtype=bool)
+    )
+
+    with pytest.raises(RuntimeError, match="no phase_pattern"):
+        data.visualizer().render_dataset()
+
+
+def test_the_dataset_figure_draws_before_anything_is_fitted():
+    """The point of it: a capture can be checked before a fit is spent on it, so it
+    must not need any of the fitted arrays."""
+    data = SpeckleVisualizationData(
+        camera_image=np.random.default_rng(0).uniform(size=(8, 8)),
+        roi_mask=np.ones((8, 8), dtype=bool),
+        phase_pattern=np.random.default_rng(1).uniform(size=(6, 6)),
+    )
+
+    figure = data.visualizer().render_dataset()
+
+    titles = [axs.get_title() for axs in figure.axes if axs.get_title()]
+    assert titles == ["SLM phase pattern", "camera + ROI"]
+    plt.close(figure)

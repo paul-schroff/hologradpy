@@ -18,7 +18,7 @@ from hologradpy.optics.complex_amplitude import (
     FieldGeometry,
 )
 from hologradpy.optics.systems import SLMFFT
-from hologradpy.optics.modules.diagonal_elements import StaticSLMField
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.virtual_slms import VirtualSLM
 
 from hologradpy.holography.vortices import VortexAnnihilator
@@ -64,7 +64,7 @@ init_slm_phase = lens_phase(
 slm_camera_model = SLMFFT(
     input_geometry=slm_field.geometry,
     virtual_slm=VirtualSLM(phase_scaling=1.0, init_phase=init_slm_phase),
-    static_slm_field=StaticSLMField(slm_field),
+    slm_field=PixelwiseSLMField(slm_field),
     focal_length=focal_length,
     padded_resolution=padded_resolution,
 )
@@ -78,7 +78,7 @@ plt.imshow(gpu_to_numpy(init_intensity), cmap="turbo")
 plt.title("Initial Simulated Camera Image")
 plt.colorbar(label="Intensity (a.u.)")
 
-slm_power = slm_camera_model.static_slm_field.amplitude**2
+slm_power = slm_camera_model.slm_field.amplitude**2
 image_power = init_intensity.sum()
 
 print(f"SLM Power: {slm_power.sum().item()}")

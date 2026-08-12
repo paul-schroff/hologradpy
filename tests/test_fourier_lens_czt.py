@@ -14,7 +14,7 @@ import torch
 
 from hologradpy.optics.complex_amplitude import ComplexAmplitude
 from hologradpy.optics.modules.propagators import FourierLensCZT
-from hologradpy.optics.fourier_transforms import fft_2d
+from hologradpy.fourier_transforms import fft_2d, padded_resolution_for_rotation
 
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
@@ -124,3 +124,105 @@ def test_czt_lens_preserves_batch_rank_and_geometry() -> None:
     assert out.resolution == (10, 14)
     assert out.number_of_wavelengths == 2
     assert torch.isfinite(out._data).all()
+
+
+def test_padding_leaves_the_focal_plane_alone() -> None:
+    """Padding exists to give the rotation room, not to change the optics. The focal
+    sampling only stays put because the base magnification and the chirp-z step both
+    carry the input resolution, so this is the assertion that catches taking one of
+    them from the unpadded frame and the other from the padded one. It would also catch
+    an off-centre pad, which shows up as a tilt across the focal plane.
+    """
+    field = make_field(RESOLUTION, 1, seed=3)
+    settings = dict(
+        focal_length=FOCAL_LENGTH,
+        resolution_out=RESOLUTION,
+        pixel_size_out=_identity_pixel_out(),
+    )
+
+    plain = FourierLensCZT(**settings)(field).as_tensor()
+    padded = FourierLensCZT(**settings, padded_resolution=(28, 32))(field).as_tensor()
+
+    assert padded.shape == plain.shape
+    # Loose only because the field is complex64 and the padded transform is larger, so
+    # it accumulates more round-off. The same tolerance the exactness test above uses.
+    assert float((padded - plain).abs().max() / plain.abs().max()) < 1e-4
+
+
+def _power_reaching_the_focal_plane(field, resolution, padded_resolution, angle):
+    """Input power that survives the lens, by Parseval.
+
+    The output window is the full FFT grid of whatever the chirp-z transforms, so the
+    focal sum is exactly the input power that made it through the rotation.
+    """
+    lens = FourierLensCZT(
+        FOCAL_LENGTH,
+        resolution,
+        (
+            800e-9 * FOCAL_LENGTH / (PIXEL_IN[0] * resolution[0]),
+            800e-9 * FOCAL_LENGTH / (PIXEL_IN[1] * resolution[1]),
+        ),
+        angle=angle,
+        power_normalized=False,
+        padded_resolution=padded_resolution,
+    )
+    transformed = lens(field).as_tensor().abs().pow(2).sum()
+    return float(transformed) / (resolution[0] * resolution[1])
+
+
+def _smooth_field_filling_the_frame():
+    """A beam that is still bright at the corners, but without the hard pixel-to-pixel
+    edges of a random field. The band-limited shear leaks a little of a sharp edge past
+    the frame however much room it is given, and that leakage would otherwise be
+    confused with the geometric clipping this is about.
+    """
+    rows, columns = torch.meshgrid(
+        torch.arange(RESOLUTION[0], dtype=torch.float32),
+        torch.arange(RESOLUTION[1], dtype=torch.float32),
+        indexing="ij",
+    )
+    y = (rows - (RESOLUTION[0] - 1) / 2) / RESOLUTION[0]
+    x = (columns - (RESOLUTION[1] - 1) / 2) / RESOLUTION[1]
+    return ComplexAmplitude(
+        torch.exp(-(x**2 + y**2) / 0.5).to(torch.complex64),
+        torch.tensor(800e-9),
+        PIXEL_IN,
+    )
+
+
+def test_padding_keeps_the_corners_a_rotation_would_otherwise_clip() -> None:
+    """The reason the padding exists, and the reason it is the default.
+
+    The shear crops back to the frame it is given, so a field that fills its frame loses
+    its corners, which is unphysical: rotating the camera does not vignette the SLM. The
+    only way to get that back now is to ask for it, by pinning the frame to the input.
+    """
+    angle = 8.0
+    field = _smooth_field_filling_the_frame()
+    power = float(field.as_tensor().abs().pow(2).sum())
+    padded = padded_resolution_for_rotation(RESOLUTION, angle)
+
+    # padded_resolution=RESOLUTION pins the frame to the input, which is what the lens
+    # used to do by default and what loses the corners.
+    clipped = (
+        _power_reaching_the_focal_plane(field, RESOLUTION, RESOLUTION, angle) / power
+    )
+    kept = _power_reaching_the_focal_plane(field, padded, padded, angle) / power
+    by_default = _power_reaching_the_focal_plane(field, padded, None, angle) / power
+
+    assert clipped < 0.99
+    assert kept > 0.999
+    # Asking for nothing gives the same as asking for the right frame.
+    assert by_default == pytest.approx(kept, abs=1e-6)
+
+
+def test_padding_smaller_than_the_field_is_refused() -> None:
+    """Silently cropping the field would look like a badly converged calibration rather
+    than a configuration error."""
+    field = make_field(RESOLUTION, 1, seed=5)
+    lens = FourierLensCZT(
+        FOCAL_LENGTH, RESOLUTION, _identity_pixel_out(), padded_resolution=(8, 8)
+    )
+
+    with pytest.raises(ValueError, match="smaller than the input"):
+        lens(field)

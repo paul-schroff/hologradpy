@@ -16,11 +16,11 @@ from hologradpy.optics.modules.propagators.fourier_lens_nufft import (
     FourierLensNUFFT,
 )
 from hologradpy.optics.modules.diagonal_elements import (
-    StaticSLMField,
     SimpleLens,
     DoubletLens,
     ZernikePhase,
 )
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.geometric_transforms import (
     GeometricWarp,
 )
@@ -54,7 +54,7 @@ MODULE_FACTORIES: dict[str, callable] = {
         resolution_out=RESOLUTION,
         pixel_size_out=(5e-6, 5e-6),
     ),
-    "StaticSLMField": lambda: StaticSLMField(),
+    "PixelwiseSLMField": lambda: PixelwiseSLMField(),
     "GeometricWarp": lambda: GeometricWarp(
         resolution_out=RESOLUTION,
         pixel_size_out=PIXEL_SIZE,

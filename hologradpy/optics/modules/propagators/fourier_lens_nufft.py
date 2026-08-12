@@ -6,7 +6,7 @@ import torch
 from torch import Tensor
 from torch.nn import Parameter
 
-from ...fourier_transforms import KbNufftZoomRotate
+from ....fourier_transforms import KbNufftPartialAffine
 
 from ..abstract import OpticsModule
 from ...complex_amplitude import ComplexAmplitude
@@ -113,9 +113,9 @@ class FourierLensNUFFT(OpticsModule):
 
     def _build_transform(
         self: FourierLensNUFFT, complex_amplitude: ComplexAmplitude
-    ) -> KbNufftZoomRotate:
+    ) -> KbNufftPartialAffine:
         """Map the per-wavelength ``lambda*f`` geometry to the unit-free
-        ``(magnification, shift, angle)`` of a :class:`KbNufftZoomRotate`.
+        ``(magnification, shift, angle)`` of a :class:`KbNufftPartialAffine`.
 
         ``scale_factor``, ``shift`` and ``self._scale`` are all (x, y), matching the
         transform, so they combine directly with no axis swap. The base sample grid
@@ -139,9 +139,10 @@ class FourierLensNUFFT(OpticsModule):
         shift_y = -two_pi * self.shift[1] / (padded_height * scale[:, 1])
         shift = torch.stack((shift_x, shift_y), dim=-1)  # (n_wl, 2): (x, y)
 
-        angle_radians = float(torch.deg2rad(self.angle))
+        # Negated on purpose to be consistent with the other modules.
+        angle_radians = -float(torch.deg2rad(self.angle))
 
-        return KbNufftZoomRotate(
+        return KbNufftPartialAffine(
             resolution=tuple(complex_amplitude.resolution),
             resolution_out=self.resolution_out,
             magnification=magnification,
@@ -182,7 +183,7 @@ class FourierLensNUFFT(OpticsModule):
 
         All leading batch dimensions are collapsed into a single axis and the
         scaled + shifted + rotated NUFFT is delegated to
-        :class:`KbNufftZoomRotate`, then the original rank is restored.
+        :class:`KbNufftPartialAffine`, then the original rank is restored.
         """
         flat_field, batch_spec = complex_amplitude.flatten_batch()
         output_field = self._transform.forward(flat_field)
@@ -202,7 +203,7 @@ class FourierLensNUFFT(OpticsModule):
         """Adjoint NUFFT mapping an output-plane field back to the input plane.
 
         This is the conjugate transpose of :meth:`forward` (the
-        ``KbNufftZoomRotate`` adjoint on the same trajectory), not its inverse.
+        ``KbNufftPartialAffine`` adjoint on the same trajectory), not its inverse.
         The input is a field sampled on the output grid ``(*batch, n_wl, H_out,
         W_out)``; the output lives in the input plane with ``resolution_in`` /
         ``pixel_size_in``. The module must be initialised first (via ``forward``

@@ -1,6 +1,15 @@
 from .wavefront.raster_calibration.raster_calibrator import RasterCalibrator
 from .wavefront.raster_calibration.visualizer import RasterCalibratorVisualizer
-from .wavefront.speckle_calibration.speckle_calibrator import SpeckleCalibrator
+from .wavefront.speckle_calibration.speckle_calibrator import (
+    FitSettings,
+    PSFSpeckleCalibrator,
+    SpeckleCalibrator,
+    PixelwiseSpeckleCalibrator,
+)
+from .wavefront.speckle_calibration.visualizer import (
+    PSFCalibratorVisualizer,
+    SpeckleCalibratorVisualizer,
+)
 from .spot_detection import get_diffraction_spot_position
 from .camera_mapping.abstract import CameraMapping
 from .camera_mapping import CheckerboardMapper, CoarseMapper, SpotArrayMapper
@@ -9,7 +18,12 @@ from .camera_mapping.visualizer import CameraMapperVisualizer
 __all__ = [
     "RasterCalibrator",
     "RasterCalibratorVisualizer",
+    "FitSettings",
     "SpeckleCalibrator",
+    "PixelwiseSpeckleCalibrator",
+    "PSFSpeckleCalibrator",
+    "SpeckleCalibratorVisualizer",
+    "PSFCalibratorVisualizer",
     "get_diffraction_spot_position",
     "CameraMapping",
     "CheckerboardMapper",

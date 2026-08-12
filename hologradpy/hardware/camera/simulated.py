@@ -11,7 +11,7 @@ from ...optics.modules.hardware_models import (
     BackgroundScatter,
     PowerInstability,
 )
-from ...optics.modules.diagonal_elements import StaticSLMField
+from ...optics.modules.slm_fields import PixelwiseSLMField
 from ...utils import gpu_to_numpy
 from ...roi import ROI
 from .abstract import Camera, get_orientation_transformation
@@ -73,7 +73,7 @@ class SimulatedCameraTorch(Camera):
 
         When ``power_std`` is given, a :class:`PowerInstability` (a fluctuating laser
         that scales the field power by a factor drawn ~ N(1, power_std) each frame) is
-        inserted just after the model's ``StaticSLMField``, reproducible via
+        inserted just after the model's ``PixelwiseSLMField``, reproducible via
         ``power_seed``.
 
         ``rot`` (``"90"`` / ``"180"`` / ``"270"`` or the ``numpy.rot90`` code) with
@@ -129,7 +129,7 @@ class SimulatedCameraTorch(Camera):
         if power_std is not None:
             self.power_instability = PowerInstability(power_std, seed=power_seed)
             slm_camera_model.insert_after(
-                StaticSLMField, "power_instability", self.power_instability
+                PixelwiseSLMField, "power_instability", self.power_instability
             )
 
         # Build the sensor and append it as the terminal module (reusing one the
@@ -192,6 +192,26 @@ class SimulatedCameraTorch(Camera):
     def roi(self) -> ROI:
         """The current region of interest, in displayed ``(row, col)`` coordinates."""
         return self._roi
+
+    @property
+    def static_slm_field(self) -> NDArray | None:
+        """The SLM-plane complex field this simulated Camera was built with.
+
+        The ground truth a calibration is trying to recover, which only a simulated
+        camera can answer.
+
+        Read through the field module's ``get_wavefront``, so it is not limited to a
+        literal ``PixelwiseSLMField``. ``None`` if the model carries no field yet, which
+        is the case before its lazy modules have been built.
+        """
+        field = getattr(self.slm_camera_model, "slm_field", None)
+        if field is None:
+            return None
+        try:
+            wavefront = field.get_wavefront()
+        except (AttributeError, RuntimeError):
+            return None
+        return wavefront.detach().cpu().numpy()
 
     def set_roi(self, roi: ROI | None) -> None:
         """Set the region of interest (``None`` resets to the full frame)."""

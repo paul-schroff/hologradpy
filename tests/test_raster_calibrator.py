@@ -23,7 +23,7 @@ from hologradpy.optics.complex_amplitude import (  # noqa: E402
     FieldGeometry,
 )
 from hologradpy.optics.systems import SLMFFTAffine  # noqa: E402
-from hologradpy.optics.modules.diagonal_elements import StaticSLMField  # noqa: E402
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField  # noqa: E402
 from hologradpy.profiles.amplitude import (  # noqa: E402
     gaussian_beam_intensity,
 )
@@ -67,7 +67,7 @@ def _build_setup(
         camera_resolution=(240, 320),
         camera_pixel_size=(30e-6, 30e-6),
         focal_length=FOCAL_LENGTH,
-        static_slm_field=StaticSLMField(beam),
+        slm_field=PixelwiseSLMField(beam),
         padded_resolution=(512, 512),
         camera_angle=camera_angle,
         camera_shift=(0, 0),
@@ -362,3 +362,78 @@ def test_normalize_power_removes_laser_fluctuation(monkeypatch):
     assert plain_difference > 0.01
     # ... but normalization makes the map nearly independent of it.
     assert norm_difference < 0.5 * plain_difference
+
+
+def test_calibration_returns_a_complex_amplitude_its_consumers_accept():
+    """The returned field must be a ComplexAmplitude, not a bare numpy array.
+
+    WavefrontCalibrationData declares the field as one, and both consumers rely
+    on that: PixelwiseSLMField.from_calibration_data hands it straight to the
+    module, and the speckle calibrator reads a benchmark calibration through
+    .as_tensor(). A bare array raised AttributeError in both, so neither
+    applying a raster calibration to a model nor benchmarking against one
+    worked. No existing test built a WavefrontCalibrationData, so this went
+    unnoticed.
+    """
+    slm, camera = _build_setup()
+    calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
+
+    record = calibrator.calibrate(
+        number_of_superpixels=(4, 4),
+        camera_mapping=_synthetic_mapping(),
+        verbose=False,
+    )
+
+    assert isinstance(record.complex_amplitude, ComplexAmplitude)
+    assert tuple(record.complex_amplitude.shape) == tuple(slm.resolution)
+    assert torch.isfinite(record.complex_amplitude.as_tensor()).all()
+
+    # The two paths that a bare array broke.
+    field_module = PixelwiseSLMField.from_calibration_data(record)
+    assert field_module.init_field is record.complex_amplitude
+    assert record.complex_amplitude.as_tensor().shape == tuple(slm.resolution)
+
+
+def test_a_supplied_model_must_match_the_calibrator_focal_length() -> None:
+    """A model with a different focal length is rejected rather than used.
+
+    The model is not only a coordinate reference for the coarse mapping:
+    ``_orientation_matrix`` reads ``pixel_size_out`` off its output layer, and that
+    spacing scales with the focal length. A mismatched model therefore biases the
+    camera to focal-plane scale and misplaces every tilt, with no error to point at.
+    """
+    slm, camera = _build_setup()
+    calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
+    model = calibrator._build_slm_camera_model()
+    assert np.isclose(model.focal_length, FOCAL_LENGTH)
+
+    mismatched = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH * 1.2)
+    with pytest.raises(ValueError, match="focal_length"):
+        mismatched._ensure_camera_mapping(_synthetic_mapping(), model)
+
+    # The matching case still goes through.
+    calibrator._ensure_camera_mapping(_synthetic_mapping(), model)
+    assert calibrator.camera_mapping is not None
+
+
+def test_addressable_half_extent_needs_no_model() -> None:
+    """The addressable extent is analytic, so it builds nothing.
+
+    It is ``wavelength * focal_length / (2 * pitch)`` per axis, which the calibrator can
+    evaluate from the SLM alone. It used to construct a whole SLMFFT on the fly to ask
+    the model for it.
+    """
+    slm, camera = _build_setup()
+    calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
+
+    extent = calibrator._addressable_half_extent()
+
+    assert calibrator._slm_camera_model is None  # nothing was built
+    pitch_y, pitch_x = (float(pitch) for pitch in slm.pixel_size)
+    wavelength = float(slm.wavelength)
+    assert np.isclose(extent[0], wavelength * FOCAL_LENGTH / (2 * pitch_x))
+    assert np.isclose(extent[1], wavelength * FOCAL_LENGTH / (2 * pitch_y))
+    # and it agrees with what the model would have said
+    assert np.allclose(
+        extent, calibrator._build_slm_camera_model().addressable_half_extent()
+    )

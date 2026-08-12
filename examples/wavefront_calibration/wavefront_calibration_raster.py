@@ -23,7 +23,7 @@ from hologradpy.calibration import (
 from hologradpy.visualizer import GridCell, PlotBuilder, PlotLayout
 
 from hologradpy.optics.systems import SLMCZT
-from hologradpy.optics.modules.diagonal_elements import StaticSLMField
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.hardware_models.pointing_instability import PointingInstability
 
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
@@ -78,7 +78,7 @@ simulated_camera_model = SLMCZT(
     camera_resolution=(960, 1440),
     camera_pixel_size=(3.45e-6, 3.45e-6),
     focal_length=0.25,
-    static_slm_field=StaticSLMField(gaussian_beam),
+    slm_field=PixelwiseSLMField(gaussian_beam),
     camera_angle=10,
     camera_shift=(50, -20),
     pointing_focal_shift_std=0.25e-6,

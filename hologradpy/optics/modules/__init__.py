@@ -18,11 +18,11 @@ from .abstract import OpticsModule, SaveDict
 from .recording import RecordingMixin
 from .diagonal_elements import (
     DiagonalElement,
-    StaticSLMField,
     SimpleLens,
     DoubletLens,
     ZernikePhase,
 )
+from .slm_fields import PSFSLMField, SLMField, PixelwiseSLMField
 from .geometric_transforms import GeometricWarp
 from .virtual_slms import VirtualSLM, ZernikeSLM
 from .propagators import (
@@ -43,7 +43,9 @@ __all__ = [
     "SaveDict",
     "RecordingMixin",
     "DiagonalElement",
-    "StaticSLMField",
+    "SLMField",
+    "PSFSLMField",
+    "PixelwiseSLMField",
     "SimpleLens",
     "DoubletLens",
     "ZernikePhase",

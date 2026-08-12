@@ -8,7 +8,6 @@ be imported from lower layers (e.g. as a type in a propagation model) without a 
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypeVar
-import pickle
 from datetime import datetime
 
 import numpy as np
@@ -16,6 +15,7 @@ import torch
 from numpy.typing import NDArray
 
 from ...geometry import AffineTransform, PartialAffineTransform
+from ...serialization import SaveableRecord
 from ...visualizer import VisualizationData
 from ...hardware.camera import CameraData
 
@@ -23,7 +23,7 @@ ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 
 
 @dataclass
-class CameraMapping:
+class CameraMapping(SaveableRecord):
     timestamp: datetime
     name: str
     transform: ArrayLike
@@ -88,12 +88,4 @@ class CameraMapping:
         """Scale factors of the transform (singular values, major then minor)."""
         return self.affine.scales
 
-    def save(self, filename: str):
-        with open(filename, "wb") as file:
-            pickle.dump(self, file)
-
-    @staticmethod
-    def load(filename: str) -> CameraMapping:
-        with open(filename, "rb") as file:
-            camera_mapping: CameraMapping = pickle.load(file)
-        return camera_mapping
+    # save / load come from SaveableRecord.

@@ -74,7 +74,7 @@ def find_zero_crossings(input: torch.Tensor) -> torch.Tensor:
     )
     return padded_mask
 
-
+# TODO: This might already exist in grids.py
 def coordinates_to_indices(
     x: torch.Tensor,
     y: torch.Tensor,
@@ -227,7 +227,7 @@ def find_vortex_charge(
             charges[i] = 0
     return charges
 
-
+# TODO: Move to analysis/unwrapping.py
 def unwrap_phase_1D(phase: torch.Tensor) -> torch.Tensor:
     """Unwrap a 1D phase array.
     Args:
@@ -245,7 +245,7 @@ def unwrap_phase_1D(phase: torch.Tensor) -> torch.Tensor:
             unwrapped_phase[i:] += 2 * torch.pi
     return unwrapped_phase
 
-
+# TODO: Move to profiles/phase.py
 def vortex_phase(
     x: torch.Tensor,
     y: torch.Tensor,
@@ -271,7 +271,7 @@ def vortex_phase(
     )
     return phase
 
-
+# TODO: Move to profiles/phase.py
 def vortex_field(
     x: torch.Tensor,
     y: torch.Tensor,

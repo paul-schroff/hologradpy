@@ -18,7 +18,7 @@ from hologradpy.hardware import SimulatedSLMTorch
 from hologradpy.holography.phase_retrieval import LinearSuperpositionPhaseRetriever
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
 from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
-from hologradpy.optics.modules.diagonal_elements import StaticSLMField
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.systems import SLMCZT, SLMFFT
 from hologradpy.profiles.phase import linear_phase
 from hologradpy.utils import gpu_to_numpy
@@ -50,7 +50,7 @@ def setup():
     fft_model = SLMFFT(
         input_geometry=geometry,
         virtual_slm=slm.virtual_slm,
-        static_slm_field=StaticSLMField(beam),
+        slm_field=PixelwiseSLMField(beam),
         focal_length=FOCAL_LENGTH,
         padded_resolution=(512, 512),
     )
@@ -60,7 +60,7 @@ def setup():
         camera_resolution=(240, 320),
         camera_pixel_size=(CZT_PIXEL, CZT_PIXEL),
         focal_length=FOCAL_LENGTH,
-        static_slm_field=StaticSLMField(beam),
+        slm_field=PixelwiseSLMField(beam),
     )
     fft_model()
     czt_model()

@@ -9,6 +9,8 @@ import torch
 
 from array_api_compat import array_namespace
 
+from ..fourier_transforms import fft_2d, ifft_2d
+
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 TiltUnits = Literal["degrees", "radians", "metres", "lines_per_mm"]
 CurvatureUnits = Literal["radians_per_pixel_squared", "radians_per_metre_squared"]
@@ -293,3 +295,32 @@ def binary_phase_grating(
     else:
         raise ValueError("axis must be 0 or 1.")
     return grating
+
+
+def band_limited_random_phase(
+    band_mask: torch.Tensor,
+    generator: torch.Generator | None = None,
+    clip_sigma: float | None = None,
+) -> torch.Tensor:
+    """Smooth random phase with diffracted light landing inside ``band_mask`` in the 
+    Fourier plane.
+
+    Args:
+        band_mask: The band-limiting mask.
+        generator: Random number generator.
+        clip_sigma: Clip the field at this many standard deviations before rescaling,
+            or None (default).
+
+    Returns:
+        torch.Tensor: The phase in ``[0, 2 * pi]``, shaped like ``band_mask``.
+    """
+    white = torch.randn(band_mask.shape, generator=generator, device=band_mask.device)
+
+    field = ifft_2d(fft_2d(white + 0j) * band_mask).real
+    field = field / field.std()
+
+    if clip_sigma is not None:
+        field = field.clamp(-clip_sigma, clip_sigma)
+
+    lowest = field.min()
+    return (field - lowest) / (field.max() - lowest) * 2 * torch.pi

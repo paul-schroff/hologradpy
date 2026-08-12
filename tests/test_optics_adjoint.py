@@ -26,9 +26,9 @@ from hologradpy.optics.complex_amplitude import ComplexAmplitude
 from hologradpy.optics.modules.diagonal_elements import (
     DoubletLens,
     SimpleLens,
-    StaticSLMField,
     ZernikePhase,
 )
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.geometric_transforms import GeometricWarp
 from hologradpy.optics.modules.hardware_models.pointing_instability import (
     PointingInstability,
@@ -68,6 +68,15 @@ ADJOINT_FACTORIES: dict[str, callable] = {
         resolution_out=RESOLUTION,
         pixel_size_out=(5e-6, 5e-6),
     ),
+    # Padding puts a zero pad in the forward and its transpose, a crop, in the adjoint.
+    # Get either the offset or the pairing wrong and the two stop being transposes.
+    "FourierLensCZTPadded": lambda: FourierLensCZT(
+        focal_length=0.1,
+        resolution_out=RESOLUTION,
+        pixel_size_out=(5e-6, 5e-6),
+        angle=7.0,
+        padded_resolution=(12, 12),
+    ),
     "FourierLensFFT": lambda: FourierLensFFT(focal_length=0.1),
     "FourierLensNUFFT": lambda: FourierLensNUFFT(
         focal_length=0.1,
@@ -79,7 +88,7 @@ ADJOINT_FACTORIES: dict[str, callable] = {
     ),
     "PowerInstability": lambda: PowerInstability(power_std=0.0, seed=0),
     "SimpleLens": lambda: SimpleLens(focal_length=0.1, aperture_radius=1e-3),
-    "StaticSLMField": lambda: StaticSLMField(),
+    "PixelwiseSLMField": lambda: PixelwiseSLMField(),
     "ZernikePhase": lambda: ZernikePhase(
         number_of_radial_orders=3,
         initial_coefficients=torch.linspace(0.1, 1.0, 6),

@@ -3,7 +3,8 @@ from . import grids
 from . import profiles
 from . import visualizer
 from .analysis import error_metrics, fitting
-from .holography import phase_retrieval, loss_functions
+from . import loss_functions
+from .holography import phase_retrieval
 from . import optics
 
 __all__ = [

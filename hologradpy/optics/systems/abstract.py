@@ -13,8 +13,9 @@ from torch import Tensor
 from ..modules.virtual_slms.abstract import VirtualSLM
 
 from ..modules.abstract import OpticsModule
+from ...fourier_optics import fourier_lens_half_extent
 from ..complex_amplitude import ComplexAmplitude, FieldGeometry
-from ..modules.diagonal_elements import StaticSLMField
+from ..modules.slm_fields import SLMField
 from ..modules.hardware_models import PointingInstability
 from ..modules.recording import RecordingMixin
 from ...geometry import SupportsPartialAffine
@@ -236,7 +237,7 @@ class OpticalSystem(nn.Module):
         "type", "power", "efficiency"}, ...]}``.
 
         Notes:
-        - Power is absolute (watts) only when the input field / ``StaticSLMField``
+        - Power is absolute (watts) only when the input field / ``SLMField``
           beam carries an absolute power and the FFT lens is ``power_normalized``.
           The diagonal-stage (phase/amplitude) efficiencies are scale-invariant
           ratios and meaningful regardless.
@@ -391,10 +392,9 @@ class SLMFourierLensModel(OpticalSystem):
 
         If ``pointing_focal_shift_std`` is given, a :class:`PointingInstability` is
         built from it via :meth:`PointingInstability.from_focal_shift` (using this
-        model's ``focal_length``) and inserted immediately after the ``StaticSLMField``
-        stage, so the (static) SLM-plane field carries a freshly sampled beam-pointing
-        tilt on every forward pass. ``pointing_seed`` seeds that sampling for
-        reproducibility.
+        model's ``focal_length``) and inserted immediately after the ``SLMField``
+        stage, so the SLM-plane field carries a freshly sampled beam-pointing tilt on
+        every forward pass. ``pointing_seed`` seeds that sampling for reproducibility.
         """
         super().__init__(input_geometry, **modules)
         if pointing_focal_shift_std is not None:
@@ -408,7 +408,10 @@ class SLMFourierLensModel(OpticalSystem):
                 focal_length,
                 seed=pointing_seed,
             )
-            self.insert_after(StaticSLMField, "pointing_instability", pointing)
+            # Matched on the SLMField base, not a concrete subclass: the slot holds
+            # whichever parameterisation the caller supplied, and pointing applies
+            # to all of them.
+            self.insert_after(SLMField, "pointing_instability", pointing)
 
     def _affine_module(self) -> SupportsPartialAffine | None:
         """The module carrying the focal-plane ``(scale_factor, shift, angle)``
@@ -440,6 +443,16 @@ class SLMFourierLensModel(OpticalSystem):
         self()
         affine_module.apply_partial_affine(mapping.partial_affine)
 
+    @property
+    def focal_length(self) -> float:
+        """Focal length of the Fourier lens, in metres.
+
+        Read off the lens rather than stored separately, so it cannot disagree with the
+        optics it describes. Callers that need it (a calibration sizing its patterns,
+        say) should take it from here rather than carrying a second copy.
+        """
+        return float(self.fourier_lens.focal_length)
+
     def addressable_half_extent(self) -> tuple[float, float]:
         """Half-extent ``(x, y)`` of the focal-plane region the SLM can address, in
         metres: the first-order deflection of a grating at the SLM Nyquist frequency,
@@ -448,8 +461,7 @@ class SLMFourierLensModel(OpticalSystem):
         """
         wavelength = float(self.input_geometry.wavelength)
         pitch_y, pitch_x = (float(pitch) for pitch in self.input_geometry.pixel_size)
-        focal_length = float(self.fourier_lens.focal_length)
         return (
-            wavelength * focal_length / (2.0 * pitch_x),
-            wavelength * focal_length / (2.0 * pitch_y),
+            fourier_lens_half_extent(wavelength, self.focal_length, pitch_x),
+            fourier_lens_half_extent(wavelength, self.focal_length, pitch_y),
         )

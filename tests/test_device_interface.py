@@ -44,7 +44,7 @@ from hologradpy.optics.complex_amplitude import (  # noqa: E402
     FieldGeometry,
 )
 from hologradpy.optics.systems import SLMCZT  # noqa: E402
-from hologradpy.optics.modules.diagonal_elements import StaticSLMField  # noqa: E402
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField  # noqa: E402
 from hologradpy.profiles.amplitude import (  # noqa: E402
     gaussian_beam_intensity,
 )
@@ -138,7 +138,7 @@ def _build():
         camera_resolution=(240, 320),
         camera_pixel_size=CAMERA_PIXEL_SIZE,
         focal_length=0.25,
-        static_slm_field=StaticSLMField(beam),
+        slm_field=PixelwiseSLMField(beam),
     )
     camera = SimulatedCameraTorch(model, bitdepth=8)
     return slm, camera
@@ -440,15 +440,18 @@ class _QuantizedCamera(Camera):
 
 def test_autoexpose_settles_on_best_discrete_step():
     """With a coarsely quantized exposure whose steps straddle the target, autoexpose
-    settles on the closest achievable exposure instead of oscillating to the timeout."""
+    settles on the closest achievable exposure instead of spending its whole budget."""
     camera = _QuantizedCamera()  # peaks: 55 (1x), 110 (2x), 165 (3x). Target 128
-    exposure = camera.autoexpose(set_fraction=0.5, tolerance=0.05, timeout=5.0)
+    with pytest.warns(UserWarning, match="no finer exposure step"):
+        exposure = camera.autoexpose(
+            set_fraction=0.5, tolerance=0.05, max_iterations=5
+        )
 
     # 2 * step gives peak 110 (closest to 128). 3 * step overshoots to 165.
     assert exposure == pytest.approx(2e-3)
     assert camera.get_exposure() == pytest.approx(2e-3)
-    # The guard stops after a couple of steps. Without it the loop would spin until the
-    # timeout, calling set_exposure hundreds of times.
+    # The guard stops after a couple of steps. Without it the loop would spend the whole
+    # budget calling set_exposure on values the camera cannot distinguish.
     assert camera.set_exposure_calls <= 5
 
 

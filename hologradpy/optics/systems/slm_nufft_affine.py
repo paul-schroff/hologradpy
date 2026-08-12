@@ -1,5 +1,5 @@
 from ..modules.propagators import FourierLensNUFFT
-from ..modules.diagonal_elements import StaticSLMField
+from ..modules.slm_fields import SLMField
 from ..modules.geometric_transforms import GeometricWarp
 from ..modules.virtual_slms.abstract import VirtualSLM
 from ..complex_amplitude import FieldGeometry
@@ -20,7 +20,7 @@ class SLMNUFFTAffine(SLMFourierLensModel):
     """
 
     virtual_slm: VirtualSLM
-    static_slm_field: StaticSLMField
+    slm_field: SLMField
     fourier_lens: FourierLensNUFFT
     affine_transform: GeometricWarp
 
@@ -32,7 +32,7 @@ class SLMNUFFTAffine(SLMFourierLensModel):
         camera_resolution: tuple[int, int],
         camera_pixel_size: tuple[float, float],
         focal_length: float,
-        static_slm_field: StaticSLMField,
+        slm_field: SLMField,
         nufft_resolution: tuple[int, int] | None = None,
         camera_angle: float = 0.0,
         camera_shift: tuple[float, float] = (0.0, 0.0),
@@ -53,7 +53,7 @@ class SLMNUFFTAffine(SLMFourierLensModel):
             pointing_focal_shift_std=pointing_focal_shift_std,
             pointing_seed=pointing_seed,
             virtual_slm=virtual_slm,
-            static_slm_field=static_slm_field,
+            slm_field=slm_field,
             fourier_lens=FourierLensNUFFT(
                 focal_length,
                 resolution_out=nufft_resolution,

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import time
 from typing import TypeVar
 import torch
@@ -59,33 +61,45 @@ def crop_to_shape_2D(input: ArrayLike, target_shape: tuple[int, int]) -> ArrayLi
 
 
 class Timer:
-    def __init__(self, use_cuda: bool = False, verbose: bool = False) -> None:
-        """Timer class to measure elapsed time for CUDA and non-CUDA
-        operations."""
-        self.elapsed_time: float = None
+    def __init__(
+        self,
+        label: str = "Calculation",
+        use_cuda: bool = False,
+        verbose: bool = False,
+    ) -> None:
+        """
+        Args:
+            label: Name used in the printed messages.
+            use_cuda: Time the CUDA stream with events rather than the wall clock. Only
+                measures device work, so it under-reports anything that waits on
+                hardware or on the CPU.
+            verbose: Print when the timing starts and what it measured.
+        """
+        self.label: str = label
         self.use_cuda: bool = use_cuda
         self.verbose: bool = verbose
 
-        if use_cuda:
-            self.start_event = None
-            self.stop_event = None
-        else:
-            self.start_time: float = None
-            self.stop_time: float = None
+        self.elapsed_time: float | None = None
+        self.start_time: float | None = None
+        self.stop_time: float | None = None
+        self.start_event = None
+        self.stop_event = None
 
-    def start(self):
+    def start(self) -> Timer:
         if self.use_cuda:
             self.start_event = torch.cuda.Event(enable_timing=True)
             self.stop_event = torch.cuda.Event(enable_timing=True)
             self.start_event.record()
 
+        self.elapsed_time = None
         self.start_time = time.time()
 
         if self.verbose:
             date = time.strftime("%d-%m-%y__%H-%M-%S", time.localtime())
-            print("Calculation start: %s\n" % date)
+            print(f"{self.label} start: {date}\n")
+        return self
 
-    def stop(self):
+    def stop(self) -> float:
         if self.start_time is None:
             raise ValueError("Timer has not been started.")
 
@@ -99,7 +113,22 @@ class Timer:
             self.elapsed_time = self.stop_time - self.start_time
 
         if self.verbose:
-            print(
-                f"Ran for {(self.elapsed_time // 60):.0f} minutes and "
-                + f"{(self.elapsed_time % 60):.2f} seconds."
-            )
+            print(f"{self.label} took {self.formatted()}.")
+        return self.elapsed_time
+
+    def formatted(self) -> str:
+        """The elapsed time, in whichever units read most naturally."""
+        if self.elapsed_time is None:
+            return "not measured"
+        if self.elapsed_time < 1.0:
+            return f"{self.elapsed_time * 1e3:.0f} ms"
+        if self.elapsed_time < 60.0:
+            return f"{self.elapsed_time:.1f} s"
+        return f"{self.elapsed_time // 60:.0f} min {self.elapsed_time % 60:.1f} s"
+
+    def __enter__(self) -> Timer:
+        return self.start()
+
+    def __exit__(self, *exception) -> None:
+        # Stops on the way out of a failed block too, so a partial run still reports.
+        self.stop()

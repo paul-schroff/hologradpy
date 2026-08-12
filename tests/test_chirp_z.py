@@ -1,10 +1,10 @@
-"""The chirp-z (Bluestein) Fourier zoom and the 3-shear FFT rotation.
+"""The chirp-z (Bluestein) partial affine of the spectrum.
 
-``ChirpZZoom`` is the *exact* DFT sampled on a scaled + shifted (+ rotated) zoom
-window, so it must match the full FFT (and a padded FFT for a true zoom), have a
-correct conjugate-transpose adjoint, and be differentiable. ``shear_rotate`` must
-rotate by the right angle in the right direction (validated with an *asymmetric*
-pattern, since a symmetric one is rotation-invariant) and conserve power.
+``ChirpZPartialAffine`` is the *exact* DFT sampled on a scaled, shifted and rotated
+window, so it must match the full FFT (and a padded FFT for a true zoom), have a correct
+conjugate-transpose adjoint, and be differentiable. Its rotation must turn by the right
+angle in the right direction (validated with an *asymmetric* pattern, since a symmetric
+one is rotation-invariant) and conserve power.
 """
 
 from __future__ import annotations
@@ -14,10 +14,10 @@ import math
 import pytest
 import torch
 
-from hologradpy.optics.fourier_transforms import (
+from hologradpy.fourier_transforms import (
     fft_2d,
-    ChirpZZoom,
-    shear_rotate,
+    ChirpZPartialAffine,
+    place,
 )
 
 
@@ -48,7 +48,7 @@ def _relative_error(a: torch.Tensor, b: torch.Tensor) -> float:
 # %% Chirp-z zoom correctness
 def test_czt_matches_fft_at_unit_magnification() -> None:
     field = _random_field(48)
-    czt = ChirpZZoom((48, 48), (48, 48), (1.0, 1.0))
+    czt = ChirpZPartialAffine((48, 48), (48, 48), (1.0, 1.0))
     reference = fft_2d(field, norm="backward", fft_shift=True)
     assert _relative_error(czt.forward(field), reference) < 1e-3
 
@@ -56,7 +56,7 @@ def test_czt_matches_fft_at_unit_magnification() -> None:
 def test_czt_zoom_matches_padded_fft() -> None:
     n, magnification = 48, 2.0
     field = _random_field(n)
-    czt = ChirpZZoom((n, n), (n, n), (magnification, magnification))
+    czt = ChirpZPartialAffine((n, n), (n, n), (magnification, magnification))
 
     padded = int(n * magnification)
     offset = (padded - n) // 2
@@ -72,7 +72,7 @@ def test_czt_zoom_matches_padded_fft() -> None:
 def test_czt_adjoint_is_conjugate_transpose() -> None:
     field = _random_field(48)
     other = (torch.randn(48, 48) + 1j * torch.randn(48, 48)).to(torch.complex64)
-    czt = ChirpZZoom(
+    czt = ChirpZPartialAffine(
         (48, 48), (48, 48), (1.5, 1.5), shift=(0.3, -0.2),
         angle=math.radians(20),
     )
@@ -83,79 +83,166 @@ def test_czt_adjoint_is_conjugate_transpose() -> None:
 
 def test_czt_is_differentiable() -> None:
     field = _random_field(32).requires_grad_(True)
-    czt = ChirpZZoom((32, 32), (32, 32), (1.5, 1.5))
+    czt = ChirpZPartialAffine((32, 32), (32, 32), (1.5, 1.5))
     czt.forward(field).abs().sum().backward()
     assert field.grad is not None
 
 
-# %% Shear rotation
-def test_shear_rotate_round_trip() -> None:
-    field = _elliptical_gaussian(96, 10.0, 6.0, 0.0)
-    recovered = shear_rotate(shear_rotate(field, math.radians(25)), math.radians(-25))
-    assert _relative_error(recovered, field) < 1e-4
+# %% Framing
 
 
-def test_shear_rotate_conserves_power() -> None:
+def test_place_centres_a_field_in_a_larger_frame() -> None:
+    """The centre sample has to land on the centre sample. Any other offset is a phase
+    ramp in the conjugate plane, so it reads as a tilt across the focal plane rather
+    than as a shifted image."""
+    field = torch.zeros((64, 80), dtype=torch.complex64)
+    field[64 // 2, 80 // 2] = 1.0
+
+    placed = place(field, (96, 112))
+
+    assert tuple(placed.shape) == (96, 112)
+    assert int(placed.abs().argmax()) == (96 // 2) * 112 + 112 // 2
+
+
+def test_place_crops_as_well_as_grows() -> None:
+    """The same call shrinks a frame, which is what lets a rotation out into a larger
+    frame and the rotation back into the smaller one be the same operation."""
     field = _elliptical_gaussian(96, 10.0, 6.0, 0.0)
-    rotated = shear_rotate(field, math.radians(25))
-    power_in = float((field.abs() ** 2).sum())
-    power_out = float((rotated.abs() ** 2).sum())
-    assert abs(power_out / power_in - 1.0) < 1e-3
+
+    assert tuple(place(field, (48, 64)).shape) == (48, 64)
+    assert tuple(place(field, (96, 96)).shape) == (96, 96)
+
+
+def test_growing_a_frame_is_the_transpose_of_shrinking_it() -> None:
+    """``FourierLensCZT`` grows the frame on the way out and shrinks it on the way back,
+    and its adjoint is a true conjugate transpose only if those two are transposes."""
+    small, large = (32, 40), (48, 56)
+    generator = torch.Generator().manual_seed(0)
+    source = torch.randn(small, generator=generator, dtype=torch.float64)
+    probe = torch.randn(large, generator=generator, dtype=torch.float64)
+
+    left = float((place(source, large) * probe).sum())
+    right = float((source * place(probe, small)).sum())
+    assert left == pytest.approx(right, rel=1e-12)
+
+
+# %% Rotation, which now lives inside the transform
+
+
+def test_chirpz_rotation_conserves_power() -> None:
+    """The rotation is area preserving, so it must not cost the field any power. A
+    compact field, since anything the shear carries past the frame edge is cropped and
+    that loss is framing, not rotation."""
+    field = _elliptical_gaussian(96, 10.0, 6.0, 0.0)
+    settings = ((96, 96), (96, 96), (1.0, 1.0))
+
+    plain = ChirpZPartialAffine(*settings).forward(field)
+    rotated = ChirpZPartialAffine(*settings, angle=math.radians(25)).forward(field)
+
+    ratio = float(rotated.abs().pow(2).sum() / plain.abs().pow(2).sum())
+    assert ratio == pytest.approx(1.0, abs=1e-3)
 
 
 @pytest.mark.parametrize("angle", [0.0, 1e-6, 0.05, 0.3, -0.4])
-def test_shear_rotate_angle_gradient_matches_finite_differences(
-    angle: float,
-) -> None:
-    """The gradient w.r.t. the angle is right, including at exactly zero.
+def test_chirpz_angle_gradient_matches_finite_differences(angle: float) -> None:
+    """The gradient with respect to the angle is right, including at exactly zero.
 
-    The internal zero padding is sized from the largest shift, so rounding it
-    up singled out a shift of exactly zero: it got one sample of padding where
-    any nonzero shift got two, and the transform length changed discontinuously
-    across zero. That corrupted the gradient precisely at the default angle a
-    calibration starts from.
+    Zero is the value a calibration starts from, and it is where a transform length that
+    steps discontinuously with the angle would corrupt the gradient: the shear's padding
+    is sized from the largest shift, so rounding it up rather than flooring it would
+    single out a shift of exactly zero.
+
+    In double precision throughout, since a central difference of this size is swamped
+    by float32 rounding, which would mask the very defect being checked. The default
+    dtype has to move too: the frequency grids are built from it, and a float32 grid
+    caps the transform near 1e-5 however precise the field is.
     """
-    # Double precision: a central difference of this size is swamped by float32
-    # rounding, which would mask the very defect being checked.
-    field = _elliptical_gaussian(32, 6.0, 4.0, 0.0).to(torch.complex128)
-    weight = _elliptical_gaussian(32, 9.0, 3.0, 0.7).to(torch.complex128)
+    previous = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float64)
+    try:
+        field = _elliptical_gaussian(32, 6.0, 4.0, 0.0).to(torch.complex128)
+        weight = _elliptical_gaussian(32, 9.0, 3.0, 0.7).to(torch.complex128)
 
-    def loss(value: torch.Tensor) -> torch.Tensor:
-        return (shear_rotate(field, value) * weight).real.sum()
+        def loss(value: torch.Tensor) -> torch.Tensor:
+            transform = ChirpZPartialAffine(
+                (32, 32), (32, 32), (1.0, 1.0), angle=value
+            )
+            return (transform.forward(field) * weight).real.sum()
 
-    parameter = torch.tensor(angle, dtype=torch.float64, requires_grad=True)
-    loss(parameter).backward()
+        parameter = torch.tensor(angle, dtype=torch.float64, requires_grad=True)
+        loss(parameter).backward()
 
-    step = 1e-5
-    numeric = (
-        loss(torch.tensor(angle + step, dtype=torch.float64))
-        - loss(torch.tensor(angle - step, dtype=torch.float64))
-    ) / (2 * step)
+        step = 1e-5
+        numeric = (
+            loss(torch.tensor(angle + step, dtype=torch.float64))
+            - loss(torch.tensor(angle - step, dtype=torch.float64))
+        ) / (2 * step)
 
-    torch.testing.assert_close(
-        parameter.grad, numeric.detach(), rtol=1e-4, atol=1e-6
-    )
+        torch.testing.assert_close(
+            parameter.grad, numeric.detach(), rtol=1e-4, atol=1e-6
+        )
+    finally:
+        torch.set_default_dtype(previous)
 
 
-def test_shear_rotate_matches_analytic_rotation_with_correct_direction() -> None:
-    # Asymmetric (elongated) Gaussian: rotating it must match the analytically
-    # rotated ellipse and clearly NOT the opposite rotation.
-    field = _elliptical_gaussian(96, 13.0, 5.0, 0.0)
+def test_chirpz_rotates_in_the_direction_it_claims() -> None:
+    """An elongated gaussian, so the direction is unmistakable: its transform must match
+    the transform of the analytically rotated ellipse and clearly not the opposite
+    rotation. A symmetric field would pass either way."""
     theta = math.radians(25)
-    rotated = shear_rotate(field, theta)
-    error_same = _relative_error(rotated, _elliptical_gaussian(96, 13.0, 5.0, theta))
-    error_opposite = _relative_error(
-        rotated, _elliptical_gaussian(96, 13.0, 5.0, -theta)
+    plain = ChirpZPartialAffine((96, 96), (96, 96), (1.0, 1.0))
+    rotated = ChirpZPartialAffine((96, 96), (96, 96), (1.0, 1.0), angle=theta).forward(
+        _elliptical_gaussian(96, 13.0, 5.0, 0.0)
     )
-    assert error_same < 1e-2
-    assert error_opposite > 0.1
+
+    same = plain.forward(_elliptical_gaussian(96, 13.0, 5.0, theta))
+    opposite = plain.forward(_elliptical_gaussian(96, 13.0, 5.0, -theta))
+
+    assert _relative_error(rotated, same) < 1e-2
+    assert _relative_error(rotated, opposite) > 0.1
 
 
-def test_chirpzzoom_rotation_equals_rotated_input_zoom() -> None:
-    field = _random_field(48)
-    theta = math.radians(20)
-    rotated_zoom = ChirpZZoom((48, 48), (48, 48), (1.5, 1.5), angle=theta)
-    plain_zoom = ChirpZZoom((48, 48), (48, 48), (1.5, 1.5))
-    assert _relative_error(
-        rotated_zoom.forward(field), plain_zoom.forward(shear_rotate(field, theta))
-    ) < 1e-5
+def test_chirpzzoom_rotation_matches_the_rotated_sample_grid() -> None:
+    """The rotation, against a direct sum over the points it claims to visit.
+
+    Both are exact, so they agree to floating point. This is the test that would catch a
+    sign or an axis swap in the folded rotation, which would otherwise show up only as a
+    wavefront recovered the wrong way round.
+    """
+    # The chirp phases grow as step * n**2, so a float32 frequency grid caps the whole
+    # transform near 1e-5 however precise the field is. Exactness needs float64 ramps.
+    previous = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float64)
+    try:
+        _rotation_matches_the_rotated_sample_grid()
+    finally:
+        torch.set_default_dtype(previous)
+
+
+def _rotation_matches_the_rotated_sample_grid() -> None:
+    resolution, resolution_out = (48, 64), (40, 56)
+    rows = torch.arange(resolution[0], dtype=torch.float64) - resolution[0] // 2
+    columns = torch.arange(resolution[1], dtype=torch.float64) - resolution[1] // 2
+    y, x = torch.meshgrid(rows, columns, indexing="ij")
+    # Compact, so the shear that is left carries nothing past the frame edge, where it
+    # would be cropped. That loss is a property of shearing a field that fills its
+    # frame, not of the factorisation, and it would otherwise set the tolerance here.
+    field = torch.exp(-0.5 * ((x / 3.0) ** 2 + (y / 3.0) ** 2)).to(torch.complex128)
+
+    for degrees in (-19.0, 0.0, 7.0, 25.0):
+        transform = ChirpZPartialAffine(
+            resolution, resolution_out, (1.3, 0.8), (0.21, -0.13),
+            math.radians(degrees),
+        )
+        # frequencies carries the points it says it samples, (2, H_out * W_out).
+        omega = transform.frequencies
+        phase = torch.exp(
+            -1j
+            * (
+                omega[0][:, None, None] * columns[None, None, :]
+                + omega[1][:, None, None] * rows[None, :, None]
+            )
+        )
+        expected = (phase * field).sum(dim=(-2, -1)).reshape(resolution_out)
+
+        assert _relative_error(transform.forward(field), expected) < 1e-10, degrees

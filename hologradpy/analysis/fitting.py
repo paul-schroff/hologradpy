@@ -72,15 +72,14 @@ def curve_fit_2d(
 def remove_tilt(phase: NDArray, mask: NDArray | None = None) -> NDArray:
     """Fit and subtract piston and tilt from an image.
 
-    Fits the first three Zernike modes (piston and tip/tilt) to ``phase`` over
-    the region defined by ``mask`` as a linear least-squares problem and
-    subtracts the fitted surface. Higher-order modes (defocus, astigmatism,
-    ...) are left untouched.
+    Fits the first three Zernike modes (piston and tip/tilt) to ``phase`` over the
+    region defined by ``mask`` as a linear least-squares problem and subtracts the
+    fitted surface. Higher-order modes (defocus, astigmatism, ...) are left untouched.
 
     Args:
         phase (NDArray): Input phase.
-        mask (NDArray | None, optional): Boolean mask of the region to fit
-            over. Defaults to the whole image.
+        mask (NDArray | None, optional): Boolean mask of the region to fit over. 
+            Defaults to the whole image.
 
     Returns:
         NDArray: Phase with piston and tilt removed.

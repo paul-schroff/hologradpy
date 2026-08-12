@@ -15,7 +15,7 @@ class PointingInstability(OpticsModule):
     Each :meth:`forward` draws a beam tilt [rad] from a zero-mean Gaussian and
     applies it as a linear phase ramp (:func:`linear_phase`), modelling a random
     change in beam angle which shifts the focal spot downstream. Intended to sit
-    just after ``StaticSLMField`` in the SLM-plane chain. Output geometry equals
+    just after ``PixelwiseSLMField`` in the SLM-plane chain. Output geometry equals
     input geometry.
 
     Args:

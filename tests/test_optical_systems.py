@@ -21,7 +21,7 @@ from hologradpy.optics.systems import (
     SLMNUFFTAffine,
     SLMCZT,
 )
-from hologradpy.optics.modules.diagonal_elements import StaticSLMField
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.virtual_slms.abstract import VirtualSLM
 
 
@@ -47,15 +47,15 @@ def _constant_field() -> ComplexAmplitude:
     return ComplexAmplitude(data, geometry.wavelength, geometry.pixel_size)
 
 
-def _static_slm_field() -> StaticSLMField:
-    return StaticSLMField(_constant_field())
+def _slm_field() -> PixelwiseSLMField:
+    return PixelwiseSLMField(_constant_field())
 
 
 def _make_slm_fft(pointing_focal_shift_std=None) ->SLMFFT:
     return SLMFFT(
         input_geometry=_input_geometry(),
         virtual_slm=VirtualSLM(phase_scaling=1.0),
-        static_slm_field=_static_slm_field(),
+        slm_field=_slm_field(),
         focal_length=0.1,
         padded_resolution=PADDED_RESOLUTION,
         pointing_focal_shift_std=pointing_focal_shift_std,
@@ -69,7 +69,7 @@ def _make_slm_fft_affine(pointing_focal_shift_std=None) ->SLMFFTAffine:
         camera_resolution=CAMERA_RESOLUTION,
         camera_pixel_size=CAMERA_PIXEL_SIZE,
         focal_length=0.1,
-        static_slm_field=_static_slm_field(),
+        slm_field=_slm_field(),
         padded_resolution=PADDED_RESOLUTION,
         pointing_focal_shift_std=pointing_focal_shift_std,
     )
@@ -82,7 +82,7 @@ def _make_slm_nufft_affine(pointing_focal_shift_std=None) ->SLMNUFFTAffine:
         camera_resolution=CAMERA_RESOLUTION,
         camera_pixel_size=CAMERA_PIXEL_SIZE,
         focal_length=0.1,
-        static_slm_field=_static_slm_field(),
+        slm_field=_slm_field(),
         camera_angle=5.0,
         camera_shift=(1.0, 2.0),
         pointing_focal_shift_std=pointing_focal_shift_std,
@@ -96,7 +96,7 @@ def _make_slm_czt(pointing_focal_shift_std=None) ->SLMCZT:
         camera_resolution=CAMERA_RESOLUTION,
         camera_pixel_size=CAMERA_PIXEL_SIZE,
         focal_length=0.1,
-        static_slm_field=_static_slm_field(),
+        slm_field=_slm_field(),
         camera_angle=5.0,
         camera_shift=(1.0, 2.0),
         pointing_focal_shift_std=pointing_focal_shift_std,
@@ -188,9 +188,9 @@ def test_insert_after_places_module_in_chain() -> None:
     )
 
     model = _make_slm_czt()
-    model.insert_after(StaticSLMField, "jitter", PointingInstability(1e-4))
+    model.insert_after(PixelwiseSLMField, "jitter", PointingInstability(1e-4))
     order = list(model.layers())
-    assert order[order.index("static_slm_field") + 1] == "jitter"
+    assert order[order.index("slm_field") + 1] == "jitter"
     assert model["jitter"] is model.get(PointingInstability)
     assert isinstance(model(), ComplexAmplitude)  # forward still runs
 
@@ -198,7 +198,7 @@ def test_insert_after_places_module_in_chain() -> None:
 @pytest.mark.parametrize("name", SYSTEM_IDS)
 def test_pointing_instability_inserted_after_static_field(name: str) -> None:
     """Each SLM model builds a PointingInstability from pointing_focal_shift_std
-    (using its own focal_length) and inserts it right after its StaticSLMField
+    (using its own focal_length) and inserts it right after its PixelwiseSLMField
     stage (whatever that layer happens to be named)."""
     from hologradpy.optics.modules.hardware_models import (
         PointingInstability,
@@ -209,7 +209,7 @@ def test_pointing_instability_inserted_after_static_field(name: str) -> None:
 
     assert model.has(PointingInstability)
     order = list(model.layers())
-    static_name = next(n for n in order if isinstance(model[n], StaticSLMField))
+    static_name = next(n for n in order if isinstance(model[n], PixelwiseSLMField))
     assert order[order.index(static_name) + 1] == "pointing_instability"
     assert model.get(PointingInstability).tilt_std == (2e-6 / 0.1, 2e-6 / 0.1)
     assert isinstance(model(), ComplexAmplitude)  # forward still runs
@@ -271,7 +271,7 @@ def test_checkpoint_preserves_pointing_instability(tmp_path) -> None:
         camera_resolution=CAMERA_RESOLUTION,
         camera_pixel_size=CAMERA_PIXEL_SIZE,
         focal_length=0.1,
-        static_slm_field=_static_slm_field(),
+        slm_field=_slm_field(),
         camera_angle=5.0,
         camera_shift=(1.0, 2.0),
         pointing_focal_shift_std=2e-6,

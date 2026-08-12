@@ -410,7 +410,7 @@ class SpotArrayMapper(CameraMapper):
             detected, calculated, transform
         )
 
-        center = (resolution_out[0] // 2, resolution_out[1] // 2)
+        center = (resolution_out[1] // 2, resolution_out[0] // 2)
         zeroth_order_position = (
             inverse_transform[1, 0] * center[0]
             + inverse_transform[1, 1] * center[1]

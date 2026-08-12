@@ -269,8 +269,8 @@ class CheckerboardMapper(CameraMapper):
         )
 
         center = (
-            self.slm_camera_model.fourier_lens.resolution_out[0] // 2,
             self.slm_camera_model.fourier_lens.resolution_out[1] // 2,
+            self.slm_camera_model.fourier_lens.resolution_out[0] // 2,
         )
 
         zeroth_order_position = (

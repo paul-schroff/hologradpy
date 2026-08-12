@@ -4,9 +4,10 @@ import torch
 from torch import nn, Tensor
 
 from ....utils import pad_to_shape_2D, crop_to_shape_2D
-from ...fourier_transforms import FastFourierTransform
+from ....fourier_transforms import FastFourierTransform
 
 from ..abstract import OpticsModule, SaveDict
+from ....fourier_optics import fourier_lens_pixel_size
 from ...complex_amplitude import ComplexAmplitude, broadcast_wavelength_operand
 
 
@@ -173,7 +174,9 @@ class FourierLensFFT(OpticsModule):
         pixel_size_in: Tensor,
         padded_resolution: Tensor,
     ) -> Tensor:
-        return wavelength * focal_length / (pixel_size_in * padded_resolution)
+        return fourier_lens_pixel_size(
+            wavelength, focal_length, pixel_size_in, padded_resolution
+        )
 
     @property
     def pixel_size_out(self) -> Tensor:

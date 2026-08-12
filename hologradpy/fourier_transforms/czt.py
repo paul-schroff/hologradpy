@@ -3,17 +3,19 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
+from scipy.fft import next_fast_len
+
 from .abstract import FourierBase
-from ...grids import get_zoom_frequency_grid
-from .shear_rotation import shear_rotate
+from .sampling import get_zoom_frequency_grid
+from .shear import fft_shear
 
 
-def _next_pow2(n: int) -> int:
-    return 1 << (n - 1).bit_length()
+def _convolution_length(length: int, points: int) -> int:
+    return next_fast_len(length + points - 1)
 
 
 def _czt_forward_last(field: Tensor, omega: Tensor) -> Tensor:
-    """1D chirp-z along the last axis: evaluate the *centred* DFT
+    """1D chirp-z along the last axis: evaluate the centred DFT
     ``X_k = sum_n field[n] * exp(-i * omega_k * (n - N//2))`` at the uniformly spaced
     sample frequencies ``omega`` (rad/sample), exactly.
     """
@@ -23,10 +25,7 @@ def _czt_forward_last(field: Tensor, omega: Tensor) -> Tensor:
 
     step = omega[1] - omega[0]
     omega0 = omega[0]
-    # The index ramps follow the precision of omega. Pinning them to float32
-    # caps the whole transform at roughly 1e-7 even for a complex128 field,
-    # because the chirp phases grow as step * n**2 and lose their low-order
-    # bits well before the field dtype would.
+
     dtype = omega.dtype
     n = torch.arange(length, device=device, dtype=dtype)
     k = torch.arange(points, device=device, dtype=dtype)
@@ -35,7 +34,7 @@ def _czt_forward_last(field: Tensor, omega: Tensor) -> Tensor:
     pre_chirp = torch.exp(-1j * (omega0 * n + 0.5 * step * n * n))
     kernel = torch.exp(0.5j * step * m * m)
 
-    convolution_length = _next_pow2(2 * length + points)
+    convolution_length = _convolution_length(length, points)
     convolution = torch.fft.ifft(
         torch.fft.fft(field * pre_chirp, n=convolution_length, dim=-1)
         * torch.fft.fft(kernel, n=convolution_length),
@@ -58,7 +57,7 @@ def _czt_adjoint_last(samples: Tensor, omega: Tensor, length: int) -> Tensor:
 
     step = omega[1] - omega[0]
     omega0 = omega[0]
-    # Matches the forward transform: the ramps follow omega's precision.
+
     dtype = omega.dtype
     n = torch.arange(length, device=device, dtype=dtype)
     k = torch.arange(points, device=device, dtype=dtype)
@@ -69,7 +68,7 @@ def _czt_adjoint_last(samples: Tensor, omega: Tensor, length: int) -> Tensor:
     pre_chirp = torch.exp(0.5j * step * k * k)
     kernel = torch.exp(-0.5j * step * m * m)
 
-    convolution_length = _next_pow2(2 * points + length)
+    convolution_length = _convolution_length(points, length)
     convolution = torch.fft.ifft(
         torch.fft.fft(samples * pre_chirp, n=convolution_length, dim=-1)
         * torch.fft.fft(kernel, n=convolution_length),
@@ -81,15 +80,8 @@ def _czt_adjoint_last(samples: Tensor, omega: Tensor, length: int) -> Tensor:
     return convolution * post_chirp * torch.exp(1j * omega0 * n)
 
 
-class ChirpZZoom(FourierBase):
-    """Exact scale + shift + rotate Fourier zoom.
-
-    The scale and shift come from the chirp-z (Bluestein) transform applied separably
-    along each axis at the :func:`get_zoom_frequency_grid` sample points; the (optional)
-    rotation is a 3-shear FFT rotation of the input, using ``F(R k) = FT(f o R)(k)``.
-    Unlike the KbNufft this is the *exact* DFT at those points (``is_gridded=True``), so
-    its power is correct -- no interpolation/normalization fudge. Fully differentiable.
-    """
+class ChirpZPartialAffine(FourierBase):
+    """The exact DFT sampled on a partial affine of the spectrum."""
 
     def __init__(
         self,
@@ -97,18 +89,19 @@ class ChirpZZoom(FourierBase):
         resolution_out: tuple[int, int],
         magnification: tuple[float, float],
         shift: tuple[float, float] = (0.0, 0.0),
-        angle: float = 0.0,
+        angle: float | Tensor = 0.0,
         device: torch.device = "cpu",
     ) -> None:
         omega_x, omega_y = get_zoom_frequency_grid(
             resolution, resolution_out, magnification, shift, device
         )
-        grid_x, grid_y = torch.meshgrid(omega_x, omega_y, indexing="xy")
-        frequencies = torch.stack((grid_x.flatten(), grid_y.flatten()), dim=0)
+        rotates = torch.is_tensor(angle) or angle != 0.0
+        angle = torch.as_tensor(angle, dtype=omega_x.dtype, device=omega_x.device)
+        cosine, sine = torch.cos(angle), torch.sin(angle)
 
         super().__init__(
             resolution,
-            frequencies=frequencies,
+            frequencies=None,
             is_gridded=True,
             resolution_out=resolution_out,
             device=device,
@@ -117,22 +110,52 @@ class ChirpZZoom(FourierBase):
         self.omega_y = omega_y
         self.angle = angle
 
+        # The triangular part of the rotation, as two rescaled grids and one skew.
+        self._omega_x = omega_x / cosine
+        self._omega_y = cosine * omega_y
+        self._skew = sine * omega_x
+
+        # The shear that is left, one shift per input column.
+        columns = torch.arange(resolution[1], device=device) - resolution[1] // 2
+        self._shear = torch.tan(angle) * columns.to(omega_x.dtype)
+        self._rotates = rotates
+
+    def _build_frequencies(self) -> Tensor:
+        cosine, sine = torch.cos(self.angle), torch.sin(self.angle)
+        grid_x, grid_y = torch.meshgrid(self.omega_x, self.omega_y, indexing="xy")
+        return torch.stack(
+            (
+                (grid_x * cosine + grid_y * sine).flatten(),
+                (grid_y * cosine - grid_x * sine).flatten(),
+            ),
+            dim=0,
+        )
+
+    def _skew_phase(self, field: Tensor) -> Tensor:
+        length = field.shape[-2]
+        rows = torch.arange(length, device=field.device) - length // 2
+        return torch.exp(1j * self._skew[None, :] * rows.to(self._skew.dtype)[:, None])
+
     def forward(self, input: Tensor) -> Tensor:
         field = input
-        if self.angle != 0.0:
-            field = shear_rotate(field, self.angle)
+        if self._rotates:
+            field = fft_shear(field, -2, self._shear)
         # Separable chirp-z: along x (last axis), then along y (via transpose).
-        field = _czt_forward_last(field, self.omega_x)
+        field = _czt_forward_last(field, self._omega_x)
+        if self._rotates:
+            field = field * self._skew_phase(field)
         field = _czt_forward_last(
-            field.transpose(-1, -2), self.omega_y
+            field.transpose(-1, -2), self._omega_y
         ).transpose(-1, -2)
         return field
 
     def adjoint(self, samples: Tensor) -> Tensor:
         field = _czt_adjoint_last(
-            samples.transpose(-1, -2), self.omega_y, self.resolution[0]
+            samples.transpose(-1, -2), self._omega_y, self.resolution[0]
         ).transpose(-1, -2)
-        field = _czt_adjoint_last(field, self.omega_x, self.resolution[1])
-        if self.angle != 0.0:
-            field = shear_rotate(field, -self.angle)
+        if self._rotates:
+            field = field * self._skew_phase(field).conj()
+        field = _czt_adjoint_last(field, self._omega_x, self.resolution[1])
+        if self._rotates:
+            field = fft_shear(field, -2, -self._shear)
         return field

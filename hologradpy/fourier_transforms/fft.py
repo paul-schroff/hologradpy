@@ -7,7 +7,7 @@ from torch import Tensor
 from torch.fft import fftn, ifftn, fftshift, ifftshift
 
 from .abstract import FourierBase
-from ...grids import get_zoom_frequency_grid
+from .sampling import get_zoom_frequency_grid
 
 
 def fft_2d(

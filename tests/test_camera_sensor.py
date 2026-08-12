@@ -16,7 +16,7 @@ from scipy.constants import Planck, speed_of_light
 
 from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 from hologradpy.optics.modules.hardware_models import CameraSensor
-from hologradpy.optics.modules.diagonal_elements import StaticSLMField
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.virtual_slms.abstract import VirtualSLM
 from hologradpy.optics.systems import SLMFFTAffine
 from hologradpy.hardware import SimulatedCameraTorch
@@ -127,7 +127,7 @@ def _make_model():
         pixel_size=torch.tensor([[10e-6, 10e-6]]),
         resolution=(32, 32),
     )
-    static = StaticSLMField(
+    static = PixelwiseSLMField(
         ComplexAmplitude(
             torch.ones((32, 32), dtype=torch.complex64),
             geometry.wavelength,
@@ -140,7 +140,7 @@ def _make_model():
         camera_resolution=(24, 24),
         camera_pixel_size=(20e-6, 20e-6),
         focal_length=0.1,
-        static_slm_field=static,
+        slm_field=static,
         padded_resolution=(64, 64),
     )
 
@@ -194,3 +194,32 @@ def test_get_image_torch_backend_matches_numpy() -> None:
 
     with pytest.raises(ValueError):
         camera.get_image(backend="nonsense")
+
+
+def test_autoexpose_never_accepts_a_saturated_frame() -> None:
+    """A clipped frame hides the true peak, so it can never count as converged.
+
+    With ``set_fraction`` close to full scale the error of a saturated frame can
+    fall inside ``tolerance`` on its own: at 8 bits, 0.95 targets 243.2 and a
+    saturated frame reads 255, an error of 0.046 against the default 0.05. The
+    loop then exited immediately and left the exposure untouched, so the speckle
+    calibrator was handed completely clipped frames and could not fit anything.
+    """
+    model = _make_model()
+    camera = SimulatedCameraTorch(model, bitdepth=8, noise_level=0.0)
+
+    # Start far enough into saturation that a single gentle step cannot fix it.
+    camera.set_exposure(1.0)
+    assert float(np.asarray(camera.get_image()).max()) >= camera.adu_levels - 1
+
+    # An explicit budget, well above the default of 5. A clipped frame hides the true
+    # peak, so there is no step that lands on the target and the descent is geometric:
+    # from this starting point it takes about twenty frames, where an underexposed
+    # region takes one. That asymmetry is a property of the descent, not of this test.
+    exposure = camera.autoexpose(
+        set_fraction=0.95, tolerance=0.05, max_iterations=25
+    )
+
+    image = np.asarray(camera.get_image(), dtype=float)
+    assert exposure < 1.0                                  # it actually reduced
+    assert image.max() < camera.adu_levels - 1             # and is no longer clipped

@@ -6,7 +6,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ...visualizer import BaseVisualizer, GridCell, PlotBuilder, PlotLayout
+from ...visualizer import (
+    INTENSITY_CMAP,
+    BaseVisualizer,
+    GridCell,
+    PlotBuilder,
+    PlotLayout,
+)
 
 from .abstract import CameraMapper
 
@@ -74,7 +80,7 @@ class CameraMapperVisualizer(BaseVisualizer):
         builder = (
             PlotBuilder(self.default_layout())
             .draw_image(
-                "camera", np.asarray(mapping.camera_images[0]), cmap="turbo",
+                "camera", np.asarray(mapping.camera_images[0]), cmap=INTENSITY_CMAP,
                 title="Camera image + detected spots",
             )
             .draw_points(
@@ -82,7 +88,8 @@ class CameraMapperVisualizer(BaseVisualizer):
                 label="matched spots",
             )
             .draw_image(
-                "simulated", np.asarray(mapping.simulated_images[0]), cmap="turbo",
+                "simulated", np.asarray(mapping.simulated_images[0]),
+                cmap=INTENSITY_CMAP,
                 title="Simulated image + calculated spots",
             )
             .draw_points(

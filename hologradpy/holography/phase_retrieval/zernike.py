@@ -8,7 +8,7 @@ from ...utils import Timer
 from ...optics.systems import SLMFourierLensModel
 
 from .abstract import PhaseRetrieverBase
-from ..loss_functions import LossIntensityMSE
+from ...loss_functions import LossIntensityMSE
 
 
 # TODO: Add error metrics
@@ -27,7 +27,7 @@ class ZernikePhaseRetriever(PhaseRetrieverBase):
         self.loss_function = LossIntensityMSE(
             target_intensity=self.target,
             signal_mask=self.signal_region,
-            steepness=1e12,
+            scale=1e12,
         )
 
         self.timer = Timer(use_cuda=self.device.type == "cuda", verbose=True)
@@ -53,7 +53,7 @@ class ZernikePhaseRetriever(PhaseRetrieverBase):
         self.optimizer.zero_grad()
 
         electric_field = self.slm_camera_model()
-        loss = self.loss_function.loss(electric_field)
+        loss = self.loss_function(electric_field)
 
         print(f"Loss: {loss.item()}")
         return loss

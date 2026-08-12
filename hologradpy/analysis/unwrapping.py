@@ -1,15 +1,22 @@
 """Phase-unwrapping utilities."""
 
+from __future__ import annotations
+
 import numpy as np
 from numpy.typing import NDArray
 
+from scipy.fft import dctn, idctn
 from scipy.spatial import Delaunay
-from scipy.sparse import lil_matrix
-from scipy.sparse.linalg import lsqr
+from scipy.sparse import coo_matrix, csr_matrix, lil_matrix
+from scipy.sparse.csgraph import connected_components
+from scipy.sparse.linalg import LinearOperator, cg, lsqr, splu
 
 
 def wrap(x: NDArray[np.float_]) -> NDArray[np.float_]:
-    """Wrap phase values into the interval ``(-pi, pi]``.
+    """Wrap phase values into the interval ``[-pi, pi)``.
+
+    Note the half-open end: an input of exactly pi comes back as ``-pi``, unlike
+    :func:`numpy.angle`, which returns ``pi``. The two agree everywhere else.
 
     Args:
         x (NDArray): Phase values.
@@ -20,35 +27,208 @@ def wrap(x: NDArray[np.float_]) -> NDArray[np.float_]:
     return (x + np.pi) % (2 * np.pi) - np.pi
 
 
-def unwrap_2d_mask(
-    phase: NDArray[np.float_], mask: NDArray[np.float_], **kwargs
-) -> NDArray[np.float_]:
-    """Unwrap a phase image within a region of interest defined by a mask.
+def _neighbour_pairs(
+    mask: NDArray[np.bool_],
+) -> tuple[NDArray[np.int64], NDArray[np.int64]]:
+    """Four-connected neighbour pairs inside a mask.
 
-    The phase is unwrapped row by row and then column by column with
-    ``np.unwrap``, considering only the pixels inside ``mask``. Pixels outside
-    the mask are set to zero.
+    Args:
+        mask (NDArray): Boolean mask defining the region of interest.
+
+    Returns:
+        tuple[NDArray, NDArray]: Two index arrays naming the ends of each pair, indexing
+        the masked pixels in the order ``phase[mask]`` gives them.
+    """
+    index = np.full(mask.shape, -1, dtype=np.int64)
+    index[mask] = np.arange(int(mask.sum()))
+
+    starts, ends = [], []
+    for axis in (0, 1):
+        # Both ends inside the mask. The roll wraps around, so drop the far edge.
+        pair = mask & np.roll(mask, -1, axis=axis)
+        if axis == 0:
+            pair[-1, :] = False
+        else:
+            pair[:, -1] = False
+        starts.append(index[pair])
+        ends.append(index[np.roll(pair, 1, axis=axis)])
+
+    return np.concatenate(starts), np.concatenate(ends)
+
+
+def _normal_equations(
+    phase: NDArray[np.float_], mask: NDArray[np.bool_]
+) -> tuple[csr_matrix, NDArray[np.float_], NDArray[np.float_]]:
+    """The least-squares system both unwrappers solve.
+
+    One row per four-connected neighbour pair, reading -1 at one end and +1 at the
+    other, so the row measures the difference across that pair. The normal equations of
+    that system have the mask's graph laplacian as their matrix, singular by one
+    constant per connected region, which is the 2 pi gauge freedom of the problem.
 
     Args:
         phase (NDArray): Wrapped phase image.
         mask (NDArray): Boolean mask defining the region of interest.
-        **kwargs: Keyword arguments forwarded to ``np.unwrap``.
+
+    Returns:
+        tuple: The laplacian, the right-hand side, and the wrapped phase of the masked
+        pixels in the order ``phase[mask]`` gives them.
+    """
+    number_of_pixels = int(mask.sum())
+    wrapped = phase[mask].astype(float)
+    starts, ends = _neighbour_pairs(mask)
+
+    number_of_pairs = len(starts)
+    differences = wrap(wrapped[ends] - wrapped[starts])
+    gradient = coo_matrix(
+        (
+            np.concatenate([-np.ones(number_of_pairs), np.ones(number_of_pairs)]),
+            (
+                np.tile(np.arange(number_of_pairs), 2),
+                np.concatenate([starts, ends]),
+            ),
+        ),
+        shape=(number_of_pairs, number_of_pixels),
+    ).tocsr()
+
+    return (gradient.T @ gradient).tocsr(), gradient.T @ differences, wrapped
+
+
+def _region_anchors(laplacian: csr_matrix) -> tuple[int, NDArray, NDArray]:
+    """One pixel per connected region, to pin that region's gauge against."""
+    number_of_regions, labels = connected_components(laplacian, directed=False)
+    anchors = np.array(
+        [np.flatnonzero(labels == region)[0] for region in range(number_of_regions)]
+    )
+    return number_of_regions, labels, anchors
+
+
+def _anchored(
+    solution: NDArray[np.float_],
+    wrapped: NDArray[np.float_],
+    labels: NDArray,
+    anchors: NDArray,
+) -> NDArray[np.float_]:
+    """Set each region's free constant so it agrees with the measured phase there."""
+    for region, anchor in enumerate(anchors):
+        pixels = labels == region
+        solution[pixels] += wrapped[anchor] - solution[anchor]
+    return solution
+
+
+def unwrap_2d_laplace(
+    phase: NDArray[np.float_], mask: NDArray[np.bool_]
+) -> NDArray[np.float_]:
+    """Unwrap a phase image within a region of interest, by a direct sparse solve.
+    Least-squares unwrapping over the four-connected pixels inside ``mask``. Exact but
+    slow.
+
+    Args:
+        phase (NDArray): Wrapped phase image.
+        mask (NDArray): Boolean mask defining the region of interest.
 
     Returns:
         NDArray: Unwrapped phase image, zero outside the mask.
     """
-    if kwargs is None:
-        kwargs = {"period": 2 * np.pi}
-    unwarpped_phase_1D = np.zeros_like(phase)
-    for i in range(mask.shape[0]):
-        unwarpped_phase_1D[i, mask[i, :]] = np.unwrap(phase[i, mask[i, :]], **kwargs)
+    mask = np.asarray(mask, dtype=bool)
+    number_of_pixels = int(mask.sum())
 
     unwrapped_phase = np.zeros_like(phase)
-    for i in range(mask.shape[1]):
-        unwrapped_phase[mask[:, i], i] = (
-            np.unwrap(unwarpped_phase_1D[mask[:, i], i], **kwargs)
+    if number_of_pixels == 0:
+        return unwrapped_phase
+
+    laplacian, right_hand_side, wrapped = _normal_equations(phase, mask)
+    _, labels, anchors = _region_anchors(laplacian)
+
+    free = np.ones(number_of_pixels, dtype=bool)
+    free[anchors] = False
+
+    solution = np.zeros(number_of_pixels)
+    if free.any():
+        # Pinning one pixel per region removes the singularity and leaves a system a
+        # direct solve handles.
+        reduced = laplacian[free][:, free].tocsc()
+        solution[free] = splu(reduced).solve(right_hand_side[free])
+
+    unwrapped_phase[mask] = _anchored(solution, wrapped, labels, anchors)
+    return unwrapped_phase
+
+
+def _poisson_preconditioner(mask: NDArray[np.bool_]):
+    """Approximate inverse of the masked laplacian, via a DCT Poisson solve."""
+    rows, columns = mask.shape
+    eigenvalues = (
+        2 * (np.cos(np.pi * np.arange(rows) / rows) - 1)[:, None]
+        + 2 * (np.cos(np.pi * np.arange(columns) / columns) - 1)[None, :]
+    )
+    # The constant mode is the gauge freedom and has no inverse. Held at one to keep the
+    # divide finite, then zeroed, which projects it out.
+    eigenvalues[0, 0] = 1.0
+
+    def apply(vector: NDArray[np.float_]) -> NDArray[np.float_]:
+        grid = np.zeros(mask.shape)
+        grid[mask] = vector
+        transformed = dctn(grid, type=2, norm="ortho") / -eigenvalues
+        transformed[0, 0] = 0.0
+        return idctn(transformed, type=2, norm="ortho")[mask]
+
+    return apply
+
+
+def unwrap_2d_poisson(
+    phase: NDArray[np.float_],
+    mask: NDArray[np.bool_],
+    tolerance: float = 1e-10,
+    max_iterations: int = 500,
+) -> NDArray[np.float_]:
+    """Unwrap a phase image in a region of interest, by preconditioned Poisson solve. 
+    This is the method of Ghiglia and Romero, "Robust two-dimensional weighted and
+    unweighted phase unwrapping that uses fast transforms and iterative methods",
+    J. Opt. Soc. Am. A 11, 107 (1994), https://doi.org/10.1364/JOSAA.11.000107. Much 
+    faster than :func:`unwrap_2d_laplace` for large images.
+
+    Args:
+        phase (NDArray): Wrapped phase image.
+        mask (NDArray): Boolean mask defining the region of interest.
+        tolerance (float, optional): Relative residual conjugate gradients stops at.
+            Defaults to 1e-10.
+        max_iterations (int, optional): Iteration cap, defaults to 500.
+
+    Returns:
+        NDArray: Unwrapped phase image, zero outside the mask.
+
+    Raises:
+        RuntimeError: If conjugate gradients does not converge, rather than returning a
+            half-solved field.
+    """
+    mask = np.asarray(mask, dtype=bool)
+    number_of_pixels = int(mask.sum())
+
+    unwrapped_phase = np.zeros_like(phase)
+    if number_of_pixels == 0:
+        return unwrapped_phase
+
+    laplacian, right_hand_side, wrapped = _normal_equations(phase, mask)
+    _, labels, anchors = _region_anchors(laplacian)
+
+    preconditioner = LinearOperator(
+        (number_of_pixels, number_of_pixels), matvec=_poisson_preconditioner(mask)
+    )
+    solution, info = cg(
+        laplacian,
+        right_hand_side,
+        M=preconditioner,
+        rtol=tolerance,
+        maxiter=max_iterations,
+    )
+    if info != 0:
+        raise RuntimeError(
+            "Preconditioned conjugate gradients failed to unwrap the phase "
+            f"(scipy returned {info} after at most {max_iterations} iterations). "
+            "unwrap_2d_laplace solves the same system directly."
         )
-    unwrapped_phase[~mask] = 0
+
+    unwrapped_phase[mask] = _anchored(solution, wrapped, labels, anchors)
     return unwrapped_phase
 
 

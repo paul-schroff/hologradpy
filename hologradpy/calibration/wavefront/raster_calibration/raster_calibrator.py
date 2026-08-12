@@ -25,8 +25,9 @@ from ...camera_mapping.abstract import CameraMapping
 from ....optics import SLMFourierLensModel
 from ....optics.systems import SLMFFT
 from ....optics.modules.virtual_slms import VirtualSLM
-from ....optics.modules.diagonal_elements import StaticSLMField
+from ....optics.modules.slm_fields import PixelwiseSLMField
 from ....optics.complex_amplitude import ComplexAmplitude, FieldGeometry
+from ....fourier_optics import fourier_lens_half_extent
 from ....grids import get_spatial_grid
 from ....profiles.phase import linear_phase, binary_phase_grating
 
@@ -57,11 +58,11 @@ class RasterCalibrator(WavefrontCalibratorBase):
         camera: Camera,
         focal_length: float,
         device: str = "cpu",
-        autoexposure_timeout_s: float = 5.0,
+        autoexposure_max_iterations: int = 5,
     ) -> None:
         super().__init__(slm, camera, device)
         self.focal_length = focal_length
-        self.autoexposure_timeout_s = autoexposure_timeout_s
+        self.autoexposure_max_iterations = autoexposure_max_iterations
         self.camera_mapping: CameraMapping | None = None
         self._slm_camera_model: SLMFourierLensModel | None = None
         self.power_reference: NDArray[np.float_] | None = None
@@ -107,7 +108,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         return SLMFFT(
             input_geometry=geometry,
             virtual_slm=VirtualSLM(phase_scaling=1.0),
-            static_slm_field=StaticSLMField(beam),
+            slm_field=PixelwiseSLMField(beam),
             focal_length=self.focal_length,
             padded_resolution=padded_resolution,
         )
@@ -118,8 +119,16 @@ class RasterCalibrator(WavefrontCalibratorBase):
         slm_camera_model: SLMFourierLensModel | None,
     ) -> None:
         """Populate ``self.camera_mapping`` (and ``self._slm_camera_model``),
-        running a :class:`CoarseMapper` when no mapping was supplied."""
+        running a :class:`CoarseMapper` when no mapping was supplied.
+        """
         if slm_camera_model is not None:
+            model_focal_length = slm_camera_model.focal_length
+            if not np.isclose(model_focal_length, self.focal_length):
+                raise ValueError(
+                    f"slm_camera_model has focal_length {model_focal_length}, but this "
+                    f"calibrator was built with {self.focal_length}. They describe the "
+                    "same lens, so a difference means one of them is wrong."
+                )
             self._slm_camera_model = slm_camera_model
         if camera_mapping is not None:
             self.camera_mapping = camera_mapping
@@ -131,20 +140,15 @@ class RasterCalibrator(WavefrontCalibratorBase):
         ).map_camera()
 
     def _addressable_half_extent(self) -> tuple[float, float]:
-        """The focal-plane addressable half-extent ``(x, y)`` in metres, from the SLM to
-        camera model.
-
-        The model is built on the fly when the coarse mapper has not run yet, and is
-        *not* cached. Caching it would flip :meth:`_orientation_matrix` onto its
-        model-geometry branch (which needs ``pixel_size_out``) before the model has
-        produced an output. The query itself only reads the input geometry and focal
-        length, so it works on an unrun model.
+        """The focal-plane addressable half-extent ``(x, y)`` in metres, computed from 
+        the SLM pitch and the focal length directly.
         """
-        # TODO: this is not exactly elegant.
-        model = self._slm_camera_model
-        if model is None:
-            model = self._build_slm_camera_model()
-        return model.addressable_half_extent()
+        pitch_y, pitch_x = (float(pitch) for pitch in self.slm.pixel_size)
+        wavelength = float(self.slm.wavelength)
+        return (
+            fourier_lens_half_extent(wavelength, self.focal_length, pitch_x),
+            fourier_lens_half_extent(wavelength, self.focal_length, pitch_y),
+        )
 
     def _orientation_matrix(self) -> NDArray[np.float_]:
         """2x2 map from camera-plane metres to model / focal-plane metres from
@@ -428,7 +432,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
                         set_fraction=_AUTOEXPOSURE_SET_FRACTION,
                         exposure_bounds=bounds,
                         roi=autoexposure_roi,
-                        timeout=self.autoexposure_timeout_s,
+                        max_iterations=self.autoexposure_max_iterations,
                     )
                 except RuntimeError:
                     corner_exposure = bounds[1] if bounds is not None else 1.0
@@ -734,7 +738,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
             set_fraction=autoexposure_fraction,
             exposure_bounds=(0, 1),
             roi=autoexposure_roi,
-            timeout=self.autoexposure_timeout_s,
+            max_iterations=self.autoexposure_max_iterations,
         )
 
         camera_images = np.zeros(
@@ -1108,7 +1112,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 (main_center[1], main_center[0]),
                 (camera_roi_size[0], camera_roi_size[1]),
             ),
-            timeout=self.autoexposure_timeout_s,
+            max_iterations=self.autoexposure_max_iterations,
         )
 
         camera_images = np.zeros((len(slicer.slices), *camera_roi_size))
@@ -1457,7 +1461,13 @@ class RasterCalibrator(WavefrontCalibratorBase):
             verbose=verbose,
         )
 
-        complex_amplitude = np.sqrt(intensity) * np.exp(1j * phase)
+        complex_amplitude = ComplexAmplitude(
+            torch.as_tensor(
+                np.sqrt(intensity) * np.exp(1j * phase), dtype=torch.complex64
+            ),
+            wavelength=torch.as_tensor(self.slm.wavelength),
+            pixel_size=torch.as_tensor(tuple(self.slm.pixel_size)),
+        )
 
         calibration_name = (
             f"Raster Calibration - {number_of_superpixels_x}x{number_of_superpixels_y}"

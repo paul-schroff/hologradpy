@@ -39,6 +39,32 @@ def rectangular_mask(
     return (xp.abs(x - shift_x) < width / 2) & (xp.abs(y - shift_y) < height / 2)
 
 
+def elliptical_mask(
+    x: ArrayLike,
+    y: ArrayLike,
+    radius_x: float,
+    radius_y: float,
+    shift_x: float = 0.0,
+    shift_y: float = 0.0,
+) -> ArrayLike:
+    """Create an elliptical mask with given semi-axes and center.
+
+    Reduces exactly to :func:`circular_mask` when the two semi-axes are equal.
+
+    Args:
+        x (ArrayLike): X coordinates.
+        y (ArrayLike): Y coordinates.
+        radius_x (float): Semi-axis along x.
+        radius_y (float): Semi-axis along y.
+        shift_x (float, optional): X shift of the ellipse center. Defaults to 0.0.
+        shift_y (float, optional): Y shift of the ellipse center. Defaults to 0.0.
+
+    Returns:
+        ArrayLike: Binary mask.
+    """
+    return ((x - shift_x) / radius_x) ** 2 + ((y - shift_y) / radius_y) ** 2 < 1.0
+
+
 def circular_mask(
     x: ArrayLike,
     y: ArrayLike,

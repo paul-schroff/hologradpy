@@ -6,13 +6,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-import pickle
 
 import numpy as np
 import torch
 from numpy.typing import NDArray
 
 from ...grids import get_spatial_grid as _spatial_grid
+from ...serialization import SaveableRecord
 
 
 class SLM(ABC):
@@ -51,7 +51,7 @@ class SLM(ABC):
 
 
 @dataclass(frozen=True, unsafe_hash=True)
-class SLMData:
+class SLMData(SaveableRecord):
     """A native snapshot of an SLM's geometry and modulation settings."""
 
     name: str
@@ -72,12 +72,4 @@ class SLMData:
             settle_time_s=getattr(slm, "settle_time_s", 0.0),
         )
 
-    def save(self, filename: str):
-        with open(filename, "wb") as file:
-            pickle.dump(self, file)
-
-    @staticmethod
-    def load(filename: str) -> SLMData:
-        with open(filename, "rb") as file:
-            slm_data: SLMData = pickle.load(file)
-        return slm_data
+    # save / load come from SaveableRecord.

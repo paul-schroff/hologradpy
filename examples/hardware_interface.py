@@ -46,7 +46,7 @@ from hologradpy.hardware import (
 
 from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 from hologradpy.optics.systems import SLMFFTAffine
-from hologradpy.optics.modules.diagonal_elements import StaticSLMField
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
 from hologradpy.utils import get_device
 
@@ -80,7 +80,7 @@ camera_model = SLMFFTAffine(
     camera_resolution=(960, 1440),
     camera_pixel_size=(3.75e-6, 3.75e-6),
     focal_length=0.25,
-    static_slm_field=StaticSLMField(beam),
+    slm_field=PixelwiseSLMField(beam),
     padded_resolution=(2048, 2048),
     camera_angle=0,
     camera_shift=(0, 0),

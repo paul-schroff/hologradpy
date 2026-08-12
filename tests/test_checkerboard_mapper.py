@@ -25,7 +25,7 @@ from hologradpy.optics.complex_amplitude import (  # noqa: E402
     FieldGeometry,
 )
 from hologradpy.optics.systems import SLMFFT, SLMFFTAffine  # noqa: E402
-from hologradpy.optics.modules.diagonal_elements import StaticSLMField  # noqa: E402
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField  # noqa: E402
 from hologradpy.optics.modules.virtual_slms import VirtualSLM  # noqa: E402
 from hologradpy.profiles.amplitude import (  # noqa: E402
     gaussian_beam_intensity,
@@ -107,7 +107,7 @@ def _build_setup(
         camera_resolution=(240, 320),
         camera_pixel_size=(30e-6, 30e-6),
         focal_length=0.25,
-        static_slm_field=StaticSLMField(hardware_beam),
+        slm_field=PixelwiseSLMField(hardware_beam),
         padded_resolution=(512, 512),
         camera_angle=camera_angle,
         camera_shift=(0, 0),
@@ -130,7 +130,7 @@ def _build_setup(
     slm_camera_model = SLMFFT(
         input_geometry=slm_geometry,
         virtual_slm=VirtualSLM(phase_scaling=1.0),
-        static_slm_field=StaticSLMField(ideal_beam),
+        slm_field=PixelwiseSLMField(ideal_beam),
         focal_length=0.25,
         padded_resolution=(512, 512),
     )

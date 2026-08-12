@@ -256,6 +256,12 @@ class CoarseMapper(CameraMapper):
             (center_tilt[0] + float(dt[0]), center_tilt[1] + float(dt[1]))
             for dt in corner_offsets @ inverse_jacobian.T
         ]
+
+        model_window_offset = (
+            center_tilt[0] / pixel_size_out[1],
+            center_tilt[1] / pixel_size_out[0],
+        )  # (x, y) in output pixels
+
         probes = self._measure_probes(
             probe_tilts=probe_tilts,
             exposure_time=exposure_time,
@@ -263,6 +269,7 @@ class CoarseMapper(CameraMapper):
             camera_pixel_size=camera_pixel_size,
             camera_shape=camera_shape,
             field_of_view=field_of_view,
+            model_window_offset=model_window_offset,
         )
 
         detected = np.asarray(probes.camera_points, dtype=np.float64)
@@ -275,7 +282,7 @@ class CoarseMapper(CameraMapper):
             detected, calculated, transform
         )
 
-        center = (resolution_out[0] // 2, resolution_out[1] // 2)
+        center = (resolution_out[1] // 2, resolution_out[0] // 2)
         # Zeroth order = model-plane centre mapped back to the camera; stored (y, x).
         centre_camera = affine.inverse().transform_points([center])[0]
         zeroth_order_position = (float(centre_camera[1]), float(centre_camera[0]))
@@ -451,9 +458,17 @@ class CoarseMapper(CameraMapper):
         camera_pixel_size: NDArray,
         camera_shape: tuple[int, int],
         field_of_view: tuple[float, float],
+        model_window_offset: tuple[float, float] = (0.0, 0.0),
     ) -> _ProbeMeasurements:
         """Measure every probe on the camera and in the model. Raises RuntimeError when
-        a probe fit fails or lands implausibly."""
+        a probe fit fails or lands implausibly.
+
+        Args:
+            model_window_offset: ``(x, y)`` output pixels to move the model's render
+                window by while the probes are measured, so it covers the same region
+                the camera does. Removed again from the reported model positions, which
+                stay in the plane's own frame, centred on the zeroth order.
+        """
         geometry = self.slm_camera_model.input_geometry
         grid = geometry.get_spatial_grid()
         wavenumber = geometry.wavenumber.reshape(())
@@ -464,42 +479,71 @@ class CoarseMapper(CameraMapper):
         simulated_frames: list[NDArray] = []
         focal_spot_radius = 0.0
 
-        for index, probe in enumerate(probe_tilts):
-            # Camera side: display the tilt on the hardware and fit the spot.
-            try:
-                (x, y), radius, cropped, roi = get_diffraction_spot_position(
-                    self.slm,
-                    self.camera,
-                    linear_phase_tilt=probe,
-                    focal_length=focal_length,
-                    exposure_time=exposure_time,
-                    units="metres",
-                    verbose=False,
+        # A positive shift moves the rendered content the same amount negative, so
+        # adding the offset brings the region the camera watches to the middle of the
+        # window.
+        lens = self.slm_camera_model.fourier_lens
+        original_shift = getattr(lens, "shift", None)
+        if original_shift is None:
+            model_window_offset = (0.0, 0.0)
+        else:
+            original_shift = original_shift.detach().clone()
+            with torch.no_grad():
+                lens.shift.add_(
+                    torch.tensor(
+                        model_window_offset,
+                        dtype=lens.shift.dtype,
+                        device=lens.shift.device,
+                    )
                 )
-            except (RuntimeError, ValueError) as error:
-                raise RuntimeError(
-                    f"Probe {probe} could not be fitted: {error}"
-                ) from error
 
-            camera_points.append(
-                metres_to_pixel((x, y), camera_pixel_size, camera_shape)
-            )
-            camera_frames.append(roi.pad(cropped, camera_shape))
-            if index == 0:
-                focal_spot_radius = float(abs(radius))
+        try:
+            for index, probe in enumerate(probe_tilts):
+                # Camera side: display the tilt on the hardware and fit the spot.
+                try:
+                    (x, y), radius, cropped, roi = get_diffraction_spot_position(
+                        self.slm,
+                        self.camera,
+                        linear_phase_tilt=probe,
+                        focal_length=focal_length,
+                        exposure_time=exposure_time,
+                        units="metres",
+                        verbose=False,
+                    )
+                except (RuntimeError, ValueError) as error:
+                    raise RuntimeError(
+                        f"Probe {probe} could not be fitted: {error}"
+                    ) from error
 
-            # Model side: render the same tilt and locate the spot.
-            phase = linear_phase(
-                *grid,
-                probe[0],
-                probe[1],
-                wavenumber=wavenumber,
-                focal_length=focal_length,
-            )
-            self.slm_camera_model.virtual_slm.set_phase(phase)
-            simulated = gpu_to_numpy(self.slm_camera_model().intensity)
-            simulated_points.append(self._peak_centroid(simulated))
-            simulated_frames.append(simulated)
+                camera_points.append(
+                    metres_to_pixel((x, y), camera_pixel_size, camera_shape)
+                )
+                camera_frames.append(roi.pad(cropped, camera_shape))
+                if index == 0:
+                    focal_spot_radius = float(abs(radius))
+
+                # Model side: render the same tilt and locate the spot.
+                phase = linear_phase(
+                    *grid,
+                    probe[0],
+                    probe[1],
+                    wavenumber=wavenumber,
+                    focal_length=focal_length,
+                )
+                self.slm_camera_model.virtual_slm.set_phase(phase)
+                simulated = gpu_to_numpy(self.slm_camera_model().intensity)
+                centroid = self._peak_centroid(simulated)
+                simulated_points.append(
+                    (
+                        centroid[0] + model_window_offset[0],
+                        centroid[1] + model_window_offset[1],
+                    )
+                )
+                simulated_frames.append(simulated)
+        finally:
+            if original_shift is not None:
+                with torch.no_grad():
+                    lens.shift.copy_(original_shift)
 
         # The probe pattern must not have collapsed (e.g. every "fit" locked onto the
         # same bright artefact).

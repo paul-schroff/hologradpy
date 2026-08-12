@@ -13,9 +13,9 @@ class PowerInstability(OpticsModule):
     Each :meth:`forward` draws a relative power factor from a Gaussian centred on 1
     and scales the field power by it (the amplitude by its square root), modelling a
     laser whose output power drifts from frame to frame. Intended to sit just after
-    ``StaticSLMField`` in the SLM-plane chain, so the (static) SLM-plane field carries
-    a freshly sampled power on every forward pass. Output geometry equals input
-    geometry.
+    ``PixelwiseSLMField`` in the SLM-plane chain, so the SLM-plane field, which is
+    otherwise fixed, carries a freshly sampled power on every forward pass. Output
+    geometry equals input geometry.
 
     Args:
         power_std: Standard deviation of the (mean-1) Gaussian relative power factor.
