@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import time
-from typing import TypeVar
+from typing import Iterable, TypeVar
 import torch
 from numpy.typing import NDArray
+from tqdm.auto import tqdm
 
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 
@@ -58,6 +59,102 @@ def crop_to_shape_2D(input: ArrayLike, target_shape: tuple[int, int]) -> ArrayLi
     n_crop_y = (input_shape[0] - target_shape[0]) // 2
     n_crop_x = (input_shape[1] - target_shape[1]) // 2
     return input[..., n_crop_y:-n_crop_y, n_crop_x:-n_crop_x]
+
+
+def progress(
+    iterable: Iterable,
+    *,
+    total: int | None = None,
+    description: str = "",
+    verbose: bool = True,
+    **kwargs,
+) -> Iterable:
+    """Wrap ``iterable`` in a progress bar, or hand it back untouched. With 
+    ``verbose=False`` the iterable is returned as it came.
+
+    Args:
+        iterable: What to iterate over.
+        total: Number of steps, for an iterable without a length.
+        description: Label shown to the left of the progress bar.
+        verbose: Show the bar. False returns ``iterable`` unchanged.
+        **kwargs: Passed to ``tqdm``.
+
+    Returns:
+        Iterable: The wrapped iterable, or the original one.
+    """
+    if not verbose:
+        return iterable
+
+    kwargs.setdefault("disable", None)
+    return tqdm(iterable, total=total, desc=description or None, **kwargs)
+
+
+class ProgressBar:
+    """A bar for loops that are not a plain ``for``, advanced by :meth:`update`.
+
+    The optimisers here run their loop inside ``torchmin.Minimizer.step`` using a
+    callback, so there is no iterable to wrap. Use as a context manager so the bar
+    closes even when the loop raises::
+
+        with ProgressBar(total=iterations, description="Conjugate gradient") as bar:
+            ...
+            bar.update(loss=value)
+
+    With ``verbose=False`` every method is a no-op.
+    """
+
+    def __init__(
+        self,
+        total: int | None = None,
+        description: str = "",
+        verbose: bool = True,
+        **kwargs,
+    ) -> None:
+        self.total = total
+        self.description = description
+        self.verbose = verbose
+        self._kwargs = kwargs
+        self._bar = None
+
+    def __enter__(self) -> ProgressBar:
+        if self.verbose:
+            # See progress() for why disable=None.
+            self._kwargs.setdefault("disable", None)
+            self._bar = tqdm(
+                total=self.total, desc=self.description or None, **self._kwargs
+            )
+        return self
+
+    def __exit__(self, *exception) -> None:
+        self.close()
+
+    def update(self, steps: int = 1, **postfix) -> None:
+        """Advance by ``steps``, showing ``postfix`` after the bar. Postfix values are 
+        formatted to four significant figures when they are numbers.
+        """
+        if self._bar is None:
+            return
+        if postfix:
+            self._bar.set_postfix(
+                {
+                    key: f"{value:.4g}" if isinstance(value, (int, float)) else value
+                    for key, value in postfix.items()
+                },
+                refresh=False,
+            )
+        self._bar.update(steps)
+
+    def reset(self, total: int | None = None) -> None:
+        """Reset the bar back to zero and change the number of steps."""
+        if self._bar is None:
+            return
+        self._bar.set_postfix({}, refresh=False)
+        self._bar.reset(total=total if total is not None else self.total)
+
+    def close(self) -> None:
+        if self._bar is not None:
+            self._bar.close()
+            self._bar = None
 
 
 class Timer:

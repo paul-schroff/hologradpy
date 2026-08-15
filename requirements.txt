@@ -7,3 +7,4 @@ torchkbnufft
 opencv-python
 checkerboard
 slmsuite
+tqdm

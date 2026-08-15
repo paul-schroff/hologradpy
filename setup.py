@@ -20,6 +20,7 @@ requirements = [
     "opencv-python",
     "checkerboard",
     "slmsuite",
+    "tqdm",
 ]
 
 setup(
