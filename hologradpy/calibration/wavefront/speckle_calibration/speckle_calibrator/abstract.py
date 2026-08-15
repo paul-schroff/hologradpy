@@ -18,7 +18,11 @@ from ..visualizer import SpeckleVisualizationData
 
 from ...abstract import WavefrontCalibratorBase, WavefrontCalibrationData
 
-from .....analysis.error_metrics import wavefront_residual, wavefront_rms
+from .....analysis.error_metrics import (
+    DEFAULT_WAVEFRONT_METRICS,
+    WavefrontMetric,
+    evaluate_wavefront_metrics,
+)
 from .....analysis.fitting import remove_tilt
 
 from ....camera_mapping import CameraMapping, CoarseMapper
@@ -305,26 +309,33 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
             return None
 
     def _residual_metrics(
-        self, recovered_phase: np.ndarray, beam_mask: np.ndarray
+        self,
+        recovered_phase: np.ndarray,
+        beam_mask: np.ndarray,
+        metrics: Sequence[WavefrontMetric] | None = None,
     ) -> dict:
         """How close the recovered wavefront came, when the ground truth is known from
-        simulated hardware. Both numbers are Strehl based, through
-        :func:`wavefront_rms`, because the phase reaching here is wrapped.
+        simulated hardware. Uses named :class:`WavefrontMetric` callables.
+
+        Args:
+            recovered_phase: The wavefront that was recovered.
+            beam_mask: Binary mask in which to evaluate the metrics.
+            metrics: Which metric to use. Defaults to
+                :data:`~hologradpy.analysis.error_metrics.DEFAULT_WAVEFRONT_METRICS`.
+
+        Returns:
+            dict: ``{name: value}``, empty when there is no ground truth to compare to.
         """
         injected = self._injected_field()
         if injected is None:
             return {}
 
-        injected_phase = np.angle(injected)
-
-        return {
-            "residual_phase_rms": float(
-                wavefront_rms(injected_phase - recovered_phase, beam_mask)
-            ),
-            "residual_fraction": wavefront_residual(
-                recovered_phase, injected_phase, beam_mask, allow_sign_flip=False
-            ),
-        }
+        return evaluate_wavefront_metrics(
+            DEFAULT_WAVEFRONT_METRICS if metrics is None else metrics,
+            recovered_phase,
+            np.angle(injected),
+            beam_mask,
+        )
 
     def generate_slm_beam_calibration(
         self, beam_mask_threshold: float = BEAM_MASK_THRESHOLD_DEFAULT
