@@ -29,6 +29,7 @@ from ....profiles.phase import band_limited_random_phase
 from ....roi import ROI
 from ....fourier_optics import fourier_lens_pixel_size
 from ....grids import get_pixel_grid, get_spatial_grid
+from ....utils import progress
 
 
 class DatasetGenerator:
@@ -138,6 +139,7 @@ class DatasetGenerator:
         extent: tuple[float, float] | None = None,
         benchmark_calibration: WavefrontCalibrationData | None = None,
         seed: int | None = None,
+        verbose: bool = True,
     ) -> None:
         """Generate a set of smooth random phase patterns.
 
@@ -203,11 +205,11 @@ class DatasetGenerator:
         else:
             generator.manual_seed(seed)
 
-        for i in range(self.number_of_random_patterns):
-            print(
-                f"Generating phase pattern {i + 1} of {self.number_of_random_patterns}."
-            )
-
+        for i in progress(
+            range(self.number_of_random_patterns),
+            description="Generating phase patterns",
+            verbose=verbose,
+        ):
             phase = band_limited_random_phase(band_mask, generator=generator)
             phase = np.remainder(
                 phase.cpu().numpy() + benchmark_phase, 2 * np.pi
@@ -245,7 +247,7 @@ class DatasetGenerator:
         self.roi_mask = (speckle_mask & ~zeroth_order_mask).cpu().numpy()
 
     def capture_camera_images(
-        self, capture_background_image: bool = False
+        self, capture_background_image: bool = False, verbose: bool = True
     ) -> DatasetDescriptor:
         """Display every generated phase pattern and capture the camera speckle.
 
@@ -270,12 +272,13 @@ class DatasetGenerator:
                 "before capture_camera_images()."
             )
 
-        for i, filename in enumerate(self.data_filenames):
-            print(
-                f"Displaying phase pattern {i + 1} of "
-                f"{self.number_of_random_patterns}"
+        for i, filename in enumerate(
+            progress(
+                self.data_filenames,
+                description="Capturing camera images",
+                verbose=verbose,
             )
-
+        ):
             phase_pattern = np.load(self.dataset_directory / filename["phase_pattern"])
 
             self.slm.set_phase(phase_pattern)
@@ -287,12 +290,6 @@ class DatasetGenerator:
                 )
 
             camera_image_filename = f"camera_image_{i}.npy"
-
-            print(
-                f"Capturing camera image {i + 1} of "
-                f"{self.number_of_random_patterns}"
-            )
-
             camera_image = self.camera.get_image()
 
             # np.save serialises synchronously, so the frame needs no copy here.

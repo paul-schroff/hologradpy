@@ -20,6 +20,7 @@ from .dataset_transforms import PrepareSample
 from ....loss_functions import LossFunction, MaskedIntensityMSE
 from ....roi import ROI
 from ....optics.systems import SLMFourierLensModel
+from ....utils import ProgressBar
 
 
 def region_of_interest(
@@ -131,8 +132,7 @@ class WavefrontFitter:
             batch_size: Phase patterns per iteration.
             subset_indices: Which dataset samples to fit against. Defaults to all.
             shuffle: Reshuffle the samples between epochs.
-            verbose: Print one progress line per epoch. The returned history is the same
-                either way, so this only controls output.
+            verbose: Show a progress bar. 
 
         Returns:
             list[float]: The mean loss of each epoch, so a caller can plot the
@@ -151,36 +151,36 @@ class WavefrontFitter:
 
         history: list[float] = []
         self.component_history = {}
-        for epoch in range(number_of_epochs):
-            epoch_loss = 0.0
-            epoch_components: dict[str, float] = {}
-            for sample in dataloader:
-                optimizer.zero_grad()
-                output_field = self._predict_roi_fields(sample["phase_pattern"])
-                components = self.loss.components(
-                    output_field, sample["camera_image"]
-                )
-                loss = reduce(operator.add, components.values())
-                loss.backward()
-                optimizer.step()
+        epochs = ProgressBar(
+            total=number_of_epochs, description="Fitting wavefront", verbose=verbose
+        )
+        with epochs:
+            for _ in range(number_of_epochs):
+                epoch_loss = 0.0
+                epoch_components: dict[str, float] = {}
+                for sample in dataloader:
+                    optimizer.zero_grad()
+                    output_field = self._predict_roi_fields(sample["phase_pattern"])
+                    components = self.loss.components(
+                        output_field, sample["camera_image"]
+                    )
+                    loss = reduce(operator.add, components.values())
+                    loss.backward()
+                    optimizer.step()
 
-                epoch_loss += float(loss)
-                for label, value in components.items():
-                    epoch_components[label] = epoch_components.get(label, 0.0) + float(
-                        value
+                    epoch_loss += float(loss)
+                    for label, value in components.items():
+                        epoch_components[label] = epoch_components.get(
+                            label, 0.0
+                        ) + float(value)
+
+                history.append(epoch_loss / max(number_of_batches, 1))
+                for label, total in epoch_components.items():
+                    self.component_history.setdefault(label, []).append(
+                        total / max(number_of_batches, 1)
                     )
 
-            history.append(epoch_loss / max(number_of_batches, 1))
-            for label, total in epoch_components.items():
-                self.component_history.setdefault(label, []).append(
-                    total / max(number_of_batches, 1)
-                )
-
-            if verbose:
-                print(
-                    f"Epoch {epoch + 1} of {number_of_epochs}: "
-                    f"loss {history[-1]:.4E}"
-                )
+                epochs.update(loss=history[-1])
 
         return history
 
