@@ -515,7 +515,7 @@ def camera_feedback(
                 img_conv[..., ii] = hw.get_image_avg(cam_obj, exp_time, n_avg)
 
                 # Calculate RMSE of camera images
-                eta_conv[ii] = m.rms(sig_mask_tf, i_tar_tf, img_conv[..., ii])
+                eta_conv[ii] = m.rmse(sig_mask_tf, i_tar_tf, img_conv[..., ii])
 
             # Save data
             np.save(path + "//img_conv_" + str(i), img_conv)
@@ -543,7 +543,7 @@ def camera_feedback(
         D = T[..., 0] - M[..., i + 1]
 
         # Calculate RMSE and PSNR
-        rmse[i] = m.rms(sig_mask_tf, i_tar_tf, img[..., i])
+        rmse[i] = m.rmse(sig_mask_tf, i_tar_tf, img[..., i])
         psnr[i] = m.psnr(sig_mask_tf, i_tar_tf, img[..., i])
 
         print("Feedback iteration number %.0f" % (i + 1))

@@ -173,16 +173,16 @@ def test_every_metric_agrees_between_numpy_and_torch() -> None:
             lambda: em.efficiency(torch_mask, as_torch(i_out)),
         ),
         "rms": (
-            lambda: em.rms(mask, i_target, i_out),
-            lambda: em.rms(torch_mask, as_torch(i_target), as_torch(i_out)),
+            lambda: em.rmse(mask, i_target, i_out),
+            lambda: em.rmse(torch_mask, as_torch(i_target), as_torch(i_out)),
         ),
         "psnr": (
             lambda: em.psnr(mask, i_target, i_out),
             lambda: em.psnr(torch_mask, as_torch(i_target), as_torch(i_out)),
         ),
         "rms_phase": (
-            lambda: em.rms_phase(aberration),
-            lambda: em.rms_phase(as_torch(aberration)),
+            lambda: em.rmse_phase(aberration),
+            lambda: em.rmse_phase(as_torch(aberration)),
         ),
         "fidelity": (
             lambda: em.fidelity(mask, i_target, phase, i_out, phase),

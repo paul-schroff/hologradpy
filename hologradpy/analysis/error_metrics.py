@@ -83,7 +83,7 @@ def fidelity(
     return xp.abs(fidelity) ** 2
 
 
-def rms(
+def rmse(
     signal: ArrayLike,
     target_intensity: ArrayLike,
     measured_intensity: ArrayLike,
@@ -123,8 +123,8 @@ def rms(
     return xp.sqrt(xp.mean(relative_error**2))
 
 
-def rms_phase(phase: ArrayLike) -> ArrayLike:
-    """Root-mean-squared deviation of a phase pattern about its own mean.
+def rmse_phase(phase: ArrayLike) -> ArrayLike:
+    """Root-mean-squared error of a phase pattern about its own mean.
 
     Requires *unwrapped* phase. Use :func:`wavefront_rms` for a wrapped phase, or
     unwrap first with :func:`hologradpy.analysis.unwrapping.unwrap_2d_poisson`.
@@ -203,10 +203,12 @@ class IntensityMetric:
         name: Label for the metric.
         function: Takes ``(signal_region, target_intensity, measured_intensity)`` and
             returns a scalar.
+        lower_is_better: Flag indicating which direction is better.
     """
 
     name: str
     function: Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]
+    lower_is_better: bool = True
 
     def __call__(
         self,
@@ -220,8 +222,8 @@ class IntensityMetric:
 
 
 DEFAULT_INTENSITY_METRICS: tuple[IntensityMetric, ...] = (
-    IntensityMetric("rms", rms),
-    IntensityMetric("psnr [dB]", psnr),
+    IntensityMetric("rmse", rmse),
+    IntensityMetric("psnr [dB]", psnr, lower_is_better=False),
 )
 
 
