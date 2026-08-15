@@ -13,6 +13,9 @@ import torch
 
 from hologradpy.loss_functions import (
     AmplitudeSmoothness,
+    normalize_single_to_unit_sum,
+    normalize_to_unit_sum,
+    smallest_divisor,
     LossEfficiency,
     LossFidelity,
     LossFunction,
@@ -287,3 +290,48 @@ def test_an_unimplemented_cost_says_which_one() -> None:
 
     with pytest.raises(NotImplementedError, match="_Incomplete"):
         _Incomplete()(torch.zeros(RESOLUTION))
+
+
+# --- The divisor floor --------------------------------------------------------------
+
+
+def test_smallest_divisor_follows_the_dtype() -> None:
+    """The safe floor differs by hundreds of orders of magnitude between dtypes."""
+    assert smallest_divisor(torch.zeros(1, dtype=torch.float32)) == pytest.approx(
+        torch.finfo(torch.float32).smallest_normal
+    )
+    assert smallest_divisor(torch.zeros(1, dtype=torch.float64)) == pytest.approx(
+        torch.finfo(torch.float64).smallest_normal
+    )
+    assert smallest_divisor(torch.zeros(1, dtype=torch.float64)) < smallest_divisor(
+        torch.zeros(1, dtype=torch.float32)
+    )
+
+
+@pytest.mark.parametrize(
+    "normalise, shape",
+    [
+        (normalize_single_to_unit_sum, (4, 4)),
+        (normalize_to_unit_sum, (2, 4, 4)),
+    ],
+)
+def test_normalising_an_empty_image_does_not_produce_nan(normalise, shape) -> None:
+    """The floor exists for this case: a frame that summed to zero must not poison the
+    loss with a nan, which would take the whole fit with it."""
+    result = normalise(torch.zeros(shape))
+    assert not torch.isnan(result).any()
+    assert not torch.isinf(result).any()
+
+
+def test_a_genuinely_small_sum_is_not_clamped() -> None:
+    """A sum the dtype represents perfectly normalises exactly, without a floor."""
+    image = torch.full((4,), 1e-30, dtype=torch.float64)
+    assert float(normalize_single_to_unit_sum(image).sum()) == pytest.approx(1.0)
+
+
+def test_the_floor_does_not_block_gradients() -> None:
+    """These are loss functions, so anything in the path has to stay differentiable."""
+    image = torch.rand(4, 4, requires_grad=True)
+    normalize_single_to_unit_sum(image).sum().backward()
+    assert image.grad is not None
+    assert not torch.isnan(image.grad).any()

@@ -7,20 +7,24 @@ import torch
 import torch.nn as nn
 
 
-# Floor for the divisors below
-TINY = 1e-20
+INTENSITY_MSE_SCALE = 1e12
+
+
+def smallest_divisor(tensor: torch.Tensor) -> float:
+    """The smallest value it is safe to divide ``tensor`` by, for its own dtype."""
+    return torch.finfo(tensor.dtype).smallest_normal
 
 
 def normalize_to_unit_sum(images: torch.Tensor) -> torch.Tensor:
-    """Scale every image in a batch to unit total intensity.
-    """
-    return images / images.sum(dim=(-2, -1), keepdim=True).clamp_min(TINY)
+    """Scale every image in a batch to unit total intensity."""
+    total = images.sum(dim=(-2, -1), keepdim=True)
+    return images / total.clamp_min(smallest_divisor(total))
 
 
 def normalize_single_to_unit_sum(image: torch.Tensor) -> torch.Tensor:
-    """Scale one image to unit total intensity, summing to a scalar.
-    """
-    return image / image.sum().clamp_min(TINY)
+    """Scale one image to unit total intensity, summing to a scalar."""
+    total = image.sum()
+    return image / total.clamp_min(smallest_divisor(total))
 
 
 def masked_intensity_mse(
@@ -31,8 +35,8 @@ def masked_intensity_mse(
 ) -> torch.Tensor:
     """Squared error between a predicted and a measured intensity over a region.
 
-    Both are masked and normalised to unit sum first, so the comparison is of
-    intensity distribution rather than absolute counts.
+    Both are masked and normalised to unit sum first, so the comparison is of intensity
+    distribution rather than absolute counts.
 
     Args:
         field: Predicted complex field, ``(batch, height, width)``.
@@ -229,7 +233,10 @@ class AmplitudeSmoothness(LossFunction):
     ) -> torch.Tensor:
         # Scale-free, so the weight means the same thing at any beam brightness.
         unit_amplitude = self.slm_field.amplitude.abs()
-        unit_amplitude = unit_amplitude / unit_amplitude.mean().clamp_min(TINY)
+        mean_amplitude = unit_amplitude.mean()
+        unit_amplitude = unit_amplitude / mean_amplitude.clamp_min(
+            smallest_divisor(mean_amplitude)
+        )
         return gradient_loss(unit_amplitude)
 
 
@@ -285,7 +292,7 @@ class LossIntensityMSE(LossFunction):
         self,
         target_intensity: torch.Tensor,
         signal_mask: torch.Tensor,
-        scale: float = 1e12,
+        scale: float = INTENSITY_MSE_SCALE,
     ) -> None:
         """Amplitude-only cost function from https://doi.org/10.1364/OE.22.026548.
 

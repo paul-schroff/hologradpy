@@ -6,7 +6,7 @@ from numpy.typing import NDArray
 import torch
 
 from .calibration_dataset import TrainingSample
-from ....loss_functions import TINY
+from ....loss_functions import smallest_divisor
 
 
 class TransformToTensor:
@@ -46,7 +46,8 @@ class Normalize:
 
     def __call__(self, sample: TrainingSample) -> TrainingSample:
         camera_image = sample["camera_image"] * self.roi_mask.to(sample["camera_image"])
-        camera_image = camera_image / camera_image.sum().clamp_min(TINY)
+        total = camera_image.sum()
+        camera_image = camera_image / total.clamp_min(smallest_divisor(total))
         return {**sample, "camera_image": camera_image}
 
 
