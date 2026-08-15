@@ -369,7 +369,7 @@ i_out = np.abs(e_out) ** 2
 phi_out = np.angle(e_out)
 
 # Calculate efficiency
-eff = m.eff(holo.sig_mask, i_out)
+eff = m.efficiency(holo.sig_mask, i_out)
 print("Efficiency of the simulation:", eff * 100, "%")
 
 # %%

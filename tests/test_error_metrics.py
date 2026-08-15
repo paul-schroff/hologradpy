@@ -169,8 +169,8 @@ def test_every_metric_agrees_between_numpy_and_torch() -> None:
 
     scalar_cases = {
         "eff": (
-            lambda: em.eff(mask, i_out),
-            lambda: em.eff(torch_mask, as_torch(i_out)),
+            lambda: em.efficiency(mask, i_out),
+            lambda: em.efficiency(torch_mask, as_torch(i_out)),
         ),
         "rms": (
             lambda: em.rms(mask, i_target, i_out),

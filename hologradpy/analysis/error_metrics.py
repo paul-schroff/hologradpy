@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import math
-from typing import TypeVar
+from dataclasses import dataclass
+from typing import Callable, Sequence, TypeVar
 
 import torch
 from numpy.typing import NDArray
@@ -13,166 +14,291 @@ from array_api_compat import array_namespace, device
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 
 
-def normalize(img: ArrayLike, roi: ArrayLike, thres: float = 0.5) -> ArrayLike:
+def normalize(
+    image: ArrayLike, roi: ArrayLike, threshold: float = 0.5
+) -> ArrayLike:
     """Normalises an image by the mean of its bright pixels in a region of interest.
 
-    Only pixels brighter than ``thres * max(roi * img)`` are averaged, so the result
-    does not depend on how much dark area the region happens to include.
+    Only pixels brighter than ``threshold * max(roi * image)`` are averaged, so the
+    result does not depend on how much dark area the region happens to include.
 
     Args:
-        img (ArrayLike): Input image.
+        image (ArrayLike): Input image.
         roi (ArrayLike): Binary mask containing the region of interest.
-        thres (float, optional): Pixel value threshold as a fraction of the brightest
-            pixel in the region. Defaults to 0.5.
+        threshold (float, optional): Pixel value threshold as a fraction of the
+            brightest pixel in the region. Defaults to 0.5.
 
     Returns:
-        ArrayLike: Normalised image, the same shape as ``img``.
+        ArrayLike: Normalised image, the same shape as ``image``.
     """
-    xp = array_namespace(img, roi)
+    xp = array_namespace(image, roi)
 
-    img_roi = img * roi
-    threshold = thres * xp.max(img_roi)
-    mask = img_roi > threshold
-    return img / xp.mean(img[mask])
+    image_roi = image * roi
+
+    threshold_intensity = threshold * xp.max(image_roi)
+    return image / xp.mean(image[image_roi > threshold_intensity])
 
 
 def fidelity(
-    signal: ArrayLike,
-    a_tar: ArrayLike,
-    phi_tar: ArrayLike,
-    a_out: ArrayLike,
-    phi_out: ArrayLike,
+    signal_region: ArrayLike,
+    target_amplitude: ArrayLike,
+    target_phase: ArrayLike,
+    measured_amplitude: ArrayLike,
+    measured_phase: ArrayLike,
 ) -> ArrayLike:
-    """Fidelity between two electric fields in a region of interest.
-
-    The normalised overlap integral, so it is 1 when the two fields match up to a global
-    scale and phase, and 0 when they are orthogonal.
+    """Fidelity between two complex amplitudes in a region of interest.
 
     Args:
-        signal (ArrayLike): Binary mask containing the region of interest.
-        a_tar (ArrayLike): Target amplitude pattern.
-        phi_tar (ArrayLike): Target phase pattern.
-        a_out (ArrayLike): Amplitude of the light potential.
-        phi_out (ArrayLike): Phase of the light potential.
+        signal_region (ArrayLike): Binary mask containing the region of interest.
+        target_amplitude (ArrayLike): Target amplitude pattern.
+        target_phase (ArrayLike): Target phase pattern.
+        measured_amplitude (ArrayLike): Measured amplitude pattern.
+        measured_phase (ArrayLike): Measured phase pattern.
 
     Returns:
         ArrayLike: Fidelity in ``[0, 1]``, as a scalar of the input backend.
     """
-    xp = array_namespace(signal, a_tar, phi_tar, a_out, phi_out)
-
-    e_tar_s = (a_tar * xp.exp(1j * phi_tar)) * signal
-    e_out_s = (a_out * xp.exp(1j * phi_out)) * signal
-
-    fid = (
-        xp.sum(e_tar_s * xp.conj(e_out_s))
-        / (xp.sum(xp.abs(e_tar_s) ** 2) * xp.sum(xp.abs(e_out_s) ** 2)) ** 0.5
+    xp = array_namespace(
+        signal_region, 
+        target_amplitude, 
+        target_phase, 
+        measured_amplitude, 
+        measured_phase
     )
-    return xp.abs(fid) ** 2
+
+    target_complex_amplitude = (
+        (target_amplitude * xp.exp(1j * target_phase)) * signal_region
+    )
+    measured_complex_amplitude = (
+        (measured_amplitude * xp.exp(1j * measured_phase)) * signal_region
+    )
+
+    fidelity = (
+        xp.sum(target_complex_amplitude * xp.conj(measured_complex_amplitude))
+        / (
+            xp.sum(xp.abs(target_complex_amplitude) ** 2) 
+            * xp.sum(xp.abs(measured_complex_amplitude) ** 2)
+        ) ** 0.5
+    )
+    return xp.abs(fidelity) ** 2
 
 
 def rms(
-    signal: ArrayLike, i_target: ArrayLike, i_out: ArrayLike, frac: float = 0.5
+    signal: ArrayLike,
+    target_intensity: ArrayLike,
+    measured_intensity: ArrayLike,
+    threshold: float = 0.5,
 ) -> ArrayLike:
     """Normalised root-mean-squared error between two images in a region of interest.
 
-    Only pixels brighter than ``(1 - frac) * max(i_target)`` inside the region are
-    scored, so dark background does not dilute the result. Both images are normalised to
-    unit sum over those pixels first, which makes the answer independent of exposure.
+    Only pixels brighter than ``threshold * max(target_intensity)`` inside the region
+    are considered, to avoid small values in the denominator blowing up the error. Both
+    images are normalised to unit sum over those pixels first, which makes the answer
+    independent of exposure.
 
     Args:
         signal (ArrayLike): Binary mask containing the region of interest.
-        i_target (ArrayLike): Target intensity pattern.
-        i_out (ArrayLike): Intensity pattern of the light potential.
-        frac (float, optional): Sets the brightness threshold as described above.
-            Defaults to 0.5, where the threshold is half the peak.
+        target_intensity (ArrayLike): Target intensity pattern.
+        measured_intensity (ArrayLike): Measured intensity pattern.
+        threshold (float, optional): Brightness threshold as a fraction of the target's
+            peak. Defaults to 0.5, which is half the peak.
 
     Returns:
         ArrayLike: Normalised RMS error, as a scalar of the input backend.
     """
-    xp = array_namespace(signal, i_target, i_out)
+    xp = array_namespace(signal, target_intensity, measured_intensity)
 
-    i_target = i_target * signal
-    i_out = i_out * signal
+    target_intensity_masked = target_intensity * signal
+    measured_intensity_masked = measured_intensity * signal
 
-    # Boolean throughout, where this used to build a 0/1 array of the mask's dtype. The
-    # arithmetic below promotes it the same way, so the result is unchanged.
-    mr_mask = i_target > (1 - frac) * xp.max(i_target)
-    mr = int(xp.count_nonzero(mr_mask))
+    metric_mask = target_intensity_masked > threshold * xp.max(target_intensity_masked)
 
-    i_target_w_norm = i_target * mr_mask / xp.sum(i_target * mr_mask)
-    i_out_w_norm = i_out * mr_mask / xp.sum(i_out * mr_mask)
+    target_bright = target_intensity_masked[metric_mask]
+    measured_bright = measured_intensity_masked[metric_mask]
 
-    # Outside the mask this divides zero by zero. Those entries are dropped by the
-    # selection below, which is why the division is left as it is.
-    n = (mr_mask * (i_out_w_norm - i_target_w_norm) / i_target_w_norm) ** 2
+    target_normalized = target_bright / xp.sum(target_bright)
+    measured_normalized = measured_bright / xp.sum(measured_bright)
 
-    return xp.sqrt(xp.sum(n[mr_mask]) / mr)
+    relative_error = (measured_normalized - target_normalized) / target_normalized
+    return xp.sqrt(xp.mean(relative_error**2))
 
 
-def rms_phase(phi: ArrayLike) -> ArrayLike:
+def rms_phase(phase: ArrayLike) -> ArrayLike:
     """Root-mean-squared deviation of a phase pattern about its own mean.
 
-    Requires *unwrapped* phase. Passing the output of ``angle``, or any phase that has
-    been wrapped into ``(-pi, pi]``, gives a meaningless answer as soon as the true
-    phase leaves that interval, because the 2 pi jumps dominate the deviation. Use
-    :func:`wavefront_rms` for a wrapped phase, or unwrap first with
-    :func:`hologradpy.analysis.unwrapping.unwrap_2d_poisson`.
+    Requires *unwrapped* phase. Use :func:`wavefront_rms` for a wrapped phase, or
+    unwrap first with :func:`hologradpy.analysis.unwrapping.unwrap_2d_poisson`.
 
     Args:
-        phi (ArrayLike): Unwrapped phase pattern.
+        phase (ArrayLike): Unwrapped phase pattern.
 
     Returns:
         ArrayLike: RMS phase deviation, as a scalar of the input backend.
     """
-    xp = array_namespace(phi)
+    xp = array_namespace(phase)
 
-    return xp.sqrt(xp.mean((phi - xp.mean(phi)) ** 2))
+    return xp.sqrt(xp.mean((phase - xp.mean(phase)) ** 2))
 
 
-def psnr(signal: ArrayLike, i_target: ArrayLike, i_out: ArrayLike) -> ArrayLike:
+def psnr(
+    signal_region: ArrayLike, 
+    target_intensity: ArrayLike, 
+    measured_intensity: ArrayLike
+) -> ArrayLike:
     """Peak signal-to-noise ratio between two images in a region of interest.
 
     Follows https://doi.org/10.1364/OE.24.006249. Both images are normalised to unit sum
     over the region first, so the result does not depend on exposure.
 
     Args:
-        signal (ArrayLike): Binary mask containing the region of interest.
-        i_target (ArrayLike): Target intensity pattern.
-        i_out (ArrayLike): Intensity pattern of the light potential.
+        signal_region (ArrayLike): Binary mask containing the region of interest.
+        target_intensity (ArrayLike): Target intensity pattern.
+        measured_intensity (ArrayLike): Intensity pattern of the light potential.
 
     Returns:
         ArrayLike: Peak signal-to-noise ratio in dB, as a scalar of the input backend.
     """
-    xp = array_namespace(signal, i_target, i_out)
+    xp = array_namespace(signal_region, target_intensity, measured_intensity)
 
-    i_target_w = i_target * signal
-    i_out_w = i_out * signal
+    signal_region = signal_region > 0
+    target_intensity_signal = target_intensity[signal_region]
+    measured_intensity_signal = measured_intensity[signal_region]
 
-    i_target_w_norm = i_target_w / xp.sum(i_target_w)
-    i_out_w_norm = i_out_w / xp.sum(i_out_w)
+    target_intensity_normalized = (
+        target_intensity_signal / xp.sum(target_intensity_signal)
+    )
+    measured_intensity_normalized = (
+        measured_intensity_signal / xp.sum(measured_intensity_signal)
+    )
 
-    mr = int(xp.count_nonzero(signal))
+    mean_squared_error = (
+        xp.mean((measured_intensity_normalized - target_intensity_normalized) ** 2)
+    )
+    return (
+        20 * xp.log10(xp.max(target_intensity_normalized) / xp.sqrt(mean_squared_error))
+    )
 
-    mse = xp.sum(signal * (i_out_w_norm - i_target_w_norm) ** 2) / mr
 
-    return 20 * xp.log10(xp.max(i_target_w_norm * signal) / xp.sqrt(mse))
-
-
-def eff(signal: ArrayLike, i_out: ArrayLike) -> ArrayLike:
-    """Predicted efficiency of a light potential.
-
-    The fraction of the total power landing inside the signal region.
+def efficiency(signal_region: ArrayLike, measured_intensity: ArrayLike) -> ArrayLike:
+    """Predicted efficiency of a light potential. The fraction of the total power 
+    landing inside the signal region.
 
     Args:
-        signal (ArrayLike): Binary mask containing the signal region.
-        i_out (ArrayLike): Intensity pattern of the light potential.
+        signal_region (ArrayLike): Binary mask containing the signal region.
+        measured_intensity (ArrayLike): Intensity pattern of the light potential.
 
     Returns:
         ArrayLike: Efficiency in ``[0, 1]``, as a scalar of the input backend.
     """
-    xp = array_namespace(signal, i_out)
+    xp = array_namespace(signal_region, measured_intensity)
 
-    return xp.sum(i_out * signal) / xp.sum(i_out)
+    return xp.sum(measured_intensity * signal_region) / xp.sum(measured_intensity)
+
+
+@dataclass(frozen=True)
+class IntensityMetric:
+    """A metric comparing a light potential against a target within a ``signal_region``.
+
+    Args:
+        name: Label for the metric.
+        function: Takes ``(signal_region, target_intensity, measured_intensity)`` and
+            returns a scalar.
+    """
+
+    name: str
+    function: Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]
+
+    def __call__(
+        self,
+        signal_region: ArrayLike,
+        target_intensity: ArrayLike,
+        measured_intensity: ArrayLike,
+    ) -> float:
+        return float(
+            self.function(signal_region, target_intensity, measured_intensity)
+        )
+
+
+DEFAULT_INTENSITY_METRICS: tuple[IntensityMetric, ...] = (
+    IntensityMetric("rms", rms),
+    IntensityMetric("psnr [dB]", psnr),
+)
+
+
+@dataclass(frozen=True)
+class WavefrontMetric:
+    """A metric comparing two phase patterns within a ``mask``.
+
+    Args:
+        name: Label for the metric.
+        function: Takes ``(recovered_phase, reference_phase, mask)`` and returns a
+            scalar.
+    """
+
+    name: str
+    function: Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]
+
+    def __call__(
+        self,
+        recovered_phase: ArrayLike,
+        reference_phase: ArrayLike,
+        mask: ArrayLike,
+    ) -> float:
+        return float(self.function(recovered_phase, reference_phase, mask))
+
+
+DEFAULT_WAVEFRONT_METRICS: tuple[WavefrontMetric, ...] = (
+    WavefrontMetric(
+        "residual_phase_rms",
+        lambda recovered, reference, mask: wavefront_rms(reference - recovered, mask),
+    ),
+    WavefrontMetric(
+        "residual_fraction",
+        lambda recovered, reference, mask: wavefront_residual(
+            recovered, reference, mask, allow_sign_flip=False
+        ),
+    ),
+)
+
+
+def evaluate_wavefront_metrics(
+    metrics: Sequence[WavefrontMetric],
+    recovered_phase: ArrayLike,
+    reference_phase: ArrayLike,
+    mask: ArrayLike,
+) -> dict[str, float]:
+    return {
+        metric.name: metric(recovered_phase, reference_phase, mask)
+        for metric in metrics
+    }
+
+
+def evaluate_metrics(
+    metrics: Sequence[IntensityMetric],
+    signal_region: ArrayLike,
+    target_intensity: ArrayLike,
+    measured_intensity: ArrayLike,
+    history: dict[str, list[float]] | None = None,
+) -> dict[str, list[float]]:
+    """Evaluate the metrics and append the results to ``history``.
+
+    Args:
+        metrics: The metrics to evaluate.
+        signal_region: Binary mask containing the region of interest.
+        target_intensity: The intensity that was asked for.
+        measured_intensity: The intensity that came out.
+        history: Where to append. A new dictionary is started when None.
+
+    Returns:
+        dict[str, list[float]]: ``history``, with one more entry per metric.
+    """
+    if history is None:
+        history = {}
+    for metric in metrics:
+        history.setdefault(metric.name, []).append(
+            metric(signal_region, target_intensity, measured_intensity)
+        )
+    return history
 
 
 def remove_linear_phase(
