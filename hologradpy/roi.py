@@ -2,7 +2,7 @@
 
 ``ROI`` is the ``(row, col)`` rectangular region of interest and the single abstraction
 for ROI handling with named constructors :meth:`ROI.centered`, :meth:`ROI.from_bounds`
-and, :meth:`ROI.detect`, and methods :meth:`crop`, :meth:`pad`. It works on numpy and
+and :meth:`ROI.detect`, and methods :meth:`crop`, :meth:`pad`. It works on numpy and
 torch arrays.
 """
 
@@ -54,18 +54,6 @@ class ROI:
         """From ``(top, bottom, left, right)`` pixel indices, the convention returned by
         :meth:`to_bounds` and used by array slicing."""
         return cls(int(top), int(left), int(bottom) - int(top), int(right) - int(left))
-
-    @classmethod
-    def covering(cls, mask: ArrayLike) -> ROI:
-        """The smallest ROI containing every true pixel of boolean ``mask``."""
-        xp = array_namespace(mask)
-        rows, columns = xp.nonzero(mask)
-        return cls.from_bounds(
-            int(xp.min(rows)),
-            int(xp.max(rows)) + 1,
-            int(xp.min(columns)),
-            int(xp.max(columns)) + 1,
-        )
 
     @classmethod
     def detect(

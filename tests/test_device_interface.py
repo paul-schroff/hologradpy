@@ -103,6 +103,18 @@ def test_roi_detect_bounds_bright_block():
     np.testing.assert_array_equal(roi.pad(roi.crop(image), image.shape), image)
 
 
+def test_roi_detect_without_a_threshold_is_an_exact_lossless_box():
+    """``threshold=0, pad=0`` bounds every nonzero pixel, so crop and pad round trip."""
+    image = np.zeros((10, 12))
+    image[3:6, 4:9] = 1.0
+    image[2, 3] = 0.1                       # faint, but still inside the box
+
+    roi = ROI.detect(image, threshold=0.0, pad=0)
+
+    assert roi.to_bounds() == (2, 6, 3, 9)
+    np.testing.assert_array_equal(roi.pad(roi.crop(image), image.shape), image)
+
+
 # --- conversion helpers ---------------------------------------------------------
 
 
