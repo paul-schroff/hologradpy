@@ -97,7 +97,7 @@ camera = open_camera(
     full_well_capacity=11e3,
     noise_level=4.0,
     nd_filter_optical_density=3,
-    bitdepth=10,
+    bitdepth=12,
     power_std=0.05,
     power_seed=0,
 )
