@@ -9,8 +9,14 @@ torch arrays.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TypeVar
+
+import torch
+from numpy.typing import NDArray
 
 from array_api_compat import array_namespace, device as array_device
+
+ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 
 
 @dataclass(frozen=True)
@@ -50,22 +56,38 @@ class ROI:
         return cls(int(top), int(left), int(bottom) - int(top), int(right) - int(left))
 
     @classmethod
-    def detect(cls, image, threshold: float = 0.5, pad: int = 10) -> ROI:
+    def covering(cls, mask: ArrayLike) -> ROI:
+        """The smallest ROI containing every true pixel of boolean ``mask``."""
+        xp = array_namespace(mask)
+        rows, columns = xp.nonzero(mask)
+        return cls.from_bounds(
+            int(xp.min(rows)),
+            int(xp.max(rows)) + 1,
+            int(xp.min(columns)),
+            int(xp.max(columns)) + 1,
+        )
+
+    @classmethod
+    def detect(
+        cls, image: ArrayLike, threshold: float = 0.5, pad: int = 10
+    ) -> ROI:
         """The ROI bounding pixels above ``threshold * max(image)``, padded by ``pad``
         pixels per side and clipped to the image extent."""
         xp = array_namespace(image)
         rows, cols = xp.nonzero(image > threshold * xp.max(image))
         top = int(xp.clip(xp.min(rows) - pad, 0, image.shape[0]))
-        bottom = int(xp.clip(xp.max(rows) + pad, 0, image.shape[0]))
+        bottom = int(xp.clip(xp.max(rows) + pad + 1, 0, image.shape[0]))
         left = int(xp.clip(xp.min(cols) - pad, 0, image.shape[1]))
-        right = int(xp.clip(xp.max(cols) + pad, 0, image.shape[1]))
+        right = int(xp.clip(xp.max(cols) + pad + 1, 0, image.shape[1]))
         return cls(top, left, bottom - top, right - left)
 
-    def crop(self, image):
+    def crop(self, image: ArrayLike) -> ArrayLike:
         """Crop ``image`` (any array with two trailing spatial axes) to this ROI."""
         return image[..., self.rows, self.columns]
 
-    def pad(self, image, original_shape: tuple[int, int]):
+    def pad(
+        self, image: ArrayLike, original_shape: tuple[int, int]
+    ) -> ArrayLike:
         """Inverse of :meth:`crop`: place ``image`` back into a zero array of
         ``original_shape`` ``(height, width)`` at this ROI."""
         xp = array_namespace(image)

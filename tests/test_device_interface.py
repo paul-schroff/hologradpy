@@ -93,11 +93,14 @@ def test_roi_crop_and_pad_round_trip():
 
 
 def test_roi_detect_bounds_bright_block():
+    """The bounds are slicing bounds, so they reproduce the block exactly."""
     image = np.zeros((10, 12))
     image[3:6, 4:9] = 1.0
     roi = ROI.detect(image, threshold=0.5, pad=0)
-    # detect mirrors the old find_roi bounds (inclusive max index).
-    assert roi.to_bounds() == (3, 5, 4, 8)
+
+    assert roi.to_bounds() == (3, 6, 4, 9)
+    np.testing.assert_array_equal(roi.crop(image), image[3:6, 4:9])
+    np.testing.assert_array_equal(roi.pad(roi.crop(image), image.shape), image)
 
 
 # --- conversion helpers ---------------------------------------------------------
