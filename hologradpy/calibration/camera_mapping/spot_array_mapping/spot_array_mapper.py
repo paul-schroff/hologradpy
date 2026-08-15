@@ -125,7 +125,6 @@ class SpotArrayMapper(CameraMapper):
             CameraMapping with the affine transform, the per-spot Gaussian fits and the
             uncertainty-weighted average waist.
         """
-        # TODO: Fix inconsistend x/y, h/w conventions.
         lens = self.slm_camera_model.fourier_lens
         pixel_size_out = lens.pixel_size_out.tolist()[0]    # (y, x) metres
         resolution_out = tuple(lens.resolution_out)         # (height, width)
