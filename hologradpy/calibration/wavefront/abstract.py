@@ -13,12 +13,13 @@ from ...hardware import Camera, SLM, as_camera, as_slm
 
 from ...optics.complex_amplitude import ComplexAmplitude
 from ...grids import get_spatial_grid
-from ...serialization import SaveableRecord
+from ...serialization import SaveableRecord, record_type
 from ...visualizer import VisualizationData
 
 from ...analysis.fitting import fit_gaussian_beam_intensity
 
 
+@record_type("wavefront_calibration")
 @dataclass
 class WavefrontCalibrationData(SaveableRecord):
     timestamp: datetime

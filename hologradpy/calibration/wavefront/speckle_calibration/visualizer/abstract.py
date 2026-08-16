@@ -20,6 +20,7 @@ from .....visualizer import (
     VisualizationData,
     foreground_color,
 )
+from .....serialization import record_type
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
@@ -27,11 +28,12 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
 
+@record_type("speckle_visualization")
 @dataclass
 class SpeckleVisualizationData(VisualizationData):
     """Everything ``SpeckleCalibrator`` records for visualization.
 
-    ``phase_pattern`` is the SLM pattern that produced ``camera_image``, one full-sensor
+    ``slm_pattern`` is the SLM pattern that produced ``camera_image``, one full-sensor
     capture from the dataset, and ``roi_mask`` is the full-frame region-of-interest
     mask, so the last two overlay. Those three are all a dataset carries, and
     :meth:`SpeckleCalibratorVisualizer.render_dataset` draws them on their own, before
@@ -52,7 +54,7 @@ class SpeckleVisualizationData(VisualizationData):
     roi_mask: NDArray
     # Defaulted so a payload can be built straight after the capture, with nothing
     # fitted yet. render() says which of them is missing rather than drawing empty axes.
-    phase_pattern: NDArray | None = None
+    slm_pattern: NDArray | None = None
     measured_roi: NDArray | None = None
     predicted_roi: NDArray | None = None
     recovered_amplitude: NDArray | None = None
@@ -105,13 +107,13 @@ class SpeckleCalibratorVisualizer(BaseVisualizer):
                 "camera", aspect=self._aspect(self.data.camera_image), colorbar=True
             )
         ]
-        if self.data.phase_pattern is None:
+        if self.data.slm_pattern is None:
             return cells
 
         return [
             GridCell(
                 "pattern",
-                aspect=self._aspect(self.data.phase_pattern),
+                aspect=self._aspect(self.data.slm_pattern),
                 colorbar=True,
             ),
             *cells,
@@ -119,12 +121,12 @@ class SpeckleCalibratorVisualizer(BaseVisualizer):
 
     def _dataset_panels(self) -> dict[str, Panel]:
         panels: dict[str, Panel] = {"camera": self._camera_panel}
-        if self.data.phase_pattern is None:
+        if self.data.slm_pattern is None:
             return panels
 
         return {
             "pattern": self._image_panel(
-                self.data.phase_pattern, "SLM phase pattern", cmap=PHASE_CMAP
+                self.data.slm_pattern, "SLM pattern [levels]", cmap=PHASE_CMAP
             ),
             **panels,
         }
@@ -140,7 +142,7 @@ class SpeckleCalibratorVisualizer(BaseVisualizer):
             RuntimeError: If the payload carries no phase pattern, since the figure
                 would then be one cell the full diagnostics already draws.
         """
-        self._require("phase_pattern")
+        self._require("slm_pattern")
         return self.render(
             layout=self._dataset_layout(), panels=self._dataset_panels(), **kwargs
         )

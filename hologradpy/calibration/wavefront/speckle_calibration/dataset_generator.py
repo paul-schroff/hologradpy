@@ -10,11 +10,7 @@ from numpy.typing import NDArray
 
 import torch
 
-from .calibration_dataset import (
-    DATASET_MANIFEST_NAME,
-    DatasetDescriptor,
-    TrainingSampleFilenames,
-)
+from .records import SpeckleCaptureData
 
 from ....hardware import Camera, SLM
 from ....hardware.camera import CameraData
@@ -24,6 +20,7 @@ from ..abstract import WavefrontCalibrationData
 
 from ...camera_mapping import CameraMapping
 
+from ....datasets import CaptureStore
 from ....profiles.masks import circular_mask, elliptical_mask
 from ....profiles.phase import band_limited_random_phase
 from ....roi import ROI
@@ -41,22 +38,18 @@ class DatasetGenerator:
         camera: Camera,
         camera_mapping: CameraMapping,
         focal_length: float,
-        dataset_directory: str | os.PathLike,
+        dataset_path: str | os.PathLike,
         number_of_random_patterns: int = 1,
     ) -> None:
         self.slm: SLM = slm
         self.camera: Camera = camera
         self.camera_mapping: CameraMapping = camera_mapping
         self.focal_length: float = focal_length
-        self.dataset_directory: Path = Path(dataset_directory)
+        self.dataset_path: Path = Path(dataset_path)
         self.number_of_random_patterns: int = number_of_random_patterns
         self.benchmark_calibration: WavefrontCalibrationData | None = None
 
-        self.camera_background_image: NDArray[np.float_] = np.zeros(
-            self.camera.resolution
-        )
-
-        self.data_filenames: List[TrainingSampleFilenames] = []
+        self.phase_patterns: List[NDArray[np.float_]] = []
 
         self.phase_pattern_type: str = "band_limited_random"
         self.metadata: Dict[str, tuple[float, float] | float | int | None] = {
@@ -70,11 +63,10 @@ class DatasetGenerator:
     def generate_dataset(
         self,
         extent: tuple[float, float] | None = None,
-        capture_background_image: bool = False,
         benchmark_calibration: WavefrontCalibrationData | None = None,
         seed: int | None = None,
-    ) -> DatasetDescriptor:
-        """Generate the patterns, capture the frames, and save the manifest beside them.
+    ) -> SpeckleCaptureData:
+        """Generate the patterns and capture their frames into one dataset file.
 
         The whole capture in one call, which is what a caller normally wants.
         :meth:`generate_phase_patterns` and :meth:`capture_camera_images` remain
@@ -86,23 +78,19 @@ class DatasetGenerator:
                 setting both the pattern band limit and the region of interest. A width
                 rather than a radius, so it compares directly against the sensor size.
                 Defaults to the largest speckle that fits on the sensor.
-            capture_background_image: Capture a dark frame after the patterns. Block the
-                beam first, since the frame is taken immediately.
             benchmark_calibration: An existing calibration to add to every pattern, for
                 measuring the residual of a previous fit.
             seed: Seed for the pattern noise. Leave as None to seed from the system
                 entropy, which makes the dataset irreproducible.
 
         Returns:
-            DatasetDescriptor: The manifest for the captured dataset, already saved to
-            ``dataset_directory`` so the dataset can be reloaded without it.
+            SpeckleCaptureData: What describes the capture, which is also written inside
+            the dataset file so it can be reopened without it.
         """
         self.generate_phase_patterns(
             extent, benchmark_calibration=benchmark_calibration, seed=seed
         )
-        descriptor = self.capture_camera_images(capture_background_image)
-        descriptor.save(self.dataset_directory / DATASET_MANIFEST_NAME)
-        return descriptor
+        return self.capture_camera_images()
 
     def largest_extent_on_sensor(self) -> tuple[float, float]:
         """The widest speckle ``(y, x)``, in metres, that still fits on the sensor.
@@ -205,7 +193,8 @@ class DatasetGenerator:
         else:
             generator.manual_seed(seed)
 
-        for i in progress(
+        self.phase_patterns = []
+        for _ in progress(
             range(self.number_of_random_patterns),
             description="Generating phase patterns",
             verbose=verbose,
@@ -215,11 +204,7 @@ class DatasetGenerator:
                 phase.cpu().numpy() + benchmark_phase, 2 * np.pi
             )
 
-            phase_filename = f"phase_pattern_{i}.npy"
-            self.data_filenames.append(
-                TrainingSampleFilenames(phase_pattern=phase_filename)
-            )
-            np.save(self.dataset_directory / phase_filename, phase)
+            self.phase_patterns.append(phase)
 
         camera_grid = get_spatial_grid(self.camera.resolution, self.camera.pixel_size)
 
@@ -239,32 +224,26 @@ class DatasetGenerator:
 
         zeroth_order_mask = circular_mask(
             *camera_grid,
-            4 * self.camera_mapping.focal_spot_radius,
+            4 * self.camera_mapping.spot_fit.waist,
             shift_x=shift_x,
             shift_y=shift_y,
         )
 
         self.roi_mask = (speckle_mask & ~zeroth_order_mask).cpu().numpy()
 
-    def capture_camera_images(
-        self, capture_background_image: bool = False, verbose: bool = True
-    ) -> DatasetDescriptor:
+    def capture_camera_images(self, verbose: bool = True) -> SpeckleCaptureData:
         """Display every generated phase pattern and capture the camera speckle.
 
-        Call :meth:`generate_phase_patterns` first: it writes the patterns and
-        builds the region-of-interest mask for the autoexposure.
+        Call :meth:`generate_phase_patterns` first: it generates the patterns and the
+        region-of-interest needed for the autoexposure.
 
-        Args:
-            capture_background_image: Capture a background frame after the
-                patterns, to be subtracted from every image during training. The frame
-                is taken immediately, so **block the beam before calling** if this is
-                set. Defaults to False, which leaves the background at zero. This used
-                to prompt on stdin, which made the method unusable from a notebook or a
-                headless run.
+        The frames stream into the dataset file as they are captured, so a run that dies
+        partway leaves the frames it took. The exposure is set before the file is
+        opened, because everything but the streamed frames goes into the tree first.
 
         Returns:
-            DatasetDescriptor: The manifest for the captured dataset. It names the
-            sample files relative to this generator's ``dataset_directory``.
+            SpeckleCaptureData: What describes the capture, also written inside
+            the file.
         """
         if self.roi_mask is None:
             raise RuntimeError(
@@ -272,46 +251,47 @@ class DatasetGenerator:
                 "before capture_camera_images()."
             )
 
-        for i, filename in enumerate(
-            progress(
-                self.data_filenames,
+        # Exposed on the first pattern, ahead of the capture proper: the exposure goes
+        # into the record, and the record is written before the first frame.
+        self.slm.set_phase(self.phase_patterns[0])
+        roi = ROI.detect(self.roi_mask, pad=0)
+        self.metadata["exposure_time"] = self.camera.autoexpose(
+            set_fraction=0.95, roi=roi, mask=roi.crop(self.roi_mask)
+        )
+
+        bitdepth = self.slm.bitdepth
+        patterns = [
+            self.slm.phase_to_levels(pattern) for pattern in self.phase_patterns
+        ]
+
+        capture_data = self._capture_data()
+        with CaptureStore.capture(
+            self.dataset_path,
+            capture_data,
+            frame_shape=tuple(self.camera.resolution),
+            slm_levels=patterns,
+            phase_bitdepth=bitdepth,
+        ) as store:
+            for pattern in progress(
+                self.phase_patterns,
                 description="Capturing camera images",
                 verbose=verbose,
-            )
-        ):
-            phase_pattern = np.load(self.dataset_directory / filename["phase_pattern"])
+            ):
+                self.slm.set_phase(pattern)
+                store.append(self.camera.get_image())
 
-            self.slm.set_phase(phase_pattern)
+        return capture_data
 
-            if i == 0:
-                roi = ROI.detect(self.roi_mask, pad=0)
-                self.metadata["exposure_time"] = self.camera.autoexpose(
-                    set_fraction=0.95, roi=roi, mask=roi.crop(self.roi_mask)
-                )
-
-            camera_image_filename = f"camera_image_{i}.npy"
-            camera_image = self.camera.get_image()
-
-            # np.save serialises synchronously, so the frame needs no copy here.
-            np.save(self.dataset_directory / camera_image_filename, camera_image)
-
-            self.data_filenames[i]["camera_image"] = camera_image_filename
-
-        if capture_background_image:
-            self.camera_background_image = np.asarray(
-                self.camera.get_image(), dtype=float
-            ).copy()
-
-        return DatasetDescriptor(
+    def _capture_data(self) -> SpeckleCaptureData:
+        return SpeckleCaptureData(
             timestamp=datetime.now(),
             phase_pattern_type=self.phase_pattern_type,
-            number_of_patterns=self.number_of_random_patterns,
             slm_data=SLMData.from_slm(self.slm),
             camera_data=CameraData.from_camera(self.camera),
-            camera_mapping=self.camera_mapping,
+            # Lean: the mapping's diagnostic frames are its own business, not
+            # something every dataset that references it should carry.
+            camera_mapping=self.camera_mapping.lean(),
             roi_mask=self.roi_mask,
-            data_filenames=self.data_filenames,
-            camera_background_image=self.camera_background_image,
             benchmark_calibration=self.benchmark_calibration,
             metadata=dict(self.metadata),
         )

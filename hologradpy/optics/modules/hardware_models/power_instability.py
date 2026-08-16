@@ -37,6 +37,11 @@ class PowerInstability(OpticsModule):
         self._last_power_factor: Tensor | None = None
 
     @property
+    def is_stochastic(self) -> bool:
+        """True unless the spread is zero."""
+        return self.power_std != 0.0
+
+    @property
     def last_power_factor(self) -> Tensor | None:
         """The most recently sampled relative power factor, or ``None`` before the
         first :meth:`forward`. Handy for recording the realized per-frame power (e.g.

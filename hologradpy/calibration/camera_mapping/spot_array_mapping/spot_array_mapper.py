@@ -27,6 +27,8 @@ from ...spot_detection import (
 from ..coarse_mapping.coarse_mapper import CoarseMapper
 
 from ..abstract import CameraMapper, CameraMapping
+from ..mapping import FocalSpotFit, MappingFit
+from ..visualizer import CameraMappingVisualizationData
 
 # Minimum correspondences for an affine fit
 _MIN_AFFINE_POINTS = 3
@@ -147,7 +149,7 @@ class SpotArrayMapper(CameraMapper):
         )
         focal_spot_radius = float(
             np.clip(
-                abs(coarse_mapping.focal_spot_radius),
+                abs(coarse_mapping.spot_fit.waist),
                 diffraction_limit,
                 _MAX_SPOT_RADIUS_FACTOR * diffraction_limit,
             )
@@ -384,23 +386,19 @@ class SpotArrayMapper(CameraMapper):
         waists = [float(popt[0]) for popt in fit_parameters]
         waist_variances = [float(pcov[0, 0]) for pcov in fit_covariances]
 
-        # Camera detections that did not make it into the transform, kept for inspection
-        # / visualization with the reason they were excluded.
-        matched_camera = {camera_by_target[t] for t in common_targets}
+        # Camera detections that did not make it into the transform, kept so none
+        # disappears from a plot without explanation.
         used_camera = {
             camera_by_target[t]
             for t, keep in zip(common_targets, inliers)
             if keep
         }
         excluded_points = list(camera_spots.rejected_peaks)
-        excluded_reasons = ["fit rejected"] * len(camera_spots.rejected_peaks)
-        for index, point in enumerate(camera_spots.points):
-            if index in used_camera:
-                continue
-            excluded_points.append(point)
-            excluded_reasons.append(
-                "affine outlier" if index in matched_camera else "unmatched"
-            )
+        excluded_points.extend(
+            point
+            for index, point in enumerate(camera_spots.points)
+            if index not in used_camera
+        )
 
         inverse_transform = (
             AffineTransform.from_matrix(transform).inverse().as_matrix(homogeneous=False)
@@ -427,22 +425,25 @@ class SpotArrayMapper(CameraMapper):
             timestamp=datetime.now(),
             name="spot_array",
             transform=transform,
-            inverse_transform=inverse_transform,
             detected_points=detected_points,
             calculated_points=calculated_points,
-            camera_images=[masked_image],
-            simulated_images=[simulated_image],
             zeroth_order_position=zeroth_order_position,
-            focal_spot_radius=average_waist,
-            reprojection_errors=reprojection_errors,
-            reprojection_rms=reprojection_rms,
-            spot_fit_parameters=fit_parameters,
-            spot_fit_covariances=fit_covariances,
-            average_waist=average_waist,
-            average_waist_uncertainty=average_waist_uncertainty,
-            zeroth_order_mask=zeroth_mask,
-            excluded_points=excluded_points,
-            excluded_reasons=excluded_reasons,
+            spot_fit=FocalSpotFit(
+                waist=average_waist,
+                waist_uncertainty=average_waist_uncertainty,
+                parameters=fit_parameters,
+                covariances=fit_covariances,
+            ),
+            fit=MappingFit(
+                reprojection_errors=reprojection_errors,
+                reprojection_rms=reprojection_rms,
+                excluded_points=excluded_points,
+            ),
+            visualization_data=CameraMappingVisualizationData(
+                camera_image=masked_image,
+                simulated_image=simulated_image,
+                zeroth_order_mask=zeroth_mask,
+            ),
         )
 
     def _sample_positions(

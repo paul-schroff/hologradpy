@@ -17,7 +17,7 @@ from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
-from hologradpy.utils import get_device
+from hologradpy.utils import get_device, gpu_to_numpy
 
 device = get_device(verbose=True)
 data_path = "../data/"
@@ -96,14 +96,14 @@ camera_mapping = camera_mapper.map_camera(
 )
 
 # %% Saving results
-camera_mapping.save(data_path + "camera_mapping.pkl")
+camera_mapping.save(data_path + "camera_mapping.asdf")
 slm_camera_model.save(data_path + "slm_camera_model.pkl")
 simulated_camera_model.save(data_path + "simulated_camera_model.pkl")
 
 # %% Plotting results
-camera_image = camera_mapping.camera_images[0]
-simulated_image = camera_mapping.simulated_images[0]
-slm_phase = slm_camera_model.virtual_slm.phase.detach().cpu().numpy()
+camera_image = camera_mapping.visualization_data.camera_image
+simulated_image = camera_mapping.visualization_data.simulated_image
+slm_phase = gpu_to_numpy(slm_camera_model.virtual_slm.get_phase())
 
 # TODO: Tidy up plotting
 print("Transformation matrix:")

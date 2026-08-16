@@ -8,6 +8,7 @@ from numpy.typing import NDArray
 import torch
 import torch.nn as nn
 
+from ....phase_levels import PhaseResponse, PhaseResponseModule, LinearResponse
 from ....utils import unsqueeze_to
 from ..abstract import OpticsModule
 from ...complex_amplitude import ComplexAmplitude
@@ -22,10 +23,8 @@ class VirtualSLM(OpticsModule):
     """Differentiable phase-only SLM module.
 
     Sign convention: ``phase`` holds the *desired* optical phase. The field picks up
-    ``exp(1j * phase)`` (wrapped to the modulation range), matching the argument of
-    ``slmsuite.hardware.slms.slm.SLM.set_phase``. The value the hardware actually
-    displays is the negative of it since slmsuite negates before grayscale conversion
-    (see :meth:`get_displayed_phase`).
+    ``exp(1j * phase)``, wrapped to the modulation range. The value the hardware
+    actually displays is the negative of it to match slmsuite's convention.
 
     The phase may be a single pattern ``(H, W)`` or a batch ``(N, H, W)``. A batch
     produces a field of rank ``(N, n_wavelengths, H, W)`` from a single forward pass, so
@@ -36,11 +35,17 @@ class VirtualSLM(OpticsModule):
         self: VirtualSLM,
         phase_scaling: float,
         init_phase: torch.Tensor | None = None,
+        phase_response: PhaseResponse | None = None,
     ) -> None:
         super().__init__()
 
         self.phase_scaling: float = phase_scaling
         self.init_phase: torch.Tensor | None = init_phase
+
+        self.phase_response = PhaseResponseModule(
+            phase_response
+            or LinearResponse(bitdepth=8, phase_scaling=phase_scaling)
+        )
 
     def lazy_init(self, complex_amplitude: ComplexAmplitude) -> None:
         if self.init_phase is None:
@@ -49,8 +54,14 @@ class VirtualSLM(OpticsModule):
                 device=complex_amplitude.device,
                 dtype=complex_amplitude.dtype_r,
             )
+        else:
+            self.init_phase = self.init_phase.to(
+                device=complex_amplitude.device, dtype=complex_amplitude.dtype_r
+            )
 
-        self.phase = nn.Parameter(self.init_phase, requires_grad=False)
+        self.levels = nn.Parameter(
+            self.phase_response.fraction_at(self.init_phase), requires_grad=False
+        )
 
     @classmethod
     def from_slm(
@@ -63,6 +74,7 @@ class VirtualSLM(OpticsModule):
         return cls(
             phase_scaling=slm.phase_scaling,
             init_phase=init_phase,
+            phase_response=getattr(slm, "phase_response", None),
         )
 
     @classmethod
@@ -76,6 +88,7 @@ class VirtualSLM(OpticsModule):
         return cls(
             phase_scaling=slm_data.phase_scaling,
             init_phase=init_phase,
+            phase_response=getattr(slm_data, "phase_response", None),
         )
 
     def set_phase(self, phase: torch.Tensor | NDArray) -> None:
@@ -88,7 +101,7 @@ class VirtualSLM(OpticsModule):
         """
         if isinstance(phase, np.ndarray):
             phase = torch.as_tensor(phase)
-        phase = phase.to(dtype=self.phase.dtype, device=self.phase.device)
+        phase = phase.to(dtype=self.levels.dtype, device=self.levels.device)
 
         if phase.ndim not in (2, 3):
             raise ValueError(
@@ -101,15 +114,54 @@ class VirtualSLM(OpticsModule):
                 f"SLM resolution {tuple(self.resolution_in)}."
             )
 
-        self.phase.data = phase
+        self.levels.data = self.phase_response.fraction_at(phase)
 
     def get_phase(self) -> torch.Tensor:
-        """The desired optical phase imprinted on the field (before the modulation-range
-        wrap)."""
-        return self.phase
+        """The desired optical phase imprinted on the field."""
+        return self.phase_response.phase_at(self.displayed_levels())
+
+    def displayed_levels(self) -> torch.Tensor:
+        """The fraction of full scale the panel is showing."""
+        return self.levels % self.phase_scaling
+
+    def set_levels(
+        self, levels: torch.Tensor | NDArray, bitdepth: int | None = None
+    ) -> None:
+        """Imprint displayed grayscale levels, rather than a desired phase."""
+        if not isinstance(levels, torch.Tensor):
+            levels = torch.as_tensor(np.asarray(levels))
+        self.set_phase(self.levels_to_phase(levels, bitdepth))
+
+    def _checked_bitdepth(self, bitdepth: int | None) -> int:
+        """The response's own bit depth, and a loud error when a caller disagrees."""
+        mine = self.phase_response.bitdepth
+        if bitdepth is not None and int(bitdepth) != int(mine):
+            raise ValueError(
+                f"These levels are {bitdepth}-bit but this SLM's response is "
+                f"{mine}-bit, so they do not mean the same phase."
+            )
+        return mine
+
+    def levels_to_phase(
+        self, levels: torch.Tensor | NDArray, bitdepth: int | None = None
+    ) -> torch.Tensor:
+        """The desired optical phase that displaying ``levels`` imposes."""
+        self._checked_bitdepth(bitdepth)
+        if not isinstance(levels, torch.Tensor):
+            levels = torch.as_tensor(np.asarray(levels))
+        return self.phase_response.response.to_phase(levels)
+
+    def phase_to_levels(
+        self, phase: torch.Tensor | NDArray, bitdepth: int | None = None
+    ) -> NDArray:
+        """The levels that impose ``phase``, ready to display."""
+        self._checked_bitdepth(bitdepth)
+        if isinstance(phase, torch.Tensor):
+            phase = phase.detach().cpu().numpy()
+        return self.phase_response.response.display_levels(np.asarray(phase))
 
     def get_displayed_phase(self) -> torch.Tensor:
-        """The phase pattern as displayed on the SLM before grayscale conversion: the 
+        """The phase pattern as displayed on the SLM before grayscale conversion: the
         hardware displays the negative of the desired phase.
         """
         return (-self.get_phase()).remainder(self.phase_scaling * 2 * torch.pi)
@@ -122,10 +174,7 @@ class VirtualSLM(OpticsModule):
     def forward(
         self: VirtualSLM, complex_amplitude: ComplexAmplitude
     ) -> ComplexAmplitude:
-        # Wrap to the modulation range like the hardware, then imprint the
-        # desired phase.
-        phase = self.get_phase().remainder(self.phase_scaling * 2 * torch.pi)
-        phase = self.apply_phase_transforms(phase)
+        phase = self.apply_phase_transforms(self.get_phase())
 
         if phase.ndim >= 3:
             # A batch of patterns (N, H, W). Insert the wavelength axis to get
@@ -134,8 +183,6 @@ class VirtualSLM(OpticsModule):
         else:
             transformed_phase = unsqueeze_to(phase, complex_amplitude.ndim)
 
-        # Avoid in-place modification so each forward pass builds an
-        # independent autograd graph for repeated optimizer closure calls.
         complex_amplitude = complex_amplitude * torch.exp(1j * transformed_phase)
 
         return complex_amplitude.with_geometry(

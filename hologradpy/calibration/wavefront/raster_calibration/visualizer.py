@@ -26,6 +26,7 @@ from ....visualizer import (
     PlotLayout,
     VisualizationData,
 )
+from ....serialization import record_type
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
 
+@record_type("raster_visualization")
 @dataclass
 class RasterVisualizationData(VisualizationData):
     """Everything ``RasterCalibrator.measure_phase`` records for visualization.

@@ -1,5 +1,5 @@
 # %% Imports
-import os
+from pathlib import Path
 from typing import Literal
 
 import matplotlib.pyplot as plt
@@ -25,8 +25,9 @@ from hologradpy.utils import Timer, get_device
 
 device = get_device(verbose=True)
 
-data_directory = "../data/"
-os.makedirs(data_directory, exist_ok=True)
+data_directory = Path("../data/")
+data_directory.mkdir(parents=True, exist_ok=True)
+dataset_path = data_directory / "speckle_dataset.asdf"
 
 FOCAL_LENGTH = 0.25
 SEED = 0
@@ -122,7 +123,7 @@ if PARAMETERIZATION == "psf":
         slm,
         camera,
         slm_camera_model=slm_camera_model,
-        dataset_directory=data_directory,
+        dataset_path=dataset_path,
         number_of_random_patterns=NUMBER_OF_PATTERNS,
     )
 elif PARAMETERIZATION == "pixel_wise":
@@ -133,7 +134,7 @@ elif PARAMETERIZATION == "pixel_wise":
         slm,
         camera,
         slm_camera_model=slm_camera_model,
-        dataset_directory=data_directory,
+        dataset_path=dataset_path,
         number_of_random_patterns=NUMBER_OF_PATTERNS,
     )
 

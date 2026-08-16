@@ -25,21 +25,22 @@ from ....visualizer import (
     GridCell,
     Panel,
     PlotLayout,
-    VisualizationData,
 )
+from ....serialization import record_type
+from ..visualizer import CameraMappingVisualizationData
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
 # TODO: Sanity check and tidy up
-@dataclass
-class CoarseVisualizationData(VisualizationData):
+@record_type("coarse_visualization")
+@dataclass(kw_only=True)
+class CoarseVisualizationData(CameraMappingVisualizationData):
     """Everything ``CoarseMapper.map_camera`` records for visualization.
 
-    A concrete :class:`~hologradpy.visualizer.VisualizationData`, produced by the mapper
-    and attached to ``CameraMapping.visualization_data``. Pixel coordinates are 
-    output-plane (model) pixels in ``(x, y)`` order. ``output_resolution`` is 
-    ``(height, width)``.
+    The shared frames plus the coarse search's own captures, attached to
+    ``CameraMapping.visualization_data``. Pixel coordinates are output-plane (model)
+    pixels in ``(x, y)`` order. ``output_resolution`` is ``(height, width)``.
 
     Attributes:
         array_image: Camera capture of the full calibration spot array, or None when the

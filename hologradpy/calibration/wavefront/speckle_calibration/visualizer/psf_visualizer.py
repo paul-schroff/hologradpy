@@ -10,8 +10,10 @@ from numpy.typing import NDArray
 from .abstract import SpeckleCalibratorVisualizer, SpeckleVisualizationData
 
 from .....visualizer import INTENSITY_CMAP, PHASE_CMAP, GridCell, Panel, PlotLayout
+from .....serialization import record_type
 
 
+@record_type("psf_speckle_visualization")
 @dataclass
 class PSFSpeckleVisualizationData(SpeckleVisualizationData):
     """A speckle calibration that fitted a point spread function.

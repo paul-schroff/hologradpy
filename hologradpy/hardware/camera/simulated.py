@@ -14,7 +14,7 @@ from ...optics.modules.hardware_models import (
 from ...optics.modules.slm_fields import PixelwiseSLMField
 from ...utils import gpu_to_numpy
 from ...roi import ROI
-from .abstract import Camera, get_orientation_transformation
+from .abstract import Camera, CameraOrientation
 
 
 class SimulatedCameraTorch(Camera):
@@ -23,9 +23,10 @@ class SimulatedCameraTorch(Camera):
     Implements the :class:`~hologradpy.hardware.camera.Camera` interface directly (no
     slmsuite base). A :class:`CameraSensor` built from the sensor keyword arguments is
     appended as the terminal module of ``slm_camera_model``, so a frame is the model
-    evaluated to digital pixel values (ADU). The ``rot`` / ``fliplr`` / ``flipud``
-    orientation is applied to each captured frame via :attr:`transform`, and the
-    :class:`~hologradpy.roi.ROI` crops the reoriented frame.
+    evaluated to digital pixel values (ADU). The
+    :class:`~hologradpy.hardware.camera.CameraOrientation` is applied to each captured
+    frame via :attr:`transform`, and the :class:`~hologradpy.roi.ROI` crops the
+    reoriented frame.
     """
 
     def __init__(
@@ -34,9 +35,7 @@ class SimulatedCameraTorch(Camera):
         bitdepth: int = 8,
         name: str = "SimulatedCameraTorch",
         exposure_bounds: tuple[float, float] | None = (0.0, 1.0),
-        rot: float | str = "0",
-        fliplr: bool = False,
-        flipud: bool = False,
+        orientation: CameraOrientation = CameraOrientation(),
         quantum_efficiency: float = 1.0,
         full_well_capacity: float = 1e4,
         exposure_time: float = 1e-3,
@@ -76,9 +75,8 @@ class SimulatedCameraTorch(Camera):
         inserted just after the model's ``PixelwiseSLMField``, reproducible via
         ``power_seed``.
 
-        ``rot`` (``"90"`` / ``"180"`` / ``"270"`` or the ``numpy.rot90`` code) with
-        ``fliplr`` / ``flipud`` orient the captured frame the way a real camera would
-        be mounted, matching the slmsuite orientation convention.
+        ``orientation`` mounts the sensor the way a real camera would be, matching the
+        slmsuite orientation convention. :meth:`set_orientation` remounts it later.
         """
         # Camera geometry comes from the last *optical* module (the Fourier
         # lens / affine), not the sensor, whose output geometry mirrors its input.
@@ -99,17 +97,11 @@ class SimulatedCameraTorch(Camera):
             torch.as_tensor(pixel_size_out).detach().cpu().numpy().astype(np.float64)
         )
 
-        # Raw sensor shape (rows, cols). The displayed shape swaps for 90/270
-        # rotation, matching the slmsuite Camera.shape / default_shape convention.
-        raw_shape = tuple(int(size) for size in output_module.resolution_out)
-        if rot in ("90", 1, "270", 3):
-            displayed_shape = (raw_shape[1], raw_shape[0])
-        else:
-            displayed_shape = raw_shape
-        self._resolution: tuple[int, int] = displayed_shape
-        self.default_shape: tuple[int, int] = displayed_shape
-        self.shape: tuple[int, int] = displayed_shape
-        self.transform = get_orientation_transformation(rot, fliplr, flipud)
+        # Raw sensor shape (rows, cols), before the orientation is applied.
+        self._raw_shape: tuple[int, int] = tuple(
+            int(size) for size in output_module.resolution_out
+        )
+        self.set_orientation(orientation)
 
         self.name = str(name)
         self.bitdepth = int(bitdepth)
@@ -120,7 +112,6 @@ class SimulatedCameraTorch(Camera):
             else None
         )
         self.exposure_s: float = 1.0  # Default to 1 s like a real simulated camera.
-        self._roi = ROI(0, 0, displayed_shape[0], displayed_shape[1])
 
         self.slm_camera_model: SLMFourierLensModel = slm_camera_model
 
@@ -212,6 +203,24 @@ class SimulatedCameraTorch(Camera):
         except (AttributeError, RuntimeError):
             return None
         return wavefront.detach().cpu().numpy()
+
+    def set_orientation(self, orientation: CameraOrientation) -> None:
+        """Remount the sensor, reorienting every frame from here on.
+
+        A quarter turn swaps the displayed shape, so the region of interest resets to
+        the whole frame rather than keeping a crop expressed in the old one.
+        """
+        raw_shape = self._raw_shape
+        displayed_shape = (
+            (raw_shape[1], raw_shape[0]) if orientation.swaps_axes() else raw_shape
+        )
+        # shape / default_shape follow the slmsuite convention of naming the displayed
+        # frame rather than the sensor.
+        self._resolution: tuple[int, int] = displayed_shape
+        self.default_shape: tuple[int, int] = displayed_shape
+        self.shape: tuple[int, int] = displayed_shape
+        self.transform = orientation.transformation()
+        self.set_roi(None)
 
     def set_roi(self, roi: ROI | None) -> None:
         """Set the region of interest (``None`` resets to the full frame)."""

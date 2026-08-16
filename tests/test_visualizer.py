@@ -355,7 +355,7 @@ def _fake_speckle_data(
     return SpeckleVisualizationData(
         camera_image=np.abs(injected) ** 2,
         roi_mask=mask,
-        phase_pattern=np.angle(injected),
+        slm_pattern=np.angle(injected),
         measured_roi=np.abs(injected) ** 2,
         predicted_roi=np.abs(injected) ** 2,
         recovered_amplitude=amplitude,
@@ -534,7 +534,7 @@ def test_speckle_payload_predating_the_comparison_still_renders():
 
     assert data.injected_field is None
     assert data.beam_mask is None
-    assert data.phase_pattern is None
+    assert data.slm_pattern is None
 
     figure = data.visualizer().render()
 
@@ -552,7 +552,7 @@ def test_the_dataset_figure_needs_a_pattern_to_be_worth_drawing():
         camera_image=np.zeros((8, 8)), roi_mask=np.ones((8, 8), dtype=bool)
     )
 
-    with pytest.raises(RuntimeError, match="no phase_pattern"):
+    with pytest.raises(RuntimeError, match="no slm_pattern"):
         data.visualizer().render_dataset()
 
 
@@ -562,11 +562,11 @@ def test_the_dataset_figure_draws_before_anything_is_fitted():
     data = SpeckleVisualizationData(
         camera_image=np.random.default_rng(0).uniform(size=(8, 8)),
         roi_mask=np.ones((8, 8), dtype=bool),
-        phase_pattern=np.random.default_rng(1).uniform(size=(6, 6)),
+        slm_pattern=np.random.default_rng(1).uniform(size=(6, 6)),
     )
 
     figure = data.visualizer().render_dataset()
 
     titles = [axs.get_title() for axs in figure.axes if axs.get_title()]
-    assert titles == ["SLM phase pattern", "camera + ROI"]
+    assert titles == ["SLM pattern [levels]", "camera + ROI"]
     plt.close(figure)

@@ -1,8 +1,4 @@
-from .calibration_dataset import (
-    DATASET_MANIFEST_NAME,
-    CalibrationDataset,
-    DatasetDescriptor,
-)
+from .records import SpeckleCaptureData
 from .dataset_generator import DatasetGenerator
 from .wavefront_fitter import WavefrontFitter, region_of_interest
 from .speckle_calibrator import (
@@ -26,9 +22,7 @@ __all__ = [
     "PSFCalibratorVisualizer",
     "SpeckleVisualizationData",
     "PSFSpeckleVisualizationData",
-    "DATASET_MANIFEST_NAME",
-    "CalibrationDataset",
-    "DatasetDescriptor",
+    "SpeckleCaptureData",
     "DatasetGenerator",
     "FitSettings",
     "WavefrontFitter",

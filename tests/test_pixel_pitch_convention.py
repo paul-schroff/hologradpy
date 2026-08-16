@@ -97,4 +97,4 @@ def test_coarse_mapper_recovers_anisotropic_scales_nonsquare_camera():
     # pitch_um (x, y) = (20, 30) um over the ~24.6 um square model pixel.
     expected = sorted((20e-6 / MODEL_PIXEL, 30e-6 / MODEL_PIXEL), reverse=True)
     assert sorted(coarse.scales, reverse=True) == pytest.approx(expected, rel=0.03)
-    assert coarse.reprojection_rms < 1.0
+    assert coarse.fit.reprojection_rms < 1.0

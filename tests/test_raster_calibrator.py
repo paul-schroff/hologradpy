@@ -31,7 +31,10 @@ from hologradpy.calibration import (  # noqa: E402
     RasterCalibrator,
     get_diffraction_spot_position,
 )
-from hologradpy.calibration.camera_mapping import CameraMapping  # noqa: E402
+from hologradpy.calibration.camera_mapping import (  # noqa: E402
+    CameraMapping,
+    FocalSpotFit,
+)
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -97,18 +100,14 @@ def _synthetic_mapping(
     if mirror:
         linear = linear @ np.array([[1.0, 0.0], [0.0, -1.0]])
     transform = np.hstack([linear, np.zeros((2, 1))])
-    inverse = np.hstack([np.linalg.inv(linear), np.zeros((2, 1))])
     return CameraMapping(
         timestamp=datetime.now(),
         name="coarse",
         transform=transform,
-        inverse_transform=inverse,
         detected_points=[],
         calculated_points=[],
-        camera_images=[],
-        simulated_images=[],
         zeroth_order_position=zeroth,
-        focal_spot_radius=8e-6,
+        spot_fit=FocalSpotFit(waist=8e-6),
     )
 
 

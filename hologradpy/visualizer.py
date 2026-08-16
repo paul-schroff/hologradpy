@@ -26,6 +26,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Callable
 
 import numpy as np
+from .serialization import record_type
 
 if TYPE_CHECKING:
     from matplotlib.animation import FuncAnimation
@@ -53,6 +54,7 @@ else:
     Panel = Callable
 
 
+@record_type("visualization_data")
 class VisualizationData:
     """Base for a result's visualization payload."""
 

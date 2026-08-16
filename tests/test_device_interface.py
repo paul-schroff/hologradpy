@@ -17,7 +17,7 @@ import pytest  # noqa: E402
 import torch  # noqa: E402
 
 from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch  # noqa: E402
-from hologradpy.hardware import Camera, SLM  # noqa: E402
+from hologradpy.hardware import Camera, CameraOrientation, SLM  # noqa: E402
 from hologradpy.hardware.slmsuite.conversions import (  # noqa: E402
     pixel_size_from_pitch_um,
     pitch_um_from_pixel_size,
@@ -25,6 +25,10 @@ from hologradpy.hardware.slmsuite.conversions import (  # noqa: E402
     wav_um_from_wavelength,
     roi_from_woi,
     roi_to_woi,
+)
+from hologradpy.phase_levels import (  # noqa: E402
+    LookupResponse,
+    PhaseResponseModule,
 )
 from hologradpy.roi import ROI  # noqa: E402
 from hologradpy.hardware import (  # noqa: E402
@@ -183,6 +187,254 @@ def test_slm_native_properties():
     np.testing.assert_allclose(sim.pixel_size, (SLM_PITCH, SLM_PITCH), rtol=1e-6)
     assert sim.resolution == (256, 320)
     assert sim.wavelength == pytest.approx(WAVELENGTH)
+
+
+# --- Grayscale levels ---------------------------------------------------
+
+
+def _slm_at(bitdepth: int, wav_design_um: float | None = None) -> SLM:
+    geometry = FieldGeometry(
+        resolution=(32, 48),
+        pixel_size=torch.tensor([SLM_PITCH, SLM_PITCH]),
+        wavelength=torch.tensor(WAVELENGTH),
+    )
+    return open_slm(
+        SimulatedSLMTorch,
+        input_geometry=geometry,
+        bitdepth=bitdepth,
+        wav_design_um=wav_design_um,
+    )
+
+
+# Phases that exercise the wrap: inside the modulation range, below it, and several
+# turns above it.
+_PHASES = {
+    "in range": lambda rng, shape: rng.random(shape) * 2 * np.pi,
+    "negative": lambda rng, shape: rng.random(shape) * 2 * np.pi - 7.0,
+    "many turns": lambda rng, shape: rng.random(shape) * 40,
+}
+
+
+@pytest.mark.parametrize("bitdepth", [8, 12])
+@pytest.mark.parametrize("case", list(_PHASES))
+def test_levels_replay_exactly_what_the_slm_displayed(bitdepth: int, case: str) -> None:
+    """The pin the dataset format rests on.
+
+    A stored pattern is the levels the SLM held, and putting them back on the model has
+    to reproduce that display bit for bit. Getting the sign, the one-level shift or the
+    wrap backwards would leave every fit quietly wrong rather than failing.
+    """
+    slm = _slm_at(bitdepth)
+    phase = _PHASES[case](np.random.default_rng(0), slm.resolution)
+
+    slm.set_phase(phase)
+    displayed = slm.virtual_slm.get_phase().clone()
+
+    levels = slm.phase_to_levels(phase)
+    slm.virtual_slm.set_levels(levels, bitdepth)
+
+    assert torch.equal(slm.virtual_slm.get_phase(), displayed)
+
+
+@pytest.mark.parametrize("bitdepth", [8, 12])
+def test_levels_are_what_the_device_displays(bitdepth: int) -> None:
+    slm = _slm_at(bitdepth)
+    phase = np.random.default_rng(1).random(slm.resolution) * 2 * np.pi
+
+    slm.set_phase(phase)
+
+    assert np.array_equal(slm.phase_to_levels(phase), slm.display)
+    expected = np.uint8 if bitdepth == 8 else np.uint16
+    assert slm.phase_to_levels(phase).dtype == expected
+
+
+def test_quantising_leaves_the_callers_pattern_alone() -> None:
+    slm = _slm_at(8)
+    phase = np.random.default_rng(2).random(slm.resolution) * 2 * np.pi
+    original = phase.copy()
+
+    slm.phase_to_levels(phase)
+
+    assert np.array_equal(phase, original)
+
+
+@pytest.mark.parametrize("bitdepth", [8, 12])
+def test_integer_patterns_are_displayed_as_given(bitdepth: int) -> None:
+    """Levels go to the display untouched, so a stored pattern can be shown again
+    without a conversion that could round it somewhere else."""
+    slm = _slm_at(bitdepth)
+    levels = np.random.default_rng(4).integers(
+        0, 2**bitdepth, slm.resolution, dtype=np.uint8 if bitdepth == 8 else np.uint16
+    )
+
+    slm.set_levels(levels)
+
+    assert np.array_equal(slm.display, levels)
+    # The phase those levels mean, to the precision the model runs in. Not bit equality:
+    # the two sides reach it in a different order, and the state carries the field's
+    # dtype rather than being computed wide and narrowed at the end.
+    assert torch.allclose(
+        slm.virtual_slm.get_phase(),
+        slm.virtual_slm.levels_to_phase(levels, bitdepth).to(
+            slm.virtual_slm.get_phase().dtype
+        ),
+        atol=1e-6,
+    )
+    # What must stay exact is the level itself, since that is what the panel holds.
+    assert np.array_equal(
+        slm.virtual_slm.phase_to_levels(slm.virtual_slm.get_phase().numpy(), bitdepth),
+        levels,
+    )
+
+
+def test_a_pattern_survives_a_display_round_trip() -> None:
+    """Display a phase, read the levels off, display those: the same pattern."""
+    slm = _slm_at(8)
+    phase = np.random.default_rng(5).random(slm.resolution) * 2 * np.pi
+
+    slm.set_phase(phase)
+    first = slm.display.copy()
+    slm.set_levels(first)
+
+    assert np.array_equal(slm.display, first)
+
+
+def test_levels_replay_with_a_phase_scaling() -> None:
+    """A target wavelength away from the design one takes the other branch of the
+    conversion, where the wrap is folded into the scaling factor."""
+    slm = _slm_at(8, wav_design_um=WAVELENGTH * 1e6 / 1.4)
+    assert slm.phase_scaling != 1
+
+    phase = np.random.default_rng(3).random(slm.resolution) * 2 * np.pi
+    slm.set_phase(phase)
+    displayed = slm.virtual_slm.get_phase().clone()
+
+    slm.virtual_slm.set_levels(slm.phase_to_levels(phase), slm.bitdepth)
+
+    assert torch.equal(slm.virtual_slm.get_phase(), displayed)
+
+
+def _s_curve(bitdepth: int = 8, span: float = 1.9 * np.pi) -> LookupResponse:
+    """The shape a real panel has: monotone, and not a straight line."""
+    levels = np.arange(2**bitdepth)
+    top = levels[-1]
+    return LookupResponse(
+        bitdepth=bitdepth,
+        phases=-span * (0.5 - 0.5 * np.cos(np.pi * levels / top)),
+        phase_scaling=span / (2 * np.pi),
+    )
+
+
+def test_a_nonlinear_response_is_what_a_level_means() -> None:
+    """The point of the whole exercise: the phase a level imposes comes from the curve,
+    not from an assumption that the panel is linear."""
+    response = _s_curve()
+    slm = _slm_at(8)
+    slm.set_phase(np.zeros(slm.resolution))
+    slm.virtual_slm.phase_response = PhaseResponseModule(response)
+
+    slm.set_levels(np.full(slm.resolution, 100, dtype=np.uint8))
+
+    assert float(slm.virtual_slm.get_phase()[0, 0]) == pytest.approx(
+        response.phases[100]
+    )
+
+
+def test_a_desired_phase_lands_on_the_nearest_level_the_panel_has() -> None:
+    response = _s_curve()
+    slm = _slm_at(8)
+    slm.set_phase(np.zeros(slm.resolution))
+    slm.virtual_slm.phase_response = PhaseResponseModule(response)
+
+    slm.set_phase(np.full(slm.resolution, -2.0))
+
+    nearest = int(np.argmin(np.abs(response.phases + 2.0)))
+    assert int(slm.display[0, 0]) == nearest
+    assert float(slm.virtual_slm.get_phase()[0, 0]) == pytest.approx(
+        response.phases[nearest]
+    )
+
+
+@pytest.mark.parametrize("bitdepth", [8, 12])
+def test_a_nonlinear_response_round_trips_every_level(bitdepth: int) -> None:
+    response = _s_curve(bitdepth)
+    levels = np.arange(response.number_of_levels)
+
+    assert np.array_equal(response.to_levels(response.to_phase(levels)), levels)
+
+
+@pytest.mark.parametrize("bitdepth", [8, 12])
+def test_the_panel_discretises_the_same_way_for_a_pattern_and_a_gradient(
+    bitdepth: int,
+) -> None:
+    """A pattern reaches the panel through display_levels and a gradient through
+    quantize. They must land on the same level, or a simulated panel would be driven
+    differently from the real one it stands for.
+    """
+    response = _s_curve(bitdepth)
+    module = PhaseResponseModule(response)
+    rng = np.random.default_rng(0)
+    phase = rng.uniform(-30.0, 30.0, 5000)
+
+    displayed = response.display_levels(phase)
+    quantized = module.quantize(torch.as_tensor(response.to_levels(phase)))
+
+    np.testing.assert_array_equal(quantized.numpy(), displayed.astype(float))
+
+
+def test_quantize_leaves_the_gradient_alone() -> None:
+    """Straight through: rounding has no useful derivative, so the estimator passes the
+    incoming one on rather than killing the search."""
+    module = PhaseResponseModule(_s_curve())
+    levels = torch.tensor([12.3, 200.7, 4.5], requires_grad=True)
+
+    module.quantize(levels).sum().backward()
+
+    assert torch.equal(levels.grad, torch.ones(3))
+
+
+def test_a_curve_that_cannot_reach_a_phase_clamps() -> None:
+    """Under a full turn of modulation there are phases the panel simply cannot impose,
+    and the nearest end is the honest answer rather than a wrap onto an unrelated
+    level."""
+    response = _s_curve(span=1.2 * np.pi)
+    unreachable = np.array([-2.0 * np.pi])
+
+    assert response.to_levels(unreachable)[0] == response.number_of_levels - 1
+
+
+def test_the_response_travels_with_the_model() -> None:
+    """A measured curve is part of the model's state, so a checkpoint carries it."""
+    slm = _slm_at(8)
+    slm.set_phase(np.zeros(slm.resolution))
+    slm.virtual_slm.phase_response = PhaseResponseModule(_s_curve())
+
+    assert "phase_response.table" in slm.virtual_slm.state_dict()
+
+
+def test_levels_at_the_wrong_depth_are_refused() -> None:
+    """A model reading levels at a depth they were not captured at would fit the wrong
+    phase rather than fail, so it is caught."""
+    slm = _slm_at(8)
+    slm.set_phase(np.zeros(slm.resolution))
+
+    with pytest.raises(ValueError, match="12-bit but this SLM's response is 8-bit"):
+        slm.virtual_slm.set_levels(np.zeros(slm.resolution, dtype=np.uint16), 12)
+
+
+def test_a_device_without_a_bitdepth_says_so() -> None:
+    class Bare(SLM):
+        pixel_size = np.array([SLM_PITCH, SLM_PITCH])
+        resolution = (4, 4)
+        wavelength = WAVELENGTH
+
+        def set_phase(self, phase) -> None:
+            pass
+
+    device = Bare()
+    assert device.bitdepth is None
+    with pytest.raises(ValueError, match="no bitdepth"):
+        device.phase_to_levels(np.zeros((4, 4)))
 
 
 # --- auto-wrap: as_camera / as_slm --------------------------------------
@@ -739,3 +991,128 @@ def test_find_stuck_pixels_needs_two_in_bounds_exposures():
     camera = _SceneCamera()
     with pytest.raises(ValueError, match="at least two exposures"):
         camera.find_stuck_pixels(exposures=[1e-3, 5.0])
+
+
+# --- CameraOrientation ----------------------------------------------------------
+
+
+def test_the_eight_orientations_are_distinct_and_recoverable():
+    """A mounting is read back from the transform a camera applies, so the two have to
+    agree for all eight."""
+    shape = (240, 320)
+    matrices = set()
+    for orientation in CameraOrientation.dihedral():
+        matrix = orientation.matrix(shape)
+        matrices.add(tuple(matrix.ravel()))
+        assert CameraOrientation.from_matrix(matrix, shape) == orientation
+    assert len(matrices) == 8
+
+
+def test_a_transform_outside_the_eight_has_no_orientation():
+    """A camera is free to apply any transform to its frames, and saying so beats
+    naming the nearest of the eight."""
+    stretch = np.array([[2.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    assert CameraOrientation.from_matrix(stretch, (240, 320)) is None
+
+
+def test_composing_two_mountings_gives_a_third():
+    """Remounting an already-mounted camera is one of the eight, which is what lets a
+    correction relative to the current mounting become the absolute one."""
+    identity, flip = CameraOrientation(), CameraOrientation(fliplr=True)
+
+    # self after other, matching GeometricTransform.compose.
+    assert identity.compose(flip) == flip
+    assert flip.compose(identity) == flip
+    assert flip.compose(flip) == identity          # a flip undoes itself
+    assert CameraOrientation("90").compose(CameraOrientation("270")) == identity
+    assert CameraOrientation("90").compose(CameraOrientation("90")).rot == "180"
+
+    # Closed, so composing never escapes the eight.
+    every = CameraOrientation.dihedral()
+    assert {a.compose(b) for a in every for b in every} == set(every)
+
+
+def test_composition_matches_applying_both_transforms():
+    """The algebra has to agree with the frames, since the frames are what a camera
+    actually returns."""
+    frame = np.arange(15).reshape(3, 5)
+    for a in CameraOrientation.dihedral():
+        for b in CameraOrientation.dihedral():
+            both = a.transformation()(b.transformation()(frame))
+            composed = a.compose(b).transformation()(frame)
+            np.testing.assert_array_equal(composed, both)
+
+
+def test_a_camera_reports_the_orientation_it_was_built_with():
+    _, camera = _build()
+    assert camera.orientation == CameraOrientation()
+
+    _, rotated = _build()
+    rotated.set_orientation(CameraOrientation("90", fliplr=True))
+    assert rotated.orientation == CameraOrientation("90", fliplr=True)
+
+
+def test_set_orientation_swaps_the_displayed_shape_for_a_quarter_turn():
+    """What the constructor does for a rotated mount, done later: the frame comes back
+    transposed and the geometry follows it."""
+    _, camera = _build()
+    camera.set_exposure(1e-3)
+    assert camera.get_image().shape == (240, 320)
+
+    camera.set_orientation(CameraOrientation("90"))
+    assert camera.resolution == (320, 240)
+    assert camera.shape == (320, 240)
+    assert camera.default_shape == (320, 240)
+    assert camera.get_image().shape == (320, 240)
+
+    # And back, which is the case a suggestion being adopted then undone would hit.
+    camera.set_orientation(CameraOrientation())
+    assert camera.resolution == (240, 320)
+    assert camera.get_image().shape == (240, 320)
+
+
+def test_set_orientation_resets_a_crop_from_the_old_frame():
+    """A region of interest is expressed in the displayed frame, which the new mounting
+    replaces, so keeping it would crop somewhere unintended."""
+    _, camera = _build()
+    camera.set_roi(ROI(10, 20, 30, 40))
+    camera.set_orientation(CameraOrientation("90"))
+    assert camera.roi == ROI(0, 0, 320, 240)
+
+
+def test_a_camera_that_cannot_be_reoriented_says_so():
+    class _Fixed(Camera):
+        pixel_size = np.array([1.0, 1.0])
+        resolution = (4, 4)
+        adu_levels = 256
+        exposure_bounds = None
+        roi = ROI(0, 0, 4, 4)
+
+        def set_roi(self, roi): ...
+        def get_exposure(self): return 0.0
+        def set_exposure(self, exposure_s): ...
+        def get_image(self, exposure_s=None, averaging=1):
+            return np.zeros((4, 4))
+
+    camera = _Fixed()
+    # With no transform of its own it is axis-aligned, which it can still report.
+    assert camera.orientation == CameraOrientation()
+    with pytest.raises(NotImplementedError, match="reoriented"):
+        camera.set_orientation(CameraOrientation("90"))
+
+
+def test_phase_and_levels_are_told_apart_by_the_caller() -> None:
+    """Not by dtype: an integer array of radians would otherwise become levels, and the
+    call would look identical either way."""
+    slm = _slm_at(8)
+
+    with pytest.raises(TypeError, match="set_levels"):
+        slm.set_phase(np.zeros(slm.resolution, dtype=np.uint8))
+
+    # And the two agree where they overlap, since set_phase goes through set_levels.
+    phase = np.full(slm.resolution, 1.0)
+    slm.set_phase(phase)
+    through_phase = slm.display.copy()
+
+    slm.set_levels(slm.phase_to_levels(phase))
+    assert np.array_equal(slm.display, through_phase)

@@ -17,7 +17,11 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 import torch  # noqa: E402
 
-from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch  # noqa: E402
+from hologradpy.hardware import (  # noqa: E402
+    CameraOrientation,
+    SimulatedCameraTorch,
+    SimulatedSLMTorch,
+)
 from hologradpy.hardware import as_slm  # noqa: E402
 from hologradpy.optics.complex_amplitude import (  # noqa: E402
     ComplexAmplitude,
@@ -32,6 +36,7 @@ from hologradpy.profiles.amplitude import (  # noqa: E402
 )
 from hologradpy.calibration.camera_mapping import (  # noqa: E402
     CameraMapping,
+    FocalSpotFit,
     CoarseMapper,
     CoarseMapperVisualizer,
     CoarseVisualizationData,
@@ -87,7 +92,8 @@ def _build_setup(
         pointing_seed=1,
     )
     camera = SimulatedCameraTorch(
-        simulated_camera_model, rot=rot, fliplr=fliplr,
+        simulated_camera_model,
+        orientation=CameraOrientation(rot, fliplr=fliplr),
         background_scatter_power=background_scatter_power,
         background_scatter_grain_radius=background_scatter_grain_radius,
         background_scatter_seed=0,
@@ -115,13 +121,10 @@ def _mapping_with_transform(linear: np.ndarray) -> CameraMapping:
         timestamp=datetime.now(),
         name="synthetic",
         transform=transform,
-        inverse_transform=transform,
         detected_points=[],
         calculated_points=[],
-        camera_images=[np.zeros((2, 2))],
-        simulated_images=[np.zeros((2, 2))],
         zeroth_order_position=(0.0, 0.0),
-        focal_spot_radius=1.0,
+        spot_fit=FocalSpotFit(waist=1.0),
     )
 
 
@@ -258,14 +261,14 @@ def test_coarse_mapping_recovers_rotated_camera():
     # Camera pitch (30 um) over simulated pixel size (24.6 um).
     assert coarse.scales[0] == pytest.approx(1.219, abs=0.02)
     assert coarse.scales[1] == pytest.approx(1.219, abs=0.02)
-    assert coarse.reprojection_rms < 1.0
+    assert coarse.fit.reprojection_rms < 1.0
 
 
 def test_coarse_mapping_detects_flip():
     slm, camera, model = _build_setup(fliplr=True)
     coarse = CoarseMapper(slm, camera, model).map_camera()
     assert coarse.is_mirrored
-    assert coarse.reprojection_rms < 1.0
+    assert coarse.fit.reprojection_rms < 1.0
 
 
 def test_coarse_mapping_detects_rot90():
@@ -273,20 +276,24 @@ def test_coarse_mapping_detects_rot90():
     coarse = CoarseMapper(slm, camera, model).map_camera()
     assert not coarse.is_mirrored
     assert abs(coarse.rotation_degrees) == pytest.approx(90.0, abs=0.3)
-    assert coarse.reprojection_rms < 1.0
+    assert coarse.fit.reprojection_rms < 1.0
 
 
 def test_map_camera_suggests_camera_orientation():
-    """find_camera_orientation records the discrete orientation whose residual
-    affine aligns with the model plane, without modifying the camera."""
+    """find_camera_orientation records the mounting whose residual affine aligns with
+    the model plane, without modifying the camera.
+
+    The mounting, not the correction: a camera mirrored by its own fliplr is aligned by
+    mounting it unflipped, which is what set_orientation takes.
+    """
     slm, camera, model = _build_setup(fliplr=True)  # mirrored camera
     shape_before, transform_before = camera.shape, camera.transform
     coarse = CoarseMapper(slm, camera, model).map_camera(
         find_camera_orientation=True
     )
-    assert coarse.suggested_orientation["fliplr"] is True
+    assert coarse.orientation.suggested == CameraOrientation()
     residual = _mapping_with_transform(
-        np.asarray(coarse.residual_transform)[:, :2]
+        np.asarray(coarse.orientation.residual_transform)[:, :2]
     )
     assert not residual.is_mirrored
     assert residual.rotation_degrees == pytest.approx(0.0, abs=0.5)
@@ -295,14 +302,30 @@ def test_map_camera_suggests_camera_orientation():
     assert camera.transform is transform_before
 
 
+def test_the_suggested_orientation_can_be_adopted():
+    """The point of suggesting one: the camera takes it, and a second mapping of the
+    reoriented camera then has nothing left to suggest."""
+    slm, camera, model = _build_setup(fliplr=True)
+    first = CoarseMapper(slm, camera, model).map_camera(find_camera_orientation=True)
+
+    camera.set_orientation(first.orientation.suggested)
+    assert camera.orientation == first.orientation.suggested
+
+    second = CoarseMapper(slm, camera, model).map_camera(find_camera_orientation=True)
+    # Already aligned, so the nearest orientation is the one it is already in.
+    assert second.orientation.suggested == CameraOrientation()
+    assert not second.is_mirrored
+
+
 def test_map_camera_suggests_rot90_orientation():
     slm, camera, model = _build_setup(rot="90")
     coarse = CoarseMapper(slm, camera, model).map_camera(
         find_camera_orientation=True
     )
-    assert coarse.suggested_orientation["rot"] in ("90", "270")
+    # A quarter-turned camera over an aligned model is aligned by unturning it.
+    assert coarse.orientation.suggested == CameraOrientation()
     residual = _mapping_with_transform(
-        np.asarray(coarse.residual_transform)[:, :2]
+        np.asarray(coarse.orientation.residual_transform)[:, :2]
     )
     assert residual.rotation_degrees == pytest.approx(0.0, abs=0.5)
 
@@ -310,8 +333,7 @@ def test_map_camera_suggests_rot90_orientation():
 def test_map_camera_orientation_off_by_default():
     slm, camera, model = _build_setup(camera_angle=10.0, camera_shift=(20, -10))
     coarse = CoarseMapper(slm, camera, model).map_camera()
-    assert coarse.suggested_orientation is None
-    assert coarse.residual_transform is None
+    assert coarse.orientation is None
 
 
 def test_camera_mapping_records_camera_data_and_pickles(tmp_path):
@@ -331,7 +353,7 @@ def test_coarse_mapping_accepts_initial_tilt():
     # and the spiral search is skipped.
     slm, camera, model = _build_setup()
     coarse = CoarseMapper(slm, camera, model).map_camera(initial_tilt=(0.0, 0.0))
-    assert coarse.reprojection_rms < 1.0
+    assert coarse.fit.reprojection_rms < 1.0
 
 
 def test_coarse_mapping_initial_tilt_without_spot_raises():
@@ -354,7 +376,7 @@ def test_coarse_mapping_with_zeroth_order_off_sensor():
     coarse = CoarseMapper(slm, camera, model).map_camera()
 
     assert coarse.rotation_degrees == pytest.approx(-10.0, abs=0.5)
-    assert coarse.reprojection_rms < 1.0
+    assert coarse.fit.reprojection_rms < 1.0
     zeroth_y, zeroth_x = coarse.zeroth_order_position
     on_sensor = 0 <= zeroth_x < 160 and 0 <= zeroth_y < 120
     assert not on_sensor
@@ -366,7 +388,7 @@ def test_coarse_mapping_with_zeroth_order_off_sensor():
         number_of_spots=8, seed=1, coarse_mapping=coarse
     )
     assert len(mapping.detected_points) == 8
-    assert np.asarray(mapping.reprojection_rms) < 1.0
+    assert np.asarray(mapping.fit.reprojection_rms) < 1.0
 
 
 def test_coarse_mapping_survives_pointing_instability():
@@ -382,7 +404,7 @@ def test_coarse_mapping_survives_pointing_instability():
     assert not coarse.is_mirrored
     assert coarse.rotation_degrees == pytest.approx(-10.0, abs=1.0)
     assert coarse.scales[0] == pytest.approx(1.219, abs=0.05)
-    assert coarse.reprojection_rms < 2.0
+    assert coarse.fit.reprojection_rms < 2.0
 
     # The seeded fine mapper still matches almost all its spots (a common
     # per-frame tilt is absorbed by the affine translation; the odd edge spot may
@@ -392,7 +414,7 @@ def test_coarse_mapping_survives_pointing_instability():
         number_of_spots=8, seed=1, coarse_mapping=coarse
     )
     assert len(mapping.detected_points) >= 6
-    assert np.asarray(mapping.reprojection_rms) < 1.0
+    assert np.asarray(mapping.fit.reprojection_rms) < 1.0
 
 
 def test_coarse_mapping_survives_background_scatter():
@@ -407,7 +429,7 @@ def test_coarse_mapping_survives_background_scatter():
     coarse = CoarseMapper(slm, camera, model).map_camera()
     assert not coarse.is_mirrored
     assert coarse.rotation_degrees == pytest.approx(-10.0, abs=0.5)
-    assert coarse.reprojection_rms < 1.0
+    assert coarse.fit.reprojection_rms < 1.0
 
 
 # --- exposure calibration (_calibrate_exposure) ---------------------------------
@@ -516,7 +538,7 @@ def test_map_camera_falls_back_to_ladder_when_calibration_returns_none(monkeypat
     monkeypatch.setattr(mapper, "_calibrate_exposure", lambda *a, **k: None)
     coarse = mapper.map_camera()
     assert coarse.rotation_degrees == pytest.approx(-10.0, abs=0.5)
-    assert coarse.reprojection_rms < 1.0
+    assert coarse.fit.reprojection_rms < 1.0
 
 
 # --- CoarseMapperVisualizer -----------------------------------------------------

@@ -2,24 +2,47 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
+from numpy.typing import NDArray
 
+from ...serialization import record_type
 from ...visualizer import (
     INTENSITY_CMAP,
     BaseVisualizer,
     GridCell,
     PlotBuilder,
     PlotLayout,
+    VisualizationData,
 )
-
-from .abstract import CameraMapper
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
-    from .abstract import CameraMapping
+    from .mapping import CameraMapping
+
+
+@record_type("camera_mapping_visualization")
+@dataclass
+class CameraMappingVisualizationData(VisualizationData):
+    """The frames a mapping was fit from.
+
+    What every mapper records, and all :class:`CameraMapperVisualizer` needs. A mapper
+    with more to show subclasses this and its own visualizer draws the rest.
+
+    Attributes:
+        camera_image: What the camera saw.
+        simulated_image: What the model predicted for the same pattern.
+        zeroth_order_mask: True over the camera pixels a mapper left out of both the
+            exposure and the detection, None when it masked nothing.
+    """
+
+    camera_image: NDArray
+    simulated_image: NDArray
+    zeroth_order_mask: NDArray | None = None
+
 
 # TODO: Sanity check and tidy up
 class CameraMapperVisualizer(BaseVisualizer):
@@ -27,18 +50,27 @@ class CameraMapperVisualizer(BaseVisualizer):
 
     Renders the camera and simulated images with their point correspondences, the
     reprojection residuals of the fitted affine transform. When the mapping
-    carries per-spot Gaussian fits (``SpotArrayMapper``), renders the fitted waist of 
+    carries per-spot Gaussian fits (``SpotArrayMapper``), renders the fitted waist of
     each spot with the uncertainty-weighted mean. Works for any mapper's mapping (the
     spot-fit panel is only drawn when the fits are present).
+
+    Needs the frames, so a mapping that has been through
+    :meth:`~hologradpy.calibration.camera_mapping.CameraMapping.lean` cannot be drawn.
     """
 
     def __init__(self, mapping: CameraMapping) -> None:
+        if mapping.visualization_data is None:
+            raise ValueError(
+                f"The {mapping.name!r} mapping carries no frames to draw. A mapping "
+                "embedded in another record has been through lean(); plot the one the "
+                "mapper returned instead."
+            )
         self.mapping = mapping
+        self.frames: CameraMappingVisualizationData = mapping.visualization_data
 
     def default_layout(self) -> PlotLayout:
-        mapping = self.mapping
-        camera_shape = np.asarray(mapping.camera_images[0]).shape
-        simulated_shape = np.asarray(mapping.simulated_images[0]).shape
+        camera_shape = np.asarray(self.frames.camera_image).shape
+        simulated_shape = np.asarray(self.frames.simulated_image).shape
 
         layout = PlotLayout(column_width=4.0)
         layout.add_row(
@@ -50,7 +82,7 @@ class CameraMapperVisualizer(BaseVisualizer):
             ]
         )
         layout.add_row([GridCell("residual", colspan=2, aspect="auto", height=3.0)])
-        if mapping.spot_fit_parameters is not None:
+        if self.mapping.spot_fit.parameters is not None:
             layout.add_row([GridCell("waist", colspan=2, aspect="auto", height=2.5)])
         return layout
 
@@ -60,16 +92,8 @@ class CameraMapperVisualizer(BaseVisualizer):
         detected = np.asarray(mapping.detected_points, dtype=float)
         calculated = np.asarray(mapping.calculated_points, dtype=float)
 
-        # Reprojection residuals are computed and stored by the mapper; fall
-        # back to the mapper's calculation only for mappings saved before the
-        # fields existed.
-        if mapping.reprojection_errors is not None:
-            residual_vectors = np.asarray(mapping.reprojection_errors, dtype=float)
-            rms = float(mapping.reprojection_rms)
-        else:
-            residual_vectors, rms = CameraMapper.calculate_reprojection_error(
-                detected, calculated, mapping.transform
-            )
+        residual_vectors = np.asarray(mapping.fit.reprojection_errors, dtype=float)
+        rms = float(mapping.fit.reprojection_rms)
         residuals = np.linalg.norm(residual_vectors, axis=1)
 
         # Magnify the (sub-pixel) residual arrows to ~10% of the array span so
@@ -80,7 +104,7 @@ class CameraMapperVisualizer(BaseVisualizer):
         builder = (
             PlotBuilder(self.default_layout())
             .draw_image(
-                "camera", np.asarray(mapping.camera_images[0]), cmap=INTENSITY_CMAP,
+                "camera", np.asarray(self.frames.camera_image), cmap=INTENSITY_CMAP,
                 title="Camera image + detected spots",
             )
             .draw_points(
@@ -88,7 +112,7 @@ class CameraMapperVisualizer(BaseVisualizer):
                 label="matched spots",
             )
             .draw_image(
-                "simulated", np.asarray(mapping.simulated_images[0]),
+                "simulated", np.asarray(self.frames.simulated_image),
                 cmap=INTENSITY_CMAP,
                 title="Simulated image + calculated spots",
             )
@@ -115,7 +139,7 @@ class CameraMapperVisualizer(BaseVisualizer):
         # Detections that were found but excluded from the transform (poor fit,
         # no target match, or affine outlier) -- marked so no spot disappears
         # silently.
-        excluded = mapping.excluded_points
+        excluded = mapping.fit.excluded_points
         if excluded is not None and len(excluded) > 0:
             excluded = np.asarray(excluded, dtype=float)
             builder.draw_points(
@@ -130,12 +154,13 @@ class CameraMapperVisualizer(BaseVisualizer):
                 legend=True,
             )
 
-        if mapping.spot_fit_parameters is not None:
-            waists = np.array([p[0] for p in mapping.spot_fit_parameters]) * 1e6
+        spot_fit = mapping.spot_fit
+        if spot_fit.parameters is not None:
+            waists = np.array([p[0] for p in spot_fit.parameters]) * 1e6
             errors = np.array(
-                [np.sqrt(c[0, 0]) for c in mapping.spot_fit_covariances]
+                [np.sqrt(c[0, 0]) for c in spot_fit.covariances]
             ) * 1e6
-            average = (mapping.average_waist or 0.0) * 1e6
+            average = spot_fit.waist * 1e6
             builder.draw_line(
                 "waist",
                 [{"x": np.arange(len(waists)), "y": waists, "yerr": errors,

@@ -77,7 +77,7 @@ def _pixelwise_calibrator(tmp_path):
         camera=camera,
         camera_mapping=mapping,
         slm_camera_model=_build_model(slm, camera, focal_length),
-        dataset_directory=tmp_path,
+        dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=2,
     )
 
@@ -91,7 +91,7 @@ def _psf_calibrator(tmp_path, slm_field=None):
         camera=camera,
         camera_mapping=mapping,
         slm_camera_model=_build_model(slm, camera, focal_length, slm_field=slm_field),
-        dataset_directory=tmp_path,
+        dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=2,
     )
 
@@ -107,7 +107,7 @@ def test_the_base_calibrator_cannot_be_instantiated() -> None:
             camera=None,
             camera_mapping=None,
             slm_camera_model=None,
-            dataset_directory=".",
+            dataset_path="dataset.asdf",
         )
 
 
@@ -122,7 +122,7 @@ def test_a_field_of_the_wrong_type_is_replaced(tmp_path, capsys) -> None:
         camera=camera,
         camera_mapping=mapping,
         slm_camera_model=_build_model(slm, camera, focal_length),  # PixelwiseSLMField
-        dataset_directory=tmp_path,
+        dataset_path=tmp_path / "dataset.asdf",
     )
     assert isinstance(calibrator.slm_camera_model.slm_field, PSFSLMField)
     assert "Replacing the model's PixelwiseSLMField" in capsys.readouterr().out
@@ -136,7 +136,7 @@ def test_a_field_of_the_wrong_type_is_replaced(tmp_path, capsys) -> None:
             slm, camera, focal_length,
             slm_field=_psf_field(camera, focal_length),
         ),
-        dataset_directory=tmp_path,
+        dataset_path=tmp_path / "dataset.asdf",
     )
     assert isinstance(calibrator.slm_camera_model.slm_field, PixelwiseSLMField)
     assert "Replacing the model's PSFSLMField" in capsys.readouterr().out
@@ -214,7 +214,7 @@ def _visualization_payload(**extras):
     shared = dict(
         camera_image=np.random.default_rng(0).uniform(size=(48, 48)),
         roi_mask=np.ones((48, 48), dtype=bool),
-        phase_pattern=np.zeros((48, 48)),
+        slm_pattern=np.zeros((48, 48)),
         measured_roi=np.random.default_rng(1).uniform(size=(12, 12)),
         predicted_roi=np.random.default_rng(2).uniform(size=(12, 12)),
         recovered_amplitude=np.ones((64, 64)),

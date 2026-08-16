@@ -123,7 +123,7 @@ coarse_mapping = coarse_mapper.map_camera()
 print(f"Camera rotation: {coarse_mapping.rotation_degrees:.2f} deg")
 print(f"Camera mirrored: {coarse_mapping.is_mirrored}")
 print(f"Camera scales: {coarse_mapping.scales}")
-print(f"Reprojection RMS: {coarse_mapping.reprojection_rms:.3f} px")
+print(f"Reprojection RMS: {coarse_mapping.fit.reprojection_rms:.3f} px")
 print(
     "Zeroth order (y, x): "
     f"({coarse_mapping.zeroth_order_position[0]:.0f}, "
@@ -132,7 +132,7 @@ print(
 )
 
 # %% Saving results
-coarse_mapping.save(data_path + "coarse_mapping.pkl")
+coarse_mapping.save(data_path + "coarse_mapping.asdf")
 
 # %% Plotting
 figure = CoarseMapperVisualizer(coarse_mapping.visualization_data).render()
@@ -140,7 +140,7 @@ figure = CameraMapperVisualizer(coarse_mapping).render()
 
 detected = np.asarray(coarse_mapping.detected_points)
 plt.figure()
-plt.imshow(coarse_mapping.camera_images[0], cmap="turbo")
+plt.imshow(coarse_mapping.visualization_data.camera_image, cmap="turbo")
 plt.plot(detected[:, 0], detected[:, 1], "wx", label="probe spots")
 plt.legend()
 plt.title("Probe Spots on the Camera")

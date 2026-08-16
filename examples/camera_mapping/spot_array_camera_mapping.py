@@ -23,7 +23,7 @@ from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
 from hologradpy.profiles.zernike import Zernike
-from hologradpy.utils import get_device
+from hologradpy.utils import get_device, gpu_to_numpy
 
 device = get_device(verbose=True)
 data_path = "../data/"
@@ -129,13 +129,12 @@ camera_mapper = SpotArrayMapper(
 
 camera_mapping = camera_mapper.map_camera(
     number_of_spots=40,
-    array_center="top-left",
     seed=0,
     coarse_mapping=coarse_mapping,
 )
 
 # %% Saving results
-camera_mapping.save(data_path + "spot_array_mapping.pkl")
+camera_mapping.save(data_path + "spot_array_mapping.asdf")
 slm_camera_model.save(data_path + "slm_camera_model.pkl")
 simulated_camera_model.save(data_path + "simulated_camera_model.pkl")
 
@@ -146,15 +145,15 @@ print("Inverse transformation matrix:")
 print(camera_mapping.inverse_transform)
 print(
     "Average focal-spot waist: "
-    f"{camera_mapping.average_waist * 1e6:.2f} +/- "
-    f"{camera_mapping.average_waist_uncertainty * 1e6:.2f} um"
+    f"{camera_mapping.spot_fit.waist * 1e6:.2f} +/- "
+    f"{camera_mapping.spot_fit.waist_uncertainty * 1e6:.2f} um"
 )
 
 # %% Overview figure (camera / simulated images, reprojection, per-spot waists)
 figure = CameraMapperVisualizer(camera_mapping).render()
 
 # %% SLM phase used for the array
-slm_phase = slm_camera_model.virtual_slm.phase.detach().cpu().numpy()
+slm_phase = gpu_to_numpy(slm_camera_model.virtual_slm.get_phase())
 plt.figure()
 plt.imshow(slm_phase, cmap="magma")
 plt.colorbar()
@@ -163,7 +162,7 @@ plt.title("SLM Phase (spot-array hologram)")
 # %% Detected vs zeroth order on the camera image
 detected = np.asarray(camera_mapping.detected_points)
 plt.figure()
-plt.imshow(camera_mapping.camera_images[0], cmap="turbo")
+plt.imshow(camera_mapping.visualization_data.camera_image, cmap="turbo")
 plt.plot(detected[:, 0], detected[:, 1], "wx", label="detected spots")
 plt.plot(
     camera_mapping.zeroth_order_position[1],

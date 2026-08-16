@@ -19,7 +19,7 @@ from hologradpy.optics.modules.hardware_models import CameraSensor
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.virtual_slms.abstract import VirtualSLM
 from hologradpy.optics.systems import SLMFFTAffine
-from hologradpy.hardware import SimulatedCameraTorch
+from hologradpy.hardware import CameraOrientation, SimulatedCameraTorch
 from hologradpy.roi import ROI
 
 
@@ -176,7 +176,10 @@ def test_get_image_torch_backend_matches_numpy() -> None:
     tensors and matches the numpy path value for value."""
     model = _make_model()
     camera = SimulatedCameraTorch(
-        model, rot="90", fliplr=True, add_noise=False, full_well_capacity=1e6
+        model,
+        orientation=CameraOrientation("90", fliplr=True),
+        add_noise=False,
+        full_well_capacity=1e6,
     )
     camera.set_exposure(1e-3)
     camera.set_roi(ROI(2, 3, 10, 8))

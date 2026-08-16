@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 import os
 import tempfile
+from pathlib import Path
 
 import matplotlib
 
@@ -187,7 +188,7 @@ def test_a_static_field_model_is_not_treated_as_a_psf_one(tmp_path) -> None:
         slm_camera_model=_build_model(
             slm, camera, SMALL_FOCAL_LENGTH,
         ),
-        dataset_directory=str(tmp_path) + os.sep,
+        dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=3,
     )
 
@@ -229,7 +230,7 @@ def test_psf_calibration_runs_end_to_end() -> None:
                 camera_pixel_size=tuple(camera.pixel_size),
             ),
         ),
-        dataset_directory=tempfile.mkdtemp() + os.sep,
+        dataset_path=Path(tempfile.mkdtemp()) / "dataset.asdf",
         number_of_random_patterns=4,
     )
     assert isinstance(calibrator.slm_camera_model.slm_field, PSFSLMField)

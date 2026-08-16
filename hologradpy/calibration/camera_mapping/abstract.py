@@ -7,13 +7,9 @@ from ...hardware import Camera, SLM, as_camera, as_slm
 from ...optics import SLMFourierLensModel
 from ...geometry import AffineTransform
 
-# CameraMapping (the result value object) lives in mapping.py, which stays free of the
-# propagation dependency; re-exported here so ``camera_mapping.abstract.CameraMapping``
-# keeps working for existing importers.
 from .mapping import CameraMapping
 
 
-# TODO: Add saving functionality
 class CameraMapper:
     """A class to determine the coordinate transform between the camera pixels
     and the pixels of the simulated image.

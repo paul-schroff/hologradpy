@@ -58,6 +58,11 @@ class CameraSensor(OpticsModule):
         self.add_noise = add_noise
         self.quantize = quantize
 
+    @property
+    def is_stochastic(self) -> bool:
+        """True while the shot noise is on and has a rate to draw from."""
+        return self.add_noise and self.noise_level != 0.0
+
     def forward(self, complex_amplitude: ComplexAmplitude) -> Tensor:
         intensity = complex_amplitude.intensity  # |E|^2, real, on-graph
 

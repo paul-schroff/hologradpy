@@ -30,6 +30,22 @@ class LinearSuperpositionPhaseRetriever(PhaseRetrieverBase):
             target_phases = torch.zeros_like(target_positions[:, 0])
         self.target_phases: torch.Tensor = target_phases
 
+    def set_target(
+        self,
+        target: torch.Tensor,
+        signal_region: torch.Tensor | None = None,
+    ) -> None:
+        """Not available: this retriever has no intensity target to replace.
+
+        It superposes blazed gratings at ``target_positions``, so there is nothing for
+        an intensity pattern to set.
+        """
+        raise NotImplementedError(
+            "LinearSuperpositionPhaseRetriever optimises target_positions, "
+            "target_intensities and target_phases rather than an intensity pattern, so "
+            "it cannot be retargeted with one. Set those attributes instead."
+        )
+
     def retrieve_phase(self: LinearSuperpositionPhaseRetriever) -> torch.Tensor:
         geometry = self.slm_camera_model.input_geometry
         complex_dtype = (

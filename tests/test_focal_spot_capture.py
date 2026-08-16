@@ -12,7 +12,10 @@ import numpy as np
 import pytest
 import torch
 
-from hologradpy.calibration.camera_mapping import CameraMapping
+from hologradpy.calibration.camera_mapping import (
+    CameraMapping,
+    FocalSpotFit,
+)
 from hologradpy.calibration.spot_detection import (
     capture_focal_spot,
     tilt_to_sensor_centre,
@@ -40,13 +43,10 @@ def _mapping(zeroth_order_position, scale: float = 1.0, angle: float = 0.0):
         timestamp=datetime.now(),
         name="synthetic",
         transform=transform.as_matrix(homogeneous=False),
-        inverse_transform=transform.inverse().as_matrix(homogeneous=False),
         detected_points=[],
         calculated_points=[],
-        camera_images=[np.zeros((2, 2))],
-        simulated_images=[np.zeros((2, 2))],
         zeroth_order_position=zeroth_order_position,
-        focal_spot_radius=CAMERA_PIXEL_SIZE[0] * 2,
+        spot_fit=FocalSpotFit(waist=CAMERA_PIXEL_SIZE[0] * 2),
     )
 
 

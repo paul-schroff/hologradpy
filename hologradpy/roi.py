@@ -16,9 +16,12 @@ from numpy.typing import NDArray
 
 from array_api_compat import array_namespace, device as array_device
 
+from .serialization import record_type
+
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 
 
+@record_type("roi")
 @dataclass(frozen=True)
 class ROI:
     """A rectangular region of interest in native ``(row, col)`` pixel coordinates.

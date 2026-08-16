@@ -21,6 +21,7 @@ requirements = [
     "checkerboard",
     "slmsuite",
     "tqdm",
+    "asdf",
 ]
 
 setup(

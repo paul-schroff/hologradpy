@@ -14,7 +14,8 @@ from numpy.typing import NDArray
 import torch
 from torch.utils.data import DataLoader, Subset
 
-from .calibration_dataset import CalibrationDataset, DatasetDescriptor
+from .records import SpeckleCaptureData
+from ....datasets import CaptureStore, SampleDataset
 from .dataset_transforms import PrepareSample
 
 from ....loss_functions import LossFunction, MaskedIntensityMSE
@@ -24,7 +25,7 @@ from ....utils import ProgressBar
 
 
 def region_of_interest(
-    dataset_descriptor: DatasetDescriptor,
+    capture_data: SpeckleCaptureData,
     slm_camera_model: SLMFourierLensModel,
     roi_mask: NDArray[np.bool_] | None = None,
 ) -> tuple[ROI, torch.Tensor]:
@@ -38,15 +39,15 @@ def region_of_interest(
     multiplied against what the model returns.
 
     Args:
-        dataset_descriptor: The captured dataset, carrying the full-frame region mask.
+        capture_data: The captured dataset, carrying the full-frame region mask.
         slm_camera_model: The model being fitted, which fixes the dtype and device.
-        roi_mask: A region mask to use instead of the descriptor's own.
+        roi_mask: A region mask to use instead of the capture's own.
 
     Returns:
         The bounding-box ``ROI`` and the mask cropped to it.
     """
     if roi_mask is None:
-        roi_mask = dataset_descriptor.roi_mask
+        roi_mask = capture_data.roi_mask
 
     roi = ROI.detect(roi_mask, pad=0)
     mask = torch.as_tensor(
@@ -60,17 +61,16 @@ def region_of_interest(
 class WavefrontFitter:
     """Recover an SLM-plane field by fitting a model to captured camera frames.
 
-    For each captured ``(phase_pattern, camera_image)`` the model predicts the camera
+    For each captured ``(slm pattern, camera_image)`` the model predicts the camera
     speckle, and whatever parameterises its ``slm_field`` is stepped to match. Nothing
     here is specific to a parameterisation: the fit optimises the parameters that field
     module registers, and the cost is supplied by the caller.
 
     Args:
-        dataset_descriptor: The captured dataset.
+        capture_data: The captured dataset.
         slm_camera_model: The differentiable model to fit. Its ``slm_field`` holds the
             parameters that are recovered, and it also fixes the device and dtype.
-        dataset_directory: Where the dataset's sample files live. The descriptor
-            names them relatively, so the directory is supplied here.
+        dataset_path: The dataset file holding the samples.
         loss: The cost, taking ``(predicted_field, camera_image)``. Defaults to
             :class:`~hologradpy.loss_functions.MaskedIntensityMSE` alone, which is the
             whole cost for a parameterisation that is band limited by construction. Add
@@ -80,20 +80,20 @@ class WavefrontFitter:
         learning_rate: Adam step size. The parameterisation sets the gradient scale, so
             this belongs to the caller: one kernel pixel moves the whole SLM plane while
             one field pixel moves one pixel.
-        roi_mask: A region mask to use instead of the descriptor's own.
+        roi_mask: A region mask to use instead of the capture's own.
     """
 
     def __init__(
         self,
-        dataset_descriptor: DatasetDescriptor,
+        capture_data: SpeckleCaptureData,
         slm_camera_model: SLMFourierLensModel,
-        dataset_directory: str | os.PathLike,
+        dataset_path: str | os.PathLike,
         loss: LossFunction | None = None,
         learning_rate: float = 1e-2,
         roi_mask: NDArray[np.bool_] | None = None,
     ) -> None:
-        self.dataset_descriptor: DatasetDescriptor = dataset_descriptor
-        self.dataset_directory: Path = Path(dataset_directory)
+        self.capture_data: SpeckleCaptureData = capture_data
+        self.dataset_path: Path = Path(dataset_path)
         self.slm_camera_model: SLMFourierLensModel = slm_camera_model
         self.learning_rate: float = learning_rate
 
@@ -104,17 +104,18 @@ class WavefrontFitter:
         self.dtype: torch.dtype = slm_camera_model.init_field.dtype_r
 
         self.roi, self.roi_mask_torch = region_of_interest(
-            dataset_descriptor, slm_camera_model, roi_mask
+            capture_data, slm_camera_model, roi_mask
         )
         self.roi_mask: NDArray[np.bool_] = self.roi.crop(
-            dataset_descriptor.roi_mask if roi_mask is None else roi_mask
+            capture_data.roi_mask if roi_mask is None else roi_mask
         )
 
         self.loss: LossFunction = (
             MaskedIntensityMSE(self.roi_mask_torch) if loss is None else loss
         )
 
-        self.dataset: CalibrationDataset | None = None
+        self.dataset: SampleDataset | None = None
+        self.phase_bitdepth: int | None = None
         self.component_history: dict[str, list[float]] = {}
 
     def fit(
@@ -160,7 +161,7 @@ class WavefrontFitter:
                 epoch_components: dict[str, float] = {}
                 for sample in dataloader:
                     optimizer.zero_grad()
-                    output_field = self._predict_roi_fields(sample["phase_pattern"])
+                    output_field = self._predict_roi_fields(sample["slm_levels"])
                     components = self.loss.components(
                         output_field, sample["camera_image"]
                     )
@@ -192,15 +193,12 @@ class WavefrontFitter:
     ) -> DataLoader:
         # Kept on the fitter so the same transform chain can be replayed afterwards,
         # e.g. by measured_and_predicted_roi for the visualization.
-        self.dataset = CalibrationDataset(
-            dataset_descriptor=self.dataset_descriptor,
-            dataset_directory=self.dataset_directory,
+        store = CaptureStore.open(self.dataset_path)
+        self.phase_bitdepth: int | None = store.phase_bitdepth
+        self.dataset = SampleDataset(
+            store,
             transform=PrepareSample(
-                self.dataset_descriptor.camera_background_image,
-                self.roi,
-                self.roi_mask,
-                self.device,
-                self.dtype,
+                self.roi, self.roi_mask, self.device, self.dtype
             ),
         )
 
@@ -235,7 +233,7 @@ class WavefrontFitter:
             amsgrad=True,
         )
 
-    def _predict_roi_fields(self, phase_patterns: torch.Tensor) -> torch.Tensor:
+    def _predict_roi_fields(self, patterns: torch.Tensor) -> torch.Tensor:
         """Predict the camera-plane field for a batch of SLM phase patterns, cropped to
         the ROI.
 
@@ -246,7 +244,7 @@ class WavefrontFitter:
         The SLM-plane field being recovered lives in the model's ``slm_field`` and is
         shared across the batch.
         """
-        self.slm_camera_model.virtual_slm.set_phase(phase_patterns)
+        self.slm_camera_model.virtual_slm.set_levels(patterns, self.phase_bitdepth)
         field = self.slm_camera_model().as_tensor()
 
         if field.ndim == 4:
@@ -274,9 +272,9 @@ class WavefrontFitter:
             raise RuntimeError("No dataset yet. Call fit() first.")
 
         sample = self.dataset[sample_index]
-        phase_pattern = sample["phase_pattern"].unsqueeze(0)
+        pattern = sample["slm_levels"].unsqueeze(0)
         with torch.no_grad():
-            predicted = self._predict_roi_fields(phase_pattern)
+            predicted = self._predict_roi_fields(pattern)
             predicted_intensity = (predicted.abs() ** 2) * self.roi_mask_torch
             measured = sample["camera_image"] * self.roi_mask_torch
 

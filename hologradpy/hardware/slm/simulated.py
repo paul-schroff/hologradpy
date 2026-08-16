@@ -6,6 +6,7 @@ from numpy.typing import NDArray
 
 from ...optics.complex_amplitude import FieldGeometry
 from ...optics.modules.virtual_slms import VirtualSLM
+from ...phase_levels import level_dtype
 
 from .abstract import SLM
 
@@ -46,9 +47,8 @@ class SimulatedSLMTorch(SLM):
         self._wavelength = float(input_geometry.wavelength)
         self.settle_time_s = float(settle_time_s)
 
-        self.bitdepth = int(bitdepth)
-        self.bitresolution = 2 ** self.bitdepth
-        self._display_dtype = np.uint8 if self.bitdepth <= 8 else np.uint16
+        self._bitdepth = int(bitdepth)
+        self._display_dtype = level_dtype(self._bitdepth)
 
         # Multiplier for when the target wavelength differs from the design wavelength
         # (slmsuite convention: phase_scaling = wav_um / wav_design_um).
@@ -75,89 +75,44 @@ class SimulatedSLMTorch(SLM):
         """Design wavelength in metres."""
         return self._wavelength
 
-    def _phase_to_gray(self, phase: NDArray) -> NDArray:
-        """Desired optical phase (radians) to bit-depth grayscale integers.
-
-        A native port of ``slmsuite.hardware.slms.slm.SLM._phase2gray``: the sign is
-        flipped so phase zero maps to the maximum level, and the pattern is wrapped
-        into the modulation range set by :attr:`phase_scaling`. ``phase`` is modified
-        in place, as in slmsuite.
-        """
-        out = np.zeros(self._resolution, dtype=self._display_dtype)
-        bitresolution = self.bitresolution
-
-        if self.phase_scaling == 1:
-            # Prepare the 2pi -> integer conversion factor and convert.
-            factor = -(bitresolution / 2 / np.pi)
-            phase *= factor
-
-            # Casting positive floats to integers is not deterministic, so go
-            # all negative first.
-            maximum = np.amax(phase)
-            if maximum >= 0:
-                toshift = bitresolution * 2 * float(np.ceil(maximum / bitresolution))
-                phase -= toshift
-
-            np.rint(phase, out=phase)
-            np.copyto(out, phase, casting="unsafe")
-
-            # Restore phase, as the operations above are in place.
-            phase *= 1 / factor
-
-            # Shift by one so that phase 0 -> display max (more continuous).
-            out -= 1
-
-            # A fast modulo for power-of-two bit depths.
-            if bitresolution & (bitresolution - 1) == 0:
-                np.bitwise_and(out, int(bitresolution - 1), out=out)
-            else:
-                np.mod(out, bitresolution, out=out)
-        else:
-            # phase_scaling is folded into the scaling factor.
-            factor = -(bitresolution * self.phase_scaling / 2 / np.pi)
-            phase *= factor
-
-            # Only wrap when the phase leaves the SLM bounds.
-            if np.amin(phase) <= -bitresolution or np.amax(phase) > 0:
-                phase -= 1  # Conform with the in-bound case.
-                np.mod(phase, bitresolution * self.phase_scaling, out=phase)
-                phase += bitresolution * (1 - self.phase_scaling)
-
-                # Values still out of range are set to zero phase.
-                if self.phase_scaling > 1:
-                    phase[phase < 0] = bitresolution - 1
-            else:
-                phase += bitresolution - 1
-
-            np.copyto(out, phase, casting="unsafe")
-
-        return out
+    @property
+    def bitdepth(self) -> int:
+        """Bits per pixel of the display."""
+        return self._bitdepth
 
     def set_phase(self, phase: NDArray | torch.Tensor) -> None:
-        """Display the desired optical phase (same argument convention as
-        ``slmsuite.SLM.set_phase``): the phase is quantized to the SLM bit depth and
-        fed to the virtual SLM.
-        """
-        if isinstance(phase, torch.Tensor):
-            phase = phase.detach().cpu().numpy()
-        phase = np.array(phase, dtype=np.float64)
-        if phase.shape != self._resolution:
+        """Display a desired optical phase in radians, quantised to the panel."""
+        phase = self._as_frame(phase, "Phase")
+        if np.issubdtype(phase.dtype, np.integer):
+            raise TypeError(
+                "set_phase takes an optical phase in radians, and an integer array "
+                "almost always means grey levels. Pass those to set_levels, or cast to "
+                "float if radians was meant."
+            )
+        self.set_levels(self.virtual_slm.phase_to_levels(phase, self._bitdepth))
+
+    def set_levels(self, levels: NDArray | torch.Tensor) -> None:
+        """Display grey levels directly, without going through a phase."""
+        levels = self._as_frame(levels, "Levels")
+        self.display = levels.astype(self._display_dtype)
+        self.virtual_slm.set_levels(self.display, self._bitdepth)
+
+    def _as_frame(self, pattern: NDArray | torch.Tensor, label: str) -> NDArray:
+        """A displayable numpy frame, with the virtual SLM ready to be given it."""
+        if isinstance(pattern, torch.Tensor):
+            pattern = pattern.detach().cpu().numpy()
+        pattern = np.asarray(pattern)
+        if pattern.shape != self._resolution:
             raise ValueError(
-                f"Phase shape {phase.shape} does not match the SLM resolution "
+                f"{label} shape {pattern.shape} does not match the SLM resolution "
                 f"{self._resolution}."
             )
 
-        self.display = self._phase_to_gray(phase)
-
-        # The virtual SLM is lazily initialised. Make sure its phase Parameter exists
-        # even if no image has been captured yet.
+        # The virtual SLM is lazily initialised. Make sure its state exists even if no
+        # image has been captured yet.
         if not self.virtual_slm.initialized:
             self.virtual_slm.initialize_from_geometry(self.input_geometry)
-        # slmsuite negates the desired phase when converting to grayscale, so undo that
-        # here. The virtual SLM expects the desired optical phase.
-        self.virtual_slm.set_phase(
-            -(self.display / self.bitresolution * 2 * torch.pi)
-        )
+        return pattern
 
     def close(self) -> None:
         pass

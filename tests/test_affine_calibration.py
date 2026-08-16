@@ -20,7 +20,11 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 import torch  # noqa: E402
 
-from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch  # noqa: E402
+from hologradpy.hardware import (  # noqa: E402
+    CameraOrientation,
+    SimulatedCameraTorch,
+    SimulatedSLMTorch,
+)
 from hologradpy.optics.complex_amplitude import (  # noqa: E402
     ComplexAmplitude,
     FieldGeometry,
@@ -36,7 +40,11 @@ from hologradpy.profiles.amplitude import (  # noqa: E402
     gaussian_beam_intensity,
 )
 from hologradpy.geometry import recalibrated_partial_affine  # noqa: E402
-from hologradpy.calibration.camera_mapping import CameraMapping, CoarseMapper  # noqa: E402
+from hologradpy.calibration.camera_mapping import (  # noqa: E402
+    CameraMapping,
+    CoarseMapper,
+    FocalSpotFit,
+)
 from hologradpy.geometry import PartialAffineTransform  # noqa: E402
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
@@ -60,13 +68,10 @@ def _synthetic_mapping(transform: PartialAffineTransform) -> CameraMapping:
         timestamp=datetime.now(),
         name="synthetic",
         transform=transform.as_matrix(homogeneous=False),
-        inverse_transform=transform.inverse().as_matrix(homogeneous=False),
         detected_points=detected.tolist(),
         calculated_points=calculated.tolist(),
-        camera_images=[np.zeros((2, 2))],
-        simulated_images=[np.zeros((2, 2))],
         zeroth_order_position=(0.0, 0.0),
-        focal_spot_radius=1.0,
+        spot_fit=FocalSpotFit(waist=1.0),
     )
 
 
@@ -166,7 +171,7 @@ def _assert_reproduces_truth(module):
 def _run_oracle(build, module_of, seed_angle, seed_shift):
     geometry, slm, beam = _geometry_and_beam()
     truth = build(geometry, beam, slm.virtual_slm, TRUTH_ANGLE, TRUTH_SHIFT)
-    camera = SimulatedCameraTorch(truth, rot="0", fliplr=False)
+    camera = SimulatedCameraTorch(truth, orientation=CameraOrientation())
     camera.set_exposure(1e-3)
     camera.get_image()
     reference = build(

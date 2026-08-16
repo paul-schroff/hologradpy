@@ -232,7 +232,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         # Keep the pattern ROI (plus a spot-radius margin) inside the sensor. A
         # symmetric margin avoids relying on the (height, width) vs (width, height)
         # ordering of camera_roi_size.
-        focal_spot_radius = float(abs(mapping.focal_spot_radius))
+        focal_spot_radius = float(abs(mapping.spot_fit.waist))
         margin = max(camera_roi_size) / 2 + 3.0 * focal_spot_radius / camera_pitch.min()
         if width - 1 - margin < margin or height - 1 - margin < margin:
             raise ValueError(

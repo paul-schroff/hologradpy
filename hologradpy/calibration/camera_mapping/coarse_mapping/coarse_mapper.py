@@ -30,13 +30,10 @@ from ...spot_detection import (
 )
 from ...exposure import expose_until_spot
 
-from ....hardware.camera import (
-    CameraData,
-    get_orientation_transformation,
-    probe_orientation,
-)
+from ....hardware.camera import CameraData, CameraOrientation
 
 from ..abstract import CameraMapper, CameraMapping
+from ..mapping import FocalSpotFit, MappingFit, OrientationSuggestion
 from .visualizer import CoarseVisualizationData
 
 
@@ -126,11 +123,11 @@ class CoarseMapper(CameraMapper):
                 seeds the centre search directly; a ValueError is raised if no spot
                 is detected there. search_radius is then ignored.
             find_camera_orientation: If True, suggest the nearest discrete camera
-                orientation (rot/fliplr/flipud) that would align the camera with the
-                model plane, recorded on the result as ``suggested_orientation`` with
-                the near-identity ``residual_transform`` it would give. The camera is
-                not modified (apply it yourself via ``Camera(..., **orientation)`` for
-                visually-aligned frames). Defaults to False.
+                orientation that would align the camera with the model plane, recorded
+                on the result as ``orientation`` along with the near-identity residual
+                it would give. The camera is not modified: apply it yourself with
+                ``camera.set_orientation(mapping.orientation.suggested)`` for
+                visually-aligned frames. Defaults to False.
 
         Returns:
             CameraMapping named ``"coarse"`` with the affine transform and its
@@ -277,7 +274,6 @@ class CoarseMapper(CameraMapper):
 
         affine = AffineTransform.fit(detected, calculated, robust=False)
         transform = affine.as_matrix(homogeneous=False)
-        inverse_transform = affine.inverse().as_matrix(homogeneous=False)
         reprojection_errors, reprojection_rms = self.calculate_reprojection_error(
             detected, calculated, transform
         )
@@ -312,46 +308,41 @@ class CoarseMapper(CameraMapper):
                 stacklevel=2,
             )
 
-        # Reduce all four probes to one frame (reused for both the mapping image and the
-        # visualization data).
+        # Reduce all four probes to one frame.
         probe_composite = np.maximum.reduce(probes.camera_frames)
         visualization_data = self._build_visualization_data(
-            half_extent, 
-            search_step, 
-            addressable, 
+            half_extent,
+            search_step,
+            addressable,
             pixel_size_out,
-            resolution_out, 
-            camera_shape, 
-            transform, 
+            resolution_out,
+            camera_shape,
+            transform,
             probe_composite,
+            np.maximum.reduce(probes.simulated_frames),
             np.asarray(probes.camera_points, dtype=np.float64),
             np.asarray(probes.simulated_points, dtype=np.float64),
         )
 
-        suggested_orientation = None
-        residual_transform = None
+        orientation = None
         if find_camera_orientation:
-            suggested_orientation, residual_transform = (
-                self._suggest_camera_orientation(transform, camera_shape)
-            )
+            orientation = self._suggest_camera_orientation(transform, camera_shape)
 
         return CameraMapping(
             timestamp=datetime.now(),
             name="coarse",
             transform=transform,
-            inverse_transform=inverse_transform,
             detected_points=probes.camera_points,
             calculated_points=probes.simulated_points,
-            camera_images=[probe_composite],
-            simulated_images=[np.maximum.reduce(probes.simulated_frames)],
             zeroth_order_position=zeroth_order_position,
-            focal_spot_radius=probes.focal_spot_radius,
-            reprojection_errors=reprojection_errors,
-            reprojection_rms=reprojection_rms,
-            visualization_data=visualization_data,
+            spot_fit=FocalSpotFit(waist=probes.focal_spot_radius),
+            fit=MappingFit(
+                reprojection_errors=reprojection_errors,
+                reprojection_rms=reprojection_rms,
+            ),
+            orientation=orientation,
             camera_data=CameraData.from_camera(self.camera),
-            suggested_orientation=suggested_orientation,
-            residual_transform=residual_transform,
+            visualization_data=visualization_data,
         )
 
     @staticmethod
@@ -364,39 +355,48 @@ class CoarseMapper(CameraMapper):
 
     def _suggest_camera_orientation(
         self, transform: NDArray, camera_shape: tuple[int, int]
-    ) -> tuple[dict, NDArray]:
-        """Nearest discrete camera orientation (rot/fliplr/flipud) that would align the 
-        camera with the model plane, plus the residual affine it would give.
+    ) -> OrientationSuggestion:
+        """The mounting that would align the camera with the model plane, up to a
+        residual affine transform.
 
-        Enumerates the 8 dihedral orientations; for each, ``D`` is the orientation's
-        pixel-space linear map (from :func:`probe_orientation`) and the residual is ``L'
-        = L @ inv(D)``, ``t' = t - L' @ d``. Picks the non-mirrored residual (``det >
-        0``) with the smallest residual rotation. Returns ``({"rot", "fliplr",
-        "flipud"}, [L' | t'])``; the orientation is relative to the camera's current 
-        one."""
+        Enumerates the 8 dihedral orientations. For each, ``D`` is the orientation's
+        pixel-space linear map and the residual is ``L' = L @ inv(D)``, ``t' = t - L' @
+        d``. Picks the non-mirrored residual (``det > 0``) with the smallest residual
+        rotation.
+
+        Raises:
+            ValueError: The camera applies a frame transform outside the eight, leaving
+                nothing to compose onto.
+        """
+        current = self.camera.orientation
+        if current is None:
+            raise ValueError(
+                f"{type(self.camera).__name__} applies a frame transform that is not "
+                "one of the eight orientations, so there is no mounting to suggest. "
+                "Map it with find_camera_orientation=False."
+            )
+
         matrix = np.asarray(transform, dtype=np.float64)
         linear, offset = matrix[:, :2], matrix[:, 2]
 
         best = None
-        for rot in ("0", "90", "180", "270"):
-            for fliplr in (False, True):
-                pixel = probe_orientation(
-                    get_orientation_transformation(rot, fliplr, False), camera_shape
-                )
-                residual_linear = linear @ np.linalg.inv(pixel[:, :2])
-                if np.linalg.det(residual_linear) <= 0:
-                    continue  # this orientation leaves a mirror in the residual
-                residual_offset = offset - residual_linear @ pixel[:, 2]
-                angle = abs(self._linear_rotation_degrees(residual_linear))
-                if best is None or angle < best[0]:
-                    best = (
-                        angle,
-                        {"rot": rot, "fliplr": fliplr, "flipud": False},
+        for correction in CameraOrientation.dihedral():
+            pixel = correction.matrix(camera_shape)
+            residual_linear = linear @ np.linalg.inv(pixel[:, :2])
+            if np.linalg.det(residual_linear) <= 0:
+                continue  # this orientation leaves a mirror in the residual
+            residual_offset = offset - residual_linear @ pixel[:, 2]
+            angle = abs(self._linear_rotation_degrees(residual_linear))
+            if best is None or angle < best[0]:
+                best = (
+                    angle,
+                    OrientationSuggestion(
+                        correction.compose(current),
                         np.column_stack([residual_linear, residual_offset]),
-                    )
+                    ),
+                )
 
-        _, orientation, residual = best
-        return orientation, residual
+        return best[1]
 
     def _build_visualization_data(
         self,
@@ -408,6 +408,7 @@ class CoarseMapper(CameraMapper):
         camera_shape: tuple[int, int],
         transform: NDArray,
         probe_image: NDArray,
+        simulated_image: NDArray,
         detected_points: NDArray,
         affine_probe_positions: NDArray,
     ) -> CoarseVisualizationData:
@@ -439,6 +440,8 @@ class CoarseMapper(CameraMapper):
             np.maximum.reduce(self._walk_frames) if self._walk_frames else None
         )
         return CoarseVisualizationData(
+            camera_image=probe_image,
+            simulated_image=simulated_image,
             array_image=self._search_array_image,
             walk_image=walk_image,
             probe_image=probe_image,

@@ -218,6 +218,14 @@ class OpticsModule(RecordingMixin, nn.Module):
             )
 
     @property
+    def is_stochastic(self) -> bool:
+        """Whether :meth:`forward` draws randomness, so two passes can differ. Anything
+        that draws once in :meth:`lazy_init` into a registered buffer stays False, since
+        the draw is then part of the state dict.
+        """
+        return False
+
+    @property
     def input_geometry(self) -> FieldGeometry:
         if not self.initialized:
             raise ValueError(

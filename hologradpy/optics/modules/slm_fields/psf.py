@@ -39,11 +39,8 @@ def kernel_size_from_waist(
 
 
 def waist_from_camera_mapping(camera_mapping) -> float:
-    """The focal spot waist measure by a camera mapping."""
-    fitted_waist = getattr(camera_mapping, "average_waist", None)
-    if fitted_waist is None:
-        fitted_waist = camera_mapping.focal_spot_radius
-    return float(fitted_waist)
+    """The focal spot waist measured by a camera mapping."""
+    return float(camera_mapping.spot_fit.waist)
 
 
 def _as_kernel_size(psf_kernel_size: int | tuple[int, int]) -> tuple[int, int]:

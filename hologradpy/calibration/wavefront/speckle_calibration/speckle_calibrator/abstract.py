@@ -13,7 +13,9 @@ import torch
 
 from ..wavefront_fitter import WavefrontFitter, region_of_interest
 from ..dataset_generator import DatasetGenerator
-from ..calibration_dataset import DatasetDescriptor
+from ..records import SpeckleCaptureData
+
+from .....datasets import CaptureStore
 from ..visualizer import SpeckleVisualizationData
 
 from ...abstract import WavefrontCalibratorBase, WavefrontCalibrationData
@@ -60,7 +62,7 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
         slm: SLM,
         camera: Camera,
         slm_camera_model: SLMFourierLensModel,
-        dataset_directory: str | os.PathLike,
+        dataset_path: str | os.PathLike,
         camera_mapping: CameraMapping | None = None,
         number_of_random_patterns: int = 10,
     ) -> None:
@@ -73,8 +75,8 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
                 shows up as a bad fit rather than an error. Its ``slm_field`` need not
                 be one this calibrator fits: a matching one is used as the starting
                 point, anything else is replaced by :meth:`_prepare_slm_field`.
-            dataset_directory: Where the captured dataset is written and read: the
-                per-pattern ``.npy`` files and the manifest beside them.
+            dataset_path: The dataset file, holding the captured samples and what
+                describes them.
             camera_mapping: Camera mapping to seed the model's affine transform and to 
                 place the region of interest. If None, a
                 :class:`~hologradpy.calibration.camera_mapping.CoarseMapper` is run, 
@@ -83,7 +85,7 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
         """
         super().__init__(slm, camera, slm_camera_model.device)
 
-        self.dataset_directory: Path = Path(dataset_directory)
+        self.dataset_path: Path = Path(dataset_path)
         self.number_of_random_patterns: int = number_of_random_patterns
 
         self.slm_camera_model: SLMFourierLensModel = slm_camera_model
@@ -105,11 +107,11 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
             camera=self.camera,
             camera_mapping=camera_mapping,
             focal_length=self.focal_length,
-            dataset_directory=self.dataset_directory,
+            dataset_path=self.dataset_path,
             number_of_random_patterns=self.number_of_random_patterns,
         )
 
-        self.dataset_descriptor: DatasetDescriptor | None = None
+        self.capture_data: SpeckleCaptureData | None = None
         self.fitter: WavefrontFitter | None = None
         self.loss_history: list[float] = []
         self.loss_component_history: dict[str, list[float]] = {}
@@ -160,7 +162,7 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
         batch_size: int = 5,
         subset_indices: Sequence[int] | None = None,
         verbose: bool = True,
-        dataset_descriptor: DatasetDescriptor | None = None,
+        capture_data: SpeckleCaptureData | None = None,
     ) -> list[float]:
         """Fit the SLM-plane field to a captured dataset.
 
@@ -180,30 +182,30 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
             batch_size: Phase patterns per iteration.
             subset_indices: Which dataset samples to fit against. Defaults to all.
             verbose: Print one progress line per epoch.
-            dataset_descriptor: The dataset to fit. Defaults to the one from the last
+            capture_data: The dataset to fit. Defaults to the one from the last
                 call, so a refit needs only the settings that changed. Kept on
-                :attr:`dataset_descriptor`, which the visualization also reads.
+                :attr:`capture_data`, which the visualization also reads.
 
         Returns:
             list[float]: The mean loss of each epoch, also kept on :attr:`loss_history`.
         """
-        if dataset_descriptor is not None:
-            self.dataset_descriptor = dataset_descriptor
+        if capture_data is not None:
+            self.capture_data = capture_data
 
-        if self.dataset_descriptor is None:
+        if self.capture_data is None:
             raise RuntimeError(
                 "No dataset to fit. Capture one with "
                 "calibrator.dataset_generator.generate_dataset(...) and pass it as "
-                "dataset_descriptor, or call calibrate() to do both."
+                "capture_data, or call calibrate() to do both."
             )
 
-        _, mask = region_of_interest(self.dataset_descriptor, self.slm_camera_model)
+        _, mask = region_of_interest(self.capture_data, self.slm_camera_model)
         settings = self._fit_settings(mask)
 
         self.fitter = WavefrontFitter(
-            dataset_descriptor=self.dataset_descriptor,
+            capture_data=self.capture_data,
             slm_camera_model=self.slm_camera_model,
-            dataset_directory=self.dataset_directory,
+            dataset_path=self.dataset_path,
             loss=settings.loss,
             learning_rate=settings.learning_rate,
         )
@@ -236,13 +238,13 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
 
     def dataset_visualization_data(
         self,
-        dataset_descriptor: DatasetDescriptor | None = None,
+        capture_data: SpeckleCaptureData | None = None,
         sample_index: int = 0,
     ) -> SpeckleVisualizationData:
         """The captured dataset before any fitting.
 
         Args:
-            dataset_descriptor: The dataset to show. Defaults to the one from the last
+            capture_data: The dataset to show. Defaults to the one from the last
                 :meth:`fit_wavefront`, so a fitted calibrator needs no argument.
             sample_index: Which captured pattern to show.
 
@@ -252,23 +254,22 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
         Raises:
             RuntimeError: If no dataset has been captured or loaded yet.
         """
-        if dataset_descriptor is not None:
-            self.dataset_descriptor = dataset_descriptor
+        if capture_data is not None:
+            self.capture_data = capture_data
 
-        if self.dataset_descriptor is None:
+        if self.capture_data is None:
             raise RuntimeError(
                 "No dataset to show. Capture one with "
                 "calibrator.dataset_generator.generate_dataset(...) and pass it as "
-                "dataset_descriptor."
+                "capture_data."
             )
 
-        sample = self.dataset_descriptor.load_training_sample(
-            sample_index, self.dataset_directory
-        )
+        with CaptureStore.open(self.dataset_path) as store:
+            sample = store.read(sample_index)
         return self.visualization_data_type(
             camera_image=sample["camera_image"],
-            roi_mask=self.dataset_descriptor.roi_mask,
-            phase_pattern=sample["phase_pattern"],
+            roi_mask=self.capture_data.roi_mask,
+            slm_pattern=sample["slm_levels"],
         )
 
     def _build_visualization_data(
@@ -284,13 +285,12 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
         """
         try:
             measured_roi, predicted_roi = self.fitter.measured_and_predicted_roi(0)
-            sample = self.dataset_descriptor.load_training_sample(
-                0, self.dataset_directory
-            )
+            with CaptureStore.open(self.dataset_path) as store:
+                sample = store.read(0)
             return self.visualization_data_type(
                 camera_image=sample["camera_image"],
-                roi_mask=self.dataset_descriptor.roi_mask,
-                phase_pattern=sample["phase_pattern"],
+                roi_mask=self.capture_data.roi_mask,
+                slm_pattern=sample["slm_levels"],
                 measured_roi=measured_roi,
                 predicted_roi=predicted_roi,
                 recovered_amplitude=recovered_amplitude,
@@ -397,7 +397,6 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
         number_of_epochs: int = 50,
         batch_size: int = 5,
         subset_indices: Sequence[int] | None = None,
-        capture_background_image: bool = False,
         benchmark_calibration: WavefrontCalibrationData | None = None,
         seed: int | None = None,
         verbose: bool = True,
@@ -419,8 +418,6 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
             number_of_epochs: Passes over the dataset.
             batch_size: Patterns per optimiser step.
             subset_indices: Fit only these patterns of the dataset. Defaults to all.
-            capture_background_image: Capture a dark frame after the patterns. Block the
-                beam first, since the frame is taken immediately.
             benchmark_calibration: An existing calibration to add to every pattern, for
                 measuring the residual of a previous fit.
             seed: Seed for the pattern noise.
@@ -432,9 +429,8 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
         Returns:
             WavefrontCalibrationData: The fitted SLM-plane complex amplitude.
         """
-        dataset_descriptor = self.dataset_generator.generate_dataset(
+        capture_data = self.dataset_generator.generate_dataset(
             speckle_pattern_extent,
-            capture_background_image=capture_background_image,
             benchmark_calibration=benchmark_calibration,
             seed=seed,
         )
@@ -444,7 +440,7 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
             batch_size=batch_size,
             subset_indices=subset_indices,
             verbose=verbose,
-            dataset_descriptor=dataset_descriptor,
+            capture_data=capture_data,
         )
 
         return self.generate_slm_beam_calibration(

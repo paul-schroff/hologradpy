@@ -23,6 +23,8 @@ from ....holography.phase_retrieval import CGPhaseRetriever
 from ....holography.vortices.vortex_annihilator import VortexAnnihilator
 
 from ..abstract import CameraMapper, CameraMapping
+from ..mapping import FocalSpotFit, MappingFit
+from ..visualizer import CameraMappingVisualizationData
 
 
 class CheckerboardMapper(CameraMapper):
@@ -94,7 +96,7 @@ class CheckerboardMapper(CameraMapper):
         focal_length = float(lens.focal_length)
         pitch = self.camera.pixel_size[::-1]  # (x, y) for Cartesian geometry
         camera_shape = tuple(self.camera.resolution)  # (height, width)
-        focal_spot_radius = float(abs(coarse_mapping.focal_spot_radius))
+        focal_spot_radius = float(abs(coarse_mapping.spot_fit.waist))
 
         # Choose the board centre (model-pixel shift), the square size, and the
         # camera-pixel centre the board lands on from the coarse transform.
@@ -287,15 +289,18 @@ class CheckerboardMapper(CameraMapper):
             timestamp=datetime.now(),
             name="checkerboard",
             transform=transform,
-            inverse_transform=inverse_transform,
             detected_points=detected_corners,
             calculated_points=calculated_corners,
-            camera_images=[averaged_camera_image],
-            simulated_images=[simulated_camera_image],
             zeroth_order_position=zeroth_order_position,
-            focal_spot_radius=focal_spot_radius,
-            reprojection_errors=reprojection_errors,
-            reprojection_rms=reprojection_rms,
+            spot_fit=FocalSpotFit(waist=focal_spot_radius),
+            fit=MappingFit(
+                reprojection_errors=reprojection_errors,
+                reprojection_rms=reprojection_rms,
+            ),
+            visualization_data=CameraMappingVisualizationData(
+                camera_image=averaged_camera_image,
+                simulated_image=simulated_camera_image,
+            ),
         )
 
     def _place_checkerboard(

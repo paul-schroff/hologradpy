@@ -43,17 +43,20 @@ from hologradpy.optics.modules.virtual_slms import VirtualSLM  # noqa: E402
 from hologradpy.profiles.amplitude import gaussian_beam_intensity  # noqa: E402
 from hologradpy.analysis.fitting import remove_tilt  # noqa: E402
 from hologradpy.geometry import PartialAffineTransform  # noqa: E402
-from hologradpy.calibration.camera_mapping import CameraMapping  # noqa: E402
+from hologradpy.calibration.camera_mapping import (  # noqa: E402
+    CameraMapping,
+    FocalSpotFit,
+)
 from hologradpy.calibration.wavefront.speckle_calibration import (  # noqa: E402
     PSFSpeckleCalibrator,
     PixelwiseSpeckleCalibrator,
     SpeckleCalibratorVisualizer,
     SpeckleVisualizationData,
 )
-from hologradpy.calibration.wavefront.speckle_calibration.calibration_dataset import (  # noqa: E402,E501
-    DATASET_MANIFEST_NAME,
-    DatasetDescriptor,
+from hologradpy.calibration.wavefront.speckle_calibration.records import (  # noqa: E402
+    SpeckleCaptureData,
 )
+from hologradpy.datasets import CaptureStore  # noqa: E402
 from hologradpy.calibration.wavefront.speckle_calibration.dataset_generator import (  # noqa: E402
     DatasetGenerator,
 )
@@ -163,13 +166,10 @@ def _synthetic_mapping(
         timestamp=datetime.now(),
         name="synthetic",
         transform=truth.as_matrix(homogeneous=False),
-        inverse_transform=truth.inverse().as_matrix(homogeneous=False),
         detected_points=detected.tolist(),
         calculated_points=calculated.tolist(),
-        camera_images=[np.zeros((2, 2))],
-        simulated_images=[np.zeros((2, 2))],
         zeroth_order_position=centre,
-        focal_spot_radius=CAMERA_PIXEL_SIZE[0] * 2,
+        spot_fit=FocalSpotFit(waist=CAMERA_PIXEL_SIZE[0] * 2),
     )
 
 
@@ -184,7 +184,7 @@ def test_speckle_calibrator_runs_end_to_end(tmp_path) -> None:
         slm_camera_model=_build_model(
             slm, camera, FOCAL_LENGTH,
         ),
-        dataset_directory=str(tmp_path) + os.sep,
+        dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=3,
     )
 
@@ -192,7 +192,6 @@ def test_speckle_calibrator_runs_end_to_end(tmp_path) -> None:
         speckle_pattern_extent=(5e-4, 5e-4),
         number_of_epochs=2,
         batch_size=1,
-        capture_background_image=False,
     )
 
     assert isinstance(result, WavefrontCalibrationData)
@@ -218,7 +217,7 @@ def test_visualization_data_populated_and_visualizer_renders(tmp_path) -> None:
         slm_camera_model=_build_model(
             slm, camera, FOCAL_LENGTH,
         ),
-        dataset_directory=tmp_path,
+        dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=3,
     )
     result = calibrator.calibrate(
@@ -258,14 +257,14 @@ def test_a_dataset_can_be_inspected_before_a_fit_is_spent_on_it(tmp_path) -> Non
         camera=camera,
         camera_mapping=_synthetic_mapping(),
         slm_camera_model=_build_model(slm, camera, FOCAL_LENGTH),
-        dataset_directory=tmp_path,
+        dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=3,
     )
-    descriptor = calibrator.dataset_generator.generate_dataset((5e-4, 5e-4))
+    capture_data = calibrator.dataset_generator.generate_dataset((5e-4, 5e-4))
 
-    data = calibrator.dataset_visualization_data(descriptor)
+    data = calibrator.dataset_visualization_data(capture_data)
 
-    assert data.phase_pattern.shape == SLM_RESOLUTION
+    assert data.slm_pattern.shape == SLM_RESOLUTION
     assert data.camera_image.shape == CAMERA_RESOLUTION
     # Nothing has been fitted, so none of these can be filled in yet.
     assert data.measured_roi is None
@@ -274,7 +273,9 @@ def test_a_dataset_can_be_inspected_before_a_fit_is_spent_on_it(tmp_path) -> Non
 
     figure = data.visualizer().render_dataset()
     titles = [axs.get_title() for axs in figure.axes if axs.get_title()]
-    assert titles == ["SLM phase pattern", "camera + ROI"]
+    # The panel says which units it drew, since a captured pattern is levels from a
+    # device that quantises and radians from one that does not.
+    assert titles == ["SLM pattern [levels]", "camera + ROI"]
     plt.close(figure)
 
 
@@ -286,7 +287,7 @@ def test_asking_to_inspect_a_dataset_that_was_never_captured_says_so(tmp_path) -
         camera=camera,
         camera_mapping=_synthetic_mapping(),
         slm_camera_model=_build_model(slm, camera, FOCAL_LENGTH),
-        dataset_directory=tmp_path,
+        dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=3,
     )
 
@@ -307,14 +308,14 @@ def _fitted_calibrator(tmp_path):
         camera=camera,
         camera_mapping=_synthetic_mapping(),
         slm_camera_model=_build_model(slm, camera, FOCAL_LENGTH),
-        dataset_directory=tmp_path,
+        dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=3,
     )
-    descriptor = calibrator.dataset_generator.generate_dataset((5e-4, 5e-4))
+    capture_data = calibrator.dataset_generator.generate_dataset((5e-4, 5e-4))
     calibrator.fit_wavefront(
         number_of_epochs=2,
         batch_size=1,
-        dataset_descriptor=descriptor,
+        capture_data=capture_data,
         verbose=False,
     )
     return calibrator
@@ -419,11 +420,10 @@ def test_a_real_camera_leaves_the_comparison_out(tmp_path, monkeypatch) -> None:
 
 
 def test_dataset_survives_being_moved(tmp_path) -> None:
-    """A captured dataset stays readable after its directory is moved.
+    """A captured dataset stays readable after it is moved.
 
-    The descriptor names its sample files relatively and takes the directory as
-    an argument, so the path is never baked into the saved manifest. Before that,
-    a dataset could only be read back from the exact directory it was written to.
+    Nothing in the file points at where it lives, and what describes the capture is
+    inside it, so one path is the whole dataset.
     """
     slm, camera = _build_hardware()
 
@@ -436,25 +436,24 @@ def test_dataset_survives_being_moved(tmp_path) -> None:
         slm_camera_model=_build_model(
             slm, camera, FOCAL_LENGTH,
         ),
-        dataset_directory=original,
+        dataset_path=original / "dataset.asdf",
         number_of_random_patterns=2,
     )
-    captured = calibrator.dataset_generator.generate_dataset(
-        (5e-4, 5e-4), capture_background_image=False
-    )
+    calibrator.dataset_generator.generate_dataset((5e-4, 5e-4))
 
-    expected = captured.load_training_sample(0, original)
+    with CaptureStore.open(original / "dataset.asdf") as store:
+        expected = store.read(0)
 
     moved = tmp_path / "moved"
     shutil.move(str(original), str(moved))
 
-    descriptor = DatasetDescriptor.load(moved / DATASET_MANIFEST_NAME)
-    sample = descriptor.load_training_sample(0, moved)
+    with CaptureStore.open(moved / "dataset.asdf") as store:
+        sample = store.read(0)
+        capture_data = store.record()
 
     np.testing.assert_array_equal(sample["camera_image"], expected["camera_image"])
-    np.testing.assert_array_equal(sample["phase_pattern"], expected["phase_pattern"])
-    # The manifest holds no absolute path of its own.
-    assert not hasattr(descriptor, "directory")
+    np.testing.assert_array_equal(sample["slm_levels"], expected["slm_levels"])
+    assert isinstance(capture_data, SpeckleCaptureData)
 
 
 def test_fitting_without_a_dataset_fails_loudly(tmp_path) -> None:
@@ -466,7 +465,7 @@ def test_fitting_without_a_dataset_fails_loudly(tmp_path) -> None:
         camera=camera,
         camera_mapping=_synthetic_mapping(),
         slm_camera_model=_build_model(slm, camera, FOCAL_LENGTH),
-        dataset_directory=tmp_path,
+        dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=2,
     )
 
@@ -483,7 +482,7 @@ def test_a_dataset_can_be_captured_once_and_refitted(tmp_path) -> None:
         camera=camera,
         camera_mapping=_synthetic_mapping(),
         slm_camera_model=_build_model(slm, camera, FOCAL_LENGTH),
-        dataset_directory=tmp_path,
+        dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=3,
     )
 
@@ -494,13 +493,13 @@ def test_a_dataset_can_be_captured_once_and_refitted(tmp_path) -> None:
     # one batch of a randomly drawn subset and the epoch loss depends on which patterns
     # it happened to draw, which makes the comparison below a coin flip.
     first = calibrator.fit_wavefront(
-        number_of_epochs=3, batch_size=3, verbose=False, dataset_descriptor=captured
+        number_of_epochs=3, batch_size=3, verbose=False, capture_data=captured
     )
-    # The second call needs no descriptor: the first one is remembered.
+    # The second call needs no capture_data: the first one is remembered.
     second = calibrator.fit_wavefront(number_of_epochs=3, batch_size=3, verbose=False)
 
     assert len(first) == 3 and len(second) == 3
-    assert calibrator.dataset_descriptor is captured
+    assert calibrator.capture_data is captured
     # Refitting continues from the field the first fit left rather than restarting, so
     # the second run opens below where the first one did.
     assert second[0] < first[0]
@@ -532,7 +531,7 @@ def test_a_coarse_mapping_is_run_when_none_is_supplied(tmp_path) -> None:
             focal_length=0.25,
             slm_field=PixelwiseSLMField(),
         ),
-        dataset_directory=tmp_path,
+        dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=2,
     )
 
@@ -580,7 +579,7 @@ def test_the_calibrator_builds_the_field_it_fits_from_its_own_mapping(tmp_path) 
         slm=slm,
         camera=camera,
         slm_camera_model=model,
-        dataset_directory=tmp_path,
+        dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=2,
     )
 
@@ -616,7 +615,7 @@ def test_the_swap_leaves_no_ghost_of_the_replaced_field(tmp_path) -> None:
         slm=slm,
         camera=camera,
         slm_camera_model=_plain_model(slm, camera),
-        dataset_directory=tmp_path,
+        dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=2,
     )
 
@@ -652,7 +651,7 @@ def test_a_supplied_field_of_the_right_type_is_kept(tmp_path) -> None:
         slm=slm,
         camera=camera,
         slm_camera_model=model,
-        dataset_directory=tmp_path,
+        dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=2,
     )
 
@@ -670,7 +669,7 @@ def test_a_supplied_mapping_skips_the_coarse_mapping(tmp_path) -> None:
         slm=slm,
         camera=camera,
         slm_camera_model=_build_model(slm, camera, FOCAL_LENGTH),
-        dataset_directory=tmp_path,
+        dataset_path=tmp_path / "dataset.asdf",
         camera_mapping=mapping,
         number_of_random_patterns=2,
     )
@@ -685,7 +684,7 @@ def test_dataset_manifest_rejects_the_wrong_record_type(tmp_path) -> None:
     mapping.save(path)
 
     with pytest.raises(TypeError, match="CameraMapping"):
-        DatasetDescriptor.load(path)
+        SpeckleCaptureData.load(path)
 
 
 def test_capturing_before_generating_patterns_fails_loudly(tmp_path) -> None:
@@ -697,12 +696,12 @@ def test_capturing_before_generating_patterns_fails_loudly(tmp_path) -> None:
         camera=camera,
         camera_mapping=_synthetic_mapping(),
         focal_length=FOCAL_LENGTH,
-        dataset_directory=tmp_path,
+        dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=1,
     )
 
     with pytest.raises(RuntimeError, match="generate_phase_patterns"):
-        generator.capture_camera_images(capture_background_image=False)
+        generator.capture_camera_images()
 
 
 def _generator_for(camera_mapping, slm, camera, tmp_path) -> DatasetGenerator:
@@ -711,7 +710,7 @@ def _generator_for(camera_mapping, slm, camera, tmp_path) -> DatasetGenerator:
         camera=camera,
         camera_mapping=camera_mapping,
         focal_length=FOCAL_LENGTH,
-        dataset_directory=tmp_path,
+        dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=1,
     )
 
@@ -799,16 +798,13 @@ def _recovery_mapping() -> CameraMapping:
         timestamp=datetime.now(),
         name="synthetic",
         transform=truth.as_matrix(homogeneous=False),
-        inverse_transform=truth.inverse().as_matrix(homogeneous=False),
         detected_points=detected.tolist(),
         calculated_points=calculated.tolist(),
-        camera_images=[np.zeros((2, 2))],
-        simulated_images=[np.zeros((2, 2))],
         zeroth_order_position=(
             RECOVERY_CAMERA_RESOLUTION[0] / 2,
             RECOVERY_CAMERA_RESOLUTION[1] / 2,
         ),
-        focal_spot_radius=RECOVERY_CAMERA_PIXEL_SIZE[0] * 2,
+        spot_fit=FocalSpotFit(waist=RECOVERY_CAMERA_PIXEL_SIZE[0] * 2),
     )
 
 
@@ -865,7 +861,7 @@ def test_speckle_calibrator_recovers_injected_wavefront(tmp_path) -> None:
         slm_camera_model=_build_model(
             slm, camera, FOCAL_LENGTH,
         ),
-        dataset_directory=str(tmp_path) + os.sep,
+        dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=16,
     )
     result = calibrator.calibrate(

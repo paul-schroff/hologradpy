@@ -192,7 +192,7 @@ def test_map_camera_builds_coarse_and_recovers_affine(checkerboard_mapping):
     mapped = detected @ transform[:, :2].T + transform[:, 2]
     rms = np.sqrt(np.mean(np.sum((mapped - calculated) ** 2, axis=1)))
     assert rms < 2.0
-    assert mapping.reprojection_rms == pytest.approx(rms)
+    assert mapping.fit.reprojection_rms == pytest.approx(rms)
 
 
 def test_zeroth_order_clears_board_footprint(checkerboard_mapping):
@@ -221,10 +221,10 @@ def test_map_camera_accepts_explicit_coarse_mapping(mapper, coarse_mapping):
         coarse_mapping=coarse_mapping,
     )
     assert mapping.name == "checkerboard"
-    assert mapping.reprojection_rms < 2.0
+    assert mapping.fit.reprojection_rms < 2.0
     # The coarse mapping's focal-spot radius is carried through.
-    assert mapping.focal_spot_radius == pytest.approx(
-        abs(coarse_mapping.focal_spot_radius)
+    assert mapping.spot_fit.waist == pytest.approx(
+        abs(coarse_mapping.spot_fit.waist)
     )
 
 
@@ -276,7 +276,7 @@ def test_map_camera_recovers_rotated_camera(camera_angle):
     transform = np.asarray(mapping.transform, dtype=float)
     # A +angle camera view yields the inverse rotation on the camera->model map.
     assert _recovered_rotation(transform) == pytest.approx(-camera_angle, abs=1.5)
-    assert mapping.reprojection_rms < 2.0
+    assert mapping.fit.reprojection_rms < 2.0
 
 
 @pytest.mark.xfail(
@@ -314,7 +314,7 @@ def test_tolerates_mild_aberration_and_speckle():
         number_of_cg_iterations=CG_ITERATIONS,
     )
     assert np.asarray(mapping.detected_points, dtype=float).shape == (24, 2)
-    assert mapping.reprojection_rms < 2.0
+    assert mapping.fit.reprojection_rms < 2.0
     assert _recovered_rotation(np.asarray(mapping.transform)) == pytest.approx(
         0.0, abs=1.5
     )
@@ -339,4 +339,4 @@ def test_map_camera_breaks_under_strong_aberration():
     # Detection collapses under strong aberration; if it somehow returns, the
     # 24-corner assertion catches the degraded result.
     assert np.asarray(mapping.detected_points, dtype=float).shape == (24, 2)
-    assert mapping.reprojection_rms < 2.0
+    assert mapping.fit.reprojection_rms < 2.0

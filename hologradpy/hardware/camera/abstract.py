@@ -19,7 +19,7 @@ from array_api_compat import array_namespace
 
 from ...grids import get_spatial_grid as _spatial_grid
 from ...roi import ROI
-from ...serialization import SaveableRecord
+from ...serialization import SaveableRecord, record_type
 
 
 class Camera(ABC):
@@ -93,6 +93,28 @@ class Camera(ABC):
         slmsuite two-frame buffer flush)."""
         self.get_image()
         self.get_image()
+
+    @property
+    def orientation(self) -> CameraOrientation | None:
+        """How the sensor is mounted, or None when the frame transform is not one of the
+        eight rotate and flip orientations.
+        """
+        transform = getattr(self, "transform", None)
+        if transform is None:
+            return CameraOrientation()
+        shape = getattr(self, "default_shape", self.resolution)
+        return CameraOrientation.from_matrix(probe_orientation(transform, shape), shape)
+
+    def set_orientation(self, orientation: CameraOrientation) -> None:
+        """Mount the sensor in ``orientation``, reorienting every frame from here on.
+
+        What :meth:`~hologradpy.calibration.camera_mapping.CoarseMapper.map_camera`
+        suggests is applied through this, so a device that can be reoriented overrides
+        it.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support being reoriented."
+        )
 
     @property
     def excluded_pixels(self) -> list[tuple[int, int]]:
@@ -558,6 +580,59 @@ def probe_orientation(
     return np.linalg.solve(source, destination).T
 
 
+@record_type("camera_orientation")
+@dataclass(frozen=True)
+class CameraOrientation:
+    """How a sensor is mounted, as the rotate and flip flags a device takes."""
+
+    rot: str = "0"
+    fliplr: bool = False
+    flipud: bool = False
+
+    def transformation(self) -> Callable[[NDArray], NDArray]:
+        """The transform a camera in this orientation applies to its raw frames."""
+        return get_orientation_transformation(self.rot, self.fliplr, self.flipud)
+
+    def matrix(self, shape: tuple[int, int]) -> NDArray:
+        """The ``(2, 3)`` pixel-space affine of :meth:`transformation` on ``shape``."""
+        return probe_orientation(self.transformation(), shape)
+
+    def swaps_axes(self) -> bool:
+        """True when the rotation exchanges height and width."""
+        return self.rot in ("90", "270", 1, 3)
+
+    def compose(self, other: CameraOrientation) -> CameraOrientation:
+        def combined(image: NDArray) -> NDArray:
+            return self.transformation()(other.transformation()(image))
+
+        # Non-square, so no two of the eight probe to the same matrix.
+        shape = (3, 5)
+        return CameraOrientation.from_matrix(
+            probe_orientation(combined, shape), shape
+        )
+
+    @classmethod
+    def dihedral(cls) -> list[CameraOrientation]:
+        """The eight orientations a sensor can be mounted in."""
+        return [
+            cls(rot, fliplr, False)
+            for rot in ("0", "90", "180", "270")
+            for fliplr in (False, True)
+        ]
+
+    @classmethod
+    def from_matrix(
+        cls, matrix: NDArray, shape: tuple[int, int]
+    ) -> CameraOrientation | None:
+        """The orientation whose :meth:`matrix` on ``shape`` is ``matrix``."""
+        target = np.asarray(matrix, dtype=np.float64)
+        for orientation in cls.dihedral():
+            if np.allclose(orientation.matrix(shape), target):
+                return orientation
+        return None
+
+
+@record_type("camera_data")
 @dataclass(frozen=True, unsafe_hash=True)
 class CameraData(SaveableRecord):
     """A native snapshot of a camera's geometry and exposure state."""

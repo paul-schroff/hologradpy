@@ -36,7 +36,10 @@ from hologradpy.holography.phase_retrieval import (  # noqa: E402
 from hologradpy.calibration.camera_mapping import (  # noqa: E402
     CameraMapperVisualizer,
     CameraMapping,
+    CameraMappingVisualizationData,
     CoarseMapper,
+    FocalSpotFit,
+    MappingFit,
     SpotArrayMapper,
 )
 from hologradpy.calibration.spot_detection import disc_mask  # noqa: E402
@@ -189,21 +192,23 @@ def test_map_camera_returns_populated_mapping(spot_array_mapping):
     assert len(detected) == len(calculated)
 
     # Per-spot Gaussian fits are populated and consistent in length.
-    assert mapping.spot_fit_parameters is not None
-    assert mapping.spot_fit_covariances is not None
-    assert len(mapping.spot_fit_parameters) == len(detected)
-    assert mapping.average_waist is not None and mapping.average_waist > 0
-    assert np.isfinite(mapping.average_waist_uncertainty)
+    spot_fit = mapping.spot_fit
+    assert spot_fit.parameters is not None
+    assert spot_fit.covariances is not None
+    assert len(spot_fit.parameters) == len(detected)
+    assert spot_fit.waist > 0
+    assert np.isfinite(spot_fit.waist_uncertainty)
 
     # The zeroth-order mask is a boolean full-sensor image.
-    mask = np.asarray(mapping.zeroth_order_mask)
+    frames = mapping.visualization_data
+    mask = np.asarray(frames.zeroth_order_mask)
     assert mask.dtype == bool
-    assert mask.shape == tuple(mapping.camera_images[0].shape)
+    assert mask.shape == tuple(frames.camera_image.shape)
 
     # The calculated points sit on the bright spots of the simulated image as
     # actually rendered (regression: they used to be analytic positions that
     # ignored the model's phase-convention mirror and landed on the ghost).
-    simulated = np.asarray(mapping.simulated_images[0])
+    simulated = np.asarray(frames.simulated_image)
     threshold = 0.1 * simulated.max()
     for x, y in calculated:
         xi, yi = int(round(x)), int(round(y))
@@ -218,18 +223,14 @@ def test_map_camera_returns_populated_mapping(spot_array_mapping):
 
     # The reprojection error is computed by the mapper and stored on the
     # mapping (the visualizer only reads it).
-    errors = np.asarray(mapping.reprojection_errors, dtype=float)
+    errors = np.asarray(mapping.fit.reprojection_errors, dtype=float)
     assert errors.shape == detected.shape
     np.testing.assert_allclose(errors, mapped - calculated, atol=1e-9)
-    assert mapping.reprojection_rms == pytest.approx(rms)
+    assert mapping.fit.reprojection_rms == pytest.approx(rms)
 
-    # Detections excluded from the transform are recorded (possibly none for a
-    # clean setup), one reason per point.
-    assert mapping.excluded_points is not None
-    assert len(mapping.excluded_points) == len(mapping.excluded_reasons)
-    assert set(mapping.excluded_reasons) <= {
-        "fit rejected", "unmatched", "affine outlier"
-    }
+    # Detections excluded from the transform are recorded, possibly none for a
+    # clean setup.
+    assert mapping.fit.excluded_points is not None
 
 
 def test_map_camera_recovers_rotated_camera():
@@ -280,7 +281,7 @@ def test_map_camera_accepts_explicit_coarse_mapping():
         number_of_spots=20, seed=1, coarse_mapping=coarse
     )
     assert mapping.name == "spot_array"
-    assert mapping.reprojection_rms < 2.0
+    assert mapping.fit.reprojection_rms < 2.0
 
 
 def test_disc_mask_membership():
@@ -387,8 +388,9 @@ def test_visualizer_marks_excluded_detections(spot_array_mapping):
 
     mapping = dataclasses.replace(
         spot_array_mapping,
-        excluded_points=[(5.0, 5.0), (10.0, 12.0)],
-        excluded_reasons=["fit rejected", "unmatched"],
+        fit=dataclasses.replace(
+            spot_array_mapping.fit, excluded_points=[(5.0, 5.0), (10.0, 12.0)]
+        ),
     )
     figure = CameraMapperVisualizer(mapping).render()
     camera_axes = next(
@@ -406,18 +408,21 @@ def _no_fit_mapping() -> CameraMapping:
     detected = [(2.0, 3.0), (8.0, 3.0), (8.0, 9.0), (2.0, 9.0)]
     calculated = [(4.0, 6.0), (16.0, 6.0), (16.0, 18.0), (4.0, 18.0)]
     transform = np.array([[2.0, 0.0, 0.0], [0.0, 2.0, 0.0]])
-    inverse = np.array([[0.5, 0.0, 0.0], [0.0, 0.5, 0.0]])
     return CameraMapping(
         timestamp=datetime.now(),
         name="checkerboard",
         transform=transform,
-        inverse_transform=inverse,
         detected_points=detected,
         calculated_points=calculated,
-        camera_images=[rng.random((12, 16))],
-        simulated_images=[rng.random((24, 24))],
         zeroth_order_position=(0.0, 0.0),
-        focal_spot_radius=1.0,
+        spot_fit=FocalSpotFit(waist=1.0),
+        fit=MappingFit(
+            reprojection_errors=np.zeros((4, 2)), reprojection_rms=0.0
+        ),
+        visualization_data=CameraMappingVisualizationData(
+            camera_image=rng.random((12, 16)),
+            simulated_image=rng.random((24, 24)),
+        ),
     )
 
 

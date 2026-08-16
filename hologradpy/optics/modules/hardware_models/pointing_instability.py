@@ -75,6 +75,11 @@ class PointingInstability(OpticsModule):
         return (float(value), float(value))
 
     @property
+    def is_stochastic(self) -> bool:
+        """True unless both spreads are zero."""
+        return any(std != 0.0 for std in self.tilt_std)
+
+    @property
     def last_angle(self) -> tuple[Tensor, Tensor] | None:
         """The most recently sampled beam tilt ``(angle_x, angle_y)`` [rad], or
         ``None`` before the first :meth:`forward`. Handy for recording the realized

@@ -11,8 +11,9 @@ import numpy as np
 import torch
 from numpy.typing import NDArray
 
+from ... import phase_levels
 from ...grids import get_spatial_grid as _spatial_grid
-from ...serialization import SaveableRecord
+from ...serialization import SaveableRecord, record_type
 
 
 class SLM(ABC):
@@ -41,7 +42,44 @@ class SLM(ABC):
 
     @abstractmethod
     def set_phase(self, phase) -> None:
-        """Display the desired optical phase (a ``(height, width)`` array)."""
+        """Display the desired optical phase in radians (a ``(height, width)`` array).
+
+        Quantised to the panel's grey levels. Use :meth:`set_levels` to display levels
+        directly.
+        """
+
+    def set_levels(self, levels) -> None:
+        """Display grey levels directly, without going through a phase."""
+        raise NotImplementedError(
+            f"{type(self).__name__} cannot be given grey levels directly."
+        )
+
+    @property
+    def bitdepth(self) -> int | None:
+        return None
+
+    @property
+    def phase_response(self) -> phase_levels.PhaseResponse | None:
+        """Graylevel to phase response of the SLM."""
+        if self.bitdepth is None:
+            return None
+        return phase_levels.LinearResponse(
+            bitdepth=self.bitdepth, phase_scaling=getattr(self, "phase_scaling", 1.0)
+        )
+
+    def phase_to_levels(self, phase) -> NDArray:
+        """Convert a target phase to levels the device would display.
+
+        Raises:
+            ValueError: The device reports no bit depth, so there are no levels to
+                convert to.
+        """
+        if self.bitdepth is None:
+            raise ValueError(
+                f"{type(self).__name__} reports no bitdepth, so its phase cannot be "
+                "expressed as display levels."
+            )
+        return self.phase_response.display_levels(np.asarray(phase))
 
     def get_spatial_grid(
         self, device: torch.device = torch.device("cpu")
@@ -50,6 +88,7 @@ class SLM(ABC):
         return _spatial_grid(self.resolution, self.pixel_size, device=device)
 
 
+@record_type("slm_data")
 @dataclass(frozen=True, unsafe_hash=True)
 class SLMData(SaveableRecord):
     """A native snapshot of an SLM's geometry and modulation settings."""
@@ -60,6 +99,8 @@ class SLMData(SaveableRecord):
     wavelength: float
     phase_scaling: float
     settle_time_s: float
+    bitdepth: int | None = None
+    phase_response: phase_levels.PhaseResponse | None = None
 
     @classmethod
     def from_slm(cls, slm: SLM) -> SLMData:
@@ -70,6 +111,6 @@ class SLMData(SaveableRecord):
             wavelength=slm.wavelength,
             phase_scaling=getattr(slm, "phase_scaling", 1.0),
             settle_time_s=getattr(slm, "settle_time_s", 0.0),
+            bitdepth=slm.bitdepth,
+            phase_response=slm.phase_response,
         )
-
-    # save / load come from SaveableRecord.

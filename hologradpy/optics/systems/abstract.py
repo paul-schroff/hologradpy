@@ -1,6 +1,7 @@
 from __future__ import annotations
 import functools
 import inspect
+import os
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -39,9 +40,7 @@ def capture_init(init: Callable[..., None]) -> Callable[..., None]:
     constructor arguments into ``self._init_kwargs``, so the base
     ``get_checkpoint_spec`` can reproduce them without a hand-written method.
 
-    The original ``__init__`` runs first (so ``nn.Module`` is fully initialised);
-    the captured dict holds the live arguments verbatim (a ``torch.Generator`` is
-    serialized only later, by ``get_checkpoint_spec``).
+    The original ``__init__`` runs first (so ``nn.Module`` is fully initialised).
     """
     signature = inspect.signature(init)
 
@@ -63,6 +62,13 @@ class OpticalSystem(nn.Module):
     """
     Sequential container for optical systems with named layers.
     """
+
+    # Every subclass, by name.
+    _subclasses: dict[str, type[OpticalSystem]] = {}
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        super().__init_subclass__(**kwargs)
+        OpticalSystem._subclasses[cls.__name__] = cls
 
     def __init__(self, input_geometry: FieldGeometry, **modules: OpticsModule) -> None:
         super().__init__()
@@ -297,6 +303,14 @@ class OpticalSystem(nn.Module):
         """Reconstruct an optical system from a checkpoint spec."""
         return cls(**spec)
 
+    def stochastic_modules(self) -> list[str]:
+        """The names of the submodules that draw randomly on a forward pass."""
+        return [
+            name
+            for name, module in self.named_modules()
+            if name and getattr(module, "is_stochastic", False)
+        ]
+
     def save(self, filename: str) -> None:
         """Save model parameters and constructor metadata to a checkpoint."""
         # Ensure lazily initialised modules have created their parameters.
@@ -373,6 +387,33 @@ class OpticalSystem(nn.Module):
     # Fixes for type checking and IDE support
     def __call__(self, *args, **kwargs) -> ComplexAmplitude:
         return super().__call__(*args, **kwargs)
+
+
+def load_optical_system(
+    filename: str | os.PathLike,
+    map_location: str | torch.device | None = None,
+    **kwargs,
+) -> OpticalSystem:
+    """Reopen a checkpoint without knowing which system wrote it. 
+    :meth:`OpticalSystem.load` refuses a file saved by a different class.
+
+    Raises:
+        KeyError: The checkpoint names a class this build does not have.
+    """
+    checkpoint = torch.load(filename, map_location=map_location, weights_only=False)
+    if isinstance(checkpoint, OpticalSystemCheckpoint):
+        class_name = checkpoint.class_name
+    else:
+        class_name = checkpoint.get("class_name")
+
+    system = OpticalSystem._subclasses.get(class_name)
+    if system is None:
+        known = ", ".join(sorted(OpticalSystem._subclasses)) or "none"
+        raise KeyError(
+            f"{filename} was written by '{class_name}', which is not a known optical "
+            f"system. Known systems are: {known}."
+        )
+    return system.load(str(filename), map_location=map_location, **kwargs)
 
 
 class SLMFourierLensModel(OpticalSystem):

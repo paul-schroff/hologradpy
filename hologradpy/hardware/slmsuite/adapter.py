@@ -16,7 +16,7 @@ from slmsuite.hardware.cameras.camera import Camera as SLMSuiteCamera
 from slmsuite.hardware.slms.slm import SLM as SLMSuiteSLM
 
 from ...roi import ROI
-from ..camera import Camera
+from ..camera import Camera, CameraOrientation
 from ..slm import SLM
 from .conversions import (
     pixel_size_from_pitch_um,
@@ -72,6 +72,28 @@ class SLMSuiteCameraAdapter(Camera):
         """Set the region of interest (``None`` resets to the full sensor)."""
         self._camera.set_woi(None if roi is None else roi_to_woi(roi))
 
+    def set_orientation(self, orientation: CameraOrientation) -> None:
+        """Remount the sensor, reorienting every frame the wrapped camera returns."""
+        current = self.orientation
+        if current is None:
+            raise NotImplementedError(
+                f"{type(self._camera).__name__} applies a frame transform that is not "
+                "one of the eight orientations, so the shape it would display cannot "
+                "be worked out. Set its transform directly."
+            )
+        # default_shape names the displayed frame, so undo the current quarter turn to
+        # get back to the sensor before applying the new one.
+        sensor = tuple(int(size) for size in self._camera.default_shape)
+        if current.swaps_axes():
+            sensor = (sensor[1], sensor[0])
+        if orientation.swaps_axes():
+            sensor = (sensor[1], sensor[0])
+
+        self._camera.transform = orientation.transformation()
+        self._camera.default_shape = sensor
+        # set_woi(None) is what brings the wrapped camera's shape back in line.
+        self.set_roi(None)
+
     def get_exposure(self) -> float:
         """The current exposure time in seconds."""
         return float(self._camera.get_exposure())
@@ -119,14 +141,35 @@ class SLMSuiteSLMAdapter(SLM):
         """Design wavelength in metres."""
         return wavelength_from_wav_um(self._slm.wav_um)
 
+    @property
+    def bitdepth(self) -> int | None:
+        """Bits per pixel, from the wrapped SLM when it says."""
+        return getattr(self._slm, "bitdepth", None)
+
     def set_phase(self, phase) -> None:
         """Display the desired optical phase (delegated to the wrapped slmsuite SLM)."""
+        phase = np.asarray(phase)
+        if np.issubdtype(phase.dtype, np.integer):
+            raise TypeError(
+                "set_phase takes an optical phase in radians, and an integer array "
+                "almost always means grey levels. Pass those to set_levels, or cast to "
+                "float if radians was meant."
+            )
         self._slm.set_phase(phase)
 
+    def set_levels(self, levels) -> None:
+        """Display grey levels directly on the wrapped slmsuite SLM."""
+        levels = np.asarray(levels)
+        if not np.issubdtype(levels.dtype, np.integer):
+            raise TypeError(
+                f"set_levels takes integer grey levels, got {levels.dtype}. An SLM "
+                "displays whole levels, and slmsuite reads a float array as a phase in "
+                "radians instead."
+            )
+        self._slm.set_phase(levels)
+
     def __getattr__(self, name: str):
-        # Delegate anything not overridden above to the wrapped slmsuite SLM. Guard
-        # ``_slm`` so a half-built instance (copy / unpickle, before __init__) raises
-        # AttributeError instead of recursing.
+        # Delegate anything not overridden above to the wrapped slmsuite SLM.
         if name == "_slm":
             raise AttributeError(name)
         return getattr(self._slm, name)
