@@ -31,7 +31,7 @@ from hologradpy.fourier_transforms import (
     fft_2d,
     ifft_2d,
 )
-from hologradpy.utils import pad_to_shape_2D, crop_to_shape_2D
+from hologradpy.utils import to_canvas
 
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
@@ -105,7 +105,7 @@ def test_fourier_lens_fft_forward_is_padded_fft() -> None:
     lens = FourierLensFFT(focal_length=0.1, power_normalized=False)
     out = lens(field)._data
 
-    padded = pad_to_shape_2D(field, lens.resolution_out)
+    padded = to_canvas(field, lens.resolution_out)
     expected = fft_2d(padded._data)
     torch.testing.assert_close(out, expected)
 
@@ -123,7 +123,7 @@ def test_fourier_lens_fft_adjoint_is_scaled_cropped_ifft() -> None:
     spectrum = make_field((2, 2 * H, 2 * W), 2, seed=2, pixel_size=PIXEL_OUT)
     restored = lens.adjoint(spectrum)._data
     number_of_samples = (2 * H) * (2 * W)
-    expected = number_of_samples * crop_to_shape_2D(ifft_2d(spectrum), (H, W))._data
+    expected = number_of_samples * to_canvas(ifft_2d(spectrum), (H, W))._data
     torch.testing.assert_close(restored, expected)
 
 
@@ -241,3 +241,29 @@ def test_camera_angle_turns_the_focal_plane_the_same_way_in_both_lenses(angle) -
     # And both follow the requested angle rather than some scaled version of it.
     assert abs(czt_turn - angle) < 0.75
     assert abs(nufft_turn - angle) < 0.75
+
+
+def test_a_frame_the_same_size_is_left_alone() -> None:
+    """Both propagators explicitly allow a padded resolution equal to the input, and
+    the crop helper they used to share returned an empty tensor for it: the slice was
+    ``[..., 0:-0]``. Nothing raised, so the shape simply vanished."""
+    field = make_field((H, W), 1, seed=0)
+
+    lens = FourierLensFFT(focal_length=0.1, padded_resolution=(H, W))
+    out = lens(field)
+    assert out.shape[-2:] == (H, W)
+    assert lens.adjoint(out).shape[-2:] == (H, W)
+
+    method = AngularSpectrumMethod(1e-3, padded_resolution=(H, W))
+    assert method(field).shape[-2:] == (H, W)
+
+
+def test_an_odd_size_difference_pads_to_what_was_asked_for() -> None:
+    """The pad used to round down, so a one-pixel difference was a no-op: the lens
+    reported a padded resolution it had not produced, and the output geometry it
+    computed belonged to a frame that never existed."""
+    field = make_field((H - 1, W - 1), 1, seed=0)
+
+    lens = FourierLensFFT(focal_length=0.1, padded_resolution=(H, W))
+    out = lens(field)
+    assert out.shape[-2:] == (H, W) == tuple(lens.resolution_out)

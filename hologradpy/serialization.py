@@ -3,15 +3,20 @@
 Three kinds of thing get written to disk in this library, and they are kept deliberately
 separate:
 
-* **Records** are immutable measurement results and metadata: camera mappings, device
-  snapshots, wavefront calibrations, retrieval results. They are small, they carry no
-  learnable state, and they are handled by :class:`SaveableRecord` below.
+* **Records** are measurement results and metadata: camera mappings, device snapshots,
+  wavefront calibrations, retrieval results. They carry no learnable state and they are
+  handled by :class:`SaveableRecord` below. A record may hold arrays, and some hold one
+  per iteration of a run, but a full sensor frame per sample belongs in a dataset.
 * **Checkpoints** are anything carrying learnable state, saved through torch by
   :meth:`hologradpy.optics.systems.OpticalSystem.save` and
   :meth:`hologradpy.optics.modules.OpticsModule.save`.
 * **Datasets** are bulk per-sample arrays, written by
   :class:`hologradpy.datasets.CaptureStore` and
   :class:`hologradpy.datasets.RetrievalStepStore` into one self-describing file.
+
+Only the record format is safe to open from someone else. A checkpoint is a pickle, read
+back with ``weights_only=False`` because it stores the constructor arguments needed to
+rebuild the object, so opening one runs whatever it contains.
 
 A record is written as ASDF: a YAML tree naming its contents, followed by the arrays as
 binary blocks. What identifies a type on disk is a versioned tag URI,
@@ -30,7 +35,7 @@ import typing
 from dataclasses import MISSING, fields, is_dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TypeVar
+from typing import Callable, TypeVar
 
 import asdf
 import numpy as np
@@ -45,8 +50,10 @@ NAMESPACE = "asdf://hologradpy.org"
 # Every type that can be written, by the stable name it is written under.
 RECORD_TYPES: dict[str, type] = {}
 
+T = TypeVar("T")
 
-def record_type(name: str, version: int = 1):
+
+def record_type(name: str, version: int = 1) -> Callable[[type[T]], type[T]]:
     """Register a class under a name that does not change when the class moves.
 
     Args:
@@ -54,9 +61,20 @@ def record_type(name: str, version: int = 1):
             changed once files carrying it exist.
         version: Bumped when the fields change in a way older files need help with, at
             which point the class also gains a :meth:`SaveableRecord._migrate`.
+
+    Raises:
+        TypeError: The class is not a dataclass. The converter writes a record by
+            walking :func:`dataclasses.fields`, so a plain class registers without
+            complaint and then fails at the first save.
     """
 
-    def decorate(cls):
+    def decorate(cls: type[T]) -> type[T]:
+        if not is_dataclass(cls):
+            raise TypeError(
+                f"{cls.__name__} is not a dataclass, so it cannot be written as the "
+                f"{name!r} record. Make it one, or give it a Converter as the torch "
+                "tensor and ComplexAmplitude types have."
+            )
         cls.RECORD_TYPE = name
         cls.RECORD_VERSION = version
         RECORD_TYPES[name] = cls
@@ -239,11 +257,7 @@ class RecordExtension(Extension):
 
     @property
     def tags(self):
-        return [
-            *self._record_converter.tags,
-            *TensorConverter.tags,
-            *ComplexAmplitudeConverter.tags,
-        ]
+        return [tag for converter in self.converters for tag in converter.tags]
 
 
 def install_extension() -> None:
@@ -275,6 +289,40 @@ def registered_as(name: str, cls):
         install_extension()
 
 
+def check_record_recognised(record, source) -> None:
+    """Raise if ASDF handed back a raw tagged tree rather than a record.
+
+    Args:
+        record: Whatever came back from the tree.
+        source: The file it came from, named in the error.
+
+    Raises:
+        TypeError: No class is registered for the tag on disk.
+    """
+    tag = getattr(record, "_tag", None)
+    if tag is not None:
+        raise TypeError(
+            f"{source} holds a {tag!r} record, which no class is registered for. "
+            "It was written by a newer version of hologradpy, or by a class whose "
+            "registration has since been removed."
+        )
+
+
+def attach_source_path(value, path) -> None:
+    """Tell every record in ``value`` which file it came from."""
+    if isinstance(value, SaveableRecord):
+        object.__setattr__(value, "_source_path", Path(path))
+    if is_dataclass(value) and not isinstance(value, type):
+        for entry in fields(value):
+            attach_source_path(getattr(value, entry.name), path)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            attach_source_path(item, path)
+    elif isinstance(value, dict):
+        for item in value.values():
+            attach_source_path(item, path)
+
+
 class SaveableRecord:
     """Mixin giving a result dataclass a versioned, type-checked ``save`` / ``load``
     pair.
@@ -292,6 +340,13 @@ class SaveableRecord:
 
     RECORD_TYPE: str
     RECORD_VERSION: int = 1
+
+    _source_path: Path | None = None
+
+    @property
+    def source_directory(self) -> Path | None:
+        """The directory this record was read from, or None if it was never read."""
+        return None if self._source_path is None else Path(self._source_path).parent
 
     @classmethod
     def _migrate(cls, version: int, stored: dict) -> dict:
@@ -320,21 +375,13 @@ class SaveableRecord:
         with asdf.open(str(path), lazy_load=False, memmap=False) as file:
             record = file["record"]
 
-        # An unrecognised tag is not an error to ASDF, which hands back the raw tree, so
-        # the record that no class claims is caught here rather than surfacing as an
-        # attribute failure much later.
-        tag = getattr(record, "_tag", None)
-        if tag is not None:
-            raise TypeError(
-                f"{path} holds a {tag!r} record, which no class is registered for. It "
-                "was written by a newer version of hologradpy, or by a class whose "
-                "registration has since been removed."
-            )
+        check_record_recognised(record, path)
 
         if not isinstance(record, cls):
             raise TypeError(
                 f"{path} holds a {type(record).__name__}, not a {cls.__name__}."
             )
+        attach_source_path(record, path)
         return record
 
 
@@ -346,10 +393,8 @@ def register_dataclass(cls, name: str, version: int = 1):
 
     ``ROI``, the visualization data and anything else that only ever travels inside a
     record. Written for classes that cannot wear the decorator because they are declared
-    elsewhere.
+    elsewhere. :func:`record_type` does the checking.
     """
-    if not is_dataclass(cls):
-        raise TypeError(f"{cls.__name__} is not a dataclass, so it needs a Converter.")
     return record_type(name, version)(cls)
 
 

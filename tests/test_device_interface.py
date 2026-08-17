@@ -318,10 +318,10 @@ def _s_curve(bitdepth: int = 8, span: float = 1.9 * np.pi) -> LookupResponse:
     """The shape a real panel has: monotone, and not a straight line."""
     levels = np.arange(2**bitdepth)
     top = levels[-1]
+    # No phase_scaling: the table's own span says how far the panel reaches.
     return LookupResponse(
         bitdepth=bitdepth,
         phases=-span * (0.5 - 0.5 * np.cos(np.pi * levels / top)),
-        phase_scaling=span / (2 * np.pi),
     )
 
 
@@ -675,8 +675,8 @@ class _QuantizedCamera(Camera):
         return (4, 4)
 
     @property
-    def adu_levels(self):
-        return self._adu
+    def max_pixel_value(self):
+        return self._adu - 1
 
     @property
     def exposure_bounds(self):
@@ -747,8 +747,8 @@ class _HotPixelCamera(Camera):
         return (32, 32)
 
     @property
-    def adu_levels(self):
-        return self._adu
+    def max_pixel_value(self):
+        return self._adu - 1
 
     @property
     def exposure_bounds(self):
@@ -858,8 +858,8 @@ class _SceneCamera(Camera):
         return (32, 32)
 
     @property
-    def adu_levels(self):
-        return self._adu
+    def max_pixel_value(self):
+        return self._adu - 1
 
     @property
     def exposure_bounds(self):
@@ -934,8 +934,8 @@ class _AutoDetectCamera(Camera):
         return (16, 16)
 
     @property
-    def adu_levels(self):
-        return self._adu
+    def max_pixel_value(self):
+        return self._adu - 1
 
     @property
     def exposure_bounds(self):
@@ -1071,6 +1071,30 @@ def test_set_orientation_swaps_the_displayed_shape_for_a_quarter_turn():
     assert camera.get_image().shape == (240, 320)
 
 
+def test_a_snapshot_records_the_panel_and_derives_the_frame():
+    """A snapshot used to store the frame shape beside the region that defines it, and
+    not store the panel at all, so a saved record could not answer what the sensor
+    was."""
+    from hologradpy.hardware.camera.abstract import CameraData
+
+    _, camera = _build()
+    camera.set_roi(ROI(10, 20, 60, 80))
+    recorded = CameraData.from_camera(camera)
+
+    assert recorded.sensor_shape == (240, 320)
+    assert recorded.resolution == (60, 80)
+    assert recorded.orientation_flags == CameraOrientation()
+
+    rotated = CameraData.from_camera(_rotated_camera())
+    assert rotated.orientation_flags == CameraOrientation("90")
+
+
+def _rotated_camera() -> Camera:
+    _, camera = _build()
+    camera.set_orientation(CameraOrientation("90"))
+    return camera
+
+
 def test_set_orientation_resets_a_crop_from_the_old_frame():
     """A region of interest is expressed in the displayed frame, which the new mounting
     replaces, so keeping it would crop somewhere unintended."""
@@ -1084,7 +1108,7 @@ def test_a_camera_that_cannot_be_reoriented_says_so():
     class _Fixed(Camera):
         pixel_size = np.array([1.0, 1.0])
         resolution = (4, 4)
-        adu_levels = 256
+        max_pixel_value = 255
         exposure_bounds = None
         roi = ROI(0, 0, 4, 4)
 
@@ -1116,3 +1140,152 @@ def test_phase_and_levels_are_told_apart_by_the_caller() -> None:
 
     slm.set_levels(slm.phase_to_levels(phase))
     assert np.array_equal(slm.display, through_phase)
+
+
+# --- Corrections ----------------------------------------------------------------
+
+
+def _aberrated_slm(rms: float = 1.5):
+    """An SLM, and a measured field carrying a known aberration on this bench."""
+    slm = _slm_at(8)
+    grid_x, grid_y = slm.get_spatial_grid()
+    aberration = rms * (
+        (grid_x / grid_x.abs().max()) ** 2 - (grid_y / grid_y.abs().max()) ** 2
+    )
+    measured = ComplexAmplitude(
+        torch.ones(slm.resolution) * torch.exp(1j * aberration),
+        wavelength=torch.tensor(slm.wavelength),
+        pixel_size=torch.as_tensor(slm.pixel_size),
+    )
+    return slm, aberration, measured
+
+
+def _residual(displayed: torch.Tensor, aberration: torch.Tensor) -> float:
+    """What is left once the bench adds its own aberration back on.
+
+    Wrapped, because a phase means the same thing a turn away, and the panel returns it
+    wrapped into its own range.
+    """
+    return float(torch.angle(torch.exp(1j * (displayed + aberration))).std())
+
+
+def test_a_measured_wavefront_is_cancelled_not_doubled() -> None:
+    """The whole point, and the one that catches the sign being backwards: a measurement
+    says what aberration is present, so the correction is its negative."""
+    slm, aberration, measured = _aberrated_slm()
+    slm.load_measured_wavefront(measured)
+    flat = np.zeros(slm.resolution)
+
+    slm.set_phase(flat)
+    uncorrected = _residual(slm.virtual_slm.get_phase(), aberration)
+    slm.set_phase(flat, apply_phase_correction=True)
+    corrected = _residual(slm.virtual_slm.get_phase(), aberration)
+
+    assert corrected < uncorrected / 10
+
+
+def test_the_correction_backwards_makes_it_worse() -> None:
+    """What the negation on load buys. A bare array is taken as already a correction, so
+    handing it the aberration itself is the mistake this guards."""
+    slm, aberration, _ = _aberrated_slm()
+    flat = np.zeros(slm.resolution)
+    slm.set_phase(flat)
+    uncorrected = _residual(slm.virtual_slm.get_phase(), aberration)
+
+    slm.load_phase_correction(np.asarray(aberration))
+    slm.set_phase(flat, apply_phase_correction=True)
+
+    assert _residual(slm.virtual_slm.get_phase(), aberration) > uncorrected
+
+
+def test_a_correction_is_off_unless_it_is_asked_for() -> None:
+    """The default that keeps a wavefront calibration honest: measuring through an
+    active correction recovers the wrong wavefront, and the error compounds."""
+    slm, _, measured = _aberrated_slm()
+    flat = np.zeros(slm.resolution)
+
+    slm.set_phase(flat)
+    before = slm.display.copy()
+    slm.load_measured_wavefront(measured)
+    slm.set_phase(flat)
+
+    assert np.array_equal(slm.display, before)
+
+
+def test_asking_for_a_correction_that_is_not_loaded_raises() -> None:
+    """The difference between a correction switched off and one never loaded."""
+    slm = _slm_at(8)
+    with pytest.raises(ValueError, match="load_phase_correction"):
+        slm.set_phase(np.zeros(slm.resolution), apply_phase_correction=True)
+    with pytest.raises(ValueError, match="load_vendor_correction"):
+        slm.set_phase(np.zeros(slm.resolution), apply_vendor_correction=True)
+
+
+def test_a_correction_has_to_be_the_panels_shape() -> None:
+    slm = _slm_at(8)
+    with pytest.raises(ValueError, match="per pixel"):
+        slm.load_phase_correction(np.zeros((4, 4)))
+
+
+def test_only_the_phase_of_a_measurement_is_kept() -> None:
+    """A phase-only panel cannot fix an amplitude, so the amplitude is dropped rather
+    than quietly folded in."""
+    slm, aberration, measured = _aberrated_slm()
+    dim = ComplexAmplitude(
+        0.01 * measured.as_tensor(),
+        wavelength=measured.wavelength,
+        pixel_size=measured.pixel_size,
+    )
+    slm.load_measured_wavefront(dim)
+
+    np.testing.assert_allclose(
+        slm.phase_correction, -np.asarray(aberration), atol=1e-5
+    )
+
+
+def test_a_vendor_correction_moves_the_level_it_says() -> None:
+    """Vendors ship grey levels, calibrated against their own curve, so it is added
+    after the conversion. Converting it through our response first would re-interpret
+    their numbers, and under a measured curve would land somewhere else entirely."""
+    slm = _slm_at(8)
+    slm.virtual_slm.phase_response = PhaseResponseModule(_s_curve())
+    phase = np.full(slm.resolution, -2.0)
+
+    slm.set_phase(phase)
+    plain = int(slm.display[0, 0])
+    slm.load_vendor_correction(np.full(slm.resolution, 7, dtype=np.uint8))
+    slm.set_phase(phase, apply_vendor_correction=True)
+
+    assert int(slm.display[0, 0]) == (plain + 7) % 256
+
+
+def test_a_vendor_correction_wraps_rather_than_clipping() -> None:
+    """Past the top of the range it comes back round, as the panel does."""
+    slm = _slm_at(8)
+    phase = np.full(slm.resolution, -2.0)
+    slm.set_phase(phase)
+    plain = int(slm.display[0, 0])
+
+    slm.load_vendor_correction(np.full(slm.resolution, 250, dtype=np.uint16))
+    slm.set_phase(phase, apply_vendor_correction=True)
+
+    assert int(slm.display[0, 0]) == (plain + 250) % 256
+
+
+def test_a_capture_carries_the_corrections_themselves() -> None:
+    """Not a name for them. A dataset is reinterpreted long after the file a name points
+    at has moved, and by then only the numbers are any use."""
+    from hologradpy.hardware.slm.abstract import SLMData
+
+    slm, aberration, measured = _aberrated_slm()
+    assert SLMData.from_slm(slm).phase_correction is None
+
+    slm.load_measured_wavefront(measured)
+    vendor = np.full(slm.resolution, 3, dtype=np.uint8)
+    slm.load_vendor_correction(vendor)
+    recorded = SLMData.from_slm(slm)
+
+    np.testing.assert_allclose(
+        recorded.phase_correction, -np.asarray(aberration), atol=1e-5
+    )
+    np.testing.assert_array_equal(recorded.vendor_correction, vendor)

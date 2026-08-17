@@ -22,6 +22,10 @@ from ...roi import ROI
 from ...serialization import SaveableRecord, record_type
 
 
+# What to assume when a camera does not state its ceiling..
+DEFAULT_MAX_EXPOSURE_S = 1.0
+
+
 class Camera(ABC):
     """A HoloGradPy-native camera: SI units, ``(y, x)`` geometry, ``(row, col)`` ROI.
 
@@ -39,15 +43,39 @@ class Camera(ABC):
         """Pixel pitch ``(y, x)`` in metres."""
 
     @property
-    @abstractmethod
     def resolution(self) -> tuple[int, int]:
-        """Sensor resolution ``(height, width)`` in pixels."""
+        """Resolution ``(height, width)`` of the frame :meth:`get_image` returns. 
+        Describes the region of interest, not the whole sensor.
+        """
+        roi = self.roi
+        return (int(roi.height), int(roi.width))
+
+    @property
+    def adu_levels(self) -> int:
+        """How many digital levels a pixel can take, one more than
+        :attr:`max_pixel_value`.
+        """
+        return self.max_pixel_value + 1
+
+    @property
+    def exposure_limits(self) -> tuple[float, float]:
+        """The ``(min, max)`` exposure to work within, in seconds."""
+        bounds = self.exposure_bounds
+        return (0.0, DEFAULT_MAX_EXPOSURE_S) if bounds is None else bounds
+
+    @property
+    def sensor_shape(self) -> tuple[int, int]:
+        """The whole sensor's ``(height, width)``, whatever the region of interest."""
+        shape = getattr(self, "default_shape", None)
+        if shape is not None:
+            return (int(shape[0]), int(shape[1]))
+        roi = self.roi
+        return (int(roi.top_row + roi.height), int(roi.left_column + roi.width))
 
     @property
     @abstractmethod
-    def adu_levels(self) -> int:
-        """Number of digital levels (``2 ** bitdepth``). The max pixel value is one
-        less."""
+    def max_pixel_value(self) -> int:
+        """The largest count a pixel can report (``2 ** bitdepth - 1``)."""
 
     @property
     @abstractmethod
@@ -94,16 +122,21 @@ class Camera(ABC):
         self.get_image()
         self.get_image()
 
+    def orientation_matrix(self) -> NDArray:
+        """The ``(2, 3)`` pixel-space affine of the transform this camera applies."""
+        transform = getattr(self, "transform", None)
+        if transform is None:
+            return np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+        return probe_orientation(transform, self.sensor_shape)
+
     @property
     def orientation(self) -> CameraOrientation | None:
         """How the sensor is mounted, or None when the frame transform is not one of the
         eight rotate and flip orientations.
         """
-        transform = getattr(self, "transform", None)
-        if transform is None:
-            return CameraOrientation()
-        shape = getattr(self, "default_shape", self.resolution)
-        return CameraOrientation.from_matrix(probe_orientation(transform, shape), shape)
+        return CameraOrientation.from_matrix(
+            self.orientation_matrix(), self.sensor_shape
+        )
 
     def set_orientation(self, orientation: CameraOrientation) -> None:
         """Mount the sensor in ``orientation``, reorienting every frame from here on.
@@ -172,9 +205,7 @@ class Camera(ABC):
         minimum exposure, and any value outside the exposure bounds is dropped rather
         than clipped. The roi and exposure are reset for the capture and restored after.
         """
-        low, high = (
-            self.exposure_bounds if self.exposure_bounds is not None else (0.0, np.inf)
-        )
+        low, high = self.exposure_limits
         if exposures is None:
             # Lower bound if non-zero, otherwise 100 us, then a decade per step.
             base = low if low > 0 else 100e-6
@@ -250,7 +281,7 @@ class Camera(ABC):
         exposures = exposures[order]
         frames = frames[order]
 
-        full_scale = self.adu_levels - 1
+        full_scale = self.max_pixel_value
         frames_min = frames.min(axis=0)
         frames_max = frames.max(axis=0)
 
@@ -376,14 +407,10 @@ class Camera(ABC):
         settled, not when it railed.
         """
         if exposure_bounds is None:
-            exposure_bounds = (
-                self.exposure_bounds
-                if self.exposure_bounds is not None
-                else (0.0, np.inf)
-            )
+            exposure_bounds = self.exposure_limits
 
-        set_value = set_fraction * self.adu_levels
-        clipped_value = self.adu_levels - 1
+        set_value = set_fraction * self.max_pixel_value
+        clipped_value = self.max_pixel_value
         exposure = self.get_exposure()
         stored_roi = self.roi
         self.set_roi(None)
@@ -417,7 +444,7 @@ class Camera(ABC):
 
         try:
             image_max, sat_fraction = measure()
-            error = np.abs(image_max - set_value) / self.adu_levels
+            error = np.abs(image_max - set_value) / self.max_pixel_value
 
             clipped = image_max >= clipped_value
             best_exposure = exposure
@@ -456,7 +483,7 @@ class Camera(ABC):
                 # exposure keeps the next proportional step honest.
                 exposure = self.get_exposure()
                 image_max, sat_fraction = measure()
-                error = np.abs(image_max - set_value) / self.adu_levels
+                error = np.abs(image_max - set_value) / self.max_pixel_value
                 clipped = image_max >= clipped_value
                 if not clipped and error < best_error:
                     best_exposure, best_error = exposure, error
@@ -492,8 +519,8 @@ class Camera(ABC):
         if unconverged_reason is not None:
             warnings.warn(
                 f"Autoexposure did not reach its target: {unconverged_reason}. The "
-                f"region peaks at {image_max:.0f} of {self.adu_levels} "
-                f"({image_max / self.adu_levels:.1%}) against a target of "
+                f"region peaks at {image_max:.0f} of {self.max_pixel_value} "
+                f"({image_max / self.max_pixel_value:.1%}) against a target of "
                 f"{set_fraction:.0%}, at an exposure of {exposure:.3e} s. The frames "
                 "that follow are exposed as reported here, not as asked for.",
                 stacklevel=2,
@@ -638,7 +665,7 @@ class CameraData(SaveableRecord):
     """A native snapshot of a camera's geometry and exposure state."""
 
     name: str
-    resolution: tuple[int, int]
+    sensor_shape: tuple[int, int]
     pixel_size: tuple[float, float]
     adu_levels: int
     exposure: float
@@ -646,25 +673,27 @@ class CameraData(SaveableRecord):
     roi: ROI
     orientation: NDArray = field(compare=False, hash=False)
 
+    @property
+    def resolution(self) -> tuple[int, int]:
+        """The shape of a frame this camera returns, which is the region of interest."""
+        return (self.roi.height, self.roi.width)
+
+    @property
+    def orientation_flags(self) -> CameraOrientation | None:
+        """:attr:`orientation` as the rotate and flip flags a device takes, or None."""
+        return CameraOrientation.from_matrix(self.orientation, self.sensor_shape)
+
     @classmethod
     def from_camera(cls, camera: Camera) -> CameraData:
         # transform / default_shape are device details (a real slmsuite camera or the
         # adapter exposes them). Without a transform the sensor is axis-aligned.
-        transform = getattr(camera, "transform", None)
-        if transform is None:
-            orientation = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
-        else:
-            default_shape = getattr(camera, "default_shape", camera.resolution)
-            orientation = probe_orientation(transform, default_shape)
         return cls(
             name=getattr(camera, "name", ""),
-            resolution=camera.resolution,
+            sensor_shape=camera.sensor_shape,
             pixel_size=tuple(float(v) for v in camera.pixel_size),
             adu_levels=camera.adu_levels,
             exposure=camera.get_exposure(),
             exposure_bounds=camera.exposure_bounds,
             roi=camera.roi,
-            orientation=orientation,
+            orientation=camera.orientation_matrix(),
         )
-
-    # save / load come from SaveableRecord.

@@ -9,7 +9,7 @@ from torch import Tensor
 from torch.nn import Parameter
 
 from .abstract import SLMField
-from ..abstract import SaveDict
+from ..abstract import capture_init
 from ...complex_amplitude import ComplexAmplitude
 
 if TYPE_CHECKING:
@@ -25,6 +25,7 @@ class PixelwiseSLMField(SLMField):
             first forward pass once the geometry is known.
     """
 
+    @capture_init
     def __init__(
         self: PixelwiseSLMField,
         init_field: ComplexAmplitude | None = None,
@@ -70,23 +71,6 @@ class PixelwiseSLMField(SLMField):
             ),
             requires_grad=False,
         )
-
-    @classmethod
-    def from_file(cls, path: str, device: torch.device = "cpu") -> PixelwiseSLMField:
-        state: SaveDict = torch.load(path, map_location=device, weights_only=False)
-        state_dict = state["state_dict"]
-        geometry = state["input_geometry"]
-
-        init_field_data: Tensor = state_dict["amplitude"] * torch.exp(
-            1j * state_dict["phase"]
-        )
-
-        init_field = ComplexAmplitude(
-            data=init_field_data.to(device),
-            wavelength=geometry.wavelength.to(device),
-            pixel_size=geometry.pixel_size.to(device),
-        )
-        return cls(init_field=init_field)
 
     @classmethod
     def from_calibration_data(

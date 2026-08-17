@@ -55,6 +55,7 @@ else:
 
 
 @record_type("visualization_data")
+@dataclass
 class VisualizationData:
     """Base for a result's visualization payload."""
 
@@ -154,8 +155,7 @@ class PlotLayout:
         if cell.aspect == "auto":
             return None
         width = self._cell_width(cell, column_width)
-        ratio = 1.0 if cell.aspect == "equal" else float(cell.aspect)
-        return width * ratio
+        return width * self._ratio(cell)
 
     def _cell_width(self, cell: GridCell, column_width: float) -> float:
         return cell.colspan * column_width + (cell.colspan - 1) * self.col_gap
@@ -659,24 +659,12 @@ class PlotBuilder:
         self._ops.setdefault(cell, []).append(op)
         return self
 
-    def draw_image(
-        self,
-        cell: str,
-        data,
-        *,
-        cmap: str = "viridis",
-        vmin: float | None = None,
-        vmax: float | None = None,
-        title: str | None = None,
-        interpolation: str | None = None,
-    ) -> PlotBuilder:
-        """Draw an image into the named cell."""
+    def draw_image(self, cell: str, data, **kwargs) -> PlotBuilder:
+        """Draw an image into the named cell. Keyword arguments are forwarded to 
+        :meth:`BaseVisualizer.draw_image`.
+        """
         return self._add(
-            cell,
-            lambda axs: BaseVisualizer.draw_image(
-                axs, data, cmap=cmap, vmin=vmin, vmax=vmax, title=title,
-                interpolation=interpolation,
-            ),
+            cell, lambda axs: BaseVisualizer.draw_image(axs, data, **kwargs)
         )
 
     def draw_line(

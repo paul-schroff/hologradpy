@@ -91,11 +91,16 @@ class ZernikeConventionHandler:
                 return self.fringe_arizona_indices_to_nm(j + 1)
 
 
+# How the unit disk maps onto a rectangular resolution when no radius is given.
+# "fill" covers the whole SLM, "fit" uses half the short axis as radius.
+DEFAULT_UNIT_DISK_MODE: Literal["fill", "fit"] = "fill"
+
+
 class Zernike:
     def __init__(
         self,
         resolution: tuple[int, int],
-        unit_disk_mode: Literal["fill", "fit"] = "fit",
+        unit_disk_mode: Literal["fill", "fit"] = DEFAULT_UNIT_DISK_MODE,
         unit_disk_radius: float | None = None,
         number_of_radial_orders: int | None = None,
         indices: list[int | tuple[int, int]] | None = None,
@@ -219,7 +224,7 @@ class Zernike:
     def get_unit_disk_coordinates(
         self,
         resolution: tuple[int, int],
-        unit_disk_mode: Literal["fill", "fit"] = "fill",
+        unit_disk_mode: Literal["fill", "fit"] = DEFAULT_UNIT_DISK_MODE,
         unit_disk_radius: float | None = None,
         device: torch.device = "cpu",
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -234,8 +239,6 @@ class Zernike:
                 raise ValueError("Invalid unit_disk_mode. Must be 'fill' or 'fit'.")
 
         x, y = get_pixel_grid(resolution, device)
-
-        # unit_disk_radius = torch.tensor(unit_disk_radius, device=device)
 
         radial_coordinate = (x**2 + y**2) ** 0.5 / unit_disk_radius
         angular_coordinate = torch.atan2(y, x)

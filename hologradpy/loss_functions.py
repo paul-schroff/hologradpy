@@ -152,14 +152,11 @@ def _unused_label(labels: dict[str, torch.Tensor], label: str) -> str:
 
 
 class MaskedIntensityMSE(LossFunction):
-    """How far the predicted intensity is from the measured frame, over a region.
+    """Error between the predicted intensity and the measured frame, over a region.
 
-    The data term every speckle parameterisation is fitted against. See
-    :func:`masked_intensity_mse` for why the result is scaled by the region size.
-
-    The same metric as :class:`LossIntensityMSE`, which differs only in where its target
-    comes from: one fixed image held from construction rather than a measured frame per
-    batch.
+    :class:`LossIntensityMSE` scores the same quantity against a fixed target held from
+    construction rather than a measured frame per batch, and without the region scaling
+    (see :func:`masked_intensity_mse`), so the two are not interchangeable weights.
 
     Args:
         mask: Region of interest, already cropped to its bounding box and in the

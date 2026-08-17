@@ -12,7 +12,7 @@ from ....geometry import AffineTransform
 from ....hardware import Camera, SLM
 
 from ....optics.systems import SLMFourierLensModel
-from ....grids import get_spatial_grid, metres_to_pixel
+from ....grids import get_spatial_grid, metres_to_pixel, pixel_to_metres, plane_centre
 from ....profiles.amplitude import get_focal_spot_radius
 from ....analysis.fitting import fit_gaussian_beam_intensity
 from ....utils import gpu_to_numpy
@@ -139,9 +139,7 @@ class SpotArrayMapper(CameraMapper):
                 self.slm, self.camera, self.slm_camera_model
             ).map_camera()
 
-        aperture_radius = 0.5 * min(
-            self.slm.resolution[i] * self.slm.pixel_size[i] for i in range(2)
-        )
+        aperture_radius = 0.5 * min(self.slm.aperture_extent)
         diffraction_limit = get_focal_spot_radius(
             beam_radius=aperture_radius,
             wavelength=self.slm.wavelength,
@@ -157,10 +155,7 @@ class SpotArrayMapper(CameraMapper):
 
         # Zeroth-order pixel (stored as (y, x)) and its detection mask (radius
         # clamped to [8 px, one sixth of the sensor]).
-        zeroth_pixel = (
-            float(coarse_mapping.zeroth_order_position[1]),
-            float(coarse_mapping.zeroth_order_position[0]),
-        )
+        zeroth_pixel = coarse_mapping.zeroth_order_xy
         mask_radius = int(
             np.clip(
                 _WINDOW_SPOT_RADII * focal_spot_radius / pitch.min(),
@@ -225,10 +220,11 @@ class SpotArrayMapper(CameraMapper):
             sampled_pixels.cpu().numpy()
         )
         metres = np.column_stack(
-            [
-                (model_pixels[:, 0] - resolution_out[1] / 2) * pixel_size_out[1],
-                (model_pixels[:, 1] - resolution_out[0] / 2) * pixel_size_out[0],
-            ]
+            pixel_to_metres(
+                (model_pixels[:, 0], model_pixels[:, 1]),
+                pixel_size_out,
+                resolution_out,
+            )
         )
         # Drop targets the SLM cannot reach (beyond its Nyquist deflection).
         addressable = self.slm_camera_model.addressable_half_extent()
@@ -285,7 +281,7 @@ class SpotArrayMapper(CameraMapper):
 
         # Repeat for the simulated image.
         simulated_pitch = np.asarray([pixel_size_out[1], pixel_size_out[0]])
-        simulated_zod = (resolution_out[1] // 2, resolution_out[0] // 2)
+        simulated_zod = plane_centre(resolution_out)
         # Simulated DC is a clean point, so a few focal-spot radii suffice.
         simulated_mask_radius = max(
             int(round(3.0 * focal_spot_radius / simulated_pitch.min())), 3
@@ -400,21 +396,12 @@ class SpotArrayMapper(CameraMapper):
             if index not in used_camera
         )
 
-        inverse_transform = (
-            AffineTransform.from_matrix(transform).inverse().as_matrix(homogeneous=False)
-        )
         reprojection_errors, reprojection_rms = self.calculate_reprojection_error(
             detected, calculated, transform
         )
 
-        center = (resolution_out[1] // 2, resolution_out[0] // 2)
-        zeroth_order_position = (
-            inverse_transform[1, 0] * center[0]
-            + inverse_transform[1, 1] * center[1]
-            + inverse_transform[1, 2],
-            inverse_transform[0, 0] * center[0]
-            + inverse_transform[0, 1] * center[1]
-            + inverse_transform[0, 2],
+        zeroth_order_position = CameraMapping.zeroth_order_from(
+            AffineTransform.from_matrix(transform), resolution_out
         )
 
         average_waist, average_waist_uncertainty = self._weighted_average(

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from numpy.typing import NDArray
@@ -25,7 +25,7 @@ class WavefrontCalibrationData(SaveableRecord):
     timestamp: datetime
     name: str
     complex_amplitude: ComplexAmplitude
-    metadata: dict
+    metadata: dict = field(default_factory=dict)
     visualization_data: VisualizationData | None = None
 
     # save / load come from SaveableRecord.
@@ -91,7 +91,7 @@ class WavefrontCalibratorBase(ABC):
             tuple[float, float, float]: The fitted beam radius and shifts in
                 x and y.
         """
-        beam_radius_guess = min(self.slm.resolution) * self.slm.pixel_size[1] / 2
+        beam_radius_guess = min(self.slm.aperture_extent) / 2
 
         # The fit runs on the CPU with numpy, so bring the coordinate grid over from the
         # (possibly CUDA) device.

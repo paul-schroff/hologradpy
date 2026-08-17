@@ -72,3 +72,13 @@ class FastFourierTransform(FourierBase):
 
     def adjoint(self, input: Tensor) -> Tensor:
         return ifft_2d(input, norm=self.norm, fft_shift=self.fft_shift)
+
+    @property
+    def adjoint_scale(self) -> float:
+        """What :meth:`adjoint` must be multiplied by to be the conjugate transpose."""
+        number_of_samples = float(self.resolution[0] * self.resolution[1])
+        if self.norm == "ortho":
+            return 1.0
+        if self.norm == "forward":
+            return 1.0 / number_of_samples
+        return number_of_samples

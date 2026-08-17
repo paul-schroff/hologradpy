@@ -680,7 +680,7 @@ def test_a_supplied_mapping_skips_the_coarse_mapping(tmp_path) -> None:
 def test_dataset_manifest_rejects_the_wrong_record_type(tmp_path) -> None:
     """The versioned envelope makes a mismatched file a clear error."""
     mapping = _synthetic_mapping()
-    path = tmp_path / "mapping.pkl"
+    path = tmp_path / "mapping.asdf"
     mapping.save(path)
 
     with pytest.raises(TypeError, match="CameraMapping"):

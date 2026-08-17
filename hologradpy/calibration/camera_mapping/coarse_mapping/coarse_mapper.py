@@ -14,7 +14,7 @@ from ....hardware import Camera, SLM
 
 from ....optics.systems import SLMFourierLensModel
 from ....profiles.phase import linear_phase, binary_phase_grating
-from ....grids import get_spatial_grid, metres_to_pixel
+from ....grids import get_spatial_grid, metres_to_pixel, pixel_to_metres, plane_centre
 from ....profiles.amplitude import get_focal_spot_radius
 from ....holography.phase_retrieval import LinearSuperpositionPhaseRetriever
 from ....analysis.fitting import fit_gaussian_beam_intensity
@@ -151,9 +151,7 @@ class CoarseMapper(CameraMapper):
         )
 
         if beam_diameter is None:
-            beam_diameter = min(
-                self.slm.resolution[i] * self.slm.pixel_size[i] for i in range(2)
-            )
+            beam_diameter = min(self.slm.aperture_extent)
         spot_radius = get_focal_spot_radius(
             beam_radius=0.5 * beam_diameter,
             wavelength=self.slm.wavelength,
@@ -278,10 +276,9 @@ class CoarseMapper(CameraMapper):
             detected, calculated, transform
         )
 
-        center = (resolution_out[1] // 2, resolution_out[0] // 2)
-        # Zeroth order = model-plane centre mapped back to the camera; stored (y, x).
-        centre_camera = affine.inverse().transform_points([center])[0]
-        zeroth_order_position = (float(centre_camera[1]), float(centre_camera[0]))
+        zeroth_order_position = CameraMapping.zeroth_order_from(
+            affine, resolution_out
+        )
 
         # Warn about sensor regions the SLM cannot address (limited diffraction angle):
         # sample the sensor on a grid, map to focal-plane metres and compare with the
@@ -293,8 +290,9 @@ class CoarseMapper(CameraMapper):
         )
         pixels = np.column_stack([columns.ravel(), rows.ravel()])
         simulated = affine.transform_points(pixels)
-        metres_x = (simulated[:, 0] - resolution_out[1] / 2) * pixel_size_out[1]
-        metres_y = (simulated[:, 1] - resolution_out[0] / 2) * pixel_size_out[0]
+        metres_x, metres_y = pixel_to_metres(
+            (simulated[:, 0], simulated[:, 1]), pixel_size_out, resolution_out
+        )
         outside = (np.abs(metres_x) > addressable[0]) | (
             np.abs(metres_y) > addressable[1]
         )
@@ -416,7 +414,7 @@ class CoarseMapper(CameraMapper):
         map_camera into a self-contained CoarseVisualizationData for
         CoarseMapperVisualizer. Output-plane pixels are (x, y); pixel_size_out /
         resolution_out are (y, x) / (height, width)."""
-        center = np.array([resolution_out[1] / 2.0, resolution_out[0] / 2.0])
+        center = np.array(plane_centre(resolution_out), dtype=float)
         # Spiral candidate tilts (metres) to output-plane pixels
         tilts = np.asarray(
             self._spiral_tilts(half_extent[0], half_extent[1], search_step),
@@ -482,21 +480,22 @@ class CoarseMapper(CameraMapper):
         simulated_frames: list[NDArray] = []
         focal_spot_radius = 0.0
 
-        # A positive shift moves the rendered content the same amount negative, so
-        # adding the offset brings the region the camera watches to the middle of the
-        # window.
-        lens = self.slm_camera_model.fourier_lens
-        original_shift = getattr(lens, "shift", None)
+        # shift is an image translation, so subtracting the offset brings the region
+        # the camera watches to the middle of the window. The centroid below adds the
+        # offset back to undo it.
+        self.slm_camera_model()  # so the module's lazily built shift exists
+        affine_module = self.slm_camera_model.affine_module()
+        original_shift = None if affine_module is None else affine_module.shift
         if original_shift is None:
             model_window_offset = (0.0, 0.0)
         else:
             original_shift = original_shift.detach().clone()
             with torch.no_grad():
-                lens.shift.add_(
+                affine_module.shift.sub_(
                     torch.tensor(
                         model_window_offset,
-                        dtype=lens.shift.dtype,
-                        device=lens.shift.device,
+                        dtype=affine_module.shift.dtype,
+                        device=affine_module.shift.device,
                     )
                 )
 
@@ -546,7 +545,7 @@ class CoarseMapper(CameraMapper):
         finally:
             if original_shift is not None:
                 with torch.no_grad():
-                    lens.shift.copy_(original_shift)
+                    affine_module.shift.copy_(original_shift)
 
         # The probe pattern must not have collapsed (e.g. every "fit" locked onto the
         # same bright artefact).
@@ -766,7 +765,7 @@ class CoarseMapper(CameraMapper):
         self.camera.set_exposure(exposure / 30.0)
         self._display_tilt((-tilt[0], -tilt[1]), focal_length)
         image = np.asarray(self.camera.get_image())
-        if float(image.max()) >= 0.5 * float(self.camera.adu_levels):
+        if float(image.max()) >= 0.5 * float(self.camera.max_pixel_value):
             return (-tilt[0], -tilt[1])
         self.camera.set_exposure(exposure)
         return tilt

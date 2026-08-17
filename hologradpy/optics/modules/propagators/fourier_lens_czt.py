@@ -4,16 +4,20 @@ import torch
 from torch import Tensor
 from torch.nn import Parameter
 
-from ....fourier_optics import fourier_lens_magnification
+from ....fourier_optics import (
+    fourier_lens_magnification,
+    fourier_lens_power_prefactor,
+)
 from ....fourier_transforms import (
     ChirpZPartialAffine,
     padded_resolution_for_rotation,
-    place,
+    window_offset_from_pixels,
 )
 
 from ....geometry import PartialAffineTransform
+from ....utils import to_canvas
 from ..abstract import OpticsModule
-from ...complex_amplitude import ComplexAmplitude
+from ...complex_amplitude import ComplexAmplitude, pixel_area
 from ....geometry import recalibrated_partial_affine
 
 
@@ -106,9 +110,10 @@ class FourierLensCZT(OpticsModule):
         .recalibrated_partial_affine`).
 
         The lens stores ``shift`` and ``scale_factor`` as (x, y), matching the
-        transform's point convention, so no axis swap is needed. The chirp-z ``shift``
-        is a sampling-window offset, which moves the image the opposite way, so it is
-        the negative of the image-plane translation the residual carries.
+        transform's point convention, so no axis swap is needed. ``shift`` is an image
+        translation in output pixels, as it is on
+        :class:`~hologradpy.optics.modules.geometric_transforms.GeometricWarp`, so the
+        residual is stored as it arrives.
         """
         if not hasattr(self, "scale_factor"):
             raise RuntimeError(
@@ -119,7 +124,7 @@ class FourierLensCZT(OpticsModule):
         scale, angle_deg, shift = recalibrated_partial_affine(
             float(self.scale_factor.mean()),
             float(self.angle),
-            (-float(self.shift[0]), -float(self.shift[1])),  # window offset -> image
+            (float(self.shift[0]), float(self.shift[1])),
             transform,
             center,
         )
@@ -133,7 +138,7 @@ class FourierLensCZT(OpticsModule):
             )
             self.shift.copy_(
                 torch.tensor(
-                    [-shift[0], -shift[1]],  # image translation -> window offset
+                    [shift[0], shift[1]],
                     dtype=self.shift.dtype,
                     device=self.shift.device,
                 )
@@ -149,11 +154,11 @@ class FourierLensCZT(OpticsModule):
         does not affect power. Shaped ``(1, n_wl, 1, 1)`` for the flattened field.
         """
         pixel_size_in = self.pixel_size_in
-        pixel_area = (
-            (pixel_size_in[:, 0] * pixel_size_in[:, 1]).to(torch.float64).reshape(-1)
-        )
+        area = pixel_area(pixel_size_in)
         wavelength = self.input_geometry.wavelength.to(torch.float64).reshape(-1)
-        prefactor = pixel_area / (wavelength * self.focal_length)  # (n_wl,)
+        prefactor = fourier_lens_power_prefactor(
+            area, wavelength, self.focal_length
+        )
         return prefactor.to(pixel_size_in.dtype).reshape(1, -1, 1, 1)
 
     def _resolve_padding(self: FourierLensCZT) -> tuple[int, int]:
@@ -192,10 +197,9 @@ class FourierLensCZT(OpticsModule):
             # at zero.
             angle = float(angle)
 
-        height, width = self._padded_resolution
-        step_x = (2 * torch.pi / width) / scale[0]
-        step_y = (2 * torch.pi / height) / scale[1]
-        shift = (self.shift[0] * step_x, self.shift[1] * step_y)  # (x, y)
+        shift = window_offset_from_pixels(
+            self.shift, self._padded_resolution, (scale[0], scale[1])
+        )  # (x, y)
 
         return ChirpZPartialAffine(
             self._padded_resolution,
@@ -210,7 +214,7 @@ class FourierLensCZT(OpticsModule):
         self: FourierLensCZT, complex_amplitude: ComplexAmplitude
     ) -> ComplexAmplitude:
         flat_field, batch_spec = complex_amplitude.flatten_batch()  # (N, n_wl, H, W)
-        field = place(flat_field, self._padded_resolution)
+        field = to_canvas(flat_field, self._padded_resolution)
 
         scale = self.scale_factor.abs() * self._base_magnification  # (n_wl, 2): (x, y)
         outputs = [
@@ -241,7 +245,7 @@ class FourierLensCZT(OpticsModule):
             for wavelength in range(flat_field.shape[1])
         ]
         field = torch.stack(inputs, dim=1)  # (N, n_wl, H, W)
-        field = place(field, self._input_resolution)
+        field = to_canvas(field, self._input_resolution)
         if self.power_normalized:
             field = field * self._power_prefactor()
 

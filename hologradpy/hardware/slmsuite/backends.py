@@ -1,7 +1,7 @@
 """Named shortcuts for slmsuite's drivers, so they can be opened by string.
 
 :func:`register_slmsuite_backends` registers each slmsuite camera / SLM driver under a
-short name as a lazy ``"module:Attr"`` import spec, so ``open_camera("thorcam", ...)``
+short name as a lazy ``"module:Attr"`` import spec, so ``open_camera("thorlabs", ...)``
 works without importing any vendor SDK until that backend is actually opened. It is
 *opt-in*: call it once (e.g. in your setup) to enable the by-name form. Opening a driver
 by class or instance never needs it.
@@ -43,7 +43,7 @@ def register_slmsuite_backends() -> None:
     :func:`~hologradpy.hardware.factory.open_camera` /
     :func:`~hologradpy.hardware.factory.open_slm`.
 
-    Opt-in and lazy: call it once, then e.g. ``open_camera("thorcam", serial=...)``.
+    Opt-in and lazy: call it once, then e.g. ``open_camera("thorlabs", serial=...)``.
     No vendor SDK is imported until a given backend is actually opened.
     """
     for name, spec in _SLMSUITE_CAMERAS.items():

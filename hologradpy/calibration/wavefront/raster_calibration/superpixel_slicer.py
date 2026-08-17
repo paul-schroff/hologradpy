@@ -236,6 +236,16 @@ class SuperpixelSlicer:
         )
         return adjusted_slice
 
+    def lattice_corner_slices(self, size: int) -> list[tuple[slice, slice]]:
+        """The four square corner regions of the SLM, as ``(rows, columns)`` slices."""
+        height, width = self.resolution
+        return [
+            (slice(0, size), slice(0, size)),
+            (slice(0, size), slice(width - size, width)),
+            (slice(height - size, height), slice(0, size)),
+            (slice(height - size, height), slice(width - size, width)),
+        ]
+
     def get_lattice_corner_size(self, max_size: int | None = None) -> int:
         """Side length [px] of square corner superpixels so the optical lattice
         peak on the camera is comparable to the interference fringes.
@@ -273,10 +283,8 @@ class SuperpixelSlicer:
 
         def dimmest_corner_field(size: int) -> float:
             corners = [
-                amplitude[:size, :size],
-                amplitude[:size, width - size:],
-                amplitude[height - size:, :size],
-                amplitude[height - size:, width - size:],
+                amplitude[rows, columns]
+                for rows, columns in self.lattice_corner_slices(size)
             ]
             return min(corner.sum() for corner in corners)
 

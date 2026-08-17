@@ -6,7 +6,7 @@ from torch import Tensor
 from scipy.constants import Planck, speed_of_light
 
 from ..abstract import OpticsModule
-from ...complex_amplitude import ComplexAmplitude
+from ...complex_amplitude import ComplexAmplitude, pixel_area
 
 
 class CameraSensor(OpticsModule):
@@ -35,8 +35,8 @@ class CameraSensor(OpticsModule):
 
     def __init__(
         self,
-        quantum_efficiency: float,
-        full_well_capacity: float,
+        quantum_efficiency: float = 1.0,
+        full_well_capacity: float = 1e4,
         exposure_time: float = 1e-3,
         gain: float = 1.0,
         noise_level: float = 0.0,
@@ -66,17 +66,16 @@ class CameraSensor(OpticsModule):
     def forward(self, complex_amplitude: ComplexAmplitude) -> Tensor:
         intensity = complex_amplitude.intensity  # |E|^2, real, on-graph
 
-        pixel_area = (
-            complex_amplitude.pixel_size[:, 0] * complex_amplitude.pixel_size[:, 1]
-        ).reshape(-1)  # (n_wl,)
+        area = pixel_area(complex_amplitude.pixel_size)  # (n_wl,)
         photon_energy = (
             Planck * speed_of_light / complex_amplitude.wavelength
         ).reshape(-1)  # (n_wl,)
 
         # Per-wavelength factor: intensity * pixel_area / photon_energy is the
         # photon rate per pixel; summing over wavelengths gives a monochrome
-        # sensor.
-        photon_factor = pixel_area / photon_energy  # (n_wl,)
+        # sensor. Back to the field's precision, since a frame is compared against
+        # camera counts.
+        photon_factor = (area / photon_energy).to(intensity.dtype)  # (n_wl,)
 
         if intensity.ndim == 2:
             photons = intensity * photon_factor[0]

@@ -47,15 +47,13 @@ class SLMSuiteCameraAdapter(Camera):
         return pixel_size_from_pitch_um(self._camera.pitch_um)
 
     @property
-    def resolution(self) -> tuple[int, int]:
-        """Sensor resolution ``(height, width)`` in pixels."""
-        return (int(self._camera.shape[0]), int(self._camera.shape[1]))
+    def max_pixel_value(self) -> int:
+        """The largest count a pixel can report.
 
-    @property
-    def adu_levels(self) -> int:
-        """Number of digital levels (``2 ** bitdepth``). The max pixel value is one
-        less."""
-        return int(self._camera.bitresolution)
+        slmsuite states the level count as ``bitresolution``, so the step from a count
+        of levels to the largest one is made here.
+        """
+        return int(self._camera.bitresolution) - 1
 
     @property
     def exposure_bounds(self) -> tuple[float, float] | None:
@@ -65,8 +63,16 @@ class SLMSuiteCameraAdapter(Camera):
 
     @property
     def roi(self) -> ROI:
-        """The current region of interest."""
-        return roi_from_woi(self._camera.woi)
+        """The current region of interest.
+
+        A device that has not been given a window yet reports none, which means the
+        whole sensor.
+        """
+        woi = getattr(self._camera, "woi", None)
+        if woi is None:
+            height, width = self._camera.shape
+            return ROI(0, 0, int(height), int(width))
+        return roi_from_woi(woi)
 
     def set_roi(self, roi: ROI | None) -> None:
         """Set the region of interest (``None`` resets to the full sensor)."""
@@ -145,17 +151,6 @@ class SLMSuiteSLMAdapter(SLM):
     def bitdepth(self) -> int | None:
         """Bits per pixel, from the wrapped SLM when it says."""
         return getattr(self._slm, "bitdepth", None)
-
-    def set_phase(self, phase) -> None:
-        """Display the desired optical phase (delegated to the wrapped slmsuite SLM)."""
-        phase = np.asarray(phase)
-        if np.issubdtype(phase.dtype, np.integer):
-            raise TypeError(
-                "set_phase takes an optical phase in radians, and an integer array "
-                "almost always means grey levels. Pass those to set_levels, or cast to "
-                "float if radians was meant."
-            )
-        self._slm.set_phase(phase)
 
     def set_levels(self, levels) -> None:
         """Display grey levels directly on the wrapped slmsuite SLM."""

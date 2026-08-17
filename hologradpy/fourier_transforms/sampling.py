@@ -1,7 +1,7 @@
 """Where the zoom transforms sample k-space.
 
-Shared by the chirp-z and NUFFT zooms so they sample identical points, which is what
-lets one be checked against the other.
+Shared by the chirp-z and NUFFT zooms so they sample identical points, so one can be
+checked against the other.
 """
 
 from __future__ import annotations
@@ -43,3 +43,27 @@ def get_zoom_frequency_grid(
     omega_y = axis(resolution[0], resolution_out[0], magnification[1], shift[1])
     return omega_x, omega_y
 
+
+def window_offset_from_pixels(
+    shift: tuple[float, float] | Tensor,
+    resolution: tuple[int, int],
+    magnification: tuple[float, float] | Tensor,
+) -> Tuple[Tensor, Tensor]:
+    """The rad/sample window offset that moves the image by ``shift`` output pixels.
+    This produces the ``shift`` that :func:`get_zoom_frequency_grid` takes.
+
+    Args:
+        shift: Image translation ``(x, y)`` in output pixels.
+        resolution: ``(height, width)`` of the grid being transformed.
+        magnification: Zoom ``(x, y)``, as :func:`get_zoom_frequency_grid` takes it.
+
+    Returns:
+        The ``(x, y)`` offset in rad/sample. Broadcasts, so a per-wavelength
+        magnification gives a per-wavelength offset.
+    """
+    height, width = resolution
+    two_pi = 2 * torch.pi
+    return (
+        -two_pi * shift[0] / (width * magnification[0]),
+        -two_pi * shift[1] / (height * magnification[1]),
+    )

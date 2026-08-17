@@ -2,11 +2,55 @@ from __future__ import annotations
 
 import time
 from typing import Iterable, TypeVar
+
+import numpy as np
 import torch
+from array_api_compat import is_torch_array
 from numpy.typing import NDArray
 from tqdm.auto import tqdm
 
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
+
+
+def to_canvas(field: ArrayLike, resolution: tuple[int, int]) -> ArrayLike:
+    """Centre ``field``'s last two axes on a canvas of ``resolution``, zero-padding or
+    cropping each axis as needed.
+
+    Args:
+        field: The array to reframe, with the plane on its last two axes. Any leading
+            batch and wavelength axes are left unchanged.
+        resolution: The ``(height, width)`` of the wanted canvas.
+
+    Returns:
+        The field on a canvas of exactly ``resolution``.
+    """
+    (top, bottom), (left, right) = (
+        _canvas_margins(field.shape[axis], target)
+        for axis, target in ((-2, resolution[0]), (-1, resolution[1]))
+    )
+
+    if is_torch_array(field):
+        # A negative width crops.
+        return torch.nn.functional.pad(field, (left, right, top, bottom))
+
+    # numpy pads outwards only, so the shrinking is done using slicing.
+    height, width = field.shape[-2:]
+    field = field[
+        ...,
+        max(0, -top) : height - max(0, -bottom),
+        max(0, -left) : width - max(0, -right),
+    ]
+    margins = [(0, 0)] * (field.ndim - 2)
+    margins += [(max(0, top), max(0, bottom)), (max(0, left), max(0, right))]
+    return np.pad(field, margins)
+
+
+def _canvas_margins(length: int, target: int) -> tuple[int, int]:
+    """How much to add either side of an axis of ``length`` to make it ``target``. 
+    Negative means cropping.
+    """
+    before = target // 2 - length // 2
+    return (before, target - length - before)
 
 
 def get_device(verbose: bool = False) -> torch.device:
@@ -34,31 +78,6 @@ def unsqueeze_to(input: torch.Tensor, max_dim: int, dim: int = 0) -> torch.Tenso
     while input.dim() < max_dim:
         input = input.unsqueeze(dim)
     return input
-
-
-def pad_to_shape_2D(input: torch.Tensor, target_shape: tuple[int, int]) -> torch.Tensor:
-    input_shape = input.shape[-2:]
-
-    # Zero-pad input if target_shape is larger than its resolution.
-    if any(input_shape[i] > target_shape[i] for i in range(2)):
-        raise IndexError(
-            "Resolution of input is larger than specified in target_shape."
-        )
-    elif input_shape == target_shape:
-        return input
-    else:
-        pad_y = int((target_shape[0] - input_shape[0]) // 2)
-        pad_x = int((target_shape[1] - input_shape[1]) // 2)
-        pad = (pad_x, pad_x, pad_y, pad_y)
-        return torch.nn.functional.pad(input, pad)
-
-
-def crop_to_shape_2D(input: ArrayLike, target_shape: tuple[int, int]) -> ArrayLike:
-    # TODO: This function cannot handle odd number of pixels in target_shape.
-    input_shape = input.shape[-2:]
-    n_crop_y = (input_shape[0] - target_shape[0]) // 2
-    n_crop_x = (input_shape[1] - target_shape[1]) // 2
-    return input[..., n_crop_y:-n_crop_y, n_crop_x:-n_crop_x]
 
 
 def progress(

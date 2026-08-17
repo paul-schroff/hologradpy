@@ -3,7 +3,7 @@
 ``open_camera`` / ``open_slm`` construct a device and coerce it to native in one call,
 so ``open_camera(Driver, ...)`` is the one-call form of ``as_camera(Driver(...))``.
 ``register_camera_backend`` / ``register_slm_backend`` give a driver class a short name
-so it can be opened by string (``open_camera("thorcam", ...)``). The coercion itself
+so it can be opened by string (``open_camera("thorlabs", ...)``). The coercion itself
 lives in :mod:`hologradpy.hardware.as_native`.
 """
 

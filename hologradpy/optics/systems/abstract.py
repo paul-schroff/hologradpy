@@ -1,8 +1,6 @@
 from __future__ import annotations
-import functools
-import inspect
 import os
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TypeVar, Type, TYPE_CHECKING
@@ -14,7 +12,7 @@ from torch import Tensor
 from ..modules.virtual_slms.abstract import VirtualSLM
 
 from ..modules.abstract import OpticsModule
-from ...fourier_optics import fourier_lens_half_extent
+from ...fourier_optics import addressable_half_extent
 from ..complex_amplitude import ComplexAmplitude, FieldGeometry
 from ..modules.slm_fields import SLMField
 from ..modules.hardware_models import PointingInstability
@@ -33,29 +31,6 @@ class OpticalSystemCheckpoint:
     class_name: str
     spec: dict[str, object]
     state_dict: dict[str, object]
-
-
-def capture_init(init: Callable[..., None]) -> Callable[..., None]:
-    """Decorator for a concrete ``OpticalSystem.__init__`` that records the bound
-    constructor arguments into ``self._init_kwargs``, so the base
-    ``get_checkpoint_spec`` can reproduce them without a hand-written method.
-
-    The original ``__init__`` runs first (so ``nn.Module`` is fully initialised).
-    """
-    signature = inspect.signature(init)
-
-    @functools.wraps(init)
-    def wrapper(self, *args, **kwargs) -> None:
-        init(self, *args, **kwargs)
-        bound = signature.bind(self, *args, **kwargs)
-        bound.apply_defaults()
-        self._init_kwargs = {
-            name: value
-            for name, value in bound.arguments.items()
-            if name != "self"
-        }
-
-    return wrapper
 
 
 class OpticalSystem(nn.Module):
@@ -454,7 +429,7 @@ class SLMFourierLensModel(OpticalSystem):
             # to all of them.
             self.insert_after(SLMField, "pointing_instability", pointing)
 
-    def _affine_module(self) -> SupportsPartialAffine | None:
+    def affine_module(self) -> SupportsPartialAffine | None:
         """The module carrying the focal-plane ``(scale_factor, shift, angle)``
         registration, or ``None`` when this model has none.
 
@@ -475,7 +450,7 @@ class SLMFourierLensModel(OpticalSystem):
         run once first to ensure its lazy parameters exist. Raises ``TypeError`` for a
         model that carries no affine module.
         """
-        affine_module = self._affine_module()
+        affine_module = self.affine_module()
         if affine_module is None:
             raise TypeError(
                 f"{type(self).__name__} has no affine module to calibrate from a "
@@ -500,9 +475,8 @@ class SLMFourierLensModel(OpticalSystem):
         ``wavelength * focal_length / (2 * pitch)`` per axis. Focal spots cannot be
         placed beyond it (the grating would alias).
         """
-        wavelength = float(self.input_geometry.wavelength)
-        pitch_y, pitch_x = (float(pitch) for pitch in self.input_geometry.pixel_size)
-        return (
-            fourier_lens_half_extent(wavelength, self.focal_length, pitch_x),
-            fourier_lens_half_extent(wavelength, self.focal_length, pitch_y),
+        return addressable_half_extent(
+            float(self.input_geometry.wavelength),
+            self.focal_length,
+            self.input_geometry.pixel_size,
         )

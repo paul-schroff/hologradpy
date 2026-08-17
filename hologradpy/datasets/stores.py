@@ -7,26 +7,32 @@ from __future__ import annotations
 
 import gc
 import os
+from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Sequence, TypedDict, TypeVar
 
 import asdf
 import numpy as np
+from asdf.tags.core import NDArrayType
 from numpy.typing import NDArray
 
 from ..phase_levels import level_dtype
-from ..serialization import SaveableRecord
+from ..serialization import (
+    SaveableRecord,
+    attach_source_path,
+    check_record_recognised,
+)
 
-# What a sample can hold.
-SERIES = ("camera_image", "slm_levels", "slm_fraction")
 SAMPLE_STORE_SUFFIX = ".asdf"
 
-# How the series are named in the tree.
+# What a sample can hold, and how each series is named in the tree.
 _BLOCK_NAMES = {
     "camera_image": "camera_images",
     "slm_levels": "slm_levels",
     "slm_fraction": "slm_fractions",
 }
+
+SERIES = tuple(_BLOCK_NAMES)
 
 SAMPLE_DTYPE = np.float32
 
@@ -104,10 +110,12 @@ class _SampleStore:
         Memory-mapped and lazily loaded, so opening a large set costs no more than
         reading its header and one sample costs one frame.
         """
-        return cls(path, file=asdf.open(str(Path(path)), lazy_load=False, memmap=True))
+        return cls(path, file=asdf.open(str(Path(path)), lazy_load=True, memmap=True))
 
     def __len__(self) -> int:
-        """How many samples the file holds, read off the arrays themselves."""
+        """How many samples the file holds."""
+        if self._handle is not None:
+            return self._appended
         for name in SERIES:
             array = self._series(name)
             if array is not None:
@@ -115,7 +123,7 @@ class _SampleStore:
         return 0
 
     def _read_series(self, names: Sequence[str]) -> dict:
-        """The named series at one index, as owned arrays that outlive the store."""
+        """The named series in full, still belonging to the open file."""
         return {name: self._series(name) for name in names}
 
     def _series(self, name: str):
@@ -171,6 +179,7 @@ class CaptureStore(_SampleStore):
         frame_shape: tuple[int, int],
         slm_levels: Sequence[NDArray],
         phase_bitdepth: int,
+        frame_dtype=SAMPLE_DTYPE,
     ) -> CaptureStore:
         """Open a store and write everything but the camera frames.
 
@@ -183,6 +192,8 @@ class CaptureStore(_SampleStore):
             slm_levels: The patterns to display, known up front because the tree is
                 written before the first frame streams.
             phase_bitdepth: The depth those levels were quantised at.
+            frame_dtype: What one frame is stored as. The default is wide enough for any
+                camera this drives.
 
         Returns:
             CaptureStore: Open for appending. Close it, or use it as a context manager.
@@ -196,7 +207,7 @@ class CaptureStore(_SampleStore):
             tree,
             streaming="camera_image",
             frame_shape=frame_shape,
-            frame_dtype=SAMPLE_DTYPE,
+            frame_dtype=frame_dtype,
             phase_bitdepth=phase_bitdepth,
         )
 
@@ -209,11 +220,12 @@ class CaptureStore(_SampleStore):
         camera_images: Sequence[NDArray],
         slm_levels: Sequence[NDArray],
         phase_bitdepth: int,
+        frame_dtype=SAMPLE_DTYPE,
     ) -> Path:
         """Write a complete capture in one call, for one that fits in memory."""
         tree = _tree(record, phase_bitdepth)
         tree[_BLOCK_NAMES["camera_image"]] = _stack(
-            camera_images, "camera_image", phase_bitdepth
+            camera_images, "camera_image", phase_bitdepth, frame_dtype
         )
         tree[_BLOCK_NAMES["slm_levels"]] = _stack(
             slm_levels, "slm_levels", phase_bitdepth
@@ -234,15 +246,23 @@ class CaptureStore(_SampleStore):
         }
 
     @property
-    def phase_bitdepth(self) -> int:
-        """The depth the stored levels were quantised at."""
+    def phase_bitdepth(self) -> int | None:
+        """The depth the stored levels were quantised at, None when none was given."""
         if self._file is None:
             return self._phase_bitdepth
         return self._file.tree.get(PHASE_BITDEPTH_KEY)
 
     def record(self) -> SaveableRecord:
-        """What describes this capture, from inside the same file."""
-        return self._require_file().tree.get("record")
+        """Description of this capture.
+
+        Raises:
+            TypeError: The file holds a record no class is registered for.
+        """
+        record = self._require_file().tree.get("record")
+        check_record_recognised(record, self.path)
+        record = _realised(record)
+        attach_source_path(record, self.path)
+        return record
 
 
 class RetrievalStepStore(_SampleStore):
@@ -254,6 +274,7 @@ class RetrievalStepStore(_SampleStore):
         path: str | os.PathLike,
         *,
         frame_shape: tuple[int, int],
+        frame_dtype=SAMPLE_DTYPE,
     ) -> RetrievalStepStore:
         """Open a store to stream the search's parameter into."""
         return cls._start(
@@ -261,17 +282,38 @@ class RetrievalStepStore(_SampleStore):
             {},
             streaming="slm_fraction",
             frame_shape=frame_shape,
-            frame_dtype=SAMPLE_DTYPE,
+            frame_dtype=frame_dtype,
         )
 
     def read(self, index: int) -> RetrievalSample:
         return {"slm_fraction": np.array(self._series("slm_fraction")[index])}
 
 
-def _dtype_for(series: str, phase_bitdepth: int | None):
+def _realised(value):
+    """Read a lazily loaded value in, so it outlives the file it came from. Only ASDF's 
+    own lazy array type is converted. Tensors and complex amplitudes are already read in
+    by their converters, and everything else is left as it is.
+    """
+    if isinstance(value, NDArrayType):
+        return np.array(value)
+    if is_dataclass(value) and not isinstance(value, type):
+        for entry in fields(value):
+            # Set through object, since most records are frozen.
+            object.__setattr__(value, entry.name, _realised(getattr(value, entry.name)))
+        return value
+    if isinstance(value, list):
+        return [_realised(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_realised(item) for item in value)
+    if isinstance(value, dict):
+        return {key: _realised(item) for key, item in value.items()}
+    return value
+
+
+def _dtype_for(series: str, phase_bitdepth: int | None, frame_dtype=SAMPLE_DTYPE):
     if series == "slm_levels":
         return level_dtype(phase_bitdepth or 8)
-    return SAMPLE_DTYPE
+    return frame_dtype
 
 
 def _tree(record: SaveableRecord | None, phase_bitdepth: int | None) -> dict:
@@ -283,10 +325,13 @@ def _tree(record: SaveableRecord | None, phase_bitdepth: int | None) -> dict:
 
 
 def _stack(
-    arrays: Sequence[NDArray], series: str, phase_bitdepth: int | None
+    arrays: Sequence[NDArray],
+    series: str,
+    phase_bitdepth: int | None,
+    frame_dtype=SAMPLE_DTYPE,
 ) -> NDArray:
     """The series as one array, in the width the samples justify."""
     return np.asarray(
         np.stack([np.asarray(a) for a in arrays]),
-        dtype=_dtype_for(series, phase_bitdepth),
+        dtype=_dtype_for(series, phase_bitdepth, frame_dtype),
     )

@@ -52,6 +52,32 @@ class ROI:
             width,
         )
 
+    def moved_inside(self, bounds: tuple[int, int]) -> ROI:
+        """Moves the ROI so it sits inside ``bounds``, keeping its size.
+
+        Args:
+            bounds: The ``(height, width)`` to stay within, usually a sensor.
+
+        Returns:
+            The region, moved if it had to be.
+
+        Raises:
+            ValueError: The region is larger than ``bounds``, so moving cannot place it
+                there. Kept at its size it would report one shape and crop to another.
+        """
+        height_bound, width_bound = bounds
+        if self.height > height_bound or self.width > width_bound:
+            raise ValueError(
+                f"A {self.height} x {self.width} region does not fit inside "
+                f"{height_bound} x {width_bound}."
+            )
+        return ROI(
+            max(0, min(self.top_row, height_bound - self.height)),
+            max(0, min(self.left_column, width_bound - self.width)),
+            self.height,
+            self.width,
+        )
+
     @classmethod
     def from_bounds(cls, top: int, bottom: int, left: int, right: int) -> ROI:
         """From ``(top, bottom, left, right)`` pixel indices, the convention returned by

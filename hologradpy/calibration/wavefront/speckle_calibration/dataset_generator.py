@@ -25,7 +25,7 @@ from ....profiles.masks import circular_mask, elliptical_mask
 from ....profiles.phase import band_limited_random_phase
 from ....roi import ROI
 from ....fourier_optics import fourier_lens_pixel_size
-from ....grids import get_pixel_grid, get_spatial_grid
+from ....grids import get_pixel_grid, get_spatial_grid, pixel_to_metres
 from ....utils import progress
 
 
@@ -68,10 +68,10 @@ class DatasetGenerator:
     ) -> SpeckleCaptureData:
         """Generate the patterns and capture their frames into one dataset file.
 
-        The whole capture in one call, which is what a caller normally wants.
-        :meth:`generate_phase_patterns` and :meth:`capture_camera_images` remain
-        separately callable for the cases that need to do something between the two, for
-        example inspecting the patterns before they reach the SLM.
+        The whole capture in one call. :meth:`generate_phase_patterns` and
+        :meth:`capture_camera_images` remain separately callable for the cases that need
+        to do something between the two, for example inspecting the patterns before they
+        reach the SLM.
 
         Args:
             extent: Full width ``(y, x)`` of the speckle at the camera, in metres,
@@ -209,10 +209,10 @@ class DatasetGenerator:
         camera_grid = get_spatial_grid(self.camera.resolution, self.camera.pixel_size)
 
         zeroth = self.camera_mapping.zeroth_order_position
-        center_y = self.camera.resolution[0] / 2
-        center_x = self.camera.resolution[1] / 2
-        shift_y = (zeroth[0] - center_y) * self.camera.pixel_size[0]
-        shift_x = (zeroth[1] - center_x) * self.camera.pixel_size[1]
+        # (row, col) to the (x, y) the conversion takes, and back to (y, x) shifts.
+        shift_x, shift_y = pixel_to_metres(
+            (zeroth[1], zeroth[0]), self.camera.pixel_size, self.camera.resolution
+        )
 
         speckle_mask = elliptical_mask(
             *camera_grid,

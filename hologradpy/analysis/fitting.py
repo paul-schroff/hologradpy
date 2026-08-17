@@ -89,7 +89,6 @@ def remove_tilt(phase: NDArray, mask: NDArray | None = None) -> NDArray:
     zernike = Zernike(
         resolution=phase.shape,
         number_of_radial_orders=2,
-        unit_disk_mode="fill",
     )
 
     phase_tensor = torch.as_tensor(phase, dtype=torch.float64)

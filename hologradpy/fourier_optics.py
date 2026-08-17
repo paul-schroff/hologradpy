@@ -27,6 +27,45 @@ def fourier_lens_pixel_size(
     return wavelength * focal_length / (pixel_size_in * resolution_in)
 
 
+def fourier_lens_resolution(
+    wavelength: Tensor | float,
+    focal_length: float,
+    pixel_size_in: Tensor | float,
+    pixel_size_out: Tensor | float,
+) -> Tensor | float:
+    """How many input samples a Fourier lens needs to achieve the taget output spacing.
+
+    Args:
+        wavelength: Wavelength in metres.
+        focal_length: Focal length in metres.
+        pixel_size_in: Input plane sample spacing in metres.
+        pixel_size_out: The output plane sample spacing wanted, in metres.
+
+    Returns:
+        The number of input samples along that axis.
+    """
+    return wavelength * focal_length / (pixel_size_in * pixel_size_out)
+
+
+def fourier_lens_power_prefactor(
+    pixel_area_in: Tensor | float,
+    wavelength: Tensor | float,
+    focal_length: float,
+) -> Tensor | float:
+    """Amplitude prefactor making a Fourier lens conserve optical power.
+
+    Args:
+        pixel_area_in: Area of one input pixel, from
+            :func:`~hologradpy.optics.complex_amplitude.pixel_area`.
+        wavelength: Wavelength in metres.
+        focal_length: Focal length in metres.
+
+    Returns:
+        The prefactor, one per wavelength.
+    """
+    return pixel_area_in / (wavelength * focal_length)
+
+
 def fourier_lens_half_extent(
     wavelength: Tensor | float,
     focal_length: float,
@@ -54,6 +93,22 @@ def fourier_lens_half_extent(
     """
     return wavelength * focal_length / (2.0 * pixel_size_in)
 
+# TODO: Make this return (y, x)?
+def addressable_half_extent(
+    wavelength: float,
+    focal_length: float,
+    pixel_size,
+) -> tuple[float, float]:
+    """Half-extent ``(x, y)`` of the focal-plane region an SLM can address, in metres.
+    The first-order deflection of a grating at the SLM's Nyquist frequency, per axis.
+    ``pixel_size`` is ``(y, x)``, so x takes the second entry.
+    """
+    pitch_y, pitch_x = (float(pitch) for pitch in pixel_size)
+    return (
+        fourier_lens_half_extent(wavelength, focal_length, pitch_x),
+        fourier_lens_half_extent(wavelength, focal_length, pitch_y),
+    )
+
 
 def fourier_lens_magnification(
     wavelength: Tensor | float,
@@ -64,9 +119,9 @@ def fourier_lens_magnification(
 ) -> Tensor | float:
     """Zoom a Fourier-lens transform needs to land on a chosen output spacing.
 
-    The ratio of the spacing from :func:`fourier_lens_pixel_size` to the spacing
-    actually wanted, which is what the zoom transforms take as their magnification.
-    Greater than one samples the focal plane more finely than the plain transform would.
+    The ratio of the spacing from :func:`fourier_lens_pixel_size` to the spacing wanted,
+    and the magnification the zoom transforms take. Greater than one samples the focal
+    plane more finely than the plain transform would.
 
     Args:
         wavelength: Wavelength in metres.

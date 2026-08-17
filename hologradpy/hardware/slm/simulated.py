@@ -6,7 +6,7 @@ from numpy.typing import NDArray
 
 from ...optics.complex_amplitude import FieldGeometry
 from ...optics.modules.virtual_slms import VirtualSLM
-from ...phase_levels import level_dtype
+from ...phase_levels import LinearResponse, PhaseResponse, level_dtype
 
 from .abstract import SLM
 
@@ -48,15 +48,17 @@ class SimulatedSLMTorch(SLM):
         self.settle_time_s = float(settle_time_s)
 
         self._bitdepth = int(bitdepth)
-        self._display_dtype = level_dtype(self._bitdepth)
 
-        # Multiplier for when the target wavelength differs from the design wavelength
-        # (slmsuite convention: phase_scaling = wav_um / wav_design_um).
+        # An SLM used away from its design wavelength reaches less than a whole cycle.
         wav_um = self._wavelength * 1e6
         wav_design = wav_um if wav_design_um is None else float(wav_design_um)
-        self.phase_scaling: float = wav_um / wav_design
+        self._response: PhaseResponse = LinearResponse(
+            bitdepth=self._bitdepth, phase_scaling=wav_um / wav_design
+        )
 
-        self.display: NDArray = np.zeros(self._resolution, dtype=self._display_dtype)
+        self.display: NDArray = np.zeros(
+            self._resolution, dtype=level_dtype(self._bitdepth)
+        )
 
         self.virtual_slm: VirtualSLM = VirtualSLM.from_slm(slm=self, init_phase=None)
 
@@ -77,25 +79,23 @@ class SimulatedSLMTorch(SLM):
 
     @property
     def bitdepth(self) -> int:
-        """Bits per pixel of the display."""
-        return self._bitdepth
+        """Bits per pixel, read from the level-to-phase response."""
+        return self.phase_response.bitdepth
 
-    def set_phase(self, phase: NDArray | torch.Tensor) -> None:
-        """Display a desired optical phase in radians, quantised to the panel."""
-        phase = self._as_frame(phase, "Phase")
-        if np.issubdtype(phase.dtype, np.integer):
-            raise TypeError(
-                "set_phase takes an optical phase in radians, and an integer array "
-                "almost always means grey levels. Pass those to set_levels, or cast to "
-                "float if radians was meant."
-            )
-        self.set_levels(self.virtual_slm.phase_to_levels(phase, self._bitdepth))
+    @property
+    def phase_response(self) -> PhaseResponse:
+        """Phase realized by applying a certain grey level, read from the virtual SLM.
+        """
+        virtual = getattr(self, "virtual_slm", None)
+        if virtual is None:
+            return self._response
+        return virtual.phase_response.response
 
     def set_levels(self, levels: NDArray | torch.Tensor) -> None:
         """Display grey levels directly, without going through a phase."""
         levels = self._as_frame(levels, "Levels")
-        self.display = levels.astype(self._display_dtype)
-        self.virtual_slm.set_levels(self.display, self._bitdepth)
+        self.display = levels.astype(level_dtype(self.bitdepth))
+        self.virtual_slm.set_levels(self.display, self.bitdepth)
 
     def _as_frame(self, pattern: NDArray | torch.Tensor, label: str) -> NDArray:
         """A displayable numpy frame, with the virtual SLM ready to be given it."""

@@ -27,8 +27,9 @@ from ....optics.systems import SLMFFT
 from ....optics.modules.virtual_slms import VirtualSLM
 from ....optics.modules.slm_fields import PixelwiseSLMField
 from ....optics.complex_amplitude import ComplexAmplitude, FieldGeometry
-from ....fourier_optics import fourier_lens_half_extent
-from ....grids import get_spatial_grid
+from ....fourier_optics import addressable_half_extent
+from ....grids import get_spatial_grid, plane_centre
+from ....profiles.amplitude import get_focal_spot_radius
 from ....profiles.phase import linear_phase, binary_phase_grating
 
 from ....utils import gpu_to_numpy, progress, Timer
@@ -143,11 +144,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
         """The focal-plane addressable half-extent ``(x, y)`` in metres, computed from 
         the SLM pitch and the focal length directly.
         """
-        pitch_y, pitch_x = (float(pitch) for pitch in self.slm.pixel_size)
-        wavelength = float(self.slm.wavelength)
-        return (
-            fourier_lens_half_extent(wavelength, self.focal_length, pitch_x),
-            fourier_lens_half_extent(wavelength, self.focal_length, pitch_y),
+        return addressable_half_extent(
+            float(self.slm.wavelength), self.focal_length, self.slm.pixel_size
         )
 
     def _orientation_matrix(self) -> NDArray[np.float_]:
@@ -195,14 +193,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
         """Unit 45/135/225/315 deg diagonal pointing from the zeroth order toward the
         sensor centre (away from the DC). Shared by the main and lattice placements
         so both sit at the same angle."""
-        zeroth = np.asarray(
-            [
-                self.camera_mapping.zeroth_order_position[1],
-                self.camera_mapping.zeroth_order_position[0],
-            ]
-        )  # x, y
-        height, width = self.camera.resolution
-        centre = np.array([width / 2.0, height / 2.0])
+        zeroth = np.asarray(self.camera_mapping.zeroth_order_xy)
+        height, width = self.camera.sensor_shape
+        centre = np.array(plane_centre((height, width)), dtype=float)
         signs = np.sign(centre - zeroth)
         signs[signs == 0] = 1.0  # tie (DC on a centre line) -> positive diagonal
         return signs / np.sqrt(2.0)
@@ -220,11 +213,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
         Returns ``(tilt, target_camera_pixel)``.
         """
         mapping = self.camera_mapping
-        zeroth = np.asarray(
-            [mapping.zeroth_order_position[1], mapping.zeroth_order_position[0]]
-        )  # x, y camera px
-        height, width = self.camera.resolution
-        centre = np.array([width / 2.0, height / 2.0])
+        zeroth = np.asarray(mapping.zeroth_order_xy)
+        height, width = self.camera.sensor_shape
+        centre = np.array(plane_centre((height, width)), dtype=float)
         camera_pitch = np.asarray(
             [self.camera.pixel_size[1], self.camera.pixel_size[0]]
         )  # (x, y)
@@ -304,12 +295,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         if self.camera_mapping is None:
             self._ensure_camera_mapping(None, None)
         direction = self._diagonal_direction()
-        zeroth = np.asarray(
-            [
-                self.camera_mapping.zeroth_order_position[1],
-                self.camera_mapping.zeroth_order_position[0],
-            ]
-        )
+        zeroth = np.asarray(self.camera_mapping.zeroth_order_xy)
         main_distance = (
             float(np.linalg.norm(np.asarray(main_target) - zeroth))
             if main_target is not None
@@ -383,23 +369,17 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
 
         center_x, center_y = int(spot_center_pixels[0]), int(spot_center_pixels[1])
-        sensor_height, sensor_width = self.camera.resolution
+        sensor_height, sensor_width = self.camera.sensor_shape
         # TODO: Remove hardcoded 4x window size
         window_width = min(4 * roi_size[1], sensor_width)
         window_height = min(4 * roi_size[0], sensor_height)
-        window_x0 = int(
-            np.clip(center_x - window_width // 2, 0, sensor_width - window_width)
-        )
-        window_y0 = int(
-            np.clip(center_y - window_height // 2, 0, sensor_height - window_height)
-        )
-        self.camera.set_roi(
-            ROI(window_y0, window_x0, window_height, window_width)
-        )
-
-        autoexposure_roi = ROI.centered(
+        window = ROI.centered(
             (center_y, center_x), (window_height, window_width)
-        )
+        ).moved_inside(self.camera.sensor_shape)
+        window_y0, window_x0 = window.top_row, window.left_column
+        self.camera.set_roi(window)
+
+        autoexposure_roi = window
 
         # Grid referenced to the spot centre (0 = spot centre), so the fitted
         # centre is directly the offset from it even when the window was clamped.
@@ -413,9 +393,10 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
         corner_size = corner_slices[0][0].stop - corner_slices[0][0].start
         aperture_radius = corner_size * self.slm.pixel_size[1] / 2
-        spot_radius_guess = (
-            (self.slm.wavelength) * self.focal_length
-            / (np.pi * aperture_radius)
+        spot_radius_guess = get_focal_spot_radius(
+            beam_radius=aperture_radius,
+            wavelength=self.slm.wavelength,
+            focal_length=self.focal_length,
         )
 
         corner_tilts = []
@@ -657,8 +638,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
             if (
                 woi_x0 < 0
                 or woi_y0 < 0
-                or woi_x0 + woi_width > self.camera.resolution[1]
-                or woi_y0 + woi_height > self.camera.resolution[0]
+                or woi_x0 + woi_width > self.camera.sensor_shape[1]
+                or woi_y0 + woi_height > self.camera.sensor_shape[0]
             ):
                 raise ValueError(
                     "The main and reference spots do not both fit on the sensor; "
@@ -959,15 +940,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
                     print(f"Auto lattice_phase_tilt (m): {lattice_phase_tilt}")
 
             height, width = self.slm.resolution
-            corner_slices = [
-                (slice(0, corner_size), slice(0, corner_size)),
-                (slice(0, corner_size), slice(width - corner_size, width)),
-                (slice(height - corner_size, height), slice(0, corner_size)),
-                (
-                    slice(height - corner_size, height),
-                    slice(width - corner_size, width),
-                ),
-            ]
+            corner_slices = slicer.lattice_corner_slices(corner_size)
             # Detected camera spot the full SLM produces for the lattice tilt (the
             # real, aberrated lattice position). The corner-steering detection
             # window and the lattice ROI are both centred on it, so the dim corner
@@ -1044,8 +1017,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
             if (
                 woi_x0 < 0
                 or woi_y0 < 0
-                or woi_x0 + woi_width > self.camera.resolution[1]
-                or woi_y0 + woi_height > self.camera.resolution[0]
+                or woi_x0 + woi_width > self.camera.sensor_shape[1]
+                or woi_y0 + woi_height > self.camera.sensor_shape[0]
             ):
                 raise ValueError(
                     "The main and lattice spots do not both fit on the sensor; "
@@ -1347,10 +1320,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
                         else None
                     ),
                     "zeroth order": (
-                        (
-                            float(self.camera_mapping.zeroth_order_position[1]),
-                            float(self.camera_mapping.zeroth_order_position[0]),
-                        )
+                        self.camera_mapping.zeroth_order_xy
                         if self.camera_mapping is not None
                         else None
                     ),

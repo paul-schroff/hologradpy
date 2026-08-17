@@ -135,8 +135,8 @@ camera_mapping = camera_mapper.map_camera(
 
 # %% Saving results
 camera_mapping.save(data_path + "spot_array_mapping.asdf")
-slm_camera_model.save(data_path + "slm_camera_model.pkl")
-simulated_camera_model.save(data_path + "simulated_camera_model.pkl")
+slm_camera_model.save(data_path + "slm_camera_model.pt")
+simulated_camera_model.save(data_path + "simulated_camera_model.pt")
 
 # %% Results
 print("Transformation matrix:")
@@ -165,8 +165,7 @@ plt.figure()
 plt.imshow(camera_mapping.visualization_data.camera_image, cmap="turbo")
 plt.plot(detected[:, 0], detected[:, 1], "wx", label="detected spots")
 plt.plot(
-    camera_mapping.zeroth_order_position[1],
-    camera_mapping.zeroth_order_position[0],
+    *camera_mapping.zeroth_order_xy,
     "r+",
     label="zeroth order position",
 )

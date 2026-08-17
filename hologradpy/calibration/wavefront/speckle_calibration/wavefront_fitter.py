@@ -103,15 +103,12 @@ class WavefrontFitter:
         self.device: torch.device = slm_camera_model.device
         self.dtype: torch.dtype = slm_camera_model.init_field.dtype_r
 
-        self.roi, self.roi_mask_torch = region_of_interest(
+        self.roi, self.roi_mask = region_of_interest(
             capture_data, slm_camera_model, roi_mask
-        )
-        self.roi_mask: NDArray[np.bool_] = self.roi.crop(
-            capture_data.roi_mask if roi_mask is None else roi_mask
         )
 
         self.loss: LossFunction = (
-            MaskedIntensityMSE(self.roi_mask_torch) if loss is None else loss
+            MaskedIntensityMSE(self.roi_mask) if loss is None else loss
         )
 
         self.dataset: SampleDataset | None = None
@@ -275,8 +272,8 @@ class WavefrontFitter:
         pattern = sample["slm_levels"].unsqueeze(0)
         with torch.no_grad():
             predicted = self._predict_roi_fields(pattern)
-            predicted_intensity = (predicted.abs() ** 2) * self.roi_mask_torch
-            measured = sample["camera_image"] * self.roi_mask_torch
+            predicted_intensity = (predicted.abs() ** 2) * self.roi_mask
+            measured = sample["camera_image"] * self.roi_mask
 
         return (
             measured.squeeze().detach().cpu().numpy(),

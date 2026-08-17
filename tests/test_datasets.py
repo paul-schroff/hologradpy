@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import asdf
 import numpy as np
 import pytest
 import torch
@@ -234,14 +233,51 @@ def test_the_header_says_what_is_inside(tmp_path) -> None:
 
 def test_reading_one_sample_does_not_read_the_rest(tmp_path) -> None:
     """Lazily loaded and memory-mapped, which is what a training loop over a set larger
-    than memory needs."""
+    than memory needs.
+
+    Asserted through the store's own reader rather than a hand-rolled asdf.open, which
+    would pin the file format and let the reader quietly load the lot.
+    """
     path = tmp_path / "capture.asdf"
     _capture(path, _frames(8, shape=(64, 64)), _levels(8))
 
-    with asdf.open(str(path), lazy_load=True, memmap=True) as file:
-        images = file["camera_images"]
+    with CaptureStore.open(path) as store:
+        images = store._series("camera_image")
         assert type(images).__name__ == "NDArrayType"
         assert images.shape == (8, 64, 64)
+
+
+def test_a_sample_outlives_the_store(tmp_path) -> None:
+    """The arrays are read on demand, so what read() hands back has to be a copy rather
+    than a view into a file the caller is about to close."""
+    path = tmp_path / "capture.asdf"
+    _capture(path, _frames(3))
+
+    with CaptureStore.open(path) as store:
+        sample = store.read(1)
+        record = store.record()
+
+    assert np.isfinite(sample["camera_image"]).all()
+    assert isinstance(record, _Capture)
+
+
+def test_length_while_capturing_counts_what_was_appended(tmp_path) -> None:
+    """Asking how far a capture has got is the obvious thing to do during one, and it
+    used to raise because the count was only ever read back off the file."""
+    store = CaptureStore.capture(
+        tmp_path / "capture.asdf",
+        _Capture(),
+        frame_shape=(6, 8),
+        slm_levels=_levels(2),
+        phase_bitdepth=8,
+    )
+    try:
+        assert len(store) == 0
+        store.append(np.zeros((6, 8)))
+        store.append(np.ones((6, 8)))
+        assert len(store) == 2
+    finally:
+        store.close()
 
 
 def test_a_store_open_for_writing_cannot_be_read(tmp_path) -> None:

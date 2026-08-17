@@ -3,15 +3,24 @@ from __future__ import annotations
 import torch
 from torch import nn, Tensor
 
-from ....utils import pad_to_shape_2D, crop_to_shape_2D
 from ....fourier_transforms import FastFourierTransform
+from ....utils import to_canvas
 
-from ..abstract import OpticsModule, SaveDict
-from ....fourier_optics import fourier_lens_pixel_size
-from ...complex_amplitude import ComplexAmplitude, broadcast_wavelength_operand
+from ..abstract import capture_init, OpticsModule
+from ....fourier_optics import (
+    fourier_lens_pixel_size,
+    fourier_lens_power_prefactor,
+    fourier_lens_resolution,
+)
+from ...complex_amplitude import (
+    ComplexAmplitude,
+    broadcast_wavelength_operand,
+    pixel_area,
+)
 
 
 class FourierLensFFT(OpticsModule):
+    @capture_init
     def __init__(
         self,
         focal_length: float,
@@ -33,10 +42,8 @@ class FourierLensFFT(OpticsModule):
         )
         self._padded_resolution_init: tuple[int, int] | None = padded_resolution
 
-        # When True, scale the transform by the physical Fourier-optics prefactor
-        # so a lossless lens conserves optical power (integral|E_focal|^2 dx ==
-        # integral|E_slm|^2 du). Default False keeps the legacy arbitrary-unit
-        # amplitude scale.
+        # Scale the transform by the physical Fourier-optics prefactor so a
+        # lossless lens conserves optical power. On by default.
         self.power_normalized: bool = power_normalized
 
         self.kwargs = kwargs
@@ -162,8 +169,13 @@ class FourierLensFFT(OpticsModule):
         pixel_size_in: Tensor,
         pixel_size_out: Tensor,
     ) -> Tensor[torch.int64]:
+        # Rounded down to even.
         padded_resolution = (
-            wavelength * focal_length / (pixel_size_in * pixel_size_out) // 2 * 2
+            fourier_lens_resolution(
+                wavelength, focal_length, pixel_size_in, pixel_size_out
+            )
+            // 2
+            * 2
         )
         return padded_resolution.to(torch.int64)
 
@@ -178,36 +190,6 @@ class FourierLensFFT(OpticsModule):
             wavelength, focal_length, pixel_size_in, padded_resolution
         )
 
-    @property
-    def pixel_size_out(self) -> Tensor:
-        return self._get_pixel_size_out(
-            self.input_geometry.wavelength,
-            self.focal_length,
-            self.pixel_size_in,
-            self.padded_resolution,
-        )
-
-    def save(self, path: str) -> None:
-        save_dict: SaveDict = {
-            "state_dict": self.state_dict(),
-            "input_geometry": self.input_geometry,
-            "resolution_out": self.resolution_out,
-            "pixel_size_out": self.pixel_size_out,
-            "kwargs": self.kwargs,
-        }
-        torch.save(save_dict, path)
-
-    @classmethod
-    def from_file(cls, path: str, device: torch.device = "cpu") -> FourierLensFFT:
-        state: SaveDict = torch.load(path, map_location=device, weights_only=False)
-        sd = state["state_dict"]
-        module = cls(
-            focal_length=sd["focal_length"].item(),
-            padded_resolution=state["resolution_out"],
-            **state.get("kwargs", {}),
-        )
-        return module
-
     def _power_prefactor(self, field_ndim: int) -> Tensor:
         """Physical Fourier-optics amplitude prefactor ``(du * dv) / (lambda *
         f)`` per wavelength, so the transform conserves optical power
@@ -215,15 +197,15 @@ class FourierLensFFT(OpticsModule):
         "backward"``). Computed in float64 then cast to the field's real dtype;
         the ``1/i`` global phase is omitted as it does not affect power."""
         pixel_size_in = self.pixel_size_in
-        pixel_area = (pixel_size_in[:, 0] * pixel_size_in[:, 1]).to(torch.float64)
+        area = pixel_area(pixel_size_in)
         wavelength = self.input_geometry.wavelength.to(torch.float64)
         focal_length = self.focal_length.to(torch.float64)
-        prefactor = pixel_area / (wavelength * focal_length)  # (n_wavelengths,)
+        prefactor = fourier_lens_power_prefactor(area, wavelength, focal_length)
         prefactor = prefactor.to(pixel_size_in.dtype).reshape(-1, 1, 1)
         return broadcast_wavelength_operand(prefactor, field_ndim)
 
     def forward(self, complex_amplitude: ComplexAmplitude) -> ComplexAmplitude:
-        padded_complex_amplitude = pad_to_shape_2D(
+        padded_complex_amplitude = to_canvas(
             complex_amplitude, self.resolution_out
         )
 
@@ -244,13 +226,14 @@ class FourierLensFFT(OpticsModule):
         """Conjugate transpose of :meth:`forward`, which is not its inverse.
 
         The forward is ``c * F(pad(x))``, so the adjoint is ``c * crop(F^H(y))``:
-        cropping is the adjoint of the zero-padding, and ``F^H = N * ifft``
-        because the shared transform is backward-normalised, where ``N`` is the
-        number of samples on the padded grid.
+        cropping is the adjoint of the zero-padding, and ``F^H`` is the transform's own
+        :attr:`~hologradpy.fourier_transforms.FastFourierTransform.adjoint_scale` times
+        its ``adjoint``. Taken from the transform, since the factor follows the ``norm``
+        this lens forwards to it through ``**kwargs``.
         """
         padded_complex_amplitude = self._transform.adjoint(complex_amplitude)
 
-        out: ComplexAmplitude = crop_to_shape_2D(
+        out: ComplexAmplitude = to_canvas(
             padded_complex_amplitude, self.resolution_in
         )
 
@@ -259,7 +242,7 @@ class FourierLensFFT(OpticsModule):
             pixel_size=self.pixel_size_in,
         )
         
-        out = out * float(self.resolution_out[0] * self.resolution_out[1])
+        out = out * self._transform.adjoint_scale
 
         if self.power_normalized:
             out = out * self._power_prefactor(out.ndim)

@@ -14,10 +14,10 @@ import math
 import pytest
 import torch
 
+from hologradpy.utils import to_canvas
 from hologradpy.fourier_transforms import (
     fft_2d,
     ChirpZPartialAffine,
-    place,
 )
 
 
@@ -91,26 +91,26 @@ def test_czt_is_differentiable() -> None:
 # %% Framing
 
 
-def test_place_centres_a_field_in_a_larger_frame() -> None:
+def test_pad_crop_centres_a_field_in_a_larger_frame() -> None:
     """The centre sample has to land on the centre sample. Any other offset is a phase
     ramp in the conjugate plane, so it reads as a tilt across the focal plane rather
     than as a shifted image."""
     field = torch.zeros((64, 80), dtype=torch.complex64)
     field[64 // 2, 80 // 2] = 1.0
 
-    placed = place(field, (96, 112))
+    placed = to_canvas(field, (96, 112))
 
     assert tuple(placed.shape) == (96, 112)
     assert int(placed.abs().argmax()) == (96 // 2) * 112 + 112 // 2
 
 
-def test_place_crops_as_well_as_grows() -> None:
+def test_pad_crop_crops_as_well_as_grows() -> None:
     """The same call shrinks a frame, which is what lets a rotation out into a larger
     frame and the rotation back into the smaller one be the same operation."""
     field = _elliptical_gaussian(96, 10.0, 6.0, 0.0)
 
-    assert tuple(place(field, (48, 64)).shape) == (48, 64)
-    assert tuple(place(field, (96, 96)).shape) == (96, 96)
+    assert tuple(to_canvas(field, (48, 64)).shape) == (48, 64)
+    assert tuple(to_canvas(field, (96, 96)).shape) == (96, 96)
 
 
 def test_growing_a_frame_is_the_transpose_of_shrinking_it() -> None:
@@ -121,8 +121,8 @@ def test_growing_a_frame_is_the_transpose_of_shrinking_it() -> None:
     source = torch.randn(small, generator=generator, dtype=torch.float64)
     probe = torch.randn(large, generator=generator, dtype=torch.float64)
 
-    left = float((place(source, large) * probe).sum())
-    right = float((source * place(probe, small)).sum())
+    left = float((to_canvas(source, large) * probe).sum())
+    right = float((source * to_canvas(probe, small)).sum())
     assert left == pytest.approx(right, rel=1e-12)
 
 

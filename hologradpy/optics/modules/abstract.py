@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import functools
+import inspect
 from typing import Callable, TypedDict, Any  # , Self
 
 import torch
@@ -13,10 +14,69 @@ from .recording import RecordingMixin
 
 
 class SaveDict(TypedDict):
+    """What a checkpoint of one module holds.
+
+    ``class_name`` identifies what wrote it, so a state dict cannot be loaded into an
+    unrelated module. ``kwargs`` are the constructor arguments :func:`capture_init`
+    recorded, so the file can be reopened.
+    """
+
+    class_name: str
+    kwargs: dict[str, Any]
     state_dict: dict[str, Any]
     input_geometry: FieldGeometry
     resolution_out: tuple[int, int]
     pixel_size_out: Tensor
+
+
+def capture_init(init: Callable[..., None]) -> Callable[..., None]:
+    """Decorator for a concrete ``__init__`` that records the bound constructor
+    arguments into ``self._init_kwargs``.
+
+    Shared by :class:`OpticsModule` and
+    :class:`~hologradpy.optics.systems.OpticalSystem`: both need to rebuild an object
+    from a checkpoint, and neither should carry a hand-written list of what its
+    constructor took. The original ``__init__`` runs first, so ``nn.Module`` is fully
+    initialised before anything is recorded.
+
+    A ``**kwargs`` parameter is flattened into the recorded arguments, so passing them
+    back as keywords reproduces the original call. ``*args`` cannot be reproduced by
+    keyword and is therefore not recorded.
+    """
+    signature = inspect.signature(init)
+
+    @functools.wraps(init)
+    def wrapper(self, *args, **kwargs) -> None:
+        init(self, *args, **kwargs)
+        bound = signature.bind(self, *args, **kwargs)
+        bound.apply_defaults()
+
+        captured: dict[str, Any] = {}
+        for name, value in bound.arguments.items():
+            if name == "self":
+                continue
+            kind = signature.parameters[name].kind
+            if kind is inspect.Parameter.VAR_KEYWORD:
+                captured.update(value)
+            elif kind is not inspect.Parameter.VAR_POSITIONAL:
+                captured[name] = value
+        self._init_kwargs = captured
+
+    return wrapper
+
+
+def _check_checkpoint_class(state: dict, expected: type, path: str) -> None:
+    """Refuse a checkpoint written by a different module class.
+
+    Mirrors what :meth:`hologradpy.optics.systems.OpticalSystem.load` does for a whole
+    system. A checkpoint written before the class name was recorded carries none, and is
+    accepted.
+    """
+    written_by = state.get("class_name")
+    if written_by is not None and written_by != expected.__name__:
+        raise TypeError(
+            f"{path} was saved from a {written_by}, not a {expected.__name__}."
+        )
 
 
 def _auto_init_forward(forward: Callable) -> Callable:
@@ -288,6 +348,8 @@ class OpticsModule(RecordingMixin, nn.Module):
 
     def save(self, path: str) -> None:
         save_dict: SaveDict = {
+            "class_name": type(self).__name__,
+            "kwargs": getattr(self, "_init_kwargs", None),
             "state_dict": self.state_dict(),
             "input_geometry": self.input_geometry,
             "resolution_out": self.resolution_out,
@@ -296,14 +358,45 @@ class OpticsModule(RecordingMixin, nn.Module):
         torch.save(save_dict, path)
 
     def load_weights(self, path: str) -> None:
+        """Load weights from a checkpoint written by :meth:`save`.
+
+        Raises:
+            TypeError: The checkpoint was written by a different class.
+        """
         state = torch.load(path, weights_only=False)
+        _check_checkpoint_class(state, type(self), path)
         self.load_state_dict(state["state_dict"])
 
     @classmethod
     def from_file(cls, path: str, device: torch.device = "cpu"):
-        raise NotImplementedError(
-            "OpticsModule subclasses must implement from_file() method."
-        )
+        """Rebuild a module saved by :meth:`save`.
+
+        The constructor arguments are replayed, the module is initialised from the input
+        geometry the checkpoint recorded (so its lazily built state exists), and the
+        weights are loaded on top.
+
+        Raises:
+            TypeError: The checkpoint was written by a different class.
+            NotImplementedError: The checkpoint holds no constructor arguments, because
+                the class does not wear :func:`capture_init`.
+        """
+        state: SaveDict = torch.load(path, map_location=device, weights_only=False)
+        _check_checkpoint_class(state, cls, path)
+
+        kwargs = state.get("kwargs")
+        if kwargs is None:
+            raise NotImplementedError(
+                f"{path} holds no constructor arguments, so a {cls.__name__} cannot be "
+                f"rebuilt from it. Decorate {cls.__name__}.__init__ with @capture_init "
+                "and save it again."
+            )
+
+        # map_location has already moved the geometry's tensors, so the module builds
+        # its lazy state on the device the caller asked for.
+        module = cls(**kwargs)
+        module.initialize_from_geometry(state["input_geometry"])
+        module.load_state_dict(state["state_dict"])
+        return module
 
     def get_spatial_grid_input(self, index: int = 0) -> tuple[Tensor, Tensor]:
         return get_spatial_grid(

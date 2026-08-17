@@ -97,8 +97,8 @@ camera_mapping = camera_mapper.map_camera(
 
 # %% Saving results
 camera_mapping.save(data_path + "camera_mapping.asdf")
-slm_camera_model.save(data_path + "slm_camera_model.pkl")
-simulated_camera_model.save(data_path + "simulated_camera_model.pkl")
+slm_camera_model.save(data_path + "slm_camera_model.pt")
+simulated_camera_model.save(data_path + "simulated_camera_model.pt")
 
 # %% Plotting results
 camera_image = camera_mapping.visualization_data.camera_image
@@ -120,8 +120,7 @@ plt.plot(
     label="detected corners",
 )
 plt.plot(
-    camera_mapping.zeroth_order_position[1],
-    camera_mapping.zeroth_order_position[0],
+    *camera_mapping.zeroth_order_xy,
     "r+",
     label="zeroth order position",
 )

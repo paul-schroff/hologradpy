@@ -22,10 +22,16 @@ def level_dtype(bitdepth: int, xp: ModuleType = np):
 
 
 class PhaseResponse(ABC):
-    """Gray level to phase response of the SLM."""
+    """Gray level to phase response of the SLM. ``phase_scaling`` is the phase the 
+    SLM can reach in cycles.
+    """
 
     bitdepth: int
-    phase_scaling: float
+
+    @property
+    @abstractmethod
+    def phase_scaling(self) -> float:
+        """The reachable phase range, in cycles."""
 
     @abstractmethod
     def phase_at(self, fraction: ArrayLike) -> ArrayLike:
@@ -82,7 +88,11 @@ class LookupResponse(PhaseResponse):
 
     bitdepth: int
     phases: NDArray = field(default_factory=lambda: np.zeros(0))
-    phase_scaling: float = 1.0
+
+    @property
+    def phase_scaling(self) -> float:
+        """Read off the lookup table."""
+        return float((self.phases[0] - self.phases[-1]) / TWO_PI)
 
     def __post_init__(self) -> None:
         phases = np.asarray(self.phases, dtype=np.float64)
@@ -189,7 +199,7 @@ def _invert(rising: ArrayLike, wanted: ArrayLike) -> ArrayLike:
     upper = xp.clip(index, 1, last)
     lower = upper - 1
     step = rising[upper] - rising[lower]
-    # A flat step is a level the panel repeats, where any of them will do.
+    # A flat step is a level the SLM repeats, where any of them will do.
     safe = xp.where(step == 0, xp.ones_like(step), step)
     weight = xp.where(step == 0, xp.zeros_like(step), (wanted - rising[lower]) / safe)
     return _as_float(lower) + weight

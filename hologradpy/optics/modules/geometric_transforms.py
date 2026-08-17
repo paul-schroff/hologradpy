@@ -10,7 +10,7 @@ from kornia.geometry import warp_perspective
 
 from ...utils import unsqueeze_to
 from ...geometry import PartialAffineTransform
-from .abstract import OpticsModule, SaveDict
+from .abstract import capture_init, OpticsModule
 from ..complex_amplitude import ComplexAmplitude
 from ...geometry import recalibrated_partial_affine
 
@@ -25,6 +25,7 @@ class GeometricWarp(OpticsModule):
     decompose, compose, invert) live in :mod:`hologradpy.geometry`.
     """
 
+    @capture_init
     def __init__(
         self: GeometricWarp,
         resolution_out: tuple[int, int],
@@ -127,23 +128,6 @@ class GeometricWarp(OpticsModule):
         ).fliplr()
 
         self.affine_matrix = self.get_affine_matrix()
-
-    @classmethod
-    def from_file(
-        cls, path: str, device: torch.device = "cpu"
-    ) -> GeometricWarp:
-        state: SaveDict = torch.load(path, map_location=device, weights_only=False)
-        state_dict = state["state_dict"]
-        return cls(
-            resolution_out=state["resolution_out"],
-            pixel_size_out=tuple(state["pixel_size_out"][0].tolist()),
-            scale_factor=tuple(state_dict["scale_factor"].tolist()),
-            shift=tuple(state_dict["shift"].tolist()),
-            angle=state_dict["angle"][0].item(),
-            rotation_center_shift=tuple(
-                state_dict["rotation_center_shift"][0].tolist()
-            ),
-        )
 
     def apply_partial_affine(self, transform: PartialAffineTransform) -> None:
         """Seed the learnable ``scale_factor`` / ``shift`` / ``angle`` from a fitted

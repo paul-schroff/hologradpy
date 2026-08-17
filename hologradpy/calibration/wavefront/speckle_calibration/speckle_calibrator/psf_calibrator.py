@@ -58,6 +58,6 @@ class PSFSpeckleCalibrator(SpeckleCalibrator):
         return FitSettings(loss=MaskedIntensityMSE(mask), learning_rate=3e-2)
 
     def _visualization_extras(self) -> dict:
-        """The fitted kernel, which is what this parameterisation actually optimised."""
+        """The fitted kernel this parameterisation optimised."""
         kernel = self.slm_camera_model.slm_field.get_psf_kernel()
         return {"psf_kernel": kernel.detach().cpu().numpy()}

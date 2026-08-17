@@ -64,6 +64,7 @@ from hologradpy.optics.modules.slm_fields import PixelwiseSLMField  # noqa: E402
 from hologradpy.optics.modules.virtual_slms import VirtualSLM  # noqa: E402
 from hologradpy.optics.systems import SLMCZT  # noqa: E402
 from hologradpy.profiles.amplitude import gaussian_beam_intensity  # noqa: E402
+from hologradpy.profiles.amplitude import super_gaussian  # noqa: E402
 from hologradpy.profiles.masks import rectangular_mask  # noqa: E402
 from hologradpy.profiles.phase import linear_phase  # noqa: E402
 from hologradpy.roi import ROI  # noqa: E402
@@ -149,9 +150,17 @@ TARGET_POSITION = (250e-6, 0.0)
 
 
 def _target(model: SLMCZT = None) -> tuple[torch.Tensor, torch.Tensor]:
-    """The target patch and its signal region, on their own grid at the camera pitch."""
+    """The target patch and its signal region, on their own grid at the camera pitch.
+
+    A flat top with a soft edge rather than a rectangle. A finite aperture cannot
+    make an infinitely sharp edge, so a rectangle asks the loop for something
+    unreachable, and it is not band limited: placing it between samples rings, which
+    put 24% overshoot on the target being chased. The order sets the softness, and
+    this one rolls off over about two camera pixels, its half maximum still at the
+    rectangle's own edge.
+    """
     grid = get_spatial_grid(PATCH_RESOLUTION, (CAMERA_PIXEL_SIZE, CAMERA_PIXEL_SIZE))
-    target = rectangular_mask(*grid, 150e-6, 150e-6, 0.0, 0.0).float()
+    target = super_gaussian(*grid, 0.0, 0.0, 6, 6, 90e-6, 90e-6).float()
     signal_region = rectangular_mask(*grid, 300e-6, 300e-6, 0.0, 0.0)
     return target, signal_region
 
@@ -405,7 +414,7 @@ def test_run_leaves_the_retriever_on_the_corrected_target() -> None:
 
 def test_run_returns_a_saveable_record(feedback_run: CameraFeedbackData) -> None:
     assert isinstance(feedback_run, CameraFeedbackData)
-    assert feedback_run.phase.shape == SLM_RESOLUTION
+    assert feedback_run.retrievals[-1].phase.shape == SLM_RESOLUTION
     assert len(feedback_run.retrievals) == ITERATIONS
     assert all(
         isinstance(retrieval, PhaseRetrievalData)
@@ -425,11 +434,13 @@ def test_record_survives_a_round_trip(
 ) -> None:
     """A save keeps every measurement, since those are the part of a run that cannot be
     recreated without the bench, and the reloaded record still draws."""
-    path = tmp_path / "feedback.pkl"
+    path = tmp_path / "feedback.asdf"
     feedback_run.save(path)
     reloaded = CameraFeedbackData.load(path)
 
-    assert np.allclose(reloaded.phase, feedback_run.phase)
+    assert np.allclose(
+        reloaded.retrievals[-1].phase, feedback_run.retrievals[-1].phase
+    )
     assert len(reloaded.corrected_targets) == len(feedback_run.corrected_targets)
     assert np.allclose(
         reloaded.corrected_targets[-1], feedback_run.corrected_targets[-1]
@@ -444,6 +455,16 @@ def test_record_survives_a_round_trip(
     figure = reloaded.visualizer().render()
     assert figure is not None
     plt.close(figure)
+
+
+def test_a_run_stores_its_target_once(feedback_run: CameraFeedbackData) -> None:
+    """The target and the signal region belong to the run, which holds them once. A
+    nested retrieval carries only the phase it produced."""
+    assert feedback_run.retrievals
+    for retrieval in feedback_run.retrievals:
+        assert retrieval.target is None
+        assert retrieval.signal_region is None
+        assert retrieval.phase is not None
 
 
 def test_no_dataset_without_a_path(tmp_path) -> None:
@@ -483,7 +504,8 @@ def test_a_run_writes_a_dataset_when_asked(tmp_path) -> None:
             feedback.slm.phase_to_levels(data.retrievals[0].phase),
         )
         assert np.array_equal(
-            store.read(2)["slm_levels"], feedback.slm.phase_to_levels(data.phase)
+            store.read(2)["slm_levels"],
+            feedback.slm.phase_to_levels(data.retrievals[-1].phase),
         )
 
 
@@ -505,7 +527,9 @@ def test_a_written_dataset_describes_itself(tmp_path) -> None:
     with CaptureStore.open(moved) as store:
         assert len(store) == 2
         assert isinstance(store.record(), CameraFeedbackData)
-        assert np.allclose(store.record().phase, data.phase)
+        assert np.allclose(
+            store.record().retrievals[-1].phase, data.retrievals[-1].phase
+        )
 
 
 def test_zeroth_order_is_outside_the_signal_region() -> None:
@@ -698,7 +722,7 @@ def test_builds_its_own_retriever() -> None:
     data = feedback.run(
         retriever_iterations=[10] * 2, averages=1, verbose=False
     )
-    assert data.phase.shape == SLM_RESOLUTION
+    assert data.retrievals[-1].phase.shape == SLM_RESOLUTION
 
 
 def test_uses_the_retriever_it_is_given() -> None:
@@ -828,7 +852,7 @@ def test_record_survives_a_save_load_round_trip(tmp_path) -> None:
     _, _, retriever, _, _ = _bench()
     record = retriever.retrieve(5, method="cg", verbose=False)
 
-    path = tmp_path / "retrieval.pkl"
+    path = tmp_path / "retrieval.asdf"
     record.save(path)
     reloaded = PhaseRetrievalData.load(path)
 
@@ -836,6 +860,34 @@ def test_record_survives_a_save_load_round_trip(tmp_path) -> None:
     assert reloaded.metrics == record.metrics
     assert reloaded.loss_history == record.loss_history
     assert reloaded.timestamp == record.timestamp
+
+
+def test_a_loaded_record_finds_the_steps_beside_it(tmp_path) -> None:
+    """A record whose steps live in a sibling file used to need the caller to remember
+    where they were, so a record opened on its own loaded and then failed at replay."""
+    _, _, retriever, _, _ = _bench()
+    record = retriever.retrieve(
+        6, method="cg", verbose=False, step_stride=2, step_directory=tmp_path
+    )
+    assert record.step_iterations, "the retrieval recorded no steps to look for"
+
+    # Built rather than loaded, so there is nowhere to look and it says so.
+    with pytest.raises(FileNotFoundError, match="not loaded from a file"):
+        record.load_step(record.step_iterations[0])
+
+    path = tmp_path / "retrieval.asdf"
+    record.save(path)
+    reloaded = PhaseRetrievalData.load(path)
+
+    assert reloaded.source_directory == tmp_path
+    step = reloaded.load_step(reloaded.step_iterations[0])
+    assert step.shape == tuple(SLM_RESOLUTION)
+
+    # An explicit directory still wins, which is what a record split from its steps
+    # needs.
+    np.testing.assert_allclose(
+        reloaded.load_step(reloaded.step_iterations[0], tmp_path), step
+    )
 
 
 def test_no_steps_recorded_by_default(tmp_path) -> None:
@@ -1190,10 +1242,8 @@ def _synthetic_data(
     data = CameraFeedbackData(
         timestamp=datetime.now(),
         name="synthetic",
-        phase=rng.random((10, 10)) * 2 * np.pi,
         target=rng.random((12, 16)),
         signal_region=signal_region,
-        signal_roi=roi,
         final_camera_image=rng.random((12, 16)) * 100,
         initial_guess=rng.random((12, 16)) * 400 if with_initial_guess else None,
         lower_is_better={"rmse": True, "psnr [dB]": False},
@@ -1201,14 +1251,13 @@ def _synthetic_data(
     for iteration in range(iterations):
         data.measured_images.append(roi.crop(rng.random((12, 16)) * 100))
         data.corrected_targets.append(roi.crop(rng.random((12, 16))))
+        # Leaned, as a real run stores them.
         data.retrievals.append(
             PhaseRetrievalData(
                 timestamp=datetime.now(),
                 name="synthetic",
                 phase=rng.random((10, 10)) * 2 * np.pi,
-                target=data.target,
-                signal_region=signal_region,
-            )
+            ).lean()
         )
         for offset, name in enumerate(metric_names):
             data.metrics.setdefault(name, []).append(offset + 0.5 / (iteration + 1))
@@ -1422,7 +1471,7 @@ def test_phase_reaches_the_slm() -> None:
     retrieved = gpu_to_numpy(
         feedback.phase_retriever.slm_camera_model.virtual_slm.get_phase()
     )
-    assert np.allclose(data.phase, retrieved)
+    assert np.allclose(data.retrievals[-1].phase, retrieved)
     # Quantized to the SLM bit depth on the way to the display, and shifted by one
     # level there, so equal only to within a couple of levels.
     displayed = feedback.slm.virtual_slm.get_phase().numpy()

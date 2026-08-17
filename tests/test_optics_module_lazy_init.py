@@ -94,3 +94,66 @@ def test_set_output_geometry_changes_output_sampling():
         module.pixel_size_out.reshape(-1)[:2],
         torch.tensor([2e-5, 2e-5], dtype=module.pixel_size_out.dtype),
     )
+
+
+# --- Checkpoints -------------------------------------------------------------------
+
+
+def _lens():
+    from hologradpy.optics.modules.propagators.fourier_lens_fft import FourierLensFFT
+
+    return FourierLensFFT(focal_length=0.1, padded_resolution=(8, 8))
+
+
+def _warp():
+    from hologradpy.optics.modules.geometric_transforms import GeometricWarp
+
+    return GeometricWarp(
+        resolution_out=(4, 4),
+        pixel_size_out=(1e-5, 1e-5),
+        scale_factor=(1.1, 0.9),
+        shift=(0.3, -0.2),
+        angle=2.0,
+    )
+
+
+def _pixelwise():
+    from hologradpy.optics.modules.slm_fields.pixelwise import PixelwiseSLMField
+
+    return PixelwiseSLMField(
+        init_field=ComplexAmplitude(
+            torch.linspace(0.2, 1.0, 16).reshape(4, 4).to(torch.complex64),
+            GEOMETRY.wavelength,
+            GEOMETRY.pixel_size,
+        )
+    )
+
+
+@pytest.mark.parametrize("build", [_lens, _warp, _pixelwise], ids=lambda f: f.__name__)
+def test_a_module_reopens_as_what_it_was(build, tmp_path):
+    """save() and from_file() are a pair, so a saved module comes back producing the
+    same field. The base used to write a file its own from_file could not read."""
+    module = build()
+    before = module(_field())
+    path = str(tmp_path / "module.pt")
+    module.save(path)
+
+    reopened = type(module).from_file(path)
+    torch.testing.assert_close(
+        reopened(_field()).as_tensor(), before.as_tensor(), rtol=1e-5, atol=1e-6
+    )
+
+
+def test_a_checkpoint_refuses_the_wrong_class(tmp_path):
+    """One module's weights landing in another's parameters either fails on a shape a
+    long way from here, or does not fail at all."""
+    path = str(tmp_path / "lens.pt")
+    lens = _lens()
+    lens(_field())
+    lens.save(path)
+
+    with pytest.raises(TypeError, match="saved from a FourierLensFFT"):
+        type(_warp()).from_file(path)
+
+    with pytest.raises(TypeError, match="saved from a FourierLensFFT"):
+        _warp().load_weights(path)

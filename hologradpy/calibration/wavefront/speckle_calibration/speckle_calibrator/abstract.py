@@ -122,7 +122,7 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
         return CoarseMapper(self.slm, self.camera, self.slm_camera_model).map_camera()
 
     # The three things a parameterisation changes. Everything else on this class is
-    # shared, which is why they are the only hooks.
+    # shared, so they are the only hooks.
 
     def _prepare_slm_field(self) -> None:
         """Generate the SLM-plane field this calibrator fits."""

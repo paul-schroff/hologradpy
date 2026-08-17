@@ -17,7 +17,7 @@ from ....optics.systems import SLMFFT
 from ....utils import gpu_to_numpy
 from ....profiles.phase import analytic_phase_guess
 from ....profiles.masks import rectangular_mask
-from ....grids import get_spatial_grid
+from ....grids import get_spatial_grid, pixel_to_metres, plane_centre
 
 from ....holography.phase_retrieval import CGPhaseRetriever
 from ....holography.vortices.vortex_annihilator import VortexAnnihilator
@@ -149,9 +149,8 @@ class CheckerboardMapper(CameraMapper):
         inverse = np.asarray(coarse_mapping.inverse_transform, dtype=np.float64)
         magnification = float(np.sqrt(abs(np.linalg.det(inverse[:, :2]))))
         squares_plus = (number_of_squares[1] + 1, number_of_squares[0] + 1)
-        center_metres = (
-            (center_camera[0] - camera_shape[1] / 2) * pitch[0],
-            (center_camera[1] - camera_shape[0] / 2) * pitch[1],
+        center_metres = pixel_to_metres(
+            center_camera, self.camera.pixel_size, camera_shape
         )
         camera_grid = get_spatial_grid(
             self.camera.resolution, self.camera.pixel_size, device=self.device
@@ -265,23 +264,12 @@ class CheckerboardMapper(CameraMapper):
         # Fitting affine transformation to detected and calculated corners
         affine = AffineTransform.fit(detected_corners, calculated_corners)
         transform = affine.as_matrix(homogeneous=False)
-        inverse_transform = affine.inverse().as_matrix(homogeneous=False)
         reprojection_errors, reprojection_rms = self.calculate_reprojection_error(
             detected_corners, calculated_corners, transform
         )
 
-        center = (
-            self.slm_camera_model.fourier_lens.resolution_out[1] // 2,
-            self.slm_camera_model.fourier_lens.resolution_out[0] // 2,
-        )
-
-        zeroth_order_position = (
-            inverse_transform[1, 0] * center[0]
-            + inverse_transform[1, 1] * center[1]
-            + inverse_transform[1, 2],
-            inverse_transform[0, 0] * center[0]
-            + inverse_transform[0, 1] * center[1]
-            + inverse_transform[0, 2],
+        zeroth_order_position = CameraMapping.zeroth_order_from(
+            affine, self.slm_camera_model.fourier_lens.resolution_out
         )
 
         # Generating and returning CameraMapping dataclass.
@@ -326,7 +314,7 @@ class CheckerboardMapper(CameraMapper):
         inverse = np.asarray(coarse_mapping.inverse_transform, dtype=np.float64)
         magnification = float(np.sqrt(abs(np.linalg.det(inverse[:, :2]))))
         height, width = camera_shape
-        model_centre = np.array([resolution_out[1] / 2.0, resolution_out[0] / 2.0])
+        model_centre = np.array(plane_centre(resolution_out), dtype=float)
         addressable = self.slm_camera_model.addressable_half_extent()  # (x, y) m
 
         if square_size is None:
@@ -347,10 +335,7 @@ class CheckerboardMapper(CameraMapper):
                 "or square_size."
             )
 
-        zeroth = np.array(
-            [coarse_mapping.zeroth_order_position[1],
-             coarse_mapping.zeroth_order_position[0]]
-        )  # (x, y) camera px
+        zeroth = np.array(coarse_mapping.zeroth_order_xy)
         dc_on_sensor = 0.0 <= zeroth[0] < width and 0.0 <= zeroth[1] < height
 
         if dc_on_sensor:

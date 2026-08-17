@@ -1,33 +1,30 @@
 from __future__ import annotations
 from dataclasses import dataclass, field, replace
-from typing import TypeVar
 from datetime import datetime
 
 import numpy as np
-import torch
 from numpy.typing import NDArray
+from torch import Tensor
 
 from ...geometry import AffineTransform, PartialAffineTransform
+from ...grids import plane_centre
 from ...serialization import SaveableRecord, record_type
 from ...visualizer import VisualizationData
 from ...hardware.camera import CameraData, CameraOrientation
-
-ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
-
 
 @record_type("focal_spot_fit")
 @dataclass(frozen=True)
 class FocalSpotFit:
     waist: float
     waist_uncertainty: float | None = None
-    parameters: list[ArrayLike] | None = None
-    covariances: list[ArrayLike] | None = None
+    parameters: list[NDArray | Tensor] | None = None
+    covariances: list[NDArray | Tensor] | None = None
 
 
 @record_type("mapping_fit")
 @dataclass(frozen=True)
 class MappingFit:
-    reprojection_errors: ArrayLike
+    reprojection_errors: NDArray | Tensor = field(compare=False, hash=False)
     reprojection_rms: float
     excluded_points: list[tuple[float, float]] | None = None
 
@@ -42,7 +39,7 @@ class OrientationSuggestion:
     """
 
     suggested: CameraOrientation
-    residual_transform: ArrayLike
+    residual_transform: NDArray | Tensor = field(compare=False, hash=False)
 
 
 @record_type("camera_mapping")
@@ -52,7 +49,7 @@ class CameraMapping(SaveableRecord):
 
     timestamp: datetime
     name: str
-    transform: ArrayLike
+    transform: NDArray | Tensor
     detected_points: list[tuple[float, float]]
     calculated_points: list[tuple[float, float]]
     zeroth_order_position: tuple[float, float]
@@ -89,6 +86,23 @@ class CameraMapping(SaveableRecord):
         return PartialAffineTransform.fit(
             self.detected_points, self.calculated_points
         )
+
+    @property
+    def zeroth_order_xy(self) -> tuple[float, float]:
+        """The zeroth order as ``(x, y)`` camera pixels. :attr:`zeroth_order_position` 
+        is ``(row, column)``, which most of the geometry wants the other way round.
+        """
+        row, column = self.zeroth_order_position
+        return (float(column), float(row))
+
+    @staticmethod
+    def zeroth_order_from(
+        affine: AffineTransform, resolution_out: tuple[int, int]
+    ) -> tuple[float, float]:
+        """Where the undiffracted spot lands on the sensor, as ``(row, column)``."""
+        centre = plane_centre(resolution_out)
+        column, row = affine.inverse().transform_points([centre])[0]
+        return (float(row), float(column))
 
     @property
     def is_mirrored(self) -> bool:

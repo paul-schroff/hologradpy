@@ -6,10 +6,17 @@ import torch
 from torch import Tensor
 from torch.nn import Parameter
 
-from ....fourier_transforms import KbNufftPartialAffine
+from ....fourier_optics import (
+    fourier_lens_magnification,
+    fourier_lens_power_prefactor,
+)
+from ....fourier_transforms import (
+    KbNufftPartialAffine,
+    window_offset_from_pixels,
+)
 
 from ..abstract import OpticsModule
-from ...complex_amplitude import ComplexAmplitude
+from ...complex_amplitude import ComplexAmplitude, pixel_area
 
 
 class FourierLensNUFFT(OpticsModule):
@@ -69,14 +76,14 @@ class FourierLensNUFFT(OpticsModule):
         # focal-plane convention the transform and the learnable params share. This is
         # the single boundary between the array-axis and focal-plane conventions.
         self._scale: Float[Tensor, "n_wavelengths 2"] = (  # noqa: F722
-            complex_amplitude.wavelength.unsqueeze(-1)
-            * self.focal_length
-            / (
-                complex_amplitude.pixel_size
-                * self._padded_resolution_tensor.unsqueeze(0)
-            )
-            / self._pixel_size_out.unsqueeze(0)
-        ).flip(-1)
+            fourier_lens_magnification(
+                complex_amplitude.wavelength.unsqueeze(-1),
+                self.focal_length,
+                complex_amplitude.pixel_size,
+                self._padded_resolution_tensor.unsqueeze(0),
+                self._pixel_size_out.unsqueeze(0),
+            ).flip(-1)
+        )
 
         # scale_factor and shift are (x, y), matching the geometry / GeometricWarp
         # convention and the (x, y) internal scale, so they combine directly.
@@ -133,10 +140,9 @@ class FourierLensNUFFT(OpticsModule):
 
         magnification = scale  # (x, y)
 
-        two_pi = 2 * torch.pi
-        padded_height, padded_width = self._padded_resolution
-        shift_x = -two_pi * self.shift[0] / (padded_width * scale[:, 0])
-        shift_y = -two_pi * self.shift[1] / (padded_height * scale[:, 1])
+        shift_x, shift_y = window_offset_from_pixels(
+            self.shift, self._padded_resolution, (scale[:, 0], scale[:, 1])
+        )
         shift = torch.stack((shift_x, shift_y), dim=-1)  # (n_wl, 2): (x, y)
 
         # Negated on purpose to be consistent with the other modules.
@@ -168,11 +174,11 @@ class FourierLensNUFFT(OpticsModule):
         is approximate, so power is conserved only up to interpolation error.
         Shaped ``(1, n_wl, 1, 1)`` for the flattened field."""
         pixel_size_in = self.pixel_size_in
-        pixel_area = (
-            (pixel_size_in[:, 0] * pixel_size_in[:, 1]).to(torch.float64).reshape(-1)
-        )
+        area = pixel_area(pixel_size_in)
         wavelength = self.input_geometry.wavelength.to(torch.float64).reshape(-1)
-        prefactor = pixel_area / (wavelength * self.focal_length)  # (n_wl,)
+        prefactor = fourier_lens_power_prefactor(
+            area, wavelength, self.focal_length
+        )
         return prefactor.to(pixel_size_in.dtype).reshape(1, -1, 1, 1)
 
     def forward(

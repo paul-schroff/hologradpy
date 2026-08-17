@@ -32,23 +32,15 @@ class SimulatedCameraTorch(Camera):
     def __init__(
         self,
         slm_camera_model: SLMFourierLensModel,
-        bitdepth: int = 8,
         name: str = "SimulatedCameraTorch",
         exposure_bounds: tuple[float, float] | None = (0.0, 1.0),
         orientation: CameraOrientation = CameraOrientation(),
-        quantum_efficiency: float = 1.0,
-        full_well_capacity: float = 1e4,
-        exposure_time: float = 1e-3,
-        gain: float = 1.0,
-        noise_level: float = 0.0,
-        nd_filter_optical_density: float = 0.0,
-        add_noise: bool = True,
-        quantize: bool = True,
         background_scatter_power: float | None = None,
         background_scatter_grain_radius: float = 5e-6,
         background_scatter_seed: int | None = None,
         power_std: float | None = None,
         power_seed: int | None = None,
+        **sensor_kwargs,
     ) -> None:
         """Initialize a simulated camera with a given SLM camera model.
 
@@ -104,8 +96,6 @@ class SimulatedCameraTorch(Camera):
         self.set_orientation(orientation)
 
         self.name = str(name)
-        self.bitdepth = int(bitdepth)
-        self._adu_levels = 2 ** self.bitdepth
         self._exposure_bounds = (
             (float(np.min(exposure_bounds)), float(np.max(exposure_bounds)))
             if exposure_bounds is not None
@@ -132,6 +122,12 @@ class SimulatedCameraTorch(Camera):
                     "slm_camera_model already terminates in a CameraSensor; "
                     "build the model without a pre-attached sensor."
                 )
+            if sensor_kwargs:
+                raise ValueError(
+                    "slm_camera_model already terminates in a CameraSensor, so "
+                    f"{sorted(sensor_kwargs)} cannot be applied. Configure that "
+                    "sensor, or build the model without one."
+                )
             self.sensor = slm_camera_model[-1]
         else:
             # A static laser-speckle stray-light background is added just before
@@ -144,17 +140,7 @@ class SimulatedCameraTorch(Camera):
                     seed=background_scatter_seed,
                 )
                 slm_camera_model.add("background", self.background_scatter)
-            self.sensor = CameraSensor(
-                quantum_efficiency=quantum_efficiency,
-                full_well_capacity=full_well_capacity,
-                exposure_time=exposure_time,
-                gain=gain,
-                noise_level=noise_level,
-                nd_filter_optical_density=nd_filter_optical_density,
-                bitdepth=bitdepth,
-                add_noise=add_noise,
-                quantize=quantize,
-            )
+            self.sensor = CameraSensor(**sensor_kwargs)
             slm_camera_model.add("sensor", self.sensor)
 
     # Native geometry / exposure surface
@@ -165,14 +151,18 @@ class SimulatedCameraTorch(Camera):
         return self._pixel_size
 
     @property
-    def resolution(self) -> tuple[int, int]:
-        """Displayed resolution ``(height, width)`` in pixels (post orientation)."""
-        return self._resolution
+    def bitdepth(self) -> int:
+        """Bits per pixel, from the sensor that produces the counts."""
+        return self.sensor.bitdepth
 
     @property
-    def adu_levels(self) -> int:
-        """Number of digital levels (``2 ** bitdepth``)."""
-        return self._adu_levels
+    def max_pixel_value(self) -> int:
+        """The sensor's own ceiling, the value the counts are scaled to.
+
+        Read through rather than stored, so a camera cannot report a ceiling the frames
+        it returns disagree with.
+        """
+        return self.sensor.max_pixel_value
 
     @property
     def exposure_bounds(self) -> tuple[float, float] | None:

@@ -33,9 +33,9 @@ class PSFSpeckleVisualizationData(SpeckleVisualizationData):
 class PSFCalibratorVisualizer(SpeckleCalibratorVisualizer):
     """Render a PSF-parameterised speckle calibration.
 
-    The shared panels plus the fitted kernel, which is what a PSF calibration actually
-    optimised. Its phase is the interesting half: a kernel that picks up structure there
-    is carrying the aberration the SLM-plane field is derived from.
+    The shared panels plus the fitted kernel a PSF calibration optimised. Its phase is
+    the interesting half: a kernel that picks up structure there is carrying the
+    aberration the SLM-plane field is derived from.
     """
 
     def __init__(self, data: PSFSpeckleVisualizationData) -> None:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from numpy.typing import NDArray
@@ -25,5 +25,5 @@ class SpeckleCaptureData(SaveableRecord):
     camera_data: CameraData
     camera_mapping: CameraMapping
     roi_mask: NDArray[np.bool_]
-    benchmark_calibration: WavefrontCalibrationData | None
-    metadata: dict
+    benchmark_calibration: WavefrontCalibrationData | None = None
+    metadata: dict = field(default_factory=dict)

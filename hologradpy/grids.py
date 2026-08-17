@@ -35,6 +35,14 @@ def get_spatial_grid(
     return spatial_grid_x, spatial_grid_y
 
 
+def plane_centre(resolution: tuple[int, int]) -> tuple[int, int]:
+    """The ``(x, y)`` pixel where :func:`get_pixel_grid` crosses zero."""
+    height, width = resolution
+    first_x = -width // 2
+    first_y = -height // 2
+    return (-first_x, -first_y)
+
+
 def metres_to_pixel(
     position: tuple[float, float],
     pixel_size: tuple[float, float],
@@ -44,12 +52,27 @@ def metres_to_pixel(
     inverse of :func:`get_spatial_grid`.
 
     ``pixel_size`` is ``(y, x)`` metres and ``resolution`` is ``(height, width)``, so
-    x uses the width pitch and y the height pitch. Works for any plane (the camera
-    sensor or a model output grid) given that plane's pitch and shape.
+    x uses the width pitch and y the height pitch.
     """
+    centre_x, centre_y = plane_centre(resolution)
     return (
-        position[0] / pixel_size[1] + resolution[1] // 2,
-        position[1] / pixel_size[0] + resolution[0] // 2,
+        position[0] / pixel_size[1] + centre_x,
+        position[1] / pixel_size[0] + centre_y,
+    )
+
+
+def pixel_to_metres(
+    pixel: tuple[float, float],
+    pixel_size: tuple[float, float],
+    resolution: tuple[int, int],
+) -> tuple[float, float]:
+    """``(x, y)`` pixels to plane ``(x, y)`` metres from the centre. The inverse of 
+    :func:`metres_to_pixel`.
+    """
+    centre_x, centre_y = plane_centre(resolution)
+    return (
+        (pixel[0] - centre_x) * pixel_size[1],
+        (pixel[1] - centre_y) * pixel_size[0],
     )
 
 

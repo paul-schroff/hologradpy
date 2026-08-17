@@ -32,10 +32,8 @@ class CameraFeedbackData(SaveableRecord):
 
     timestamp: datetime
     name: str
-    phase: NDArray
     target: NDArray
     signal_region: NDArray
-    signal_roi: ROI
     corrected_targets: list[NDArray] = field(default_factory=list)
     measured_images: list[NDArray] = field(default_factory=list)
     final_camera_image: NDArray | None = None
@@ -45,6 +43,15 @@ class CameraFeedbackData(SaveableRecord):
     metrics: dict[str, list[float]] = field(default_factory=dict)
     lower_is_better: dict[str, bool] = field(default_factory=dict)
     metadata: dict = field(default_factory=dict)
+
+    @property
+    def signal_roi(self) -> ROI:
+        """Bounding box of the signal region, which the per-iteration images are cropped
+        to.
+        """
+        return ROI.detect(
+            np.asarray(self.signal_region).astype(bool), threshold=0.0, pad=0
+        )
 
     @property
     def number_of_iterations(self) -> int:

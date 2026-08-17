@@ -8,6 +8,7 @@ from ...complex_amplitude import (
     broadcast_wavelength_operand,
 )
 from ....profiles.zernike import (
+    DEFAULT_UNIT_DISK_MODE,
     Zernike,
     Conventions,
     make_per_wavelength_coefficients,
@@ -30,11 +31,12 @@ class ZernikeSLM(VirtualSLM):
 
     def __init__(
         self: ZernikeSLM,
-        phase_scaling: float,
+        phase_scaling: float = 1.0,
         number_of_radial_orders: int = 5,
         initial_coefficients: torch.Tensor | None = None,
         convention: Conventions = "Noll",
-        unit_disk_mode: str = "fill",
+        unit_disk_mode: str = DEFAULT_UNIT_DISK_MODE,
+        phase_response=None,
     ) -> None:
         """
         Args:
@@ -50,7 +52,9 @@ class ZernikeSLM(VirtualSLM):
             unit_disk_mode: How the unit disk maps onto the resolution
                 (``"fill"`` covers the corners, ``"fit"`` inscribes it).
         """
-        super().__init__(phase_scaling=phase_scaling)
+        super().__init__(
+            phase_scaling=phase_scaling, phase_response=phase_response
+        )
 
         self.number_of_radial_orders: int = number_of_radial_orders
         self.initial_coefficients: torch.Tensor | None = initial_coefficients
@@ -101,22 +105,14 @@ class ZernikeSLM(VirtualSLM):
             "lc,chw->lhw", self.zernike_coefficients, self.zernike_basis
         )
 
-    def forward(
-        self: ZernikeSLM, complex_amplitude: ComplexAmplitude
-    ) -> ComplexAmplitude:
-        # Wrapped desired phase, per wavelength: (n_wavelengths, H, W).
-        phase = self.get_phase().remainder(self.phase_scaling * 2 * torch.pi)
+    def apply_phase_transforms(self, phase: torch.Tensor) -> torch.Tensor:
+        response = self.phase_response.response
+        return response.phase_at(response.fraction_at(phase))
 
-        # Align the wavelength axis at dim -3 and broadcast over any leading
-        # batch dimensions (dropping the wavelength axis for a 2D field).
-        phase = broadcast_wavelength_operand(phase, complex_amplitude.ndim)
-
-        modulated = complex_amplitude * torch.exp(1j * phase)
-
-        return modulated.with_geometry(
-            wavelength=complex_amplitude.wavelength,
-            pixel_size=self.pixel_size_out,
-        )
+    def align_phase(self, phase: torch.Tensor, field_ndim: int) -> torch.Tensor:
+        """The phase here is per wavelength, so the wavelength axis goes at dim -3 and
+        broadcasts over any leading batch axes."""
+        return broadcast_wavelength_operand(phase, field_ndim)
 
     @classmethod
     def from_slm(
@@ -125,10 +121,10 @@ class ZernikeSLM(VirtualSLM):
         number_of_radial_orders: int = 5,
         initial_coefficients: torch.Tensor | None = None,
         convention: Conventions = "Noll",
-        unit_disk_mode: str = "fill",
+        unit_disk_mode: str = DEFAULT_UNIT_DISK_MODE,
     ) -> ZernikeSLM:
-        return cls(
-            phase_scaling=slm.phase_scaling,
+        return cls._from_source(
+            slm,
             number_of_radial_orders=number_of_radial_orders,
             initial_coefficients=initial_coefficients,
             convention=convention,

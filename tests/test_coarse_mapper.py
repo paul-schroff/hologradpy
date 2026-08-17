@@ -183,10 +183,11 @@ BITRESOLUTION = 1024
 
 
 def _fake_camera(pixel_um=PIXEL_UM, bitresolution=BITRESOLUTION):
-    # detect_spot reads native .pixel_size (y, x) metres and .adu_levels.
+    # detect_spot reads native .pixel_size (y, x) metres and .max_pixel_value.
     pitch_m = pixel_um * 1e-6
     return SimpleNamespace(
-        pixel_size=np.array([pitch_m, pitch_m]), adu_levels=bitresolution
+        pixel_size=np.array([pitch_m, pitch_m]),
+        max_pixel_value=bitresolution - 1,
     )
 
 
@@ -342,7 +343,7 @@ def test_camera_mapping_records_camera_data_and_pickles(tmp_path):
     assert coarse.camera_data is not None
     assert np.asarray(coarse.camera_data.orientation).shape == (2, 3)
     # The mapping (with the CameraData snapshot) still round-trips through pickle.
-    path = str(tmp_path / "coarse_mapping.pkl")
+    path = str(tmp_path / "coarse_mapping.asdf")
     coarse.save(path)
     loaded = CameraMapping.load(path)
     assert loaded.camera_data.resolution == tuple(camera.shape)

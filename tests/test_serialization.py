@@ -23,7 +23,9 @@ from hologradpy.calibration.camera_mapping import (
     CameraMappingVisualizationData,
     FocalSpotFit,
 )
+from hologradpy.hardware.slm import SLMData
 from hologradpy.optics.complex_amplitude import ComplexAmplitude
+from hologradpy.phase_levels import LinearResponse
 from hologradpy.roi import ROI
 from hologradpy.serialization import (
     RECORD_TYPES,
@@ -163,6 +165,38 @@ def test_an_unregistered_dataclass_is_refused(tmp_path) -> None:
 
     with pytest.raises(Exception):
         Holder(Unregistered(1)).save(tmp_path / "bad.asdf")
+
+
+def test_registering_a_plain_class_is_refused() -> None:
+    """A record is written by walking its fields, so a class that has none registers
+    happily and then fails at the first save, a long way from the registration."""
+    with pytest.raises(TypeError, match="not a dataclass"):
+
+        @record_type("test_plain")
+        class Plain(SaveableRecord):
+            pass
+
+
+def test_a_snapshot_carrying_arrays_compares_and_hashes() -> None:
+    """A device snapshot ends up in a dict or a set, and an array field answers neither
+    question: == returns an array and hash() refuses. The array fields are therefore
+    excluded from both, so two snapshots of the same device are equal."""
+    response = LinearResponse(bitdepth=8, phase_scaling=1.0)
+    correction = np.linspace(0, 1, 16).reshape(4, 4)
+
+    def snapshot() -> SLMData:
+        return SLMData(
+            name="panel",
+            resolution=(4, 4),
+            pixel_size=(1e-5, 1e-5),
+            wavelength=1.039e-6,
+            settle_time_s=0.0,
+            phase_response=response,
+            phase_correction=correction.copy(),
+        )
+
+    assert snapshot() == snapshot()
+    assert len({snapshot(), snapshot()}) == 1
 
 
 # --- Drift -------------------------------------------------------------------------

@@ -33,19 +33,23 @@ class VirtualSLM(OpticsModule):
 
     def __init__(
         self: VirtualSLM,
-        phase_scaling: float,
+        phase_scaling: float = 1.0,
         init_phase: torch.Tensor | None = None,
         phase_response: PhaseResponse | None = None,
     ) -> None:
         super().__init__()
 
-        self.phase_scaling: float = phase_scaling
         self.init_phase: torch.Tensor | None = init_phase
 
         self.phase_response = PhaseResponseModule(
             phase_response
             or LinearResponse(bitdepth=8, phase_scaling=phase_scaling)
         )
+
+    @property
+    def phase_scaling(self) -> float:
+        """The reachable phase range in cycles, read from the response."""
+        return self.phase_response.phase_scaling
 
     def lazy_init(self, complex_amplitude: ComplexAmplitude) -> None:
         if self.init_phase is None:
@@ -64,18 +68,20 @@ class VirtualSLM(OpticsModule):
         )
 
     @classmethod
+    def _from_source(cls: type[VirtualSLM], source, **extra) -> VirtualSLM:
+        """Build from anything describing an SLM: a device, or a saved record."""
+        pixel_size = source.pixel_size
+        if pixel_size[0] != pixel_size[1]:
+            raise ValueError("Non-square pixel pitch is not supported.")
+        return cls(phase_response=getattr(source, "phase_response", None), **extra)
+
+    @classmethod
     def from_slm(
         cls: type[VirtualSLM],
         slm: SLM,
         init_phase: torch.Tensor | None = None,
     ) -> VirtualSLM:
-        if slm.pixel_size[0] != slm.pixel_size[1]:
-            raise ValueError("Non-square pixel pitch is not supported.")
-        return cls(
-            phase_scaling=slm.phase_scaling,
-            init_phase=init_phase,
-            phase_response=getattr(slm, "phase_response", None),
-        )
+        return cls._from_source(slm, init_phase=init_phase)
 
     @classmethod
     def from_slm_data(
@@ -83,13 +89,7 @@ class VirtualSLM(OpticsModule):
         slm_data: SLMData,
         init_phase: torch.Tensor | None = None,
     ) -> VirtualSLM:
-        if slm_data.pixel_size[0] != slm_data.pixel_size[1]:
-            raise ValueError("Non-square pixel pitch is not supported.")
-        return cls(
-            phase_scaling=slm_data.phase_scaling,
-            init_phase=init_phase,
-            phase_response=getattr(slm_data, "phase_response", None),
-        )
+        return cls._from_source(slm_data, init_phase=init_phase)
 
     def set_phase(self, phase: torch.Tensor | NDArray) -> None:
         """Set the desired optical phase (same argument convention as
@@ -121,7 +121,7 @@ class VirtualSLM(OpticsModule):
         return self.phase_response.phase_at(self.displayed_levels())
 
     def displayed_levels(self) -> torch.Tensor:
-        """The fraction of full scale the panel is showing."""
+        """The fraction of full scale the SLM is showing."""
         return self.levels % self.phase_scaling
 
     def set_levels(
@@ -160,28 +160,24 @@ class VirtualSLM(OpticsModule):
             phase = phase.detach().cpu().numpy()
         return self.phase_response.response.display_levels(np.asarray(phase))
 
-    def get_displayed_phase(self) -> torch.Tensor:
-        """The phase pattern as displayed on the SLM before grayscale conversion: the
-        hardware displays the negative of the desired phase.
-        """
-        return (-self.get_phase()).remainder(self.phase_scaling * 2 * torch.pi)
-
     # TODO: Add discretization and pixel crosstallk here
     def apply_phase_transforms(self: VirtualSLM, phase: torch.Tensor) -> torch.Tensor:
         """Hook for subclasses to transform the applied phase; identity by default."""
         return phase
 
+    def align_phase(self, phase: torch.Tensor, field_ndim: int) -> torch.Tensor:
+        """Give the phase the rank the field expects, so it broadcasts."""
+        if phase.ndim >= 3:
+            # A batch of patterns (N, H, W). Insert the wavelength axis to get
+            # (N, 1, H, W).
+            return phase.unsqueeze(-3)
+        return unsqueeze_to(phase, field_ndim)
+
     def forward(
         self: VirtualSLM, complex_amplitude: ComplexAmplitude
     ) -> ComplexAmplitude:
         phase = self.apply_phase_transforms(self.get_phase())
-
-        if phase.ndim >= 3:
-            # A batch of patterns (N, H, W). Insert the wavelength axis to get
-            # (N, 1, H, W).
-            transformed_phase = phase.unsqueeze(-3)
-        else:
-            transformed_phase = unsqueeze_to(phase, complex_amplitude.ndim)
+        transformed_phase = self.align_phase(phase, complex_amplitude.ndim)
 
         complex_amplitude = complex_amplitude * torch.exp(1j * transformed_phase)
 

@@ -1,4 +1,4 @@
-"""Framing a field, and shearing it by an exact band-limited shift.
+"""Shearing a field by an exact band-limited shift.
 
 The shear is what a rotation costs once ``ChirpZPartialAffine`` has absorbed everything
 it can into its own sampling. The triangular part of a rotation is free there, and only
@@ -48,31 +48,6 @@ def padded_resolution_for_rotation(
     reach = max(resolution) * abs(math.sin(math.radians(angle_degrees)))
     margin = int(math.floor(reach)) + 1
     return (resolution[0] + 2 * margin, resolution[1] + 2 * margin)
-
-
-def place(field: Tensor, resolution: tuple[int, int]) -> Tensor:
-    """Centre ``field``'s last two axes in a frame of ``resolution``, padding or
-    cropping each axis as needed.
-    """
-    for axis, target in ((-2, resolution[0]), (-1, resolution[1])):
-        length = field.shape[axis]
-        if target == length:
-            continue
-
-        offset = target // 2 - length // 2
-        if target > length:
-            index = [slice(None)] * field.ndim
-            shape = list(field.shape)
-            shape[axis] = target
-            placed = torch.zeros(shape, dtype=field.dtype, device=field.device)
-            index[axis] = slice(offset, offset + length)
-            placed[tuple(index)] = field
-            field = placed
-        else:
-            index = [slice(None)] * field.ndim
-            index[axis] = slice(-offset, -offset + target)
-            field = field[tuple(index)]
-    return field
 
 
 def fft_shear(field: Tensor, axis: int, shifts: Tensor) -> Tensor:

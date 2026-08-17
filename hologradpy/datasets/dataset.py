@@ -13,15 +13,14 @@ class SampleDataset(Dataset):
     Args:
         store: An open :class:`CaptureStore` or :class:`RetrievalStepStore`.
         transform: Applied to each sample as it is loaded.
-        cache: Keep loaded samples in memory, which is worth it for a set that is walked
-            repeatedly and fits.
+        cache: Keep loaded samples in memory.
     """
 
     def __init__(
         self,
         store: _SampleStore,
         transform=None,
-        cache: bool = True,
+        cache: bool = False,
     ) -> None:
         self.store = store
         self.transform = transform

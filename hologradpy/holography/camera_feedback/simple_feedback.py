@@ -9,8 +9,10 @@ from typing import Sequence
 
 import numpy as np
 import torch
+from numpy.typing import NDArray
 
 from .abstract import CameraFeedbackData, FeedbackCorrectorBase
+from ..phase_retrieval import PhaseRetrievalData
 
 from ...analysis.error_metrics import (
     DEFAULT_INTENSITY_METRICS,
@@ -105,11 +107,11 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
         signal_roi = self._signal_roi
 
         history: dict[str, list[float]] = {}
-        retrievals: list = []
-        corrected_targets: list = []
-        measured_frames: list = []
-        full_frames: list = []
-        final_camera_image = None
+        retrievals: list[PhaseRetrievalData] = []
+        corrected_targets: list[NDArray] = []
+        measured_frames: list[NDArray] = []
+        full_frames: list[NDArray] = []
+        final_camera_image: NDArray | None = None
 
         retriever_bar = ProgressBar(
             total=max(retriever_steps),
@@ -146,7 +148,9 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
                     progress_bar=retriever_bar,
                     **options,
                 )
-                retrievals.append(retrieval)
+                
+                # .lean() removes target and signal region
+                retrievals.append(retrieval.lean())
                 self.slm.set_phase(retrieval.phase)
 
                 # Exposed on the signal region after the first iteration.
@@ -174,15 +178,13 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
         data = CameraFeedbackData(
             timestamp=datetime.now(),
             name=name or type(self).__name__,
-            phase=retrievals[-1].phase if retrievals else np.zeros(0),
             target=target,
             signal_region=signal_region,
-            signal_roi=signal_roi,
             corrected_targets=corrected_targets,
             measured_images=measured_frames,
             final_camera_image=final_camera_image,
             initial_guess=initial_guess,
-            camera_mapping=self.camera_mapping.lean(),
+            camera_mapping=self._mapping.lean(),
             retrievals=retrievals,
             metrics=history,
             lower_is_better={

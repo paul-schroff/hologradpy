@@ -26,7 +26,7 @@ from ..profiles.amplitude import (
 from ..profiles.masks import circular_mask
 
 from ..analysis.fitting import fit_gaussian_beam_intensity
-from ..grids import get_spatial_grid
+from ..grids import get_spatial_grid, metres_to_pixel
 from ..utils import gpu_to_numpy
 from ..roi import ROI
 
@@ -72,7 +72,7 @@ def has_prominent_peak(
 
     Args:
         image: Captured camera frame.
-        camera: Supplies the full-scale pixel value (``camera.adu_levels``). Only
+        camera: Supplies the full-scale pixel value (``camera.max_pixel_value``). Only
             read, never captured from or mutated.
         signal_to_noise_ratio: Peak must exceed the background by this many noise sigma.
         lower_relative_intensity_threshold: Peak must also reach this fraction of the
@@ -83,7 +83,7 @@ def has_prominent_peak(
     return (
         prominence >= signal_to_noise_ratio * sigma
         and prominence
-        >= lower_relative_intensity_threshold * float(camera.adu_levels)
+        >= lower_relative_intensity_threshold * float(camera.max_pixel_value)
     )
 
 
@@ -105,7 +105,7 @@ def detect_spot(
         image: Captured camera frame. spot_radius: Diffraction-limited focal-spot radius
         (1/e^2 intensity) in metres.
         camera: Supplies the pixel pitch (``camera.pixel_size``) and the full-scale
-            pixel value (``camera.adu_levels``); only read, never captured from or
+            pixel value (``camera.max_pixel_value``), only read, never captured from or
             mutated.
         signal_to_noise_ratio: Peak must exceed the background by this many noise sigma.
         lower_relative_intensity_threshold: Peak must also reach this fraction of the
@@ -240,9 +240,7 @@ def get_diffraction_spot_position(
     camera.set_roi(None)
 
     if slm_mask_diameter is None:
-        slm_mask_diameter = min(
-            slm.resolution[i] * slm.pixel_size[i] for i in range(2)
-        )
+        slm_mask_diameter = min(slm.aperture_extent)
 
     slm_grid = get_spatial_grid(slm.resolution, slm.pixel_size)
 
@@ -303,11 +301,11 @@ def get_diffraction_spot_position(
     position = (popt[1], popt[2])
 
     if units == "pixels":
-        pixel_size = camera.pixel_size  # (y, x) metres
-        height, width = camera.resolution
-        position = (
-            int(position[0] / pixel_size[1] + width // 2),  # x uses width pitch
-            int(position[1] / pixel_size[0] + height // 2),  # y uses height pitch
+        position = tuple(
+            int(value)
+            for value in metres_to_pixel(
+                position, camera.pixel_size, camera.resolution
+            )
         )
 
     if verbose:
@@ -321,26 +319,7 @@ def get_diffraction_spot_position(
 
     return position, focal_spot_radius, cropped_camera_image, roi
 
-
-def _clamped_roi(
-    centre: tuple[float, float], size: tuple[int, int], sensor: tuple[int, int]
-) -> ROI:
-    """A box of ``size`` around ``centre`` in ``(row, column)``, kept on the sensor.
-
-    Rounded before :meth:`ROI.centered`, which truncates, then clamped so a spot near
-    an edge still yields a full-size box rather than one that runs off the sensor.
-    """
-    height, width = size
-    sensor_height, sensor_width = sensor
-    box = ROI.centered((round(centre[0]), round(centre[1])), (height, width))
-    return ROI(
-        max(0, min(box.top_row, sensor_height - height)),
-        max(0, min(box.left_column, sensor_width - width)),
-        height,
-        width,
-    )
-
-
+# TODO: Move to roi.py?
 def _meter_and_capture(
     camera: Camera, roi: ROI, set_fraction: float
 ) -> NDArray[np.float_]:
@@ -464,14 +443,13 @@ def capture_focal_spot(
         )
     )
 
-    search = _clamped_roi(
+    search = ROI.centered(
         centre,
         (
             min(int(search_factor * height), sensor[0]),
             min(int(search_factor * width), sensor[1]),
         ),
-        sensor,
-    )
+    ).moved_inside(sensor)
 
     image = _meter_and_capture(camera, search, set_fraction)
 
@@ -489,7 +467,9 @@ def capture_focal_spot(
         offset = np.hypot(found[0] - centre[0], found[1] - centre[1])
         # Re-metered around where it really is: the first exposure was set on a window
         # the spot was not in, so the frame is metered on background or saturated.
-        search = _clamped_roi(found, (search.height, search.width), sensor)
+        search = ROI.centered(
+            found, (search.height, search.width)
+        ).moved_inside(sensor)
         image = _meter_and_capture(camera, search, set_fraction)
         if not has_prominent_peak(search.crop(image), camera):
             raise RuntimeError(
@@ -506,7 +486,7 @@ def capture_focal_spot(
             stacklevel=2,
         )
 
-    spot_roi = _clamped_roi(found, (height, width), sensor)
+    spot_roi = ROI.centered(found, (height, width)).moved_inside(sensor)
 
     crop: NDArray[np.float_] = spot_roi.crop(image)
     # A robust floor, so read-out background does not become part of the seed.

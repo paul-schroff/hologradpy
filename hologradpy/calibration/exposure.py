@@ -31,16 +31,15 @@ def expose_until_spot(
     a spot, or ``None`` when the frame is well exposed but holds no spot (or the search
     is exhausted).
     """
-    full_scale = float(camera.adu_levels)
-    bounds = camera.exposure_bounds
-    max_exposure_s = float(bounds[1]) if bounds is not None else 1.0
+    full_scale = float(camera.max_pixel_value)
+    max_exposure_s = float(camera.exposure_limits[1])
     exposure = float(camera.get_exposure())
     for _ in range(max_steps):
         image = np.asarray(camera.get_image())
         if detect_spot(image, spot_radius, camera):
             return image
         peak = float(image.max())
-        if peak >= full_scale - 1:  # Sensor saturated, decrease exposure
+        if peak >= full_scale:  # Sensor saturated, decrease exposure
             exposure *= saturation_step_fraction
         elif (
             peak < dark_threshold_fraction * full_scale

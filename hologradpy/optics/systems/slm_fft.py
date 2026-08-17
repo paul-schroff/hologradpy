@@ -4,7 +4,8 @@ from ..modules.propagators import FourierLensFFT
 from ..modules.slm_fields import SLMField
 from ..modules.virtual_slms.abstract import VirtualSLM
 
-from .abstract import SLMFourierLensModel, capture_init
+from .abstract import SLMFourierLensModel
+from ..modules.abstract import capture_init
 
 
 class SLMFFT(SLMFourierLensModel):

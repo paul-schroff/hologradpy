@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 
 from ..abstract import OpticsModule
-from ...complex_amplitude import ComplexAmplitude
+from ...complex_amplitude import ComplexAmplitude, pixel_area
 from ....profiles.amplitude import laser_speckle_intensity
 
 
@@ -53,8 +53,8 @@ class BackgroundScatter(OpticsModule):
             dtype=complex_amplitude.dtype_r,
             generator=generator,
         )
-        pixel_area = self.pixel_size_in[0, 0] * self.pixel_size_in[0, 1]
-        sensor_area = pixel_area * pattern.numel()
+        area = pixel_area(self.pixel_size_in)[0]
+        sensor_area = area * pattern.numel()
         # Scale so sum(I_bg) * pixel_area == power (mean intensity power / area).
         self.register_buffer("background", pattern * (self.power / sensor_area))
 

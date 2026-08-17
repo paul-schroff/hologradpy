@@ -26,6 +26,9 @@ class _FakeSLM:
     shape = (16, 16)
     pitch_um = (10.0, 10.0)
     phase_scaling = 1.0
+    # Square, because from_slm now checks it: a Zernike basis is built on a unit disk
+    # and an anamorphic pitch would make it an ellipse.
+    pixel_size = (10e-6, 10e-6)
 
 
 def _field(shape, n_wavelengths):

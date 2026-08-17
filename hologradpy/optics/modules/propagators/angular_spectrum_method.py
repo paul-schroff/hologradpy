@@ -3,8 +3,8 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from ....utils import pad_to_shape_2D, crop_to_shape_2D
 from ....fourier_transforms import FastFourierTransform, FourierBase
+from ....utils import to_canvas
 
 from ..abstract import OpticsModule
 from ...complex_amplitude import (
@@ -108,10 +108,10 @@ class AngularSpectrumMethod(OpticsModule):
         transfer_function = broadcast_wavelength_operand(
             transfer_function, complex_amplitude.ndim
         )
-        padded = pad_to_shape_2D(complex_amplitude, self._padded_resolution)
+        padded = to_canvas(complex_amplitude, self._padded_resolution)
         spectrum = self._transform.forward(padded)
         propagated = self._transform.adjoint(spectrum * transfer_function)
-        out = crop_to_shape_2D(propagated, self.resolution_out)
+        out = to_canvas(propagated, self.resolution_out)
         return out.with_geometry(
             wavelength=complex_amplitude.wavelength,
             pixel_size=self.pixel_size_out,

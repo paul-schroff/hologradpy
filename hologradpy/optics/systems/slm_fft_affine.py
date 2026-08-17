@@ -4,7 +4,8 @@ from ..modules.geometric_transforms import GeometricWarp
 from ..modules.virtual_slms.abstract import VirtualSLM
 from ..complex_amplitude import FieldGeometry
 
-from .abstract import SLMFourierLensModel, capture_init
+from .abstract import SLMFourierLensModel
+from ..modules.abstract import capture_init
 
 
 class SLMFFTAffine(SLMFourierLensModel):
@@ -56,5 +57,5 @@ class SLMFFTAffine(SLMFourierLensModel):
             ),
         )
 
-    def _affine_module(self) -> GeometricWarp:
+    def affine_module(self) -> GeometricWarp:
         return self.affine_transform

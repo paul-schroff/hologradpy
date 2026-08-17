@@ -13,6 +13,7 @@ from ...profiles.phase import (
 from ...profiles.masks import circular_mask
 from ...grids import get_spatial_grid
 from ...profiles.zernike import (
+    DEFAULT_UNIT_DISK_MODE,
     Zernike,
     Conventions,
     make_per_wavelength_coefficients,
@@ -187,7 +188,7 @@ class ZernikePhase(DiagonalElement):
         number_of_radial_orders: int = 5,
         initial_coefficients: torch.Tensor | None = None,
         convention: Conventions = "Noll",
-        unit_disk_mode: str = "fill",
+        unit_disk_mode: str = DEFAULT_UNIT_DISK_MODE,
     ) -> None:
         """
         Args:

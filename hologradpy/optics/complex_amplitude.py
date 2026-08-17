@@ -118,6 +118,22 @@ class _TensorToWrapper(torch.autograd.Function):
         return inner, None, None
 
 
+def pixel_area(pixel_size: Tensor) -> Tensor:
+    """The area of one pixel per wavelength, from a ``(n_wavelengths, 2)`` pitch.
+    Always float64, whatever the field's dtype.
+    """
+    return (pixel_size[:, 0] * pixel_size[:, 1]).to(torch.float64).reshape(-1)
+
+
+def _power_factor(
+    current_power: Tensor, power: float | Tensor, ndim: int, device
+) -> Tensor:
+    """The amplitude scale taking a field of ``current_power`` to ``power``."""
+    target_power = torch.as_tensor(power, dtype=torch.float64, device=device)
+    factor = torch.sqrt(target_power / current_power)
+    return factor[..., None, None] if ndim > 2 else factor
+
+
 @dataclass(frozen=True)
 class FieldGeometry:
     wavelength: Tensor
@@ -395,11 +411,11 @@ class ComplexAmplitude(Tensor):
         are fine in float32, but summing ~1e6 of them is not). ``pixel_size`` is
         ``(n_wavelengths, 2)``.
         """
-        pixel_area = (pixel_size[:, 0] * pixel_size[:, 1]).to(torch.float64)
+        area = pixel_area(pixel_size)
         summed = intensity.to(torch.float64).sum(dim=(-2, -1))
         if intensity.ndim == 2:
-            return summed * pixel_area.squeeze(0)
-        return summed * pixel_area
+            return summed * area.squeeze(0)
+        return summed * area
 
     @classmethod
     def _scale_to_power(
@@ -409,12 +425,7 @@ class ComplexAmplitude(Tensor):
         preserving phase. The scale ratio is computed in float64."""
         intensity = data.real**2 + data.imag**2
         current_power = cls._integrate_power(intensity, pixel_size)
-        target_power = torch.as_tensor(
-            power, dtype=torch.float64, device=data.device
-        )
-        factor = torch.sqrt(target_power / current_power)
-        if data.ndim > 2:
-            factor = factor[..., None, None]
+        factor = _power_factor(current_power, power, data.ndim, data.device)
         return data * factor.to(corresponding_real_dtype(data.dtype))
 
     def power(self) -> Tensor:
@@ -436,12 +447,7 @@ class ComplexAmplitude(Tensor):
         dispatch mechanism, keeping ``grad_fn`` intact. ``power`` is matched
         per ``(*batch, wavelength)``.
         """
-        target_power = torch.as_tensor(
-            power, dtype=torch.float64, device=self.device
-        )
-        factor = torch.sqrt(target_power / self.power())
-        if self.ndim > 2:
-            factor = factor[..., None, None]
+        factor = _power_factor(self.power(), power, self.ndim, self.device)
         return self * factor.to(self.dtype_r)
 
     def numpy(self) -> NDArray[np.complex_]:

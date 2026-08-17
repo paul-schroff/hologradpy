@@ -3,7 +3,8 @@ from ..modules.slm_fields import SLMField
 from ..modules.virtual_slms.abstract import VirtualSLM
 from ..complex_amplitude import FieldGeometry
 
-from .abstract import SLMFourierLensModel, capture_init
+from .abstract import SLMFourierLensModel
+from ..modules.abstract import capture_init
 
 
 class SLMCZT(SLMFourierLensModel):
@@ -58,5 +59,5 @@ class SLMCZT(SLMFourierLensModel):
             ),
         )
 
-    def _affine_module(self) -> FourierLensCZT:
+    def affine_module(self) -> FourierLensCZT:
         return self.fourier_lens
