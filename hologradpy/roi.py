@@ -37,7 +37,7 @@ class ROI:
 
     @classmethod
     def centered(cls, center: tuple[float, float], size: tuple[int, int]) -> ROI:
-        """An ROI of ``(height, width)`` ``size`` centred on ``(row, col)`` ``center``.
+        """An ROI of ``(height, width)`` ``size`` centered on ``(row, col)`` ``center``.
 
         The corner is floored, matching the pixel-grid convention used across the
         calibrators. ``size`` is coerced to int first, so a ``size`` carrying a float

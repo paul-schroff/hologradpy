@@ -138,9 +138,11 @@ def test_layers_named_and_ordered(name: str) -> None:
     layers = model.layers()
 
     assert len(model) == len(layers)
-    # The SLM is always the first stage of an SLM model.
-    assert list(layers)[0] == "virtual_slm"
-    assert model[0] is layers["virtual_slm"]
+    # The SLM plane runs beam, then grid, then displayed phase. The beam and the phase
+    # are both diagonal multiplies and commute, and this order lets the SLM stage work
+    # on a grid finer than the one the beam is measured on.
+    assert list(layers)[:3] == ["slm_field", "grid_adapter", "virtual_slm"]
+    assert model[0] is layers["slm_field"]
     assert model["virtual_slm"] is layers["virtual_slm"]
     assert isinstance(model.get(VirtualSLM), VirtualSLM)
 

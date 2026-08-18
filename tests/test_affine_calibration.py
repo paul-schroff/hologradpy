@@ -4,7 +4,7 @@ fitted camera mapping.
 The oracle tests are round trips: build a system with known focal-plane
 ``(scale, angle, shift)``, wrap it as a camera, fit it with the coarse mapper
 against an identity reference, and assert ``calibrate_from_mapping`` reproduces the
-known parameters in the reference. This pins the sign / axis / centre conventions
+known parameters in the reference. This pins the sign / axis / center conventions
 empirically rather than by derivation.
 """
 
@@ -100,8 +100,8 @@ def test_recalibrated_core_identity_residual_is_noop():
     np.testing.assert_allclose(shift, (4.0, -5.0), atol=1e-9)
 
 
-def test_recalibrated_core_composes_residual_about_centre():
-    # A pure rotation about the centre with no current transform: the residual's
+def test_recalibrated_core_composes_residual_about_center():
+    # A pure rotation about the center with no current transform: the residual's
     # inverse rotation is what lands in the parameters.
     residual = PartialAffineTransform.from_components(
         angle_deg=-9.0, center=(160, 120)
@@ -143,7 +143,7 @@ def _czt(geometry, beam, virtual_slm, angle, shift):
         focal_length=FOCAL,
         slm_field=PixelwiseSLMField(beam),
         camera_angle=angle,
-        camera_shift=shift,
+        camera_shift=tuple(s * p for s, p in zip(shift, CAM_PIX)),
     )
 
 
@@ -157,7 +157,7 @@ def _fft_affine(geometry, beam, virtual_slm, angle, shift):
         slm_field=PixelwiseSLMField(beam),
         padded_resolution=(1024, 1024),
         camera_angle=angle,
-        camera_shift=shift,
+        camera_shift=tuple(s * p for s, p in zip(shift, CAM_PIX)),
     )
 
 

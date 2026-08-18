@@ -212,7 +212,7 @@ class FourierLensNUFFT(OpticsModule):
         ``KbNufftPartialAffine`` adjoint on the same trajectory), not its inverse.
         The input is a field sampled on the output grid ``(*batch, n_wl, H_out,
         W_out)``; the output lives in the input plane with ``resolution_in`` /
-        ``pixel_size_in``. The module must be initialised first (via ``forward``
+        ``pixel_size_in``. The module must be initialized first (via ``forward``
         or ``initialize_from_geometry``).
         """
         flat_field, batch_spec = complex_amplitude.flatten_batch()

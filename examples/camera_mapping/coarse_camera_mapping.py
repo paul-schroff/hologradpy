@@ -80,7 +80,7 @@ simulated_camera_model = SLMFFTAffine(
     slm_field=PixelwiseSLMField(aberrated_beam),
     padded_resolution=(2048, 2048),
     camera_angle=15,
-    camera_shift=(900, 300),
+    camera_shift=(3e-3, 1e-3),        # (x, y) metres in the focal plane
 )
 
 camera = open_camera(

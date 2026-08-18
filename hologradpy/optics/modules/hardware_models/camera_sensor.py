@@ -10,10 +10,10 @@ from ...complex_amplitude import ComplexAmplitude, pixel_area
 
 
 class CameraSensor(OpticsModule):
-    """Terminal OpticsModule modelling a camera sensor: it converts the optical
+    """Terminal OpticsModule modeling a camera sensor: it converts the optical
     intensity of the incident field into digital pixel values (ADU).
 
-    The conversion follows the standard sensor chain (modelled on stryq's
+    The conversion follows the standard sensor chain (modeled on stryq's
     ``MockCamera``, without the point-spread convolution): the per-pixel optical power
     ``|E|^2 * pixel_area`` is turned into a photon count via the photon energy (from the
     field's wavelength) and the exposure time, scaled by the quantum efficiency and an

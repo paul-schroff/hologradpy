@@ -63,9 +63,9 @@ def test_czt_zoom_matches_padded_fft() -> None:
     padded_field = torch.zeros(padded, padded, dtype=torch.complex64)
     padded_field[offset:offset + n, offset:offset + n] = field
     full = fft_2d(padded_field, norm="backward", fft_shift=True)
-    centre = padded // 2
-    window = full[centre - n // 2:centre + n - n // 2,
-                  centre - n // 2:centre + n - n // 2]
+    center = padded // 2
+    window = full[center - n // 2:center + n - n // 2,
+                  center - n // 2:center + n - n // 2]
     assert _relative_error(czt.forward(field), window) < 1e-3
 
 
@@ -91,8 +91,8 @@ def test_czt_is_differentiable() -> None:
 # %% Framing
 
 
-def test_pad_crop_centres_a_field_in_a_larger_frame() -> None:
-    """The centre sample has to land on the centre sample. Any other offset is a phase
+def test_pad_crop_centers_a_field_in_a_larger_frame() -> None:
+    """The center sample has to land on the center sample. Any other offset is a phase
     ramp in the conjugate plane, so it reads as a tilt across the focal plane rather
     than as a shifted image."""
     field = torch.zeros((64, 80), dtype=torch.complex64)

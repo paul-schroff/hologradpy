@@ -20,7 +20,7 @@ from ..phase_levels import level_dtype
 from ..serialization import (
     SaveableRecord,
     attach_source_path,
-    check_record_recognised,
+    check_record_recognized,
 )
 
 SAMPLE_STORE_SUFFIX = ".asdf"
@@ -36,7 +36,7 @@ SERIES = tuple(_BLOCK_NAMES)
 
 SAMPLE_DTYPE = np.float32
 
-# The depth the stored levels were quantised at.
+# The depth the stored levels were quantized at.
 PHASE_BITDEPTH_KEY = "phase_bitdepth"
 
 
@@ -191,7 +191,7 @@ class CaptureStore(_SampleStore):
             frame_shape: ``(height, width)`` of one camera frame.
             slm_levels: The patterns to display, known up front because the tree is
                 written before the first frame streams.
-            phase_bitdepth: The depth those levels were quantised at.
+            phase_bitdepth: The depth those levels were quantized at.
             frame_dtype: What one frame is stored as. The default is wide enough for any
                 camera this drives.
 
@@ -247,7 +247,7 @@ class CaptureStore(_SampleStore):
 
     @property
     def phase_bitdepth(self) -> int | None:
-        """The depth the stored levels were quantised at, None when none was given."""
+        """The depth the stored levels were quantized at, None when none was given."""
         if self._file is None:
             return self._phase_bitdepth
         return self._file.tree.get(PHASE_BITDEPTH_KEY)
@@ -259,7 +259,7 @@ class CaptureStore(_SampleStore):
             TypeError: The file holds a record no class is registered for.
         """
         record = self._require_file().tree.get("record")
-        check_record_recognised(record, self.path)
+        check_record_recognized(record, self.path)
         record = _realised(record)
         attach_source_path(record, self.path)
         return record

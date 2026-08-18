@@ -260,7 +260,7 @@ class RasterCalibratorVisualizer(AnimatedVisualizer):
 
         The snapshot shows the interference pattern, the optical lattice and the
         zeroth order together on the camera, with a linear colorbar in raw camera
-        counts. Each recorded feature is marked and labelled, so the zeroth order and
+        counts. Each recorded feature is marked and labeled, so the zeroth order and
         the (dim, edge-lit) lattice can be located even when they sit near the noise
         floor. By default the color scale is clipped to a small fraction of the peak
         so the bright interference spot saturates and those faint features come up;
@@ -291,7 +291,7 @@ class RasterCalibratorVisualizer(AnimatedVisualizer):
             "zeroth order": ("x", "red"),
         }
         positions = self.data.full_frame_marker_positions or {}
-        labelled = False
+        labeled = False
         for label, position in positions.items():
             if position is None:
                 continue
@@ -307,8 +307,8 @@ class RasterCalibratorVisualizer(AnimatedVisualizer):
                 linestyle="none",
                 label=label,
             )
-            labelled = True
-        if labelled:
+            labeled = True
+        if labeled:
             axs.legend(loc="upper right", fontsize=8)
 
         axs.set_title("Full-frame snapshot")

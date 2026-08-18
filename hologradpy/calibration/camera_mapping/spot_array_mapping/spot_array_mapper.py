@@ -12,7 +12,7 @@ from ....geometry import AffineTransform
 from ....hardware import Camera, SLM
 
 from ....optics.systems import SLMFourierLensModel
-from ....grids import get_spatial_grid, metres_to_pixel, pixel_to_metres, plane_centre
+from ....grids import get_spatial_grid, metres_to_pixel, pixel_to_metres, plane_center
 from ....profiles.amplitude import get_focal_spot_radius
 from ....analysis.fitting import fit_gaussian_beam_intensity
 from ....utils import gpu_to_numpy
@@ -208,7 +208,7 @@ class SpotArrayMapper(CameraMapper):
         generator = torch.Generator(device=self.device)
         if seed is not None:
             generator.manual_seed(seed)
-        # Centred camera-pixel samples -> sensor centre -> focal-plane metres.
+        # Centered camera-pixel samples -> sensor center -> focal-plane metres.
         sampled_pixels = self._sample_positions(
             number_of_spots, box_pixels, minimum_separation * camera_scale, generator
         )
@@ -281,7 +281,7 @@ class SpotArrayMapper(CameraMapper):
 
         # Repeat for the simulated image.
         simulated_pitch = np.asarray([pixel_size_out[1], pixel_size_out[0]])
-        simulated_zod = plane_centre(resolution_out)
+        simulated_zod = plane_center(resolution_out)
         # Simulated DC is a clean point, so a few focal-spot radii suffice.
         simulated_mask_radius = max(
             int(round(3.0 * focal_spot_radius / simulated_pitch.min())), 3
@@ -305,10 +305,20 @@ class SpotArrayMapper(CameraMapper):
             )
 
         targets = gpu_to_numpy(target_positions).astype(np.float64)
+        target_pixels = np.column_stack(
+            metres_to_pixel(
+                (targets[:, 0], targets[:, 1]), pixel_size_out, resolution_out
+            )
+        )
+        predicted_camera = coarse_mapping.affine.inverse().transform_points(
+            target_pixels
+        )
+
         camera_indices, camera_targets = self._match_targets(
             np.asarray(camera_spots.points, dtype=np.float64),
             targets,
             expected_scale=camera_scale,
+            predicted=predicted_camera,
             tolerance=(
                 _MATCH_TOLERANCE_FRACTION * minimum_separation / float(pitch.min())
             ),
@@ -317,6 +327,13 @@ class SpotArrayMapper(CameraMapper):
             np.asarray(simulated_spots.points, dtype=np.float64),
             targets,
             expected_scale=float(1.0 / simulated_pitch.mean()),
+            predicted=np.column_stack(
+                metres_to_pixel(
+                    (targets[:, 0], targets[:, 1]),
+                    pixel_size_out,
+                    simulated_image.shape,
+                )
+            ),
             tolerance=(
                 _MATCH_TOLERANCE_FRACTION
                 * minimum_separation
@@ -441,7 +458,7 @@ class SpotArrayMapper(CameraMapper):
         generator: torch.Generator,
         max_attempts_per_spot: int = 2000,
     ) -> torch.Tensor:
-        """Rejection-sample ``number_of_spots`` points uniformly in the box centred at 
+        """Rejection-sample ``number_of_spots`` points uniformly in the box centered at 
         the origin, each at least ``minimum_separation`` from the rest."""
         width, height = extent
         box = torch.tensor([width, height], device=self.device)
@@ -584,30 +601,37 @@ class SpotArrayMapper(CameraMapper):
         targets: NDArray,
         expected_scale: float,
         tolerance: float,
+        predicted: NDArray | None = None,
         scale_tolerance: float = 0.3,
     ) -> tuple[NDArray, NDArray]:
-        """Match detected camera peaks (pixels) to target positions (metres) without 
-        assuming the camera orientation.
+        """Match detected camera peaks (pixels) to target positions (metres).
 
-        Similarity hypotheses are generated from widely separated point pairs: the most
-        separated detected pairs are tried against every target pair of compatible
-        length (both orderings and both chiralities, so any rotation and a mirrored
-        camera are handled). The hypothesis mapping the most targets onto detected
-        points within ``tolerance`` pixels wins, and the final one-to-one assignment
-        under it is solved with the Hungarian algorithm.
+        Given ``predicted``, the caller already knows where each target lands and the
+        pairing is solved directly. Without it the orientation is unknown and has to be
+        searched for: similarity hypotheses are generated from widely separated point
+        pairs, trying every target pair of compatible length in both orderings and both
+        handedness options, and the one mapping the most targets onto detected points
+        within ``tolerance`` wins.
 
         Args:
-            detected: Detected spot centres in camera pixels, shape (M, 2).
+            detected: Detected spot centers in camera pixels, shape (M, 2).
             targets: Target positions in focal-plane metres, shape (N, 2).
             expected_scale: Rough pixels-per-metre scale, used only to prune
                 implausible target pairs (within ``scale_tolerance``).
             tolerance: Match radius in pixels; half the minimum spot separation
                 makes the assignment unambiguous.
+            predicted: Where each target is expected to land, in the same pixels as
+                ``detected``, shape (N, 2). Skips the search entirely.
             scale_tolerance: Allowed fractional deviation from ``expected_scale``.
 
         Returns:
             ``(detected_indices, target_indices)`` of the matched pairs.
         """
+        if predicted is not None:
+            return cls._assign(
+                np.asarray(predicted, dtype=np.float64), targets, detected, tolerance
+            )
+
         # The few most separated detected pairs anchor the hypotheses; more than one in
         # case the single most separated pair involves a spurious detection.
         separations = np.linalg.norm(
@@ -637,9 +661,9 @@ class SpotArrayMapper(CameraMapper):
             candidate_pairs = zip(target_rows[compatible], target_columns[compatible])
             for first, second in candidate_pairs:
                 for a, b in ((first, second), (second, first)):
-                    for chirality in (1, -1):
+                    for handedness in (1, -1):
                         matrix, translation = cls._similarity_from_pair(
-                            targets[[a, b]], detected_pair, chirality
+                            targets[[a, b]], detected_pair, handedness
                         )
                         mapped = targets @ matrix.T + translation
                         distances = np.linalg.norm(
@@ -659,14 +683,24 @@ class SpotArrayMapper(CameraMapper):
 
         matrix, translation = best_transform
         mapped = targets @ matrix.T + translation
+        return cls._assign(mapped, targets, detected, tolerance)
+
+    @staticmethod
+    def _assign(
+        mapped: NDArray, targets: NDArray, detected: NDArray, tolerance: float
+    ) -> tuple[NDArray, NDArray]:
+        """Pair each target with a detected spot, starting from where ``mapped`` says
+        the targets land.
+
+        Refined twice: a rigid starting guess captures neither shear nor a
+        field-dependent warp (aberrations displace each spot by its local wavefront
+        tilt), so an affine is fitted to the current pairs and everything is reassigned,
+        letting spots that only miss the rigid guess still match.
+        """
         cost = np.linalg.norm(mapped[:, None, :] - detected[None, :, :], axis=-1)
         target_indices, detected_indices = linear_sum_assignment(cost)
         matched = cost[target_indices, detected_indices] < tolerance
 
-        # Refine: a similarity from one anchor pair captures neither shear nor a
-        # field-dependent warp (e.g. aberrations displacing each spot by its local
-        # wavefront tilt). Fit an affine to the current matches and re-assign, so spots
-        # that only miss the rigid hypothesis still match.
         for _ in range(2):
             if matched.sum() < 3:
                 break
@@ -724,7 +758,7 @@ class SpotArrayMapper(CameraMapper):
             or popt[3] <= amplitude_threshold
         ):
             return None
-        # Reject if the fitted centre wandered outside the ROI (spurious fit).
+        # Reject if the fitted center wandered outside the ROI (spurious fit).
         detected = metres_to_pixel((popt[1], popt[2]), pitch, image.shape)
         off_x = abs(detected[0] - peak[0])
         off_y = abs(detected[1] - peak[1])

@@ -1,4 +1,4 @@
-"""The SLM-plane field parameterised by a compact camera-plane point spread function."""
+"""The SLM-plane field parameterized by a compact camera-plane point spread function."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def kernel_size_from_waist(
     The waist is the one fitted to the *measured* focal spot during camera mapping, so
     it already carries the aberration: a worse wavefront gives a broader spot and
     therefore a larger kernel, which is exactly when the fit needs more freedom. Rounded
-    up to an odd number so the kernel has a centre pixel.
+    up to an odd number so the kernel has a center pixel.
 
     Args:
         waist: Focal spot waist in metres.
@@ -50,7 +50,7 @@ def _as_kernel_size(psf_kernel_size: int | tuple[int, int]) -> tuple[int, int]:
 
 
 class PSFSLMField(SLMField):
-    """The SLM-plane field, parameterised by a compact camera-plane PSF.
+    """The SLM-plane field, parameterized by a compact camera-plane PSF.
 
     Stands in for :class:`PixelwiseSLMField` and fills the same slot in an
     :class:`~hologradpy.optics.systems.SLMFourierLensModel`, but carries a small complex

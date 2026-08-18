@@ -27,7 +27,7 @@ class ZernikePhaseRetriever(PhaseRetrieverBase):
         would stop it, so they are tightened well below them."""
         return {"tol": 1e-20, "options": {"gtol": 1e-20, "xtol": 1e-20}}
 
-    # What this search optimises, and with which method. The run itself is the
+    # What this search optimizes, and with which method. The run itself is the
     # base class template.
     PARAMETER_NAME = "virtual_slm.zernike.zernike_coefficients"
     METHOD = "l-bfgs"

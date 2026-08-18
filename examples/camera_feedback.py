@@ -5,7 +5,7 @@ import torch
 from hologradpy.hardware import (
     SimulatedCameraTorch,
     SimulatedSLMTorch,
-    open_camera,
+    as_camera,
     open_slm,
 )
 from hologradpy.holography.camera_feedback import SimpleFeedbackCorrector
@@ -23,6 +23,7 @@ from hologradpy.utils import get_device, gpu_to_numpy
 SEED = 1
 FOCAL_LENGTH = 250e-3
 BEAM_RADIUS = 5e-3
+CROSSTALK_UPSCALE_FACTOR = 3
 
 device = get_device(verbose=True)
 
@@ -76,18 +77,22 @@ simulated_camera_model = SLMCZT(
     slm_field=PixelwiseSLMField(aberrated_beam),
     padded_resolution=PADDED_RESOLUTION,
     camera_angle=5.0,
-    camera_shift=(50.0, 120.0),
+    camera_shift=(700e-6, 700e-6),          # (x, y) metres in the focal plane
     pointing_focal_shift_std=0.5e-6,
 )
 
-camera = open_camera(
-    SimulatedCameraTorch,
-    slm_camera_model=simulated_camera_model,
-    bitdepth=12,
-    nd_filter_optical_density=6,
-    noise_level=4,
-    power_std=0.05,
-    power_seed=0,
+camera = as_camera(
+    SimulatedCameraTorch(
+        slm_camera_model=simulated_camera_model,
+        bitdepth=12,
+        nd_filter_optical_density=6,
+        noise_level=4,
+        power_std=0.05,
+        power_seed=0,
+        crosstalk_upscale_factor=CROSSTALK_UPSCALE_FACTOR,
+        crosstalk_order=2,
+        crosstalk_width=1,
+    )
 )
 
 plt.figure()
@@ -95,7 +100,7 @@ plt.imshow(gpu_to_numpy(injected_phase), cmap="magma")
 plt.colorbar(label="Phase [rad]")
 plt.title("Injected aberration (unknown to the model)")
 
-# %% The model the retriever optimises against, aberration free
+# %% The model the retriever optimizes against, aberration free
 clean_beam = ComplexAmplitude(
     gaussian_amplitude + 0j,
     wavelength=input_geometry.wavelength,
@@ -118,12 +123,12 @@ slm_camera_model()
 
 # (x, y) metres in the Nyquist plane, measured from the zeroth order. Placed off the
 # zeroth order so the undiffracted spot does not sit in the middle of the potential.
-TARGET_POSITION = (600e-6, -300e-6)
+TARGET_POSITION = (-1200e-6, -800e-6)
 
 init_slm_phase = (
     lens_phase(
         *slm.get_spatial_grid(device=device),
-        focal_length=2,
+        focal_length=1,
         wavenumber=2 * torch.pi / slm.wavelength,
     )
     + linear_phase(
@@ -135,11 +140,11 @@ init_slm_phase = (
     )
 ).to(torch.float32)
 
-PATCH_RESOLUTION = (240, 480)
+PATCH_RESOLUTION = (400, 800)
 patch_grid = get_spatial_grid(PATCH_RESOLUTION, CAMERA_PIXEL_SIZE)
 
-top_hat_width = 500e-6
-top_hat_height = 200e-6
+top_hat_width = 1600e-6
+top_hat_height = 1000e-6
 target_top_hat = gaussian_blur(
     rectangular_mask(
         *patch_grid, top_hat_width, top_hat_height, 0e-6, 0e-6
@@ -167,7 +172,7 @@ placement_figure = placement.visualizer().render()
 
 # %% Running the feedback loop
 data = feedback.run(
-    retriever_iterations=[50, 30, 20, 20, 20, 20],
+    retriever_iterations=[50, 30, 20, 20, 20, 10, 10],
     gain=0.7,
     averages=5,
     blur=0.0,
@@ -178,5 +183,4 @@ data = feedback.run(
 # %% Plotting results
 visualizer = data.visualizer()
 figure = visualizer.render()
-
 # %%

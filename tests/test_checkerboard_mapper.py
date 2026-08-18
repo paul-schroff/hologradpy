@@ -2,7 +2,7 @@
 
 Covers coarse-driven placement (build-internally and explicit-coarse), the
 quarter-Nyquist square-size cap, zeroth-order clearance, and a camera-rotation
-characterisation. The checkerboard corner correspondence assumes a near-axis-
+characterization. The checkerboard corner correspondence assumes a near-axis-
 aligned board, so the mapper is robust up to a +/-45 deg camera rotation and
 aliases beyond it (the board's 90 deg orientation ambiguity flips past the 45 deg
 bisector). The sweep encodes that breaking point. All setups are clean (no
@@ -49,7 +49,7 @@ def _aberration_phase(
     rms_radians: float,
     seed: int,
 ) -> torch.Tensor:
-    """Random Zernike phase (astigmatism and up), normalised so its intensity-
+    """Random Zernike phase (astigmatism and up), normalized so its intensity-
     weighted RMS over the beam equals ``rms_radians`` (0 -> flat)."""
     if rms_radians == 0.0:
         return torch.zeros(resolution, device=DEVICE)
@@ -200,13 +200,13 @@ def test_zeroth_order_clears_board_footprint(checkerboard_mapping):
     the detected board's camera footprint."""
     mapping = checkerboard_mapping
     detected = np.asarray(mapping.detected_points, dtype=float)
-    board_centre = detected.mean(axis=0)
+    board_center = detected.mean(axis=0)
     half_diagonal = 0.5 * float(
         np.hypot(np.ptp(detected[:, 0]), np.ptp(detected[:, 1]))
     )
     # zeroth_order_position is stored (y, x) in camera pixels.
     zeroth_y, zeroth_x = mapping.zeroth_order_position
-    distance = float(np.hypot(zeroth_x - board_centre[0], zeroth_y - board_centre[1]))
+    distance = float(np.hypot(zeroth_x - board_center[0], zeroth_y - board_center[1]))
     assert distance > half_diagonal
 
 
@@ -259,7 +259,7 @@ def test_auto_square_size_within_quarter_nyquist(mapper, coarse_mapping):
     assert rows * square_size <= 0.5 * addressable[1] / pixel_size_out[0] + 1e-6
 
 
-# --- camera-rotation characterisation -----------------------------------------
+# --- camera-rotation characterization -----------------------------------------
 
 
 @pytest.mark.parametrize("camera_angle", [15.0, 30.0, 40.0])

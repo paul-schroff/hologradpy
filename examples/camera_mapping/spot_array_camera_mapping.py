@@ -78,7 +78,7 @@ simulated_camera_model = SLMCZT(
     focal_length=0.25,
     slm_field=PixelwiseSLMField(aberrated_beam),
     camera_angle=10,
-    camera_shift=(20, -10),
+    camera_shift=(70e-6, -35e-6),         # (x, y) metres in the focal plane
 )
 
 camera = open_camera(

@@ -37,7 +37,7 @@ def capture_init(init: Callable[..., None]) -> Callable[..., None]:
     :class:`~hologradpy.optics.systems.OpticalSystem`: both need to rebuild an object
     from a checkpoint, and neither should carry a hand-written list of what its
     constructor took. The original ``__init__`` runs first, so ``nn.Module`` is fully
-    initialised before anything is recorded.
+    initialized before anything is recorded.
 
     A ``**kwargs`` parameter is flattened into the recorded arguments, so passing them
     back as keywords reproduces the original call. ``*args`` cannot be reproduced by
@@ -80,7 +80,7 @@ def _check_checkpoint_class(state: dict, expected: type, path: str) -> None:
 
 
 def _auto_init_forward(forward: Callable) -> Callable:
-    """Wrap a subclass ``forward`` so the module lazily initialises itself from
+    """Wrap a subclass ``forward`` so the module lazily initializes itself from
     its input field on first use (replaces the old forward pre-hook)."""
 
     @functools.wraps(forward)
@@ -94,7 +94,7 @@ def _auto_init_forward(forward: Callable) -> Callable:
 
 
 def _auto_init_adjoint(adjoint: Callable) -> Callable:
-    """Wrap a subclass ``adjoint`` so it requires the module to be initialised
+    """Wrap a subclass ``adjoint`` so it requires the module to be initialized
     first -- its input is an output-plane field, so it cannot infer the input
     geometry and must have seen a forward() / initialize_from_geometry()."""
 
@@ -112,7 +112,7 @@ class OpticsModule(RecordingMixin, nn.Module):
 
     Subclassing contract:
     - Implement ``forward(field) -> field`` and, if invertible, ``adjoint(field)``.
-    - Initialisation is **automatic**: the module lazily initialises from the input
+    - Initialization is **automatic**: the module lazily initializes from the input
       field on the first ``forward``; ``adjoint`` requires a prior ``forward`` (or
       ``initialize_from_geometry``) because its input carries the *output*-plane
       geometry. You never call an init/guard yourself.
@@ -127,7 +127,7 @@ class OpticsModule(RecordingMixin, nn.Module):
     """
 
     def __init_subclass__(cls, **kwargs) -> None:
-        # Auto-wrap the subclass's forward/adjoint so initialisation is automatic
+        # Auto-wrap the subclass's forward/adjoint so initialization is automatic
         # and symmetric. Only wrap methods the subclass defines itself, and never
         # double-wrap.
         super().__init_subclass__(**kwargs)
@@ -225,7 +225,7 @@ class OpticsModule(RecordingMixin, nn.Module):
             )
 
     def _lazy_initialize(self, complex_amplitude: ComplexAmplitude) -> None:
-        """Initialise from an input-plane field (or probe): record the input
+        """Initialize from an input-plane field (or probe): record the input
         geometry, set the default output geometry, let the subclass build its state
         in lazy_init(), then validate + broadcast the output geometry."""
         self._input_geometry = complex_amplitude.geometry
@@ -239,7 +239,7 @@ class OpticsModule(RecordingMixin, nn.Module):
         geometry: FieldGeometry,
         dtype: torch.dtype = torch.complex64,
     ) -> None:
-        """Initialise the module from an input-plane geometry, without a
+        """Initialize the module from an input-plane geometry, without a
         forward pass.
 
         Lets ``forward()`` and ``adjoint()`` be called in any order: the
@@ -260,7 +260,7 @@ class OpticsModule(RecordingMixin, nn.Module):
             else (number_of_wavelengths, *geometry.resolution)
         )
         # Probe carries only geometry/dtype/device into lazy_init, which never
-        # reads field values — so the (uninitialised) contents are unused.
+        # reads field values — so the (uninitialized) contents are unused.
         probe = ComplexAmplitude(
             torch.empty(shape, dtype=dtype, device=geometry.wavelength.device),
             geometry.wavelength,
@@ -269,10 +269,10 @@ class OpticsModule(RecordingMixin, nn.Module):
         self._lazy_initialize(probe)
 
     def _ensure_initialized(self) -> None:
-        """Raise if the module has not been lazily initialised yet."""
+        """Raise if the module has not been lazily initialized yet."""
         if not self.initialized:
             raise RuntimeError(
-                f"{type(self).__name__} must be initialised before this "
+                f"{type(self).__name__} must be initialized before this "
                 "call; run forward() once or call "
                 "initialize_from_geometry(input_geometry)."
             )
@@ -296,7 +296,7 @@ class OpticsModule(RecordingMixin, nn.Module):
 
     @property
     def pixel_size_in(self) -> Tensor:
-        """Input pixel size in meters.
+        """Input pixel size in metres.
 
         Returns:
             Tensor: Input pixel size (height, width).
@@ -314,9 +314,9 @@ class OpticsModule(RecordingMixin, nn.Module):
 
     @property
     def pixel_size_out(self) -> Tensor:
-        """Output pixel size in meters.
+        """Output pixel size in metres.
 
-        Note: this is ``None`` until the module is lazily initialised (the tensor
+        Note: this is ``None`` until the module is lazily initialized (the tensor
         is built in ``lazy_init``). This is intentional and relied upon -- callers
         that need it before a forward pass fall back to the constructor value
         ``_pixel_size_out_init`` (see ``SimulatedCameraTorch``).
@@ -371,7 +371,7 @@ class OpticsModule(RecordingMixin, nn.Module):
     def from_file(cls, path: str, device: torch.device = "cpu"):
         """Rebuild a module saved by :meth:`save`.
 
-        The constructor arguments are replayed, the module is initialised from the input
+        The constructor arguments are replayed, the module is initialized from the input
         geometry the checkpoint recorded (so its lazily built state exists), and the
         weights are loaded on top.
 

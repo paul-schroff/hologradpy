@@ -7,7 +7,7 @@ from numpy.typing import NDArray
 from torch import Tensor
 
 from ...geometry import AffineTransform, PartialAffineTransform
-from ...grids import plane_centre
+from ...grids import plane_center
 from ...serialization import SaveableRecord, record_type
 from ...visualizer import VisualizationData
 from ...hardware.camera import CameraData, CameraOrientation
@@ -100,8 +100,8 @@ class CameraMapping(SaveableRecord):
         affine: AffineTransform, resolution_out: tuple[int, int]
     ) -> tuple[float, float]:
         """Where the undiffracted spot lands on the sensor, as ``(row, column)``."""
-        centre = plane_centre(resolution_out)
-        column, row = affine.inverse().transform_points([centre])[0]
+        center = plane_center(resolution_out)
+        column, row = affine.inverse().transform_points([center])[0]
         return (float(row), float(column))
 
     @property

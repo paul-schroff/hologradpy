@@ -1,4 +1,4 @@
-"""Behaviour locks for the propagators after they were refactored to compose
+"""Behavior locks for the propagators after they were refactored to compose
 the ``hologradpy.fourier_transforms`` transforms.
 
 * ``FourierLensNUFFT`` -> ``KbNufftPartialAffine``: a characterization golden pins
@@ -8,7 +8,8 @@ the ``hologradpy.fourier_transforms`` transforms.
 * ``FourierLensFFT`` -> ``FastFourierTransform``: forward/adjoint equal the plain
   padded FFT / cropped IFFT.
 * ``AngularSpectrumMethod``: transform-pluggable -- an explicit orthonormal FFT
-  reproduces the default, and a different transform (``ChirpZPartialAffine``) is accepted.
+  reproduces the default, and a different transform (``ChirpZPartialAffine``) is
+  accepted.
 """
 
 from __future__ import annotations
@@ -118,7 +119,7 @@ def test_fourier_lens_fft_adjoint_is_scaled_cropped_ifft() -> None:
     """
     lens = FourierLensFFT(focal_length=0.1, power_normalized=False)
     field = make_field((2, H, W), 2, seed=0)
-    lens(field)  # lazily initialise
+    lens(field)  # lazily initialize
 
     spectrum = make_field((2, 2 * H, 2 * W), 2, seed=2, pixel_size=PIXEL_OUT)
     restored = lens.adjoint(spectrum)._data
@@ -141,7 +142,8 @@ def test_asm_explicit_fft_transform_equals_default() -> None:
 
 
 def test_asm_accepts_chirpz_transform() -> None:
-    """The angular spectrum is transform-pluggable: a ``ChirpZPartialAffine`` is accepted
+    """The angular spectrum is transform-pluggable: a ``ChirpZPartialAffine`` is
+    accepted
     and produces a finite field of the right shape (a band-limited variant -- the
     point is that the transfer function is built on the transform's own
     frequencies)."""
@@ -155,7 +157,7 @@ def test_asm_accepts_chirpz_transform() -> None:
 
 
 def _focal_spot_polar_angle(intensity: torch.Tensor) -> float:
-    """Polar angle of the focal spot, in degrees about the frame centre."""
+    """Polar angle of the focal spot, in degrees about the frame center."""
     values = intensity.detach().to(torch.float64)
     height, width = values.shape
     peak = int(values.argmax())
@@ -177,21 +179,21 @@ def _focal_spot_polar_angle(intensity: torch.Tensor) -> float:
 
 
 def _tilted_beam(resolution, pixel_in, wavelength):
-    """An apodised off-axis tilt, giving one clean focal spot away from centre."""
+    """An apodized off-axis tilt, giving one clean focal spot away from center."""
     rows, cols = torch.meshgrid(
         torch.arange(resolution[0]) - resolution[0] // 2,
         torch.arange(resolution[1]) - resolution[1] // 2,
         indexing="ij",
     )
     tilt = 2 * math.pi * (0.18 * cols + 0.24 * rows)
-    apodisation = torch.exp(
+    apodization = torch.exp(
         -(
             (rows.double() / (0.32 * resolution[0])) ** 2
             + (cols.double() / (0.32 * resolution[1])) ** 2
         )
     )
     return ComplexAmplitude(
-        (apodisation * torch.exp(1j * tilt.double())).to(torch.complex64),
+        (apodization * torch.exp(1j * tilt.double())).to(torch.complex64),
         torch.tensor(wavelength),
         pixel_in,
     )

@@ -35,7 +35,7 @@ def masked_intensity_mse(
 ) -> torch.Tensor:
     """Squared error between a predicted and a measured intensity over a region.
 
-    Both are masked and normalised to unit sum first, so the comparison is of intensity
+    Both are masked and normalized to unit sum first, so the comparison is of intensity
     distribution rather than absolute counts.
 
     Args:
@@ -180,10 +180,10 @@ class MaskedIntensityMSE(LossFunction):
 
 
 class PhaseSmoothness(LossFunction):
-    """Penalise structure in the SLM-plane phase.
+    """Penalize structure in the SLM-plane phase.
 
     An SLM-plane field stored one value per pixel can fit the speckle with a rough,
-    unphysical solution, so it needs a prior. A parameterisation that is band limited by
+    unphysical solution, so it needs a prior. A parameterization that is band limited by
     construction, such as a compact point spread function kernel, does not, and simply
     goes without one.
 
@@ -208,7 +208,7 @@ class PhaseSmoothness(LossFunction):
 
 
 class AmplitudeSmoothness(LossFunction):
-    """Penalise structure in the SLM-plane amplitude.
+    """Penalize structure in the SLM-plane amplitude.
 
     The amplitude counterpart of :class:`PhaseSmoothness`, and the other half of the
     prior a per-pixel field needs. Weighted separately, since the two quantities are
@@ -247,7 +247,7 @@ def gradient_loss(input: torch.Tensor, aperture_relative: bool = True) -> torch.
     """Mean squared finite difference, measured across the aperture by default.
 
     Args:
-        input: A ``(..., height, width)`` field to penalise.
+        input: A ``(..., height, width)`` field to penalize.
         aperture_relative: Scale each difference by the pixel count along its
             axis. Pass False for the raw per-pixel differences.
     """

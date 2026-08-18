@@ -74,7 +74,7 @@ class DiagonalElement(OpticsModule):
 class SimpleLens(DiagonalElement):
     """Ideal thin lens: an apertured quadratic phase mask.
 
-    The lens phase is built per-wavelength at lazy initialisation.
+    The lens phase is built per-wavelength at lazy initialization.
     """
 
     def __init__(
@@ -103,7 +103,7 @@ class SimpleLens(DiagonalElement):
             wavenumber,
         )
 
-        # Aperture is wavelength-independent; centred on the grid.
+        # Aperture is wavelength-independent; centered on the grid.
         aperture = circular_mask(grid_x, grid_y, self.aperture_radius)
 
         # Complex transmission of the apertured lens.
@@ -116,7 +116,7 @@ class DoubletLens(DiagonalElement):
     Models the phase imparted by a cemented doublet (a crown and a flint
     element) as the optical path difference through three spherical surfaces,
     following the ``doublet`` profile on the main branch. The phase is built
-    per-wavelength at lazy initialisation (the wavenumber is per-wavelength;
+    per-wavelength at lazy initialization (the wavenumber is per-wavelength;
     the refractive indices are treated as constant over the wavelength range).
     """
 
@@ -137,7 +137,7 @@ class DoubletLens(DiagonalElement):
             radius_crown_flint: Radius of curvature of the cemented
                 crown/flint surface [m].
             radius_flint: Radius of curvature of the second flint surface [m].
-            shift: Lateral offset ``(shift_x, shift_y)`` of the lens centre [m].
+            shift: Lateral offset ``(shift_x, shift_y)`` of the lens center [m].
         """
         super().__init__()
 

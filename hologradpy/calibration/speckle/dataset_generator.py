@@ -12,21 +12,21 @@ import torch
 
 from .records import SpeckleCaptureData
 
-from ....hardware import Camera, SLM
-from ....hardware.camera import CameraData
-from ....hardware.slm import SLMData
+from ...hardware import Camera, SLM
+from ...hardware.camera import CameraData
+from ...hardware.slm import SLMData
 
-from ..abstract import WavefrontCalibrationData
+from ..wavefront.abstract import WavefrontCalibrationData
 
-from ...camera_mapping import CameraMapping
+from ..camera_mapping import CameraMapping
 
-from ....datasets import CaptureStore
-from ....profiles.masks import circular_mask, elliptical_mask
-from ....profiles.phase import band_limited_random_phase
-from ....roi import ROI
-from ....fourier_optics import fourier_lens_pixel_size
-from ....grids import get_pixel_grid, get_spatial_grid, pixel_to_metres
-from ....utils import progress
+from ...datasets import CaptureStore
+from ...profiles.masks import circular_mask, elliptical_mask
+from ...profiles.phase import band_limited_random_phase
+from ...roi import ROI
+from ...fourier_optics import fourier_lens_pixel_size
+from ...grids import get_pixel_grid, get_spatial_grid, pixel_to_metres
+from ...utils import progress
 
 
 class DatasetGenerator:
@@ -101,7 +101,7 @@ class DatasetGenerator:
 
         Raises:
             ValueError: If the zeroth order lies off the sensor, where no speckle
-                centred on it fits and an extent has to be chosen deliberately.
+                centered on it fits and an extent has to be chosen deliberately.
         """
         # In camera pixels, stored (y, x). Coarse mapping extrapolates it through the
         # affine transform, so it can land off the sensor entirely.
@@ -114,7 +114,7 @@ class DatasetGenerator:
         if any(margin <= 0 for margin in margins):
             raise ValueError(
                 f"The zeroth order sits at {tuple(float(z) for z in zeroth)} on a "
-                f"{tuple(self.camera.resolution)} sensor, so no speckle centred on it "
+                f"{tuple(self.camera.resolution)} sensor, so no speckle centered on it "
                 "fits. Pass an extent explicitly."
             )
 

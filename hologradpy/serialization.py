@@ -108,7 +108,7 @@ class RecordConverter(Converter):
     def tags(self) -> list[str]:
         # Every version of each name, not only the current one: a converter is consulted
         # only for the tags it claims, so claiming the current version alone would leave
-        # an older file unrecognised and its migration unreachable.
+        # an older file unrecognized and its migration unreachable.
         return [
             _tag_for(name, version)
             for name, cls in self._record_types.items()
@@ -289,7 +289,7 @@ def registered_as(name: str, cls):
         install_extension()
 
 
-def check_record_recognised(record, source) -> None:
+def check_record_recognized(record, source) -> None:
     """Raise if ASDF handed back a raw tagged tree rather than a record.
 
     Args:
@@ -375,7 +375,7 @@ class SaveableRecord:
         with asdf.open(str(path), lazy_load=False, memmap=False) as file:
             record = file["record"]
 
-        check_record_recognised(record, path)
+        check_record_recognized(record, path)
 
         if not isinstance(record, cls):
             raise TypeError(

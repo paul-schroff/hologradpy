@@ -17,7 +17,7 @@ from ....optics.systems import SLMFFT
 from ....utils import gpu_to_numpy
 from ....profiles.phase import analytic_phase_guess
 from ....profiles.masks import rectangular_mask
-from ....grids import get_spatial_grid, pixel_to_metres, plane_centre
+from ....grids import get_spatial_grid, pixel_to_metres, plane_center
 
 from ....holography.phase_retrieval import CGPhaseRetriever
 from ....holography.vortices.vortex_annihilator import VortexAnnihilator
@@ -68,7 +68,7 @@ class CheckerboardMapper(CameraMapper):
             square_size: Square size in model-plane pixels. If None (default), it is
                 chosen from the coarse mapping (<= 1/4 the Nyquist-rectangle width,
                 ~half the sensor). The board is then placed automatically in the
-                sensor quadrant opposite the zeroth order (or the sensor centre if
+                sensor quadrant opposite the zeroth order (or the sensor center if
                 the zeroth order is off it).
             number_of_cg_iterations: CG phase-retrieval iterations. Defaults to 50.
             phase_guess: Initial SLM phase guess. If None, a quadratic guess.
@@ -98,8 +98,8 @@ class CheckerboardMapper(CameraMapper):
         camera_shape = tuple(self.camera.resolution)  # (height, width)
         focal_spot_radius = float(abs(coarse_mapping.spot_fit.waist))
 
-        # Choose the board centre (model-pixel shift), the square size, and the
-        # camera-pixel centre the board lands on from the coarse transform.
+        # Choose the board center (model-pixel shift), the square size, and the
+        # camera-pixel center the board lands on from the coarse transform.
         board_shift, square_size, center_camera = self._place_checkerboard(
             number_of_squares,
             square_size,
@@ -129,21 +129,21 @@ class CheckerboardMapper(CameraMapper):
         signal_region = torch.zeros_like(target, device=self.device) > 1
         signal_region[signal_region_roi.rows, signal_region_roi.columns] = True
 
-        board_shift_meters = (
+        board_shift_metres = (
             board_shift[0] * simulation_pixel_size[1],
             board_shift[1] * simulation_pixel_size[0],
         )
 
-        # ROI for corner detection: The model plane is centred on the board, and the 
-        # camera plane is centred where the board lands.
+        # ROI for corner detection: The model plane is centered on the board, and the 
+        # camera plane is centered where the board lands.
         roi_width = simulation_pixel_size[1] * square_size * (number_of_squares[1] + 1)
         roi_height = simulation_pixel_size[0] * square_size * (number_of_squares[0] + 1)
         roi_mask_simulation = rectangular_mask(
             *lens.get_spatial_grid_output(),
             width=torch.tensor(roi_width),
             height=torch.tensor(roi_height),
-            shift_x=board_shift_meters[0],
-            shift_y=board_shift_meters[1],
+            shift_x=board_shift_metres[0],
+            shift_y=board_shift_metres[1],
         )
 
         inverse = np.asarray(coarse_mapping.inverse_transform, dtype=np.float64)
@@ -174,9 +174,9 @@ class CheckerboardMapper(CameraMapper):
             )
 
             phase_guess = analytic_phase_guess(
-                *self.slm_camera_model.virtual_slm.get_spatial_grid_input(),
-                tilt_x=board_shift_meters[0],
-                tilt_y=board_shift_meters[1],
+                *self.slm_camera_model.virtual_slm.get_slm_grid(),
+                tilt_x=board_shift_metres[0],
+                tilt_y=board_shift_metres[1],
                 curvature=curvature,
                 aspect_ratio=aspect_ratio,
                 focal_length=self.slm_camera_model.fourier_lens.focal_length,
@@ -301,20 +301,20 @@ class CheckerboardMapper(CameraMapper):
         resolution_out: tuple[int, int],
         camera_shape: tuple[int, int],
     ) -> tuple[tuple[int, int], int, tuple[float, float]]:
-        """Choose the checkerboard's model-pixel centre shift, square size, and the
-        camera-pixel centre it lands on, from the coarse transform.
+        """Choose the checkerboard's model-pixel center shift, square size, and the
+        camera-pixel center it lands on, from the coarse transform.
 
         ``square_size`` (model px) defaults so the board width is <= 1/4 of the
         Nyquist-rectangle width and spans ~half the sensor. The board is placed in
         the sensor quadrant opposite the zeroth order (clear of it), or at the
-        sensor centre when the zeroth order is off the sensor.
+        sensor center when the zeroth order is off the sensor.
         """
         rows, columns = number_of_squares
         transform = np.asarray(coarse_mapping.transform, dtype=np.float64)
         inverse = np.asarray(coarse_mapping.inverse_transform, dtype=np.float64)
         magnification = float(np.sqrt(abs(np.linalg.det(inverse[:, :2]))))
         height, width = camera_shape
-        model_centre = np.array(plane_centre(resolution_out), dtype=float)
+        model_center = np.array(plane_center(resolution_out), dtype=float)
         addressable = self.slm_camera_model.addressable_half_extent()  # (x, y) m
 
         if square_size is None:
@@ -340,28 +340,28 @@ class CheckerboardMapper(CameraMapper):
 
         if dc_on_sensor:
             # The sensor corner opposite the zeroth order.
-            centre_camera = np.array(
+            center_camera = np.array(
                 [
                     high[0] if zeroth[0] < width / 2 else low[0],
                     high[1] if zeroth[1] < height / 2 else low[1]
                 ]
             )
         else:
-            centre_camera = np.array([(width - 1) / 2.0, (height - 1) / 2.0])
+            center_camera = np.array([(width - 1) / 2.0, (height - 1) / 2.0])
 
-        if dc_on_sensor and np.linalg.norm(centre_camera - zeroth) < board_radius:
+        if dc_on_sensor and np.linalg.norm(center_camera - zeroth) < board_radius:
             raise ValueError(
                 "The checkerboard cannot be placed clear of the zeroth order on "
                 "this sensor. Reduce number_of_squares / square_size."
             )
         model_point = AffineTransform.from_matrix(transform).transform_points(
-            centre_camera
+            center_camera
         )[0]
         shift = (
-            int(round(model_point[0] - model_centre[0])),
-            int(round(model_point[1] - model_centre[1])),
+            int(round(model_point[0] - model_center[0])),
+            int(round(model_point[1] - model_center[1])),
         )
-        return shift, square_size, (float(centre_camera[0]), float(centre_camera[1]))
+        return shift, square_size, (float(center_camera[0]), float(center_camera[1]))
 
     def capture_phase_shifted_image(
         self,

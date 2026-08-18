@@ -11,10 +11,41 @@ from ...optics.modules.hardware_models import (
     BackgroundScatter,
     PowerInstability,
 )
+from ...optics.modules.pixel_crosstalk import SuperGaussianCrosstalk
 from ...optics.modules.slm_fields import PixelwiseSLMField
 from ...utils import gpu_to_numpy
 from ...roi import ROI
 from .abstract import Camera, CameraOrientation
+
+
+def _with_pixel_crosstalk(
+    slm_camera_model: SLMFourierLensModel,
+    crosstalk: SuperGaussianCrosstalk,
+) -> SLMFourierLensModel:
+    """``slm_camera_model`` rebuilt with ``crosstalk`` fitted to its SLM stage.
+
+    Crosstalk cannot be inserted into a system that is already built as it changes the
+    sampling of every stage after the SLM.
+    """
+    virtual_slm = slm_camera_model.virtual_slm
+    if virtual_slm.initialized:
+        raise ValueError(
+            "The SLM stage has already been built for the coarse grid, so pixel "
+            "crosstalk cannot be added to it. Build the camera before running the "
+            "model or setting a phase on it."
+        )
+
+    try:
+        spec = slm_camera_model.get_checkpoint_spec()
+    except NotImplementedError as error:
+        raise NotImplementedError(
+            f"{type(slm_camera_model).__name__} cannot be rebuilt with pixel "
+            "crosstalk, because its __init__ is not decorated with @capture_init. "
+            "Build the model with a VirtualSLM carrying the crosstalk instead."
+        ) from error
+
+    virtual_slm.pixel_crosstalk = crosstalk
+    return type(slm_camera_model).from_checkpoint_spec(spec)
 
 
 class SimulatedCameraTorch(Camera):
@@ -40,6 +71,10 @@ class SimulatedCameraTorch(Camera):
         background_scatter_seed: int | None = None,
         power_std: float | None = None,
         power_seed: int | None = None,
+        crosstalk_upscale_factor: int | None = None,
+        crosstalk_order: float = 2.0,
+        crosstalk_width: float = 1.0,
+        crosstalk_extent: int = 3,
         **sensor_kwargs,
     ) -> None:
         """Initialize a simulated camera with a given SLM camera model.
@@ -67,9 +102,28 @@ class SimulatedCameraTorch(Camera):
         inserted just after the model's ``PixelwiseSLMField``, reproducible via
         ``power_seed``.
 
+        When ``crosstalk_upscale_factor`` is given, the fringing field between
+        neighbouring liquid-crystal pixels is modeled with a
+        :class:`~hologradpy.optics.modules.pixel_crosstalk.SuperGaussianCrosstalk` of
+        that many sub-pixels per SLM pixel, ``crosstalk_order`` (``q``),
+        ``crosstalk_width`` (``sigma``, in cycles per SLM pixel) and
+        ``crosstalk_extent`` (the reach, in SLM pixels). This is quite memory intensive,
+        and works best on a GPU.
+
         ``orientation`` mounts the sensor the way a real camera would be, matching the
         slmsuite orientation convention. :meth:`set_orientation` remounts it later.
         """
+        if crosstalk_upscale_factor is not None:
+            slm_camera_model = _with_pixel_crosstalk(
+                slm_camera_model,
+                SuperGaussianCrosstalk(
+                    upscale_factor=crosstalk_upscale_factor,
+                    extent=crosstalk_extent,
+                    order=crosstalk_order,
+                    width=crosstalk_width,
+                ),
+            )
+
         # Camera geometry comes from the last *optical* module (the Fourier
         # lens / affine), not the sensor, whose output geometry mirrors its input.
         output_module = slm_camera_model[-1]

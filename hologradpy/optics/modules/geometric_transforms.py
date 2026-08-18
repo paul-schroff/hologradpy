@@ -109,7 +109,7 @@ class GeometricWarp(OpticsModule):
             device=complex_amplitude.device,
         ).repeat(number_of_wavelengths, 1)  # Repeat for batch dimension if needed
 
-        # Shift moving the centre of the input image to the center of the
+        # Shift moving the center of the input image to the center of the
         # output image
         resolution_out = torch.tensor(
             self.resolution_out,
@@ -140,7 +140,7 @@ class GeometricWarp(OpticsModule):
         """
         if self.scale_factor is None:
             raise RuntimeError(
-                "GeometricWarp must be initialised before apply_partial_affine "
+                "GeometricWarp must be initialized before apply_partial_affine "
                 "(run the system once)."
             )
         center = (self.resolution_out[1] // 2, self.resolution_out[0] // 2)

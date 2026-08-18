@@ -64,12 +64,13 @@ class ZernikeSLM(VirtualSLM):
     def lazy_init(self: ZernikeSLM, complex_amplitude: ComplexAmplitude) -> None:
         # Intentionally does NOT call VirtualSLM.lazy_init: ZernikeSLM builds its
         # phase from Zernike coefficients, not VirtualSLM's per-pixel Parameter.
+        self.prepare_crosstalk(complex_amplitude)
         number_of_wavelengths = complex_amplitude.number_of_wavelengths
 
         # Build the (n_coefficients, H, W) Zernike basis for the input
         # resolution and keep it as a buffer.
         zernike = Zernike(
-            resolution=self.resolution_in,
+            resolution=self.slm_resolution,
             unit_disk_mode=self.unit_disk_mode,
             number_of_radial_orders=self.number_of_radial_orders,
             convention=self.convention,
@@ -94,7 +95,7 @@ class ZernikeSLM(VirtualSLM):
 
     def set_phase(self, phase: torch.Tensor) -> None:
         raise NotImplementedError(
-            "ZernikeSLM does not support setting the phase directly; optimise "
+            "ZernikeSLM does not support setting the phase directly; optimize "
             "the Zernike coefficients instead."
         )
 
@@ -106,8 +107,11 @@ class ZernikeSLM(VirtualSLM):
         )
 
     def apply_phase_transforms(self, phase: torch.Tensor) -> torch.Tensor:
+        """Wrap into the modulation range, then hand on for quantization and crosstalk.
+        """
         response = self.phase_response.response
-        return response.phase_at(response.fraction_at(phase))
+        wrapped = response.phase_at(response.fraction_at(phase))
+        return super().apply_phase_transforms(wrapped)
 
     def align_phase(self, phase: torch.Tensor, field_ndim: int) -> torch.Tensor:
         """The phase here is per wavelength, so the wavelength axis goes at dim -3 and

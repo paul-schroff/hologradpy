@@ -63,17 +63,31 @@ class PhaseResponse(ABC):
         xp = array_namespace(levels)
         return xp.astype(levels, level_dtype(self.bitdepth, xp))
 
+    def wrap_fraction(self, fraction: ArrayLike) -> ArrayLike:
+        """The fraction of full scale the SLM shows when asked for ``fraction``."""
+        return self.fraction_at(self.phase_at(fraction))
+
 
 @dataclass(frozen=True)
 class LinearResponse(PhaseResponse):
+    """A straight line from zero at level zero to ``phase_scaling`` cycles at full
+    scale.
+    """
+
     bitdepth: int
     phase_scaling: float = 1.0
 
     def phase_at(self, fraction: ArrayLike) -> ArrayLike:
-        return -_as_float(fraction) * TWO_PI
+        return -_as_float(fraction) * self.phase_scaling * TWO_PI
 
     def fraction_at(self, phase: ArrayLike) -> ArrayLike:
-        return (-_as_float(phase) / TWO_PI) % self.phase_scaling
+        xp = array_namespace(phase)
+        cycles = (-_as_float(phase) / TWO_PI) % 1.0
+        fraction = cycles / self.phase_scaling
+        if self.phase_scaling >= 1.0:
+            return fraction
+        # Beyond full scale there is no level to ask for, so hold at the last one.
+        return xp.clip(fraction, 0.0, 1.0 - 1.0 / self.number_of_levels)
 
 
 @dataclass(frozen=True)
@@ -140,6 +154,10 @@ class PhaseResponseModule(torch.nn.Module):
     def phase_scaling(self) -> float:
         return self.response.phase_scaling
 
+    @property
+    def number_of_levels(self) -> int:
+        return self.response.number_of_levels
+
     def phase_at(self, fraction: torch.Tensor) -> torch.Tensor:
         return self.response.phase_at(fraction)
 
@@ -151,6 +169,9 @@ class PhaseResponseModule(torch.nn.Module):
 
     def to_levels(self, phase: torch.Tensor) -> torch.Tensor:
         return self.response.to_levels(phase)
+
+    def wrap_fraction(self, fraction: torch.Tensor) -> torch.Tensor:
+        return self.response.wrap_fraction(fraction)
 
     def quantize(self, levels: torch.Tensor) -> torch.Tensor:
         """Round to whole levels, leaving the gradient unchanged (straight-through

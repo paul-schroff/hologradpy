@@ -90,7 +90,7 @@ class PixelwiseSLMField(SLMField):
         The same thing as the transmission here, since the field is stored directly.
         Named alongside :meth:`PSFSLMField.get_wavefront`, where the two differ, so a
         caller can ask any SLM-plane field module for its wavefront without knowing how
-        it is parameterised.
+        it is parameterized.
         """
         return self.get_transmission()
 

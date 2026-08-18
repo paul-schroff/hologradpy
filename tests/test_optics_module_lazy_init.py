@@ -74,14 +74,14 @@ def test_sampling_preserving_output_equals_input():
 
 def test_adjoint_auto_inits_after_forward():
     module = _Preserving()
-    module(_field())  # initialise via forward
+    module(_field())  # initialize via forward
     out = module.adjoint(_field())  # no manual _ensure_initialized needed
     assert isinstance(out, ComplexAmplitude)
 
 
 def test_adjoint_before_any_forward_raises_clearly():
     module = _Preserving()
-    with pytest.raises(RuntimeError, match="initialised"):
+    with pytest.raises(RuntimeError, match="initialized"):
         module.adjoint(_field())
 
 

@@ -61,11 +61,11 @@ class SLM(ABC):
     ) -> None:
         """Display the desired optical phase in radians (a ``(height, width)`` array).
 
-        Quantised to the SLM's grey levels. Use :meth:`set_levels` to display levels
+        Quantized to the SLM's gray levels. Use :meth:`set_levels` to display levels
         directly.
 
         Each correction is added where it was calibrated: a measured wavefront in
-        radians, before the response converts, and a vendor correction in grey levels,
+        radians, before the response converts, and a vendor correction in gray levels,
         after.
 
         Args:
@@ -74,7 +74,7 @@ class SLM(ABC):
             apply_vendor_correction: Add :attr:`vendor_correction` after converting.
 
         Raises:
-            TypeError: ``phase`` holds integers, which almost always means grey levels.
+            TypeError: ``phase`` holds integers, which almost always means gray levels.
             ValueError: A correction was asked for that has not been loaded.
         """
         phase = self._checked_phase(phase)
@@ -91,9 +91,9 @@ class SLM(ABC):
         self.set_levels(levels)
 
     def set_levels(self, levels: NDArray | torch.Tensor) -> None:
-        """Display grey levels directly, without going through a phase."""
+        """Display gray levels directly, without going through a phase."""
         raise NotImplementedError(
-            f"{type(self).__name__} cannot be given grey levels directly."
+            f"{type(self).__name__} cannot be given gray levels directly."
         )
 
     @staticmethod
@@ -103,7 +103,7 @@ class SLM(ABC):
         if np.issubdtype(phase.dtype, np.integer):
             raise TypeError(
                 "set_phase takes an optical phase in radians, and an integer array "
-                "almost always means grey levels. Pass those to set_levels, or cast to "
+                "almost always means gray levels. Pass those to set_levels, or cast to "
                 "float if radians was meant."
             )
         return phase
@@ -119,7 +119,7 @@ class SLM(ABC):
 
     @property
     def vendor_correction(self) -> NDArray | None:
-        """A per-pixel correction in grey levels, as a vendor ships it."""
+        """A per-pixel correction in gray levels, as a vendor ships it."""
         return self._vendor_correction
 
     def load_phase_correction(self, correction: WavefrontSource) -> None:
@@ -158,7 +158,7 @@ class SLM(ABC):
         )
 
     def load_vendor_correction(self, levels: NDArray | torch.Tensor) -> None:
-        """Take a vendor's per-pixel correction, in the grey levels it ships as."""
+        """Take a vendor's per-pixel correction, in the gray levels it ships as."""
         if torch.is_tensor(levels):
             levels = levels.detach().cpu()
         levels = np.asarray(levels)

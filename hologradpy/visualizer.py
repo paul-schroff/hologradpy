@@ -584,8 +584,8 @@ class AnimatedVisualizer(BaseVisualizer):
     ) -> str:
         """Render the frames to an animated GIF at ``path``.
 
-        Each frame is quantized with a 256-colour adaptive palette and Floyd-Steinberg
-        dithering. matplotlib's default GIF writer maps every frame onto the 216-colour
+        Each frame is quantized with a 256-color adaptive palette and Floyd-Steinberg
+        dithering. matplotlib's default GIF writer maps every frame onto the 216-color
         web-safe palette, which badly posterizes smooth gradients; the adaptive,
         dithered palette keeps them smooth. (Note ``quantize(colors=...)`` median-cut
         does not dither -- only the ``palette=`` path does -- so the dithering happens

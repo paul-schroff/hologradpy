@@ -19,7 +19,7 @@ class RetrievalStepWriter:
     """Saves the retrieval's own parameter every ``stride`` iterations.
 
     Args:
-        stride: Record every nth optimiser iteration.
+        stride: Record every nth optimizer iteration.
         directory: Where to save the file and the checkpoint. Created if it does not 
             exist.
         model: The model whose parameter is recorded, checked here so a retrieval that
@@ -52,7 +52,7 @@ class RetrievalStepWriter:
                 "from it, which a model that draws randomness per forward pass cannot "
                 f"support. {type(model).__name__} carries {', '.join(stochastic)}. "
                 "Those belong in a simulated bench rather than in the model a "
-                "retrieval optimises."
+                "retrieval optimizes."
             )
 
         self.stride: int = int(stride)
@@ -108,7 +108,7 @@ class RetrievalRun:
         self.loss_history.append(float(loss))
 
     def record_iteration(self, iteration: int, model: SLMFourierLensModel) -> None:
-        """Note one completed optimiser iteration."""
+        """Note one completed optimizer iteration."""
         if self.steps is not None:
             self.steps.record(iteration, model)
         if self.progress_bar is not None:

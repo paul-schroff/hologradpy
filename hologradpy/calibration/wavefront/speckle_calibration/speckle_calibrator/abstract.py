@@ -1,24 +1,21 @@
 from __future__ import annotations
-from typing import Callable, ClassVar, Sequence
+from typing import ClassVar, Sequence
 
-import os
 from abc import abstractmethod
-from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 
 import numpy as np
 
 import torch
 
-from ..wavefront_fitter import WavefrontFitter, region_of_interest
-from ..dataset_generator import DatasetGenerator
-from ..records import SpeckleCaptureData
+from ..wavefront_fitter import WavefrontFitter
+from .....calibration.speckle import SpeckleCaptureData
+from .....calibration.speckle.calibrator import FitSettings, SpeckleCalibrator
 
 from .....datasets import CaptureStore
 from ..visualizer import SpeckleVisualizationData
 
-from ...abstract import WavefrontCalibratorBase, WavefrontCalibrationData
+from ...abstract import WavefrontCalibrationData
 
 from .....analysis.error_metrics import (
     DEFAULT_WAVEFRONT_METRICS,
@@ -27,102 +24,27 @@ from .....analysis.error_metrics import (
 )
 from .....analysis.fitting import remove_tilt
 
-from ....camera_mapping import CameraMapping, CoarseMapper
 
-from .....hardware import Camera, SLM
 
-from .....optics import SLMFourierLensModel
 from .....optics.complex_amplitude import ComplexAmplitude
 from .....optics.modules.slm_fields import SLMField
 
 BEAM_MASK_THRESHOLD_DEFAULT = float(np.exp(-4.0))  # ~0.0183
 
-@dataclass(frozen=True)
-class FitSettings:
-    """The cost and the step size a parameterisation is fitted with.
+class WavefrontSpeckleCalibrator(SpeckleCalibrator):
+    """Recover the SLM-plane beam from captured speckle."""
 
-    Attributes:
-        loss: The cost, taking ``(predicted_field, camera_image)``.
-        learning_rate: Adam step size. The parameterisation sets the gradient scale, so
-            it also sets this.
-    """
-
-    loss: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
-    learning_rate: float
-
-
-class SpeckleCalibrator(WavefrontCalibratorBase):
+    fitter_type: ClassVar[type[WavefrontFitter]] = WavefrontFitter
     slm_field_type: ClassVar[type[SLMField]] = SLMField
     visualization_data_type: ClassVar[type[SpeckleVisualizationData]] = (
         SpeckleVisualizationData
     )
 
-    def __init__(
-        self,
-        slm: SLM,
-        camera: Camera,
-        slm_camera_model: SLMFourierLensModel,
-        dataset_path: str | os.PathLike,
-        camera_mapping: CameraMapping | None = None,
-        number_of_random_patterns: int = 10,
-    ) -> None:
-        """
-        Args:
-            slm: The SLM to calibrate.
-            camera: The camera watching its focal plane.
-            slm_camera_model: The differentiable model of this setup. Required rather
-                than defaulted because it is the physics of the bench, and a wrong guess
-                shows up as a bad fit rather than an error. Its ``slm_field`` need not
-                be one this calibrator fits: a matching one is used as the starting
-                point, anything else is replaced by :meth:`_prepare_slm_field`.
-            dataset_path: The dataset file, holding the captured samples and what
-                describes them.
-            camera_mapping: Camera mapping to seed the model's affine transform and to 
-                place the region of interest. If None, a
-                :class:`~hologradpy.calibration.camera_mapping.CoarseMapper` is run, 
-                which drives the SLM and camera.
-            number_of_random_patterns: How many speckle patterns to capture.
-        """
-        super().__init__(slm, camera, slm_camera_model.device)
-
-        self.dataset_path: Path = Path(dataset_path)
-        self.number_of_random_patterns: int = number_of_random_patterns
-
-        self.slm_camera_model: SLMFourierLensModel = slm_camera_model
-        self.focal_length: float = slm_camera_model.focal_length
-
-        if camera_mapping is None:
-            camera_mapping = self._map_camera()
-        self.camera_mapping: CameraMapping = camera_mapping
-
+    def _prepare_model(self) -> None:
+        """Give the model the parameters this calibrator fits, and turn them on."""
         self._prepare_slm_field()
-
-        self.slm_camera_model.calibrate_from_mapping(camera_mapping)
-
         for parameter in self.slm_camera_model.slm_field.parameters():
             parameter.requires_grad_(True)
-
-        self.dataset_generator: DatasetGenerator = DatasetGenerator(
-            slm=self.slm,
-            camera=self.camera,
-            camera_mapping=camera_mapping,
-            focal_length=self.focal_length,
-            dataset_path=self.dataset_path,
-            number_of_random_patterns=self.number_of_random_patterns,
-        )
-
-        self.capture_data: SpeckleCaptureData | None = None
-        self.fitter: WavefrontFitter | None = None
-        self.loss_history: list[float] = []
-        self.loss_component_history: dict[str, list[float]] = {}
-
-    def _map_camera(self) -> CameraMapping:
-        """Map the camera when no mapping was supplied, using :class:`CoarseMapper`."""
-        print("No camera mapping supplied. Running a coarse mapping.")
-        return CoarseMapper(self.slm, self.camera, self.slm_camera_model).map_camera()
-
-    # The three things a parameterisation changes. Everything else on this class is
-    # shared, so they are the only hooks.
 
     def _prepare_slm_field(self) -> None:
         """Generate the SLM-plane field this calibrator fits."""
@@ -145,7 +67,7 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
 
     @abstractmethod
     def _fit_settings(self, mask: torch.Tensor) -> FitSettings:
-        """The cost and step size this parameterisation is fitted with.
+        """The cost and step size this parameterization is fitted with.
 
         Args:
             mask: The region of interest, cropped to its bounding box and already in the
@@ -153,71 +75,14 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
         """
 
     def _visualization_extras(self) -> dict:
-        """Payload fields beyond the shared panels. Most parameterisations add none."""
+        """Payload fields beyond the shared panels. Most parameterizations add none."""
         return {}
 
-    def fit_wavefront(
-        self,
-        number_of_epochs: int = 100,
-        batch_size: int = 5,
-        subset_indices: Sequence[int] | None = None,
-        verbose: bool = True,
-        capture_data: SpeckleCaptureData | None = None,
-    ) -> list[float]:
-        """Fit the SLM-plane field to a captured dataset.
-
-        The second phase of :meth:`calibrate`, exposed on its own so a dataset can be
-        captured once and refitted several times, with different settings or more
-        epochs, without recapturing it. Capture one with
-        :meth:`~hologradpy.calibration.wavefront.speckle_calibration.DatasetGenerator.generate_dataset`
-        on :attr:`dataset_generator`.
-
-        Takes the cost and step size from this calibrator's :meth:`_fit_settings` and
-        hands them to a
-        :class:`~hologradpy.calibration.wavefront.speckle_calibration.WavefrontFitter`,
-        which is otherwise indifferent to how the field is represented.
-
-        Args:
-            number_of_epochs: Passes over the dataset.
-            batch_size: Phase patterns per iteration.
-            subset_indices: Which dataset samples to fit against. Defaults to all.
-            verbose: Print one progress line per epoch.
-            capture_data: The dataset to fit. Defaults to the one from the last
-                call, so a refit needs only the settings that changed. Kept on
-                :attr:`capture_data`, which the visualization also reads.
-
-        Returns:
-            list[float]: The mean loss of each epoch, also kept on :attr:`loss_history`.
+    def fit_wavefront(self, *args, **kwargs) -> list[float]:
+        """Fit the SLM-plane field to a captured dataset. The wavefront name for
+        :meth:`~hologradpy.calibration.speckle.calibrator.SpeckleCalibrator.fit`.
         """
-        if capture_data is not None:
-            self.capture_data = capture_data
-
-        if self.capture_data is None:
-            raise RuntimeError(
-                "No dataset to fit. Capture one with "
-                "calibrator.dataset_generator.generate_dataset(...) and pass it as "
-                "capture_data, or call calibrate() to do both."
-            )
-
-        _, mask = region_of_interest(self.capture_data, self.slm_camera_model)
-        settings = self._fit_settings(mask)
-
-        self.fitter = WavefrontFitter(
-            capture_data=self.capture_data,
-            slm_camera_model=self.slm_camera_model,
-            dataset_path=self.dataset_path,
-            loss=settings.loss,
-            learning_rate=settings.learning_rate,
-        )
-
-        self.loss_history = self.fitter.fit(
-            number_of_epochs=number_of_epochs,
-            batch_size=batch_size,
-            subset_indices=subset_indices,
-            verbose=verbose,
-        )
-        self.loss_component_history = self.fitter.component_history
-        return self.loss_history
+        return self.fit(*args, **kwargs)
 
     def _injected_field(self) -> np.ndarray | None:
         return getattr(self.camera, "static_slm_field", None)
@@ -416,7 +281,7 @@ class SpeckleCalibrator(WavefrontCalibratorBase):
                 sensor, measured from the camera mapping, so an off-axis camera is
                 limited by whichever sensor edge the zeroth order sits closest to.
             number_of_epochs: Passes over the dataset.
-            batch_size: Patterns per optimiser step.
+            batch_size: Patterns per optimizer step.
             subset_indices: Fit only these patterns of the dataset. Defaults to all.
             benchmark_calibration: An existing calibration to add to every pattern, for
                 measuring the residual of a previous fit.

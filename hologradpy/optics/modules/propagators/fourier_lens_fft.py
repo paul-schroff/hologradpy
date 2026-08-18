@@ -151,7 +151,7 @@ class FourierLensFFT(OpticsModule):
 
         # Compose the resolution-preserving FFT on the padded grid. ``self.kwargs``
         # carries any ``norm`` / ``fft_shift`` (defaults match ``fft_2d``), so
-        # this is behaviour-preserving.
+        # this is behavior-preserving.
         self._transform = FastFourierTransform(
             self._resolution_out,
             device=complex_amplitude.device,

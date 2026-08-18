@@ -1,6 +1,6 @@
 ﻿"""Tests for what each speckle-calibrator subclass changes about the fit.
 
-How the SLM-plane field is parameterised decides three things: what starting point it
+How the SLM-plane field is parameterized decides three things: what starting point it
 wants measured, what it costs to fit, and what is worth plotting afterwards. Each is a
 method on a concrete calibrator, so each is asserted here against the class rather than
 only through a full calibration, where a wrong cost still produces a plausible result.
@@ -98,7 +98,7 @@ def _psf_calibrator(tmp_path, slm_field=None):
 
 def test_the_base_calibrator_cannot_be_instantiated() -> None:
     """The neutral base has no cost of its own, so picking it must fail rather than
-    quietly fit without whatever prior the parameterisation needed."""
+    quietly fit without whatever prior the parameterization needed."""
     assert "_fit_settings" in SpeckleCalibrator.__abstractmethods__
 
     with pytest.raises(TypeError, match="abstract"):
@@ -190,7 +190,7 @@ def test_a_supplied_psf_field_is_used_exactly_as_given(tmp_path) -> None:
 
 
 def test_a_pixelwise_calibrator_seeds_nothing(tmp_path) -> None:
-    """Most parameterisations want no measured starting point, and the base hook must
+    """Most parameterizations want no measured starting point, and the base hook must
     leave them untouched rather than fail."""
     calibrator = _pixelwise_calibrator(tmp_path)
 

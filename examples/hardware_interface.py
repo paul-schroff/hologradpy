@@ -130,7 +130,7 @@ plt.colorbar()
 
 # %% 4. Regions of interest with ROI
 # ROI is a frozen (top_row, left_column, height, width) value object in native (row,
-# col) pixels. Build one centred on a point and hand it to set_roi. get_image then
+# col) pixels. Build one centered on a point and hand it to set_roi. get_image then
 # returns only that window.
 center = (camera.resolution[0] // 2, camera.resolution[1] // 2)  # (row, col)
 window = ROI.centered(center=center, size=(256, 256))

@@ -24,6 +24,12 @@ from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.geometric_transforms import (
     GeometricWarp,
 )
+from hologradpy.optics.modules.grid_adapter import GridAdapter
+from hologradpy.optics.modules.pixel_crosstalk import (
+    FreeKernelCrosstalk,
+    NeighbourDifferenceCrosstalk,
+    SuperGaussianCrosstalk,
+)
 from hologradpy.optics.modules.propagators.angular_spectrum_method import (
     AngularSpectrumMethod,
 )
@@ -48,6 +54,19 @@ ZERNIKE_COEFFICIENTS = torch.linspace(0.1, 1.0, 10)
 # corresponding slice of a batched forward.
 MODULE_FACTORIES: dict[str, callable] = {
     "VirtualSLM": lambda: VirtualSLM(phase_scaling=1.0),
+    "VirtualSLMFreeKernel": lambda: VirtualSLM(
+        phase_scaling=1.0, pixel_crosstalk=FreeKernelCrosstalk(upscale_factor=4)
+    ),
+    "VirtualSLMSuperGaussian": lambda: VirtualSLM(
+        phase_scaling=1.0, pixel_crosstalk=SuperGaussianCrosstalk(upscale_factor=2)
+    ),
+    "VirtualSLMNeighbour": lambda: VirtualSLM(
+        phase_scaling=1.0,
+        pixel_crosstalk=NeighbourDifferenceCrosstalk(upscale_factor=2),
+        quantize=True,
+    ),
+    "GridAdapter": lambda: GridAdapter(factor=2),
+    "GridAdapterIdentity": lambda: GridAdapter(factor=1),
     "FourierLensFFT": lambda: FourierLensFFT(focal_length=0.1),
     "FourierLensNUFFT": lambda: FourierLensNUFFT(
         focal_length=0.1,

@@ -49,11 +49,11 @@ class SimulatedSLMTorch(SLM):
 
         self._bitdepth = int(bitdepth)
 
-        # An SLM used away from its design wavelength reaches less than a whole cycle.
+        # Phase response scales with wavelength.
         wav_um = self._wavelength * 1e6
         wav_design = wav_um if wav_design_um is None else float(wav_design_um)
         self._response: PhaseResponse = LinearResponse(
-            bitdepth=self._bitdepth, phase_scaling=wav_um / wav_design
+            bitdepth=self._bitdepth, phase_scaling=wav_design / wav_um
         )
 
         self.display: NDArray = np.zeros(
@@ -84,7 +84,7 @@ class SimulatedSLMTorch(SLM):
 
     @property
     def phase_response(self) -> PhaseResponse:
-        """Phase realized by applying a certain grey level, read from the virtual SLM.
+        """Phase realized by applying a certain gray level, read from the virtual SLM.
         """
         virtual = getattr(self, "virtual_slm", None)
         if virtual is None:
@@ -92,7 +92,7 @@ class SimulatedSLMTorch(SLM):
         return virtual.phase_response.response
 
     def set_levels(self, levels: NDArray | torch.Tensor) -> None:
-        """Display grey levels directly, without going through a phase."""
+        """Display gray levels directly, without going through a phase."""
         levels = self._as_frame(levels, "Levels")
         self.display = levels.astype(level_dtype(self.bitdepth))
         self.virtual_slm.set_levels(self.display, self.bitdepth)
@@ -108,10 +108,10 @@ class SimulatedSLMTorch(SLM):
                 f"{self._resolution}."
             )
 
-        # The virtual SLM is lazily initialised. Make sure its state exists even if no
+        # The virtual SLM is lazily initialized. Make sure its state exists even if no
         # image has been captured yet.
         if not self.virtual_slm.initialized:
-            self.virtual_slm.initialize_from_geometry(self.input_geometry)
+            self.virtual_slm.initialize_for_slm_plane(self.input_geometry)
         return pattern
 
     def close(self) -> None:

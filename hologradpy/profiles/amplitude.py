@@ -27,12 +27,12 @@ def get_focal_spot_radius(
 
     Args:
         beam_radius (float): The radius of the Gaussian beam at the lens in
-            meters.
-        wavelength (float): The wavelength of the light in meters.
-        focal_length (float): The focal length of the lens in meters.
+            metres.
+        wavelength (float): The wavelength of the light in metres.
+        focal_length (float): The focal length of the lens in metres.
 
     Returns:
-        float: The radius of the focal spot in meters.
+        float: The radius of the focal spot in metres.
     """
     return (wavelength * focal_length) / (torch.pi * beam_radius)
 
@@ -294,7 +294,7 @@ def laser_speckle_intensity(
     Models a fixed scattering surface: complex Gaussian white noise is low-pass filtered
     (Gaussian blur of radius ``grain_radius``) to set the speckle grain size, and the
     squared magnitude gives the intensity. The first-order statistics are the expected
-    negative-exponential (``std/mean ~= 1``). The result is normalised to unit mean --
+    negative-exponential (``std/mean ~= 1``). The result is normalized to unit mean --
     the physical scale is applied separately (e.g. by
     :class:`~hologradpy.optics.modules.hardware_models.background_scatter.BackgroundScatter`,
     which scales
@@ -333,7 +333,7 @@ def checkerboard(
     light_square_brightness: float = 1.0,
     device: torch.device | None = None,
 ) -> NDArray | torch.Tensor:
-    """A checkerboard pattern, centred (and shifted) in a zero border.
+    """A checkerboard pattern, centered (and shifted) in a zero border.
 
     The cheap integer pattern is built with numpy and returned as a numpy array, or as
     a torch tensor on ``device`` when one is given.
@@ -368,7 +368,7 @@ def checkerboard(
         light_square_brightness - dark_square_brightness
     )
 
-    # Centre the board in a zero border, then apply the (x, y) shift. The caller sizes
+    # Center the board in a zero border, then apply the (x, y) shift. The caller sizes
     # the board so it stays within the frame.
     output = np.zeros((height, width))
     top = (height - board_height) // 2 + shift_y

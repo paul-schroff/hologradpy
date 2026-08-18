@@ -25,7 +25,7 @@ def get_zoom_frequency_grid(
 
     The native DFT bin spacing is ``2*pi / resolution`` (rad/sample); the window
     samples ``resolution_out`` points at spacing ``(2*pi / resolution) /
-    magnification`` (``magnification > 1`` zooms in), centred and offset by
+    magnification`` (``magnification > 1`` zooms in), centered and offset by
     ``shift`` (rad/sample). ``shift`` and ``magnification`` are ``(x, y)``;
     ``resolution`` / ``resolution_out`` are ``(height, width)``.
 

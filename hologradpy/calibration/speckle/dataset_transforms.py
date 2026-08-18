@@ -5,8 +5,8 @@ from numpy.typing import NDArray
 
 import torch
 
-from ....datasets import CapturedSample
-from ....loss_functions import smallest_divisor
+from ...datasets import CapturedSample
+from ...loss_functions import smallest_divisor
 
 
 class TransformToTensor:
@@ -42,7 +42,7 @@ class Normalize:
 
 class PrepareSample:
     """The full chain from a raw captured sample to training tensors. Convert to torch, 
-    crop to the region of interest, then normalise.
+    crop to the region of interest, then normalize.
     """
 
     def __init__(self, roi, roi_mask, device, dtype) -> None:

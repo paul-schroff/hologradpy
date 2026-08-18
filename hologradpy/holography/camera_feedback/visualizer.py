@@ -43,7 +43,7 @@ class TargetPlacementData(VisualizationData):
     target: NDArray
     signal_region: NDArray
     zeroth_order: tuple[float, float]
-    target_centre: tuple[float, float]
+    target_center: tuple[float, float]
     patch_shape: tuple[int, int]
     addressable_corners: NDArray
     target_position: tuple[float, float] = (0.0, 0.0)
@@ -83,7 +83,7 @@ class TargetPlacementVisualizer(BaseVisualizer):
         data = self.data
         target = np.asarray(data.target)
         height, width = target.shape
-        centre_row, centre_column = data.target_centre
+        center_row, center_column = data.target_center
         zeroth_row, zeroth_column = data.zeroth_order
         patch_height, patch_width = data.patch_shape
 
@@ -98,12 +98,12 @@ class TargetPlacementVisualizer(BaseVisualizer):
 
         axs.add_patch(
             Rectangle(
-                (centre_column - patch_width / 2, centre_row - patch_height / 2),
+                (center_column - patch_width / 2, center_row - patch_height / 2),
                 patch_width, patch_height,
                 fill=False, edgecolor="tab:cyan", linewidth=1.2, label="target patch",
             )
         )
-        axs.plot(centre_column, centre_row, "+", color="tab:cyan", markersize=10)
+        axs.plot(center_column, center_row, "+", color="tab:cyan", markersize=10)
         axs.plot(
             zeroth_column, zeroth_row, "o", markerfacecolor="none",
             color="tab:red", markersize=9, label="zeroth order",
@@ -131,7 +131,7 @@ class TargetPlacementVisualizer(BaseVisualizer):
         )
         axs.set_title(
             f"target at ({offset_x * 1e6:+.0f}, {offset_y * 1e6:+.0f}) um from the "
-            f"zeroth order\ncentre (row {centre_row:.0f}, column {centre_column:.0f}), "
+            f"zeroth order\ncenter (row {center_row:.0f}, column {center_column:.0f}), "
             f"{verdict}"
         )
         axs.set_xlabel("camera column (+x)")
@@ -258,8 +258,8 @@ class CameraFeedbackVisualizer(BaseVisualizer):
             return panels
 
         guess = np.asarray(self.data.initial_guess)
-        # Its own colour scale: the guess is the model's prediction in physical units
-        # and the target a normalised profile. What is compared is where the light sits.
+        # Its own color scale: the guess is the model's prediction in physical units
+        # and the target a normalized profile. What is compared is where the light sits.
         panels["initial"] = self._image_panel(
             guess, f"initial guess{self._inside_fraction(guess)}"
         )

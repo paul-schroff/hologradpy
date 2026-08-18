@@ -1,10 +1,10 @@
 from .wavefront.raster_calibration.raster_calibrator import RasterCalibrator
 from .wavefront.raster_calibration.visualizer import RasterCalibratorVisualizer
+from .speckle import FitSettings, SpeckleCalibrator, SpeckleFitter
 from .wavefront.speckle_calibration.speckle_calibrator import (
-    FitSettings,
     PSFSpeckleCalibrator,
-    SpeckleCalibrator,
     PixelwiseSpeckleCalibrator,
+    WavefrontSpeckleCalibrator,
 )
 from .wavefront.speckle_calibration.visualizer import (
     PSFCalibratorVisualizer,
@@ -20,6 +20,8 @@ __all__ = [
     "RasterCalibratorVisualizer",
     "FitSettings",
     "SpeckleCalibrator",
+    "SpeckleFitter",
+    "WavefrontSpeckleCalibrator",
     "PixelwiseSpeckleCalibrator",
     "PSFSpeckleCalibrator",
     "SpeckleCalibratorVisualizer",

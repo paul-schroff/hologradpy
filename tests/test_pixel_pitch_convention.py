@@ -64,7 +64,11 @@ def _build(camera_angle=0.0, camera_shift=(0.0, 0.0)):
         focal_length=FOCAL,
         slm_field=PixelwiseSLMField(beam),
         camera_angle=camera_angle,
-        camera_shift=camera_shift,
+        # The test places the sensor in pixels; the systems take focal-plane metres.
+        camera_shift=(
+            camera_shift[0] * CAMERA_PIXEL_SIZE[1],
+            camera_shift[1] * CAMERA_PIXEL_SIZE[0],
+        ),
     )
     camera = SimulatedCameraTorch(sim_model)
     camera.set_exposure(1e-3)

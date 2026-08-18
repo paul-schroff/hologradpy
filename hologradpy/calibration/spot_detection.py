@@ -171,7 +171,7 @@ def disc_mask(
 
     Args:
         shape: Image shape ``(height, width)``.
-        center: Disc centre ``(x, y)`` in pixels.
+        center: Disc center ``(x, y)`` in pixels.
         radius: Disc radius in pixels.
     """
     rows, columns = np.indices(shape)
@@ -208,7 +208,7 @@ def get_diffraction_spot_position(
             Exposure time in seconds. If None, the camera will perform
             autoexposure.
         slm_mask_diameter : float | None
-            Diameter of the circular aperture in meters. If None, the diameter
+            Diameter of the circular aperture in metres. If None, the diameter
             is set to the size of the SLM.
         units : str
             Units of the returned spot position: "metres" (default) for the
@@ -352,11 +352,11 @@ def _brightest_pixel(
     return (int(peak[0]), int(peak[1]))
 
 
-def tilt_to_sensor_centre(
+def tilt_to_sensor_center(
     camera: Camera, camera_mapping: CameraMapping
 ) -> tuple[float, float]:
     """The focal-plane tilt ``(x, y)`` in metres that steers a spot to the sensor
-    centre. The tilt is a displacement in the model plane, which is rotated and scaled
+    center. The tilt is a displacement in the model plane, which is rotated and scaled
     with respect to the sensor.
 
     Args:
@@ -400,7 +400,7 @@ def capture_focal_spot(
     aberration is actually present, where a Gaussian of the fitted waist carries only
     the width.
 
-    A linear phase steers the spot to the sensor centre rather than leaving it wherever
+    A linear phase steers the spot to the sensor center rather than leaving it wherever
     the zeroth order happens to land.
 
     Args:
@@ -410,8 +410,8 @@ def capture_focal_spot(
         focal_length: Fourier lens focal length in metres, which converts the tilt into
             a phase ramp.
         kernel_size: Crop side in camera pixels, as an int or ``(height, width)``.
-        set_fraction: Fraction of full scale to meter the spot to.
-        search_factor: How many kernel widths wide to meter and search over before
+        set_fraction: Fraction of full scale to metre the spot to.
+        search_factor: How many kernel widths wide to metre and search over before
             falling back to the whole sensor.
 
     Returns:
@@ -426,9 +426,9 @@ def capture_focal_spot(
     height, width = int(kernel_size[0]), int(kernel_size[1])
 
     sensor = tuple(camera.resolution)
-    centre = (sensor[0] / 2.0, sensor[1] / 2.0)
+    center = (sensor[0] / 2.0, sensor[1] / 2.0)
 
-    tilt = tilt_to_sensor_centre(camera, camera_mapping)
+    tilt = tilt_to_sensor_center(camera, camera_mapping)
     slm_grid = get_spatial_grid(slm.resolution, slm.pixel_size)
     # Over the full aperture, unlike get_diffraction_spot_position: the seed has to be
     # the point spread function of the whole SLM, and an aperture would broaden it.
@@ -444,7 +444,7 @@ def capture_focal_spot(
     )
 
     search = ROI.centered(
-        centre,
+        center,
         (
             min(int(search_factor * height), sensor[0]),
             min(int(search_factor * width), sensor[1]),
@@ -461,10 +461,10 @@ def capture_focal_spot(
             float(camera_mapping.zeroth_order_position[0]),
             float(camera_mapping.zeroth_order_position[1]),
         )
-        separation = float(np.hypot(zeroth[0] - centre[0], zeroth[1] - centre[1]))
+        separation = float(np.hypot(zeroth[0] - center[0], zeroth[1] - center[1]))
         found = _brightest_pixel(image, exclude=zeroth, exclude_radius=separation / 2)
 
-        offset = np.hypot(found[0] - centre[0], found[1] - centre[1])
+        offset = np.hypot(found[0] - center[0], found[1] - center[1])
         # Re-metered around where it really is: the first exposure was set on a window
         # the spot was not in, so the frame is metered on background or saturated.
         search = ROI.centered(
@@ -479,7 +479,7 @@ def capture_focal_spot(
                 "diffraction angle."
             )
         warnings.warn(
-            f"The steered focal spot landed {offset:.0f} px from the sensor centre, "
+            f"The steered focal spot landed {offset:.0f} px from the sensor center, "
             f"outside the {search.height} x {search.width} px search window, so the "
             "whole sensor was searched. That offset is the camera mapping's error: "
             "the seed is still good, but the mapping is worth refitting.",

@@ -1,11 +1,10 @@
-from .records import SpeckleCaptureData
-from .dataset_generator import DatasetGenerator
+from ...speckle import DatasetGenerator, SpeckleCaptureData, SpeckleCalibrator
 from .wavefront_fitter import WavefrontFitter, region_of_interest
 from .speckle_calibrator import (
     FitSettings,
     PSFSpeckleCalibrator,
-    SpeckleCalibrator,
     PixelwiseSpeckleCalibrator,
+    WavefrontSpeckleCalibrator,
 )
 from .visualizer import (
     PSFCalibratorVisualizer,
@@ -16,6 +15,7 @@ from .visualizer import (
 
 __all__ = [
     "SpeckleCalibrator",
+    "WavefrontSpeckleCalibrator",
     "PixelwiseSpeckleCalibrator",
     "PSFSpeckleCalibrator",
     "SpeckleCalibratorVisualizer",

@@ -53,11 +53,11 @@ from hologradpy.calibration.wavefront.speckle_calibration import (  # noqa: E402
     SpeckleCalibratorVisualizer,
     SpeckleVisualizationData,
 )
-from hologradpy.calibration.wavefront.speckle_calibration.records import (  # noqa: E402
+from hologradpy.calibration.speckle.records import (  # noqa: E402
     SpeckleCaptureData,
 )
 from hologradpy.datasets import CaptureStore  # noqa: E402
-from hologradpy.calibration.wavefront.speckle_calibration.dataset_generator import (  # noqa: E402
+from hologradpy.calibration.speckle.dataset_generator import (  # noqa: E402
     DatasetGenerator,
 )
 from hologradpy.loss_functions import (  # noqa: E402
@@ -148,17 +148,17 @@ def _synthetic_mapping(
     zeroth_order_position: tuple[float, float] | None = None,
 ) -> CameraMapping:
     """An identity camera -> model mapping with the zeroth order at the (square)
-    camera centre, so the affine seed is near identity.
+    camera center, so the affine seed is near identity.
 
     Args:
         zeroth_order_position: Where the zeroth order sits, ``(y, x)`` in camera pixels.
-            Defaults to the sensor centre. Pass one to model an off-axis camera.
+            Defaults to the sensor center. Pass one to model an off-axis camera.
     """
     truth = PartialAffineTransform.from_components(scale=1.0)
     detected = np.random.default_rng(0).uniform(-50, 50, size=(12, 2))
     calculated = truth.transform_points(detected)
     # zeroth_order_position is stored (y, x) = (row, col).
-    centre = zeroth_order_position or (
+    center = zeroth_order_position or (
         CAMERA_RESOLUTION[0] / 2,
         CAMERA_RESOLUTION[1] / 2,
     )
@@ -168,7 +168,7 @@ def _synthetic_mapping(
         transform=truth.as_matrix(homogeneous=False),
         detected_points=detected.tolist(),
         calculated_points=calculated.tolist(),
-        zeroth_order_position=centre,
+        zeroth_order_position=center,
         spot_fit=FocalSpotFit(waist=CAMERA_PIXEL_SIZE[0] * 2),
     )
 
@@ -274,7 +274,7 @@ def test_a_dataset_can_be_inspected_before_a_fit_is_spent_on_it(tmp_path) -> Non
     figure = data.visualizer().render_dataset()
     titles = [axs.get_title() for axs in figure.axes if axs.get_title()]
     # The panel says which units it drew, since a captured pattern is levels from a
-    # device that quantises and radians from one that does not.
+    # device that quantizes and radians from one that does not.
     assert titles == ["SLM pattern [levels]", "camera + ROI"]
     plt.close(figure)
 
@@ -402,7 +402,7 @@ def test_a_real_camera_leaves_the_comparison_out(tmp_path, monkeypatch) -> None:
     """A camera that cannot answer for the truth must not break the calibration, or the
     diagnostics figure. It simply gets no comparison, and asking for one says why."""
     # A real camera has no such attribute. Taking it off is the closest stand-in that
-    # leaves every other behaviour of the simulated bench identical.
+    # leaves every other behavior of the simulated bench identical.
     monkeypatch.delattr(SimulatedCameraTorch, "static_slm_field")
 
     result = _calibrate(tmp_path)
@@ -547,7 +547,7 @@ def test_a_coarse_mapping_is_run_when_none_is_supplied(tmp_path) -> None:
 
 def _plain_model(slm, camera, focal_length: float = 0.25) -> SLMCZT:
     """A model carrying nothing but an unmodulated field, as a caller would hand over
-    without having decided how the SLM-plane field should be parameterised."""
+    without having decided how the SLM-plane field should be parameterized."""
     return SLMCZT(
         input_geometry=slm.input_geometry,
         virtual_slm=VirtualSLM.from_slm(slm),
@@ -595,7 +595,7 @@ def test_the_calibrator_builds_the_field_it_fits_from_its_own_mapping(tmp_path) 
     assert tuple(field.get_psf_kernel().shape) == (expected, expected)
 
     # And seeded from the captured spot rather than the Gaussian fallback. lazy_init
-    # normalises by the peak, so compare against that.
+    # normalizes by the peak, so compare against that.
     assert field.init_psf_kernel is not None, "nothing was measured"
     seed = field.init_psf_kernel.to(torch.complex64)
     seed = seed / seed.abs().max()
@@ -603,7 +603,7 @@ def test_the_calibrator_builds_the_field_it_fits_from_its_own_mapping(tmp_path) 
 
 
 def test_the_swap_leaves_no_ghost_of_the_replaced_field(tmp_path) -> None:
-    """The old field must leave the model entirely, or the optimiser would carry
+    """The old field must leave the model entirely, or the optimizer would carry
     parameters that no longer affect the forward pass."""
     import sys
 
@@ -738,8 +738,8 @@ def test_the_speckle_extent_is_a_width_not_a_radius(tmp_path) -> None:
 def test_the_default_extent_is_the_largest_that_fits_an_off_axis_camera(
     tmp_path,
 ) -> None:
-    """The speckle is centred on the zeroth order, not on the sensor, so the default
-    has to be measured from the mapping. Assuming a centred beam puts a third of the
+    """The speckle is centered on the zeroth order, not on the sensor, so the default
+    has to be measured from the mapping. Assuming a centered beam puts a third of the
     region off the sensor, where it contributes nothing but skews the autoexposure."""
     slm, camera = _build_hardware()
     # A quarter of the way down, so the top edge is the nearest one.
@@ -765,7 +765,7 @@ def test_the_default_extent_is_the_largest_that_fits_an_off_axis_camera(
 
 def test_a_zeroth_order_off_the_sensor_refuses_to_pick_an_extent(tmp_path) -> None:
     """Coarse mapping extrapolates the zeroth order through the affine, so it can land
-    off the sensor. Nothing centred there fits, and the arithmetic would otherwise hand
+    off the sensor. Nothing centered there fits, and the arithmetic would otherwise hand
     back a negative width and an empty region."""
     slm, camera = _build_hardware()
     off_sensor = (-5.0, CAMERA_RESOLUTION[1] / 2)
@@ -786,7 +786,7 @@ RECOVERY_BEAM_RADIUS = 9e-4
 
 
 def _recovery_mapping() -> CameraMapping:
-    """Identity mapping for the recovery geometry, zeroth order at the centre.
+    """Identity mapping for the recovery geometry, zeroth order at the center.
 
     The chirp-z model samples the camera grid natively, so identity is the right
     affine seed whatever the pixel pitch is.

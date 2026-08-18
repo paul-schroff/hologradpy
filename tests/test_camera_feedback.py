@@ -79,7 +79,7 @@ CAMERA_RESOLUTION = (64, 64)
 CAMERA_PIXEL_SIZE = 20e-6
 WAVELENGTH = 0.670e-6
 FOCAL_LENGTH = 0.1
-# The default is sized for a megapixel camera, where the unit-sum normalisation leaves
+# The default is sized for a megapixel camera, where the unit-sum normalization leaves
 # the cost far smaller than it is on this 64 by 64 one. At the default the line search
 # overshoots into nan on the first step.
 LOSS_SCALE = 1e8
@@ -118,9 +118,9 @@ def _aberration(geometry: FieldGeometry) -> torch.Tensor:
     retriever's model is missing.
     """
     grid_x, grid_y = geometry.get_spatial_grid()
-    normalised_x = grid_x / grid_x.abs().max()
-    normalised_y = grid_y / grid_y.abs().max()
-    return 1.2 * (normalised_x**2 - normalised_y**2) + 0.8 * normalised_x * normalised_y
+    normalized_x = grid_x / grid_x.abs().max()
+    normalized_y = grid_y / grid_y.abs().max()
+    return 1.2 * (normalized_x**2 - normalized_y**2) + 0.8 * normalized_x * normalized_y
 
 
 def _model(
@@ -142,7 +142,7 @@ def _model(
 
 
 # A patch smaller than the sensor, placed off axis. The offset matters physically: the
-# undiffracted zeroth order sits at the centre of the sensor and cannot be controlled by
+# undiffracted zeroth order sits at the center of the sensor and cannot be controlled by
 # the hologram, so leaving it inside the signal region would have the loop trying to
 # correct light it has no say over, and would pollute every metric with it.
 PATCH_RESOLUTION = (24, 24)
@@ -169,7 +169,7 @@ def _init_phase() -> torch.Tensor:
     """A random start plus the grating that steers to the target.
 
     Random, because a flat phase would put every photon in one central pixel, where the
-    normalised cost has almost nothing to descend. Steered, because the target sits away
+    normalized cost has almost nothing to descend. Steered, because the target sits away
     from the zeroth order and a start with no light near it converges badly. The
     corrector does not add this itself, so that a caller writing it here does not get it
     twice.
@@ -305,9 +305,9 @@ def feedback_run() -> CameraFeedbackData:
         loss_scale=LOSS_SCALE,
         camera_mapping=_identity_mapping(),
     )
-    # Gain below one because a short optimisation cannot deliver the whole correction
+    # Gain below one because a short optimization cannot deliver the whole correction
     # in one go, and asking for it makes the loop oscillate rather than settle. The
-    # off-axis target needs a longer search than a centred one to get anywhere.
+    # off-axis target needs a longer search than a centered one to get anywhere.
     return feedback.run(
         retriever_iterations=[40] * ITERATIONS,
         gain=0.7,
@@ -391,7 +391,7 @@ def test_first_corrected_target_is_the_original(
     feedback_run: CameraFeedbackData,
 ) -> None:
     """Nothing to correct before the first measurement, so the retriever gets the
-    target as given (normalised over the signal region)."""
+    target as given (normalized over the signal region)."""
     original = feedback_run.target
     served = feedback_run.full_corrected_target(0)
     assert np.allclose(served, np.where(feedback_run.signal_region, original, 0.0))
@@ -575,15 +575,15 @@ def test_placement_reports_addressability() -> None:
 
 
 def test_patch_is_placed_at_the_requested_offset() -> None:
-    """The patch centre lands TARGET_POSITION from the zeroth order, converted through
+    """The patch center lands TARGET_POSITION from the zeroth order, converted through
     the camera pitch."""
     feedback = _feedback()
     placement = feedback.placement_data()
 
     expected_column = TARGET_POSITION[0] / CAMERA_PIXEL_SIZE
     expected_row = TARGET_POSITION[1] / CAMERA_PIXEL_SIZE
-    row_offset = placement.target_centre[0] - placement.zeroth_order[0]
-    column_offset = placement.target_centre[1] - placement.zeroth_order[1]
+    row_offset = placement.target_center[0] - placement.zeroth_order[0]
+    column_offset = placement.target_center[1] - placement.zeroth_order[1]
 
     assert np.isclose(row_offset, expected_row, atol=0.5)
     assert np.isclose(column_offset, expected_column, atol=0.5)
@@ -1323,7 +1323,7 @@ def test_signal_region_shows_the_best_iteration() -> None:
 
 
 def test_best_iteration_does_not_depend_on_the_metric_being_called_rms() -> None:
-    """Keyed on the run's first metric, not on a name, so relabelling the default
+    """Keyed on the run's first metric, not on a name, so relabeling the default
     metric does not quietly send this back to the last iteration."""
     data = _synthetic_data(iterations=5, metric_names=("rmse",))
     data.metrics = {"rmse": [0.5, 0.2, 0.05, 0.3, 0.4]}

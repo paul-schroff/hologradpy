@@ -14,11 +14,11 @@ import torch
 from hologradpy.fourier_transforms import fft_translate, translate_intensity
 
 
-def _gaussian(size: int = 64, centre: float | None = None, width: float = 60.0):
+def _gaussian(size: int = 64, center: float | None = None, width: float = 60.0):
     """A compact, smooth pattern: what the shift theorem is exact for."""
-    centre = (size - 1) / 2 if centre is None else centre
+    center = (size - 1) / 2 if center is None else center
     axis = torch.arange(float(size))
-    return torch.exp(-(((axis[:, None] - centre) ** 2 + (axis[None, :] - centre) ** 2)
+    return torch.exp(-(((axis[:, None] - center) ** 2 + (axis[None, :] - center) ** 2)
                        / width))
 
 
@@ -46,10 +46,10 @@ def test_a_band_limited_pattern_shifts_exactly() -> None:
     shift = (0.25, 0.5)
     smooth = _gaussian(size)
     axis = torch.arange(float(size))
-    centre = (size - 1) / 2
+    center = (size - 1) / 2
     expected = torch.exp(
-        -(((axis[:, None] - centre - shift[0]) ** 2
-           + (axis[None, :] - centre - shift[1]) ** 2) / 60)
+        -(((axis[:, None] - center - shift[0]) ** 2
+           + (axis[None, :] - center - shift[1]) ** 2) / 60)
     )
 
     assert torch.allclose(fft_translate(smooth, shift).real, expected, atol=1e-6)
@@ -74,7 +74,7 @@ def test_even_a_hard_edge_lands_where_it_was_asked_to(
     against the half a sample rounding would cost.
 
     Both parities: a hat of even width straddles a sample boundary and one of odd width
-    is centred on a sample, and the two land to different accuracies (roughly 1e-3 and
+    is centered on a sample, and the two land to different accuracies (roughly 1e-3 and
     3e-2). Testing only the flattering one would pin a number that is about the pattern
     rather than about the method.
     """

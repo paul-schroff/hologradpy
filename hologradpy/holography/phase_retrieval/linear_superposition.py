@@ -41,7 +41,7 @@ class LinearSuperpositionPhaseRetriever(PhaseRetrieverBase):
         an intensity pattern to set.
         """
         raise NotImplementedError(
-            "LinearSuperpositionPhaseRetriever optimises target_positions, "
+            "LinearSuperpositionPhaseRetriever optimizes target_positions, "
             "target_intensities and target_phases rather than an intensity pattern, so "
             "it cannot be retargeted with one. Set those attributes instead."
         )

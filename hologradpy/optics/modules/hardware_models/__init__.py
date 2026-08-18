@@ -1,4 +1,4 @@
-"""OpticsModules that model real apparatus behaviour and imperfections.
+"""OpticsModules that model real apparatus behavior and imperfections.
 
 Unlike the deterministic, idealized optical elements, these inject the physical
 realism of an actual setup: the detector response (:class:`CameraSensor`), stray

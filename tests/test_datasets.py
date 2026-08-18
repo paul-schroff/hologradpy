@@ -1,7 +1,7 @@
 """One set, one file: what the two stores write, read and survive.
 
 A capture is camera frames and the levels that produced them, from a bench. A
-retrieval's steps are the optimiser's own parameter, from a search. They are separate
+retrieval's steps are the optimizer's own parameter, from a search. They are separate
 classes because they are separate things, and the combinations that would mean nothing
 are not writable rather than rejected at runtime.
 """
@@ -166,7 +166,7 @@ def test_the_steps_read_back_as_the_search_parameter(tmp_path) -> None:
 
 
 def test_the_steps_are_continuous(tmp_path) -> None:
-    """The optimiser's own parameter, not a quantised level: rounding it would lose
+    """The optimizer's own parameter, not a quantized level: rounding it would lose
     where the search had got to."""
     path = tmp_path / "retrieval_steps.asdf"
     with RetrievalStepStore.capture(path, frame_shape=(4, 4)) as store:

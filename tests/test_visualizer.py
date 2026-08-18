@@ -488,8 +488,8 @@ def test_speckle_comparison_draws_six_cells():
 
 
 def test_speckle_comparison_difference_is_symmetric_about_zero():
-    """The neutral colour has to mean agreement, which only holds if the limits are
-    symmetric. Otherwise a residual of zero reads as some arbitrary colour."""
+    """The neutral color has to mean agreement, which only holds if the limits are
+    symmetric. Otherwise a residual of zero reads as some arbitrary color."""
     visualizer = _fake_speckle_data().visualizer()
 
     figure = visualizer.render_comparison()

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import torch
 
-from .abstract import FitSettings, SpeckleCalibrator
+from .abstract import WavefrontSpeckleCalibrator
+from ....speckle.calibrator import FitSettings
 
 from ..visualizer import PSFSpeckleVisualizationData
 
@@ -17,7 +18,7 @@ from .....optics.modules.slm_fields import (
 )
 
 
-class PSFSpeckleCalibrator(SpeckleCalibrator):
+class PSFSpeckleCalibrator(WavefrontSpeckleCalibrator):
     """Recover the SLM-plane field through a compact camera-plane point spread function.
 
     Fits a small kernel instead of the whole SLM plane, so it has far fewer parameters
@@ -58,6 +59,6 @@ class PSFSpeckleCalibrator(SpeckleCalibrator):
         return FitSettings(loss=MaskedIntensityMSE(mask), learning_rate=3e-2)
 
     def _visualization_extras(self) -> dict:
-        """The fitted kernel this parameterisation optimised."""
+        """The fitted kernel this parameterization optimized."""
         kernel = self.slm_camera_model.slm_field.get_psf_kernel()
         return {"psf_kernel": kernel.detach().cpu().numpy()}

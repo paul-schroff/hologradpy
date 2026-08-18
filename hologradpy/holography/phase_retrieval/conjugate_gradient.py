@@ -25,7 +25,7 @@ class CGPhaseRetriever(PhaseRetrieverBase):
         if init_slm_phase is not None:
             self.slm_camera_model.virtual_slm.set_phase(init_slm_phase.detach())
 
-    # What this search optimises, and with which method. The run itself is the
+    # What this search optimizes, and with which method. The run itself is the
     # base class template.
     PARAMETER_NAME = "virtual_slm.levels"
     METHOD = "cg"

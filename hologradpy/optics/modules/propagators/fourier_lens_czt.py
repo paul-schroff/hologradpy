@@ -117,7 +117,7 @@ class FourierLensCZT(OpticsModule):
         """
         if not hasattr(self, "scale_factor"):
             raise RuntimeError(
-                "FourierLensCZT must be initialised before apply_partial_affine "
+                "FourierLensCZT must be initialized before apply_partial_affine "
                 "(run the system once)."
             )
         center = (self.resolution_out[1] // 2, self.resolution_out[0] // 2)

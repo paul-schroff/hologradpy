@@ -10,8 +10,8 @@ from ...complex_amplitude import ComplexAmplitude
 class PowerInstability(OpticsModule):
     """Random optical-power fluctuation (a fluctuating laser).
 
-    Each :meth:`forward` draws a relative power factor from a Gaussian centred on 1
-    and scales the field power by it (the amplitude by its square root), modelling a
+    Each :meth:`forward` draws a relative power factor from a Gaussian centered on 1
+    and scales the field power by it (the amplitude by its square root), modeling a
     laser whose output power drifts from frame to frame. Intended to sit just after
     ``PixelwiseSLMField`` in the SLM-plane chain, so the SLM-plane field, which is
     otherwise fixed, carries a freshly sampled power on every forward pass. Output

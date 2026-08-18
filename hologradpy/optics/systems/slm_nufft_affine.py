@@ -4,7 +4,11 @@ from ..modules.geometric_transforms import GeometricWarp
 from ..modules.virtual_slms.abstract import VirtualSLM
 from ..complex_amplitude import FieldGeometry
 
-from .abstract import SLMFourierLensModel
+from .abstract import (
+    SLMFourierLensModel,
+    camera_shift_pixels,
+    slm_stages,
+)
 from ..modules.abstract import capture_init
 
 
@@ -12,7 +16,7 @@ class SLMNUFFTAffine(SLMFourierLensModel):
     """SLM -> Fourier lens (NUFFT) -> affine camera registration.
 
     The ``FourierLensNUFFT`` carries a fixed coarse geometric transform
-    (``camera_shift`` ``(x, y)`` output pixels / ``camera_angle`` degrees, applied
+    (``camera_shift`` ``(x, y)`` metres / ``camera_angle`` degrees, applied
     via its k-space trajectory) and maps onto a slightly oversized grid at the
     camera pixel size. The
     ``GeometricWarp`` then performs the *learnable* fine registration
@@ -40,6 +44,7 @@ class SLMNUFFTAffine(SLMFourierLensModel):
         power_normalized: bool = True,
         pointing_focal_shift_std: float | tuple[float, float] | None = None,
         pointing_seed: int | None = None,
+        grid_cache: bool = False,
     ) -> None:
         # The NUFFT outputs a slightly oversized grid so the learnable affine
         # has margin to shift/rotate without cropping signal.
@@ -53,13 +58,12 @@ class SLMNUFFTAffine(SLMFourierLensModel):
             focal_length=focal_length,
             pointing_focal_shift_std=pointing_focal_shift_std,
             pointing_seed=pointing_seed,
-            virtual_slm=virtual_slm,
-            slm_field=slm_field,
+            **slm_stages(virtual_slm, slm_field, grid_cache),
             fourier_lens=FourierLensNUFFT(
                 focal_length,
                 resolution_out=nufft_resolution,
                 pixel_size_out=camera_pixel_size,
-                shift=camera_shift,
+                shift=camera_shift_pixels(camera_shift, camera_pixel_size),
                 angle=camera_angle,
                 power_normalized=power_normalized,
             ),

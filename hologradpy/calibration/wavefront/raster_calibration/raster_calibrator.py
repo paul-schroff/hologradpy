@@ -28,7 +28,7 @@ from ....optics.modules.virtual_slms import VirtualSLM
 from ....optics.modules.slm_fields import PixelwiseSLMField
 from ....optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 from ....fourier_optics import addressable_half_extent
-from ....grids import get_spatial_grid, plane_centre
+from ....grids import get_spatial_grid, plane_center
 from ....profiles.amplitude import get_focal_spot_radius
 from ....profiles.phase import linear_phase, binary_phase_grating
 
@@ -191,13 +191,13 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
     def _diagonal_direction(self) -> NDArray[np.float_]:
         """Unit 45/135/225/315 deg diagonal pointing from the zeroth order toward the
-        sensor centre (away from the DC). Shared by the main and lattice placements
+        sensor center (away from the DC). Shared by the main and lattice placements
         so both sit at the same angle."""
         zeroth = np.asarray(self.camera_mapping.zeroth_order_xy)
         height, width = self.camera.sensor_shape
-        centre = np.array(plane_centre((height, width)), dtype=float)
-        signs = np.sign(centre - zeroth)
-        signs[signs == 0] = 1.0  # tie (DC on a centre line) -> positive diagonal
+        center = np.array(plane_center((height, width)), dtype=float)
+        signs = np.sign(center - zeroth)
+        signs[signs == 0] = 1.0  # tie (DC on a center line) -> positive diagonal
         return signs / np.sqrt(2.0)
 
     def _auto_phase_tilt(
@@ -207,7 +207,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         direction: NDArray[np.float_],
     ) -> tuple[tuple[float, float], tuple[float, float]]:
         """A linear-phase tilt (focal-plane metres) placing the pattern along
-        ``direction`` from the zeroth order, as close to the sensor centre as
+        ``direction`` from the zeroth order, as close to the sensor center as
         ``clearance`` (min distance to the DC) allows, on the sensor.
 
         Returns ``(tilt, target_camera_pixel)``.
@@ -215,7 +215,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         mapping = self.camera_mapping
         zeroth = np.asarray(mapping.zeroth_order_xy)
         height, width = self.camera.sensor_shape
-        centre = np.array(plane_centre((height, width)), dtype=float)
+        center = np.array(plane_center((height, width)), dtype=float)
         camera_pitch = np.asarray(
             [self.camera.pixel_size[1], self.camera.pixel_size[0]]
         )  # (x, y)
@@ -245,8 +245,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 "px and still fits on the sensor. Use a larger sensor or a smaller "
                 "ROI."
             )
-        # As close to the sensor centre as the clearance and sensor allow.
-        t_center = float(direction @ (centre - zeroth))
+        # As close to the sensor center as the clearance and sensor allow.
+        t_center = float(direction @ (center - zeroth))
         t = float(np.clip(t_center, clearance, t_max))
         target = zeroth + t * direction
 
@@ -351,11 +351,11 @@ class RasterCalibrator(WavefrontCalibratorBase):
         displayed on its own and its diffraction spot is located, then the tilt that
         brings it onto the common spot is returned.
 
-        The detection window is centred on ``spot_center_pixels`` (the camera spot the
+        The detection window is centered on ``spot_center_pixels`` (the camera spot the
         full SLM produces for ``lattice_phase_tilt``, i.e. the real, aberrated lattice
         position) and is four times the lattice ROI, so a single corner's dim, offset
         spot is captured. A single corner against the otherwise flat SLM throws a
-        bright zeroth-order spot at the sensor centre; the exposure for each corner is
+        bright zeroth-order spot at the sensor center; the exposure for each corner is
         set with ``autoexposure(window=...)`` restricted to the detection window so it
         exposes the (much dimmer) corner spot rather than that zeroth-order spot.
 
@@ -381,8 +381,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
         autoexposure_roi = window
 
-        # Grid referenced to the spot centre (0 = spot centre), so the fitted
-        # centre is directly the offset from it even when the window was clamped.
+        # Grid referenced to the spot center (0 = spot center), so the fitted
+        # center is directly the offset from it even when the window was clamped.
         pitch_x = self.camera.pixel_size[1]
         pitch_y = self.camera.pixel_size[0]
         grid_x, grid_y = np.meshgrid(
@@ -608,7 +608,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
             # A second linear phase places a bright fixed reference spot on the
             # opposite diagonal from the main pattern (across the zeroth order), one
             # ROI clear of the DC. The main sits two ROI out on its diagonal, so the
-            # reference stays well clear of it while fitting closer to the centre on
+            # reference stays well clear of it while fitting closer to the center on
             # the opposite side.
             reference_tilt, _ = self._auto_phase_tilt(
                 camera_roi_size,
@@ -748,7 +748,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 reference_power = float(np.sum(image[reference_box]))
                 power_reference.append(reference_power)
                 if is_reference:
-                    # The centre is its own reference: relative intensity is 1.
+                    # The center is its own reference: relative intensity is 1.
                     superpixel_power[superpixel_slice] += 1.0
                 else:
                     main_power = float(np.sum(image[main_box]))
@@ -841,7 +841,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         record_displayed_phases : bool, optional
             If True, store the displayed SLM phase (``slm.display``) for every
             scanned superpixel in ``self.displayed_slm_phases`` so the scan can be
-            visualised afterwards (see ``RasterCalibratorVisualizer``). Off by
+            visualized afterwards (see ``RasterCalibratorVisualizer``). Off by
             default as it keeps a full-resolution frame per superpixel.
 
         Returns
@@ -943,8 +943,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
             corner_slices = slicer.lattice_corner_slices(corner_size)
             # Detected camera spot the full SLM produces for the lattice tilt (the
             # real, aberrated lattice position). The corner-steering detection
-            # window and the lattice ROI are both centred on it, so the dim corner
-            # beams fall inside the window and the steered lattice sits centred in
+            # window and the lattice ROI are both centered on it, so the dim corner
+            # beams fall inside the window and the steered lattice sits centered in
             # the ROI.
             lattice_center, _, _, _ = get_diffraction_spot_position(
                 self.slm,
@@ -1076,7 +1076,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
         camera_images = np.zeros((len(slicer.slices), *camera_roi_size))
         fitted_images = np.zeros((len(slicer.slices), *camera_roi_size))
-        # Grid centred on the main-spot crop.
+        # Grid centered on the main-spot crop.
         main_grid = self._orient_grid([
             gpu_to_numpy(grid)
             for grid in get_spatial_grid(

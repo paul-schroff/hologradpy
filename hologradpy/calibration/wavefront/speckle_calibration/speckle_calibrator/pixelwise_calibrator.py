@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import torch
 
-from .abstract import FitSettings, SpeckleCalibrator
+from .abstract import WavefrontSpeckleCalibrator
+from ....speckle.calibrator import FitSettings
 
 from .....loss_functions import (
     AmplitudeSmoothness,
@@ -15,7 +16,7 @@ from .....loss_functions import (
 from .....optics.modules.slm_fields import PixelwiseSLMField
 
 
-class PixelwiseSpeckleCalibrator(SpeckleCalibrator):
+class PixelwiseSpeckleCalibrator(WavefrontSpeckleCalibrator):
     """Recover the SLM-plane field stored directly, one complex value per SLM pixel.
     """
 

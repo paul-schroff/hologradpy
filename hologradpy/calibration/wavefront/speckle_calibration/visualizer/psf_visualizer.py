@@ -19,7 +19,7 @@ class PSFSpeckleVisualizationData(SpeckleVisualizationData):
     """A speckle calibration that fitted a point spread function.
 
     Everything the shared panels need, plus the fitted kernel, which is the thing that
-    was actually optimised where the SLM-plane field is derived from it.
+    was actually optimized where the SLM-plane field is derived from it.
     """
 
     # Defaulted because the base class already has a defaulted field, and a dataclass
@@ -31,9 +31,9 @@ class PSFSpeckleVisualizationData(SpeckleVisualizationData):
 
 
 class PSFCalibratorVisualizer(SpeckleCalibratorVisualizer):
-    """Render a PSF-parameterised speckle calibration.
+    """Render a PSF-parameterized speckle calibration.
 
-    The shared panels plus the fitted kernel a PSF calibration optimised. Its phase is
+    The shared panels plus the fitted kernel a PSF calibration optimized. Its phase is
     the interesting half: a kernel that picks up structure there is carrying the
     aberration the SLM-plane field is derived from.
     """

@@ -77,7 +77,7 @@ def open_camera(driver, *args, **kwargs) -> Camera:
     ``driver`` is a camera driver class (whose constructor signature is preserved for
     editors and type checkers), or a name registered with
     :func:`register_camera_backend`. It is built with ``*args`` / ``**kwargs`` and
-    normalised via :func:`~hologradpy.hardware.as_native.as_camera`, the one-call
+    normalized via :func:`~hologradpy.hardware.as_native.as_camera`, the one-call
     form of ``as_camera(Driver(...))``.
 
     A driver that is already a native :class:`~hologradpy.hardware.camera.Camera`

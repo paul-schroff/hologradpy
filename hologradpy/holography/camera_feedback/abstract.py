@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -173,7 +174,7 @@ class FeedbackCorrectorBase(ABC):
         row, column = self._mapping.zeroth_order_position
         return float(row), float(column)
 
-    def target_centre_pixels(self) -> tuple[float, float]:
+    def target_center_pixels(self) -> tuple[float, float]:
         """Where :attr:`target_position` lands on the sensor, as ``(row, column)``.
 
         ``target_position`` is ``(x, y)`` metres in the Nyquist plane, measured from the
@@ -247,32 +248,58 @@ class FeedbackCorrectorBase(ABC):
         """
         device = self.slm_camera_model.device
 
-        centre_row, centre_column = self.target_centre_pixels()
+        center_row, center_column = self.target_center_pixels()
         self._target = self._paste(
-            self.target_patch.to(device), centre_row, centre_column
+            self.target_patch.to(device), center_row, center_column
         )
         # A region is whole samples either way, so it is not worth a transform and
         # the ringing that comes with one.
         self.signal_region = self._paste(
             self.signal_region_patch.to(device),
-            centre_row,
-            centre_column,
+            center_row,
+            center_column,
             subsample=False,
         )
+
+        self._warn_if_zeroth_order_inside()
 
         self._corrected_target = self._target
         self.phase_retriever.set_target(self._target, self.signal_region)
 
+    def _warn_if_zeroth_order_inside(self) -> None:
+        """Warn when the undiffracted spot sits inside the signal region. Only warn if 
+        the signal region is not the entire sensor.
+        """
+        region = self.signal_region
+        if bool(region.all()):
+            return
+
+        row, column = self.zeroth_order_pixels()
+        height, width = (int(size) for size in region.shape[-2:])
+        pixel_row, pixel_column = int(round(row)), int(round(column))
+
+        # Off the sensor
+        if not (0 <= pixel_row < height and 0 <= pixel_column < width):
+            return
+        if not bool(region[pixel_row, pixel_column]):
+            return
+
+        warnings.warn(
+            f"The zeroth order at (row {row:.0f}, column {column:.0f}) lies inside "
+            "the signal region.",
+            stacklevel=3,
+        )
+
     def _paste(
         self,
         patch: torch.Tensor,
-        centre_row: float,
-        centre_column: float,
+        center_row: float,
+        center_column: float,
         subsample: bool = True,
     ) -> torch.Tensor:
-        """A sensor-sized frame with ``patch`` centred on the given pixel.
+        """A sensor-sized frame with ``patch`` centered on the given pixel.
 
-        The centre is generally not a whole pixel, so the the whole-sample part places 
+        The center is generally not a whole pixel, so the the whole-sample part places 
         the patch, and the remainder translates it by
         :func:`~hologradpy.fourier_transforms.fft_translate`, a phase ramp in the
         Fourier domain that needs no resampling kernel.
@@ -280,8 +307,8 @@ class FeedbackCorrectorBase(ABC):
         height, width = (int(size) for size in self.camera.resolution)
         patch_height, patch_width = (int(size) for size in patch.shape[-2:])
 
-        top = int(round(centre_row)) - patch_height // 2
-        left = int(round(centre_column)) - patch_width // 2
+        top = int(round(center_row)) - patch_height // 2
+        left = int(round(center_column)) - patch_width // 2
 
         frame = torch.zeros(
             (height, width), dtype=patch.dtype, device=patch.device
@@ -292,8 +319,8 @@ class FeedbackCorrectorBase(ABC):
 
         if frame_bottom <= frame_top or frame_right <= frame_left:
             raise ValueError(
-                f"The target lands entirely off the sensor: its centre is at "
-                f"(row {centre_row:.0f}, column {centre_column:.0f}) on a "
+                f"The target lands entirely off the sensor: its center is at "
+                f"(row {center_row:.0f}, column {center_column:.0f}) on a "
                 f"{height} by {width} frame. Check target_position, which is (x, y) "
                 "metres from the zeroth order."
             )
@@ -304,8 +331,8 @@ class FeedbackCorrectorBase(ABC):
         ]
 
         residual = (
-            centre_row - round(centre_row),
-            centre_column - round(centre_column),
+            center_row - round(center_row),
+            center_column - round(center_column),
         )
         if subsample and any(residual):
             frame = translate_intensity(frame, residual)
@@ -353,7 +380,7 @@ class FeedbackCorrectorBase(ABC):
         :class:`~hologradpy.calibration.camera_mapping.SpotArrayMapper`.
 
         The mapping is kept as the description of how the camera sits relative to the
-        optical plane, which :meth:`target_centre_pixels` needs. It must be measured
+        optical plane, which :meth:`target_center_pixels` needs. It must be measured
         against the *unregistered* model since once registered, the model's output plane
         should be aligned with the sensor.
 
@@ -389,7 +416,7 @@ class FeedbackCorrectorBase(ABC):
         self.register(verbose=False)
         self.place_target()
 
-        centre_row, centre_column = self.target_centre_pixels()
+        center_row, center_column = self.target_center_pixels()
         patch_height, patch_width = (
             int(size) for size in self.target_patch.shape[-2:]
         )
@@ -398,10 +425,10 @@ class FeedbackCorrectorBase(ABC):
         corners_optical = self._optical_metres_from_pixels(
             np.array(
                 [
-                    [centre_row - patch_height / 2, centre_column - patch_width / 2],
-                    [centre_row - patch_height / 2, centre_column + patch_width / 2],
-                    [centre_row + patch_height / 2, centre_column - patch_width / 2],
-                    [centre_row + patch_height / 2, centre_column + patch_width / 2],
+                    [center_row - patch_height / 2, center_column - patch_width / 2],
+                    [center_row - patch_height / 2, center_column + patch_width / 2],
+                    [center_row + patch_height / 2, center_column - patch_width / 2],
+                    [center_row + patch_height / 2, center_column + patch_width / 2],
                 ]
             )
         )
@@ -414,7 +441,7 @@ class FeedbackCorrectorBase(ABC):
             target=gpu_to_numpy(self._target),
             signal_region=gpu_to_numpy(self.signal_region),
             zeroth_order=self.zeroth_order_pixels(),
-            target_centre=(centre_row, centre_column),
+            target_center=(center_row, center_column),
             patch_shape=(patch_height, patch_width),
             addressable_corners=self._addressable_corners_pixels(),
             target_position=self.target_position,

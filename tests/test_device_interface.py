@@ -248,7 +248,7 @@ def test_levels_are_what_the_device_displays(bitdepth: int) -> None:
     assert slm.phase_to_levels(phase).dtype == expected
 
 
-def test_quantising_leaves_the_callers_pattern_alone() -> None:
+def test_quantizing_leaves_the_callers_pattern_alone() -> None:
     slm = _slm_at(8)
     phase = np.random.default_rng(2).random(slm.resolution) * 2 * np.pi
     original = phase.copy()
@@ -364,7 +364,7 @@ def test_a_nonlinear_response_round_trips_every_level(bitdepth: int) -> None:
 
 
 @pytest.mark.parametrize("bitdepth", [8, 12])
-def test_the_panel_discretises_the_same_way_for_a_pattern_and_a_gradient(
+def test_the_panel_discretizes_the_same_way_for_a_pattern_and_a_gradient(
     bitdepth: int,
 ) -> None:
     """A pattern reaches the panel through display_levels and a gradient through
@@ -736,7 +736,7 @@ class _HotPixelCamera(Camera):
         self._exposure = 1e-3
         self._roi = ROI(0, 0, 32, 32)
         yy, xx = np.mgrid[0:32, 0:32] - 16
-        self._blob = np.exp(-(xx**2 + yy**2) / (2 * 5.0**2))  # broad, peak 1 at centre
+        self._blob = np.exp(-(xx**2 + yy**2) / (2 * 5.0**2))  # broad, peak 1 at center
 
     @property
     def pixel_size(self):
@@ -1244,7 +1244,7 @@ def test_only_the_phase_of_a_measurement_is_kept() -> None:
 
 
 def test_a_vendor_correction_moves_the_level_it_says() -> None:
-    """Vendors ship grey levels, calibrated against their own curve, so it is added
+    """Vendors ship gray levels, calibrated against their own curve, so it is added
     after the conversion. Converting it through our response first would re-interpret
     their numbers, and under a measured curve would land somewhere else entirely."""
     slm = _slm_at(8)

@@ -1,4 +1,4 @@
-"""ZernikePhase-specific behaviour.
+"""ZernikePhase-specific behavior.
 
 The phase plate is covered by the shared ND contract + square-propagator
 adjoint suites via the registry; this module adds the distinguishing tests: it

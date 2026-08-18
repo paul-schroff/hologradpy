@@ -25,7 +25,7 @@ from .slm import SLM
 def as_camera(device) -> Camera:
     """Return a native-camera interface for ``device`` (idempotent).
 
-    Dispatches on the device type so consumers accept *any* device and normalise
+    Dispatches on the device type so consumers accept *any* device and normalize
     here, and the caller never builds an adapter by hand. A native device (a
     :class:`~hologradpy.hardware.camera.Camera` subclass, including the simulator) is
     passed through. A registered driver family is wrapped in its adapter. Teach it a

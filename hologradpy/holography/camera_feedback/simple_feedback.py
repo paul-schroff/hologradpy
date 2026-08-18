@@ -56,7 +56,7 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
         """Run the feedback loop.
 
         Args:
-            retriever_iterations: Optimiser iterations to spend on each feedback
+            retriever_iterations: Optimizer iterations to spend on each feedback
                 iteration, one entry per iteration. Its length is how many feedback
                 iterations run. Later corrections are smaller than the first, so a 
                 decreasing sequence often converges in less total time.
@@ -73,7 +73,7 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
             metrics: How the measured potential is scored each iteration. Each one gets
                 its own series in the result and its own convergence panel. Defaults to
                 rmse and psnr.
-            step_stride: Save the SLM phase every nth optimiser iteration of
+            step_stride: Save the SLM phase every nth optimizer iteration of
                 every search. None, the default, saves nothing.
             step_directory: Where those files go. Each feedback iteration gets its
                 own subdirectory, so the searches do not overwrite each other.
@@ -162,10 +162,10 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
                     )
 
                 measured = self.camera.get_averaged_image(exposure, averages)
-                measured_normalised = normalize(measured, signal_region)
+                measured_normalized = normalize(measured, signal_region)
 
                 # Against the original target, not the corrected one.
-                discrepancy = target - measured_normalised
+                discrepancy = target - measured_normalized
 
                 corrected_targets.append(signal_roi.crop(corrected))
                 measured_frames.append(signal_roi.crop(measured))
@@ -234,12 +234,12 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
 
     @staticmethod
     def _retriever_steps(retriever_iterations: Sequence[int]) -> list[int]:
-        """The per-iteration optimiser budgets, validated."""
+        """The per-iteration optimizer budgets, validated."""
         if isinstance(retriever_iterations, (int, np.integer)):
             raise TypeError(
                 "retriever_iterations is one entry per feedback iteration, not a "
                 f"single count. Pass [{retriever_iterations}] * n to run n iterations "
-                f"of {retriever_iterations} optimiser steps each."
+                f"of {retriever_iterations} optimizer steps each."
             )
 
         steps = [int(value) for value in retriever_iterations]

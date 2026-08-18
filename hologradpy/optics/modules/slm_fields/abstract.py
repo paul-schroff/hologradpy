@@ -8,10 +8,10 @@ from ..diagonal_elements import DiagonalElement
 
 
 class SLMField(DiagonalElement):
-    """The complex field at the SLM plane, however it happens to be parameterised.
+    """The complex field at the SLM plane, however it happens to be parameterized.
 
     An :class:`~hologradpy.optics.systems.SLMFourierLensModel` carries one of these in
-    its ``slm_field`` slot, and a wavefront calibration recovers it by optimising
+    its ``slm_field`` slot, and a wavefront calibration recovers it by optimizing
     whatever parameters it registers. Subclasses differ in what those parameters are: a
     :class:`~hologradpy.optics.modules.slm_fields.PixelwiseSLMField` stores the field
     directly, one value per SLM pixel, while a

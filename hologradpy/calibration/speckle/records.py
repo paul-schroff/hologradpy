@@ -6,13 +6,13 @@ from dataclasses import dataclass, field
 import numpy as np
 from numpy.typing import NDArray
 
-from ..abstract import WavefrontCalibrationData
+from ..wavefront.abstract import WavefrontCalibrationData
 
-from ...camera_mapping import CameraMapping
+from ..camera_mapping import CameraMapping
 
-from ....hardware.camera import CameraData
-from ....hardware.slm import SLMData
-from ....serialization import SaveableRecord, record_type
+from ...hardware.camera import CameraData
+from ...hardware.slm import SLMData
+from ...serialization import SaveableRecord, record_type
 
 
 @record_type("speckle_capture")

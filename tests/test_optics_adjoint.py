@@ -140,7 +140,7 @@ def test_adjoint_is_the_conjugate_transpose(name: str) -> None:
     module = ADJOINT_FACTORIES[name]()
 
     field = _random_field(RESOLUTION, PIXEL_SIZE, seed=0)
-    # The first call also initialises the module lazily and fixes its output
+    # The first call also initializes the module lazily and fixes its output
     # geometry. Modules that sample per frame (the instability models) reapply
     # whatever the most recent forward drew, so the adjoint must follow it.
     forward_field = module(field)

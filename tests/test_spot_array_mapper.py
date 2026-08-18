@@ -287,7 +287,7 @@ def test_map_camera_accepts_explicit_coarse_mapping():
 def test_disc_mask_membership():
     mask = disc_mask((10, 12), center=(5.0, 4.0), radius=3.0)
     assert mask.shape == (10, 12) and mask.dtype == bool
-    assert mask[4, 5]  # centre (row = y = 4, col = x = 5)
+    assert mask[4, 5]  # center (row = y = 4, col = x = 5)
     assert mask[4, 8]  # exactly on the radius (<=)
     assert not mask[4, 9]  # just outside
     assert not mask[0, 0]

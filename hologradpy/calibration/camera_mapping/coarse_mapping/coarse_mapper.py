@@ -14,7 +14,7 @@ from ....hardware import Camera, SLM
 
 from ....optics.systems import SLMFourierLensModel
 from ....profiles.phase import linear_phase, binary_phase_grating
-from ....grids import get_spatial_grid, metres_to_pixel, pixel_to_metres, plane_centre
+from ....grids import get_spatial_grid, metres_to_pixel, pixel_to_metres, plane_center
 from ....profiles.amplitude import get_focal_spot_radius
 from ....holography.phase_retrieval import LinearSuperpositionPhaseRetriever
 from ....analysis.fitting import fit_gaussian_beam_intensity
@@ -87,7 +87,7 @@ class CoarseMapper(CameraMapper):
             slm: Hardware (or simulated) SLM that displays the probe gratings.
             camera: Camera observing the focal plane.
             slm_camera_model: Ideal SLM -> camera model whose output plane the camera is
-                registered against (called once here to initialise its lazy modules).
+                registered against (called once here to initialize its lazy modules).
         """
         super().__init__(slm, camera, slm_camera_model)
 
@@ -120,7 +120,7 @@ class CoarseMapper(CameraMapper):
                 thresholds. Defaults to the smaller SLM dimension.
             initial_tilt: (x, y) tilt in focal-plane metres known to land a spot on
                 the sensor. When given, the spiral search is skipped and this tilt
-                seeds the centre search directly; a ValueError is raised if no spot
+                seeds the center search directly; a ValueError is raised if no spot
                 is detected there. search_radius is then ignored.
             find_camera_orientation: If True, suggest the nearest discrete camera
                 orientation that would align the camera with the model plane, recorded
@@ -215,18 +215,18 @@ class CoarseMapper(CameraMapper):
             ) is None:
                 raise ValueError(
                     f"No spot was found on the sensor at initial_tilt "
-                    f"{initial_tilt} (focal-plane metres); check the tilt and "
+                    f"{initial_tilt} (focal-plane metres). Check the tilt and "
                     "exposure."
                 )
             center_tilt = initial_tilt
 
-        # Measuring the focal spot radius from a Gaussian fit. The centre search uses 
+        # Measuring the focal spot radius from a Gaussian fit. The center search uses 
         # this to scale its probe offset and detection window.
         spot_radius = self._measure_spot_radius(
             center_tilt, focal_length, spot_radius
         )
 
-        # Finding the centre of the camera sensor and the local tilt that places the 
+        # Finding the center of the camera sensor and the local tilt that places the 
         # probe spots.
         center_tilt, jacobian = self._center_search(
             tilt=center_tilt,
@@ -241,7 +241,7 @@ class CoarseMapper(CameraMapper):
             jacobian = np.diag([1.0 / camera_pitch[0], 1.0 / camera_pitch[1]])
         inverse_jacobian = np.linalg.inv(jacobian)
 
-        # The four affine probes form a rectangle centred in the camera frame spanning
+        # The four affine probes form a rectangle centered in the camera frame spanning
         # half the sensor width/height.
         half_extent_px = np.array(
             [camera_shape[1] / 4.0, camera_shape[0] / 4.0]  # (x, y)
@@ -414,7 +414,7 @@ class CoarseMapper(CameraMapper):
         map_camera into a self-contained CoarseVisualizationData for
         CoarseMapperVisualizer. Output-plane pixels are (x, y); pixel_size_out /
         resolution_out are (y, x) / (height, width)."""
-        center = np.array(plane_centre(resolution_out), dtype=float)
+        center = np.array(plane_center(resolution_out), dtype=float)
         # Spiral candidate tilts (metres) to output-plane pixels
         tilts = np.asarray(
             self._spiral_tilts(half_extent[0], half_extent[1], search_step),
@@ -468,7 +468,7 @@ class CoarseMapper(CameraMapper):
             model_window_offset: ``(x, y)`` output pixels to move the model's render
                 window by while the probes are measured, so it covers the same region
                 the camera does. Removed again from the reported model positions, which
-                stay in the plane's own frame, centred on the zeroth order.
+                stay in the plane's own frame, centered on the zeroth order.
         """
         geometry = self.slm_camera_model.input_geometry
         grid = geometry.get_spatial_grid()
@@ -662,7 +662,8 @@ class CoarseMapper(CameraMapper):
         A 2-pixel-period 0/pi binary grating has no DC term (``exp(1j*0) + exp(1j*pi) =
         0``), so it strongly suppresses the real zeroth order while leaving fixed
         background (unchanged by the SLM) untouched. The spot is the zeroth order if its
-        intensity at the same position drops when the grating is displayed."""
+        intensity at the same position drops when the grating is displayed.
+        """
         row, column = np.unravel_index(int(np.argmax(image)), image.shape)
         spot_radius_px = spot_radius / (min(self.camera.pixel_size))
         half = max(int(round(2.0 * spot_radius_px)), 2)
@@ -671,12 +672,22 @@ class CoarseMapper(CameraMapper):
             top, left = max(row - half, 0), max(column - half, 0)
             return float(frame[top:row + half + 1, left:column + half + 1].max())
 
-        peak_before = window_peak(image)
-        # 2-px-period 0/pi vertical binary grating: diffracts the light into the
-        # Nyquist-edge +/-1 orders, leaving no zeroth order.
-        grating = binary_phase_grating(self.slm.resolution)
-        self.slm.set_phase(grating)
-        suppressed = np.asarray(self.camera.get_image())
+        held_exposure = float(self.camera.get_exposure())
+        try:
+            self.camera.autoexpose(
+                set_fraction=0.5,
+                exposure_bounds=(0, 1),
+                raise_on_rail=False,
+                verbose=False,
+            )
+            peak_before = window_peak(np.asarray(self.camera.get_image()))
+            # 2-px-period 0/pi vertical binary grating: diffracts the light into the
+            # Nyquist-edge +/-1 orders, minimizing the zeroth order.
+            grating = binary_phase_grating(self.slm.resolution)
+            self.slm.set_phase(grating)
+            suppressed = np.asarray(self.camera.get_image())
+        finally:
+            self.camera.set_exposure(held_exposure)
         return window_peak(suppressed) < 0.5 * peak_before
 
     def _default_search_step(
@@ -805,7 +816,7 @@ class CoarseMapper(CameraMapper):
         camera_shape: tuple[int, int],
         spot_radius: float,
     ) -> tuple[tuple[float, float], NDArray | None]:
-        """Move the found spot to the sensor centre by a local linear fit.
+        """Move the found spot to the sensor center by a local linear fit.
 
         Returns ``(center_tilt, jacobian)`` where ``jacobian`` is the measured 2x2 tilt
         to camera-pixel matrix (used to place the affine probes), or ``None`` when it
@@ -815,7 +826,7 @@ class CoarseMapper(CameraMapper):
         The zeroth order does not move with tilt and can be brighter than the first
         order, so it is masked (a disk around the reference spot) in the derivative
         captures."""
-        centre = np.array([(camera_shape[1] - 1) / 2, (camera_shape[0] - 1) / 2])
+        center = np.array([(camera_shape[1] - 1) / 2, (camera_shape[0] - 1) / 2])
         exposure = float(self.camera.get_exposure())
         # Deflect by twice the detection window so the offset spot lands clear of
         # the ZOD mask (radius one window) applied in the derivative captures.
@@ -872,12 +883,12 @@ class CoarseMapper(CameraMapper):
 
         jacobian = np.column_stack([jx, jy])  # (px change) per (metre of tilt)
         try:
-            delta = np.linalg.solve(jacobian, centre - initial_position)
+            delta = np.linalg.solve(jacobian, center - initial_position)
         except np.linalg.LinAlgError:
             return tilt, None
         center_tilt = (tilt[0] + float(delta[0]), tilt[1] + float(delta[1]))
 
-        # Confirm the extrapolated tilt lands the spot near the sensor centre.
+        # Confirm the extrapolated tilt lands the spot near the sensor center.
         # Fall back to the found tilt if the linear step overshot off the sensor.
         if measure(center_tilt) is None:
             return tilt, jacobian

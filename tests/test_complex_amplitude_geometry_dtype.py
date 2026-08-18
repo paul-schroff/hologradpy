@@ -3,7 +3,7 @@
 Float / tuple inputs used to be forced to float32 regardless of the field's
 dtype; they now derive the real dtype from the field, so a complex128 field
 carries float64 geometry (while complex64 stays float32). Tensor inputs keep
-their own dtype (unchanged behaviour).
+their own dtype (unchanged behavior).
 """
 
 import torch

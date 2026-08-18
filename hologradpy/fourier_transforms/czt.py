@@ -15,7 +15,7 @@ def _convolution_length(length: int, points: int) -> int:
 
 
 def _czt_forward_last(field: Tensor, omega: Tensor) -> Tensor:
-    """1D chirp-z along the last axis: evaluate the centred DFT
+    """1D chirp-z along the last axis: evaluate the centered DFT
     ``X_k = sum_n field[n] * exp(-i * omega_k * (n - N//2))`` at the uniformly spaced
     sample frequencies ``omega`` (rad/sample), exactly.
     """
@@ -43,8 +43,8 @@ def _czt_forward_last(field: Tensor, omega: Tensor) -> Tensor:
     convolution = convolution[..., length - 1: length - 1 + points]
 
     post_chirp = torch.exp(-0.5j * step * k * k)
-    centring = torch.exp(1j * omega * (length // 2))
-    return convolution * post_chirp * centring
+    centering = torch.exp(1j * omega * (length // 2))
+    return convolution * post_chirp * centering
 
 
 def _czt_adjoint_last(samples: Tensor, omega: Tensor, length: int) -> Tensor:

@@ -1,7 +1,7 @@
 """Capturing the focal spot that seeds a PSF kernel.
 
 The failure these guard against is quiet: with the zeroth order away from the sensor
-centre the crop used to be taken wherever the zeroth order landed, so near an edge it
+center the crop used to be taken wherever the zeroth order landed, so near an edge it
 held a corner of the spot, and off the sensor it held no spot at all. The kernel still
 had the right shape and the fit still ran, it just started from noise.
 """
@@ -18,7 +18,7 @@ from hologradpy.calibration.camera_mapping import (
 )
 from hologradpy.calibration.spot_detection import (
     capture_focal_spot,
-    tilt_to_sensor_centre,
+    tilt_to_sensor_center,
 )
 from hologradpy.geometry import PartialAffineTransform
 from hologradpy.hardware import SimulatedCameraTorch, SimulatedSLMTorch
@@ -57,12 +57,12 @@ class _FakeCamera:
     pixel_size = CAMERA_PIXEL_SIZE
 
 
-def test_a_centred_zeroth_order_needs_no_steering() -> None:
+def test_a_centered_zeroth_order_needs_no_steering() -> None:
     """The tilt is a correction, so a beam already in the middle gets none. Anything
-    else would move a working setup off centre."""
-    centre = (CAMERA_RESOLUTION[0] / 2, CAMERA_RESOLUTION[1] / 2)
+    else would move a working setup off center."""
+    center = (CAMERA_RESOLUTION[0] / 2, CAMERA_RESOLUTION[1] / 2)
 
-    tilt = tilt_to_sensor_centre(_FakeCamera(), _mapping(centre))
+    tilt = tilt_to_sensor_center(_FakeCamera(), _mapping(center))
 
     assert tilt == pytest.approx((0.0, 0.0), abs=1e-15)
 
@@ -72,7 +72,7 @@ def test_the_tilt_carries_the_beam_from_the_zeroth_order_to_the_middle() -> None
     (x, y), from a zeroth order stored (row, column)."""
     zeroth = (20.0, 70.0)  # (row, column)
 
-    tilt = tilt_to_sensor_centre(_FakeCamera(), _mapping(zeroth))
+    tilt = tilt_to_sensor_center(_FakeCamera(), _mapping(zeroth))
 
     expected_x = (CAMERA_RESOLUTION[1] / 2 - zeroth[1]) * CAMERA_PIXEL_SIZE[1]
     expected_y = (CAMERA_RESOLUTION[0] / 2 - zeroth[0]) * CAMERA_PIXEL_SIZE[0]
@@ -86,8 +86,8 @@ def test_the_tilt_is_taken_through_the_mapping_not_along_the_sensor() -> None:
     zeroth = (20.0, 70.0)
     camera = _FakeCamera()
 
-    straight = tilt_to_sensor_centre(camera, _mapping(zeroth))
-    rotated = tilt_to_sensor_centre(camera, _mapping(zeroth, angle=90.0))
+    straight = tilt_to_sensor_center(camera, _mapping(zeroth))
+    rotated = tilt_to_sensor_center(camera, _mapping(zeroth, angle=90.0))
 
     # A quarter turn sends (x, y) to (-y, x).
     assert rotated == pytest.approx((-straight[1], straight[0]), abs=1e-12)
@@ -99,8 +99,8 @@ def test_a_scaled_mapping_scales_the_tilt() -> None:
     zeroth = (20.0, 70.0)
     camera = _FakeCamera()
 
-    unit = tilt_to_sensor_centre(camera, _mapping(zeroth))
-    doubled = tilt_to_sensor_centre(camera, _mapping(zeroth, scale=2.0))
+    unit = tilt_to_sensor_center(camera, _mapping(zeroth))
+    doubled = tilt_to_sensor_center(camera, _mapping(zeroth, scale=2.0))
 
     assert doubled == pytest.approx((2 * unit[0], 2 * unit[1]))
 
@@ -132,7 +132,9 @@ def _build_hardware(camera_shift):
         slm_field=PixelwiseSLMField(beam),
         padded_resolution=(256, 256),
         camera_angle=0.0,
-        camera_shift=camera_shift,
+        camera_shift=tuple(
+            s * p for s, p in zip(camera_shift, CAMERA_PIXEL_SIZE)
+        ),
     )
     camera = SimulatedCameraTorch(hardware, noise_level=0.0)
     # Roughly mid-scale for this bench. A milliwatt onto a 96 x 96 sensor with no
@@ -165,10 +167,10 @@ def _zeroth_order_position(slm, camera) -> tuple[float, float]:
 
 
 @pytest.mark.parametrize(
-    "camera_shift", [(0.0, 0.0), (18.0, -12.0)], ids=["centred", "off centre"]
+    "camera_shift", [(0.0, 0.0), (18.0, -12.0)], ids=["centered", "off center"]
 )
 def test_the_captured_spot_lands_in_the_middle_of_the_kernel(camera_shift) -> None:
-    """The kernel is applied about its own centre, so a spot sitting off centre in the
+    """The kernel is applied about its own center, so a spot sitting off center in the
     crop is an unwanted tilt baked into the seed. Steering puts the spot in the middle
     whatever the geometry, and the same crop then holds it."""
     slm, camera = _build_hardware(camera_shift)

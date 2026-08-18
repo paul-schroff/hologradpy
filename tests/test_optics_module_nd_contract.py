@@ -177,7 +177,7 @@ def test_nufft_adjoint_satisfies_inner_product_identity() -> None:
     ``<A x, y> == <x, A* y>`` for input-plane x and output-plane y."""
     module = MODULE_FACTORIES["FourierLensNUFFT"]()
     x = make_field((2, 16, 16), 2)
-    module(x)  # lazily initialise
+    module(x)  # lazily initialize
 
     y = _output_plane_field((2, 16, 16), 2)
 
@@ -194,7 +194,7 @@ def test_nufft_adjoint_satisfies_inner_product_identity() -> None:
 def test_nufft_adjoint_rank_and_geometry(rank: str) -> None:
     shape, n_wavelengths = RANK_CASES[rank]
     module = MODULE_FACTORIES["FourierLensNUFFT"]()
-    module(make_field(shape, n_wavelengths))  # lazily initialise
+    module(make_field(shape, n_wavelengths))  # lazily initialize
 
     output_field = _output_plane_field(shape, n_wavelengths)
     restored = module.adjoint(output_field)
@@ -215,21 +215,21 @@ def _input_plane_geometry(n_wavelengths):
 
 
 def test_initialize_from_geometry_enables_adjoint_without_forward() -> None:
-    """A module initialised from the input geometry can run ``adjoint``
-    without any prior ``forward``, matching the forward-initialised path."""
+    """A module initialized from the input geometry can run ``adjoint``
+    without any prior ``forward``, matching the forward-initialized path."""
     geometry = _input_plane_geometry(2)
     output_field = _output_plane_field((2, 16, 16), 2)
 
-    forward_initialised = MODULE_FACTORIES["FourierLensNUFFT"]()
-    forward_initialised(make_field((2, 16, 16), 2))
-    expected = forward_initialised.adjoint(output_field)
+    forward_initialized = MODULE_FACTORIES["FourierLensNUFFT"]()
+    forward_initialized(make_field((2, 16, 16), 2))
+    expected = forward_initialized.adjoint(output_field)
 
-    geometry_initialised = MODULE_FACTORIES["FourierLensNUFFT"]()
-    assert geometry_initialised.initialized is False
-    geometry_initialised.initialize_from_geometry(geometry)
-    assert geometry_initialised.initialized is True
+    geometry_initialized = MODULE_FACTORIES["FourierLensNUFFT"]()
+    assert geometry_initialized.initialized is False
+    geometry_initialized.initialize_from_geometry(geometry)
+    assert geometry_initialized.initialized is True
 
-    restored = geometry_initialised.adjoint(output_field)
+    restored = geometry_initialized.adjoint(output_field)
     torch.testing.assert_close(restored._data, expected._data)
 
 
@@ -237,7 +237,7 @@ def test_adjoint_before_initialization_raises() -> None:
     module = MODULE_FACTORIES["FourierLensNUFFT"]()
     output_field = _output_plane_field((2, 16, 16), 2)
 
-    with pytest.raises(RuntimeError, match="must be initialised"):
+    with pytest.raises(RuntimeError, match="must be initialized"):
         module.adjoint(output_field)
 
 
@@ -276,7 +276,7 @@ def test_square_propagator_adjoint_identity(module_name: str) -> None:
     ``<A x, y> == <x, A* y>``."""
     module = MODULE_FACTORIES[module_name]()
     x = make_field((2, 16, 16), 2, seed=0)
-    module(x)  # lazily initialise
+    module(x)  # lazily initialize
     y = make_field((2, 16, 16), 2, seed=1)
 
     forward_x = module(x)
@@ -293,5 +293,5 @@ def test_square_propagator_adjoint_before_init_raises(
     module_name: str,
 ) -> None:
     module = MODULE_FACTORIES[module_name]()
-    with pytest.raises(RuntimeError, match="must be initialised"):
+    with pytest.raises(RuntimeError, match="must be initialized"):
         module.adjoint(make_field((2, 16, 16), 2))

@@ -9,3 +9,4 @@ checkerboard
 slmsuite
 tqdm
 asdf
+einops

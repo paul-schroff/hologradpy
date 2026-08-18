@@ -3,7 +3,12 @@ from ..modules.slm_fields import SLMField
 from ..modules.virtual_slms.abstract import VirtualSLM
 from ..complex_amplitude import FieldGeometry
 
-from .abstract import SLMFourierLensModel
+from .abstract import (
+    SLMFourierLensModel,
+    camera_shift_pixels,
+    slm_stages,
+    upscaled_padding,
+)
 from ..modules.abstract import capture_init
 
 
@@ -14,8 +19,8 @@ class SLMCZT(SLMFourierLensModel):
     registration stage: :class:`FourierLensCZT` carries learnable ``scale_factor`` /
     ``shift`` / ``angle``, so the focal-plane affine map is learned inside the (exact,
     power-correct) lens itself and maps directly onto the camera resolution at the
-    camera pixel size. ``camera_angle`` (degrees) / ``camera_shift`` (output pixels,
-    ``(x, y)``) seed those learnable parameters.
+    camera pixel size. ``camera_angle`` (degrees) / ``camera_shift`` (``(x, y)``
+    metres) seed those learnable parameters.
 
     ``padded_resolution`` prevents cropping a rotated field.
     """
@@ -39,23 +44,23 @@ class SLMCZT(SLMFourierLensModel):
         power_normalized: bool = True,
         pointing_focal_shift_std: float | tuple[float, float] | None = None,
         pointing_seed: int | None = None,
+        grid_cache: bool = False,
     ) -> None:
         super().__init__(
             input_geometry=input_geometry,
             focal_length=focal_length,
             pointing_focal_shift_std=pointing_focal_shift_std,
             pointing_seed=pointing_seed,
-            virtual_slm=virtual_slm,
-            slm_field=slm_field,
+            **slm_stages(virtual_slm, slm_field, grid_cache),
             fourier_lens=FourierLensCZT(
                 focal_length,
                 resolution_out=camera_resolution,
                 pixel_size_out=camera_pixel_size,
-                shift=camera_shift,
+                shift=camera_shift_pixels(camera_shift, camera_pixel_size),
                 angle=camera_angle,
                 learnable=True,
                 power_normalized=power_normalized,
-                padded_resolution=padded_resolution,
+                padded_resolution=upscaled_padding(padded_resolution, virtual_slm),
             ),
         )
 

@@ -153,11 +153,11 @@ class SLMSuiteSLMAdapter(SLM):
         return getattr(self._slm, "bitdepth", None)
 
     def set_levels(self, levels) -> None:
-        """Display grey levels directly on the wrapped slmsuite SLM."""
+        """Display gray levels directly on the wrapped slmsuite SLM."""
         levels = np.asarray(levels)
         if not np.issubdtype(levels.dtype, np.integer):
             raise TypeError(
-                f"set_levels takes integer grey levels, got {levels.dtype}. An SLM "
+                f"set_levels takes integer gray levels, got {levels.dtype}. An SLM "
                 "displays whole levels, and slmsuite reads a float array as a phase in "
                 "radians instead."
             )

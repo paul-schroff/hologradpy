@@ -1,4 +1,4 @@
-"""ZernikeSLM-specific behaviour.
+"""ZernikeSLM-specific behavior.
 
 ZernikeSLM is covered by the shared ND contract suite via the module registry;
 this module adds tests for what makes it distinct: it learns per-wavelength
@@ -11,7 +11,6 @@ from __future__ import annotations
 import pytest
 import torch
 
-from hologradpy.optics.complex_amplitude import ComplexAmplitude
 from hologradpy.optics.modules.virtual_slms.zernike_slm import ZernikeSLM
 
 from .registry import ZERNIKE_RADIAL_ORDERS, make_field

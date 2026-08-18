@@ -10,7 +10,7 @@ from .abstract import FourierBase
 
 
 def _as_per_wavelength(value, device: torch.device) -> Tensor:
-    """Normalise a magnification / shift argument to a ``(n_wl, 2)`` float
+    """Normalize a magnification / shift argument to a ``(n_wl, 2)`` float
     tensor in ``(x, y)`` order. Accepts a 2-tuple ``(x, y)`` (treated as a
     single wavelength) or an already-batched ``(n_wl, 2)`` tensor/sequence.
     """

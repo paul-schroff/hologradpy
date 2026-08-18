@@ -30,6 +30,9 @@ from hologradpy.optics.complex_amplitude import (  # noqa: E402
 from hologradpy.optics.systems import SLMFFT, SLMCZT  # noqa: E402
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField  # noqa: E402
 from hologradpy.optics.modules.virtual_slms import VirtualSLM  # noqa: E402
+from hologradpy.profiles.phase import (  # noqa: E402
+    binary_phase_grating,
+)
 from hologradpy.profiles.amplitude import (  # noqa: E402
     gaussian_beam_intensity,
     get_focal_spot_radius,
@@ -65,6 +68,7 @@ def _build_setup(
     pointing_focal_shift_std: float | None = None,
     background_scatter_power: float | None = None,
     background_scatter_grain_radius: float = 5e-6,
+    crosstalk_upscale_factor: int | None = None,
 ):
     torch.manual_seed(0)
     geometry = FieldGeometry(
@@ -87,7 +91,11 @@ def _build_setup(
         focal_length=0.25,
         slm_field=PixelwiseSLMField(beam),
         camera_angle=camera_angle,
-        camera_shift=camera_shift,
+        # The tests place the sensor in pixels, which reads more directly for a
+        # sensor; the systems take the shift in focal-plane metres.
+        camera_shift=tuple(
+            s * p for s, p in zip(camera_shift, (30e-6, 30e-6))
+        ),
         pointing_focal_shift_std=pointing_focal_shift_std,
         pointing_seed=1,
     )
@@ -97,6 +105,7 @@ def _build_setup(
         background_scatter_power=background_scatter_power,
         background_scatter_grain_radius=background_scatter_grain_radius,
         background_scatter_seed=0,
+        crosstalk_upscale_factor=crosstalk_upscale_factor,
     )
     camera.set_exposure(1e-3)
     camera.get_image()
@@ -108,6 +117,38 @@ def _build_setup(
         padded_resolution=(512, 512),
     )
     return slm, camera, model
+
+
+def test_the_zeroth_order_is_confirmed_through_an_overexposed_camera():
+    """The probe that locates the zeroth order stops as soon as it is detectable, which
+    a saturated frame already is, so it leaves the camera far over-exposed.
+
+    An SLM that leaves light undiffracted then reads the same clipped peak under the
+    suppressing grating as without it, and its real zeroth order is dismissed as stray
+    light. Pixel crosstalk leaves about a tenth of it, which is plenty to clip. The
+    confirmation therefore has to make its own unclipped measurement.
+    """
+    slm, camera, model = _build_setup(crosstalk_upscale_factor=3)
+    mapper = CoarseMapper(slm, camera, model)
+    spot_radius = 2.0 * float(min(camera.pixel_size))
+
+    flat = np.zeros(slm.resolution, dtype=np.float32)
+    slm.set_phase(flat)
+    camera.set_exposure(1e-3)
+    camera.autoexpose(
+        set_fraction=0.5, exposure_bounds=(0, 1), raise_on_rail=False, verbose=False
+    )
+    located = np.asarray(camera.get_image())
+    assert located.max() < camera.max_pixel_value
+
+    # The exposure the probe hands over, where the zeroth order clips by a wide margin.
+    camera.set_exposure(1e-3)
+    assert np.asarray(camera.get_image()).max() >= camera.max_pixel_value
+    slm.set_phase(binary_phase_grating(slm.resolution))
+    assert np.asarray(camera.get_image()).max() >= camera.max_pixel_value
+    slm.set_phase(flat)
+
+    assert mapper._confirm_zeroth_order(located, spot_radius)
 
 
 # --- CameraMapping orientation properties --------------------------------------
@@ -350,7 +391,7 @@ def test_camera_mapping_records_camera_data_and_pickles(tmp_path):
 
 
 def test_coarse_mapping_accepts_initial_tilt():
-    # Centred sensor: the zeroth order is on it, so tilt (0, 0) is a valid seed
+    # Centered sensor: the zeroth order is on it, so tilt (0, 0) is a valid seed
     # and the spiral search is skipped.
     slm, camera, model = _build_setup()
     coarse = CoarseMapper(slm, camera, model).map_camera(initial_tilt=(0.0, 0.0))
@@ -477,7 +518,7 @@ def test_calibrate_exposure_uses_visible_array():
 def test_calibrate_exposure_none_when_zeroth_order_on_sensor():
     """When the zeroth order lands on the sensor no array calibration is needed;
     the helper returns None so the search keeps its normal per-probe path."""
-    slm, camera, model = _build_setup()  # centred sensor: DC on it
+    slm, camera, model = _build_setup()  # centered sensor: DC on it
     mapper = CoarseMapper(slm, camera, model)
     assert mapper._calibrate_exposure(*_calibration_args(slm, (240, 320))) is None
 
@@ -558,7 +599,7 @@ def test_coarse_visualization_data_populated_and_visualizer_renders():
     data = mapping.visualization_data
     assert data is not None
     assert data.array_image is not None       # array path was taken
-    assert data.walk_image is not None         # centre-search walked
+    assert data.walk_image is not None         # center-search walked
     assert np.asarray(data.probe_image).ndim == 2
     assert np.asarray(data.array_spot_positions).shape[1] == 2
     assert len(data.array_spot_positions) > 0
@@ -577,7 +618,7 @@ def test_coarse_visualizer_renders_with_zeroth_order_on_sensor():
     (array_image is None); the visualizer still renders (placeholder panel)."""
     from matplotlib.figure import Figure
 
-    slm, camera, model = _build_setup()  # centred sensor: DC on it
+    slm, camera, model = _build_setup()  # centered sensor: DC on it
     mapping = CoarseMapper(slm, camera, model).map_camera()
     assert mapping.visualization_data.array_image is None
 

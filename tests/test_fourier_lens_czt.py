@@ -76,7 +76,7 @@ def test_czt_lens_adjoint_is_conjugate_transpose() -> None:
         shift=(1.0, 2.0), angle=8.0, learnable=False,
     )
     x = make_field((2, *RESOLUTION), 2, seed=0)
-    lens(x)  # lazily initialise
+    lens(x)  # lazily initialize
 
     y = make_field((2, *RESOLUTION), 2, seed=1, pixel_size=(5e-6, 8e-6))
     forward_x = lens(x)._data
@@ -131,7 +131,7 @@ def test_padding_leaves_the_focal_plane_alone() -> None:
     sampling only stays put because the base magnification and the chirp-z step both
     carry the input resolution, so this is the assertion that catches taking one of
     them from the unpadded frame and the other from the padded one. It would also catch
-    an off-centre pad, which shows up as a tilt across the focal plane.
+    an off-center pad, which shows up as a tilt across the focal plane.
     """
     field = make_field(RESOLUTION, 1, seed=3)
     settings = dict(

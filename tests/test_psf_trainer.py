@@ -1,4 +1,4 @@
-﻿"""Tests for the PSF-parameterised SLM-plane field and its trainer.
+﻿"""Tests for the PSF-parameterized SLM-plane field and its trainer.
 
 The camera field for a phase pattern is ``FT(A * exp(i * phase))``, which by the
 convolution theorem is ``FT(A)`` convolved with ``FT(exp(i * phase))``, so the
@@ -66,7 +66,7 @@ def _uniform_field(resolution=SLM_RESOLUTION) -> ComplexAmplitude:
 def test_gaussian_psf_maps_to_the_conjugate_gaussian_beam(psf_waist) -> None:
     """A Gaussian PSF of waist w must give an SLM beam of waist lambda*F/(pi*w).
 
-    This is the Fourier pair the whole parameterisation rests on, so it pins the
+    This is the Fourier pair the whole parameterization rests on, so it pins the
     kernel to SLM magnification. A wrong magnification would still look like a
     plausible beam, just the wrong size, and nothing else in the fit would catch
     it.
@@ -103,7 +103,7 @@ def test_the_kernel_is_a_single_complex_parameter() -> None:
     Real and imaginary parts were carried separately at first, to stay clear of
     complex autograd after a dropped conjugation was found in the
     ComplexAmplitude dispatch. Adam views a complex parameter as two independent
-    reals, so the two are the same optimisation to the bit, and one parameter is
+    reals, so the two are the same optimization to the bit, and one parameter is
     the simpler interface.
     """
     module = PSFSLMField(
@@ -164,12 +164,13 @@ def test_kernel_size_tracks_the_fitted_waist() -> None:
     small = kernel_size_from_waist(5e-6, 3.45e-6)
     large = kernel_size_from_waist(15e-6, 3.45e-6)
     assert large > small
-    assert small % 2 == 1 and large % 2 == 1  # centred kernels
+    assert small % 2 == 1 and large % 2 == 1  # centered kernels
     assert kernel_size_from_waist(1e-9, 3.45e-6) >= 3  # never degenerate
 
 
 def test_a_static_field_model_is_not_treated_as_a_psf_one(tmp_path) -> None:
-    """A PixelwiseSLMField model must not pick up the PSF parameterisation's settings."""
+    """A PixelwiseSLMField model must not pick up the PSF parameterization's
+    settings."""
     import sys
 
     sys.path.insert(0, os.path.dirname(__file__))
@@ -293,15 +294,15 @@ def _delta_kernel_field(kernel_size: int, shift_pixels: int) -> torch.Tensor:
         psf_kernel_size=kernel_size,
     )
     module(_uniform_field())
-    centre = kernel_size // 2
+    center = kernel_size // 2
     seed = torch.zeros(kernel_size, kernel_size)
-    seed[centre, centre + shift_pixels] = 1.0
+    seed[center, center + shift_pixels] = 1.0
     with torch.no_grad():
         module.psf_kernel.copy_(seed.to(module.psf_kernel.dtype))
     return module.get_wavefront().detach()
 
 
-def test_a_centred_kernel_puts_no_tilt_on_the_beam() -> None:
+def test_a_centered_kernel_puts_no_tilt_on_the_beam() -> None:
     """A kernel on the origin must give an untilted beam.
 
     The Gaussian pair test above only checks the waist of the amplitude, so a

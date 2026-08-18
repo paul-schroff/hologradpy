@@ -45,8 +45,8 @@ class CoarseVisualizationData(CameraMappingVisualizationData):
     Attributes:
         array_image: Camera capture of the full calibration spot array, or None when the
             zeroth order was on the sensor (no array was displayed).
-        walk_image: Max-projection of the centre-search captures (the probe spot's trail
-            as it walks towards the sensor centre), or None.
+        walk_image: Max-projection of the center-search captures (the probe spot's trail
+            as it walks towards the sensor center), or None.
         probe_image: Max-projection of the four affine-probe captures.
         detected_points: Fitted probe positions in camera pixels, shape (N, 2).
         array_spot_positions: Candidate spiral spot positions, shape (N, 2).
@@ -105,11 +105,11 @@ class CoarseMapperVisualizer(BaseVisualizer):
         data = self.data
         height, width = data.output_resolution
         half_x, half_y = data.nyquist_half_extent_px
-        centre = (width / 2.0, height / 2.0)
+        center = (width / 2.0, height / 2.0)
 
         axs.add_patch(
             patches.Rectangle(
-                (centre[0] - half_x, centre[1] - half_y),
+                (center[0] - half_x, center[1] - half_y),
                 2 * half_x, 2 * half_y, fill=False, edgecolor="crimson",
                 linestyle="--", linewidth=1.5, label="SLM Nyquist zone",
             )
@@ -132,9 +132,9 @@ class CoarseMapperVisualizer(BaseVisualizer):
                 markeredgecolor="white", label="affine probes",
             )
         # The zeroth order (undiffracted DC, tilt = 0) sits at the output-plane
-        # centre by definition.
+        # center by definition.
         axs.plot(
-            [centre[0]], [centre[1]], "+", color="black", markersize=12,
+            [center[0]], [center[1]], "+", color="black", markersize=12,
             markeredgewidth=2, label="zeroth order",
         )
         polygon = np.asarray(data.sensor_rectangle, dtype=float)
@@ -145,8 +145,8 @@ class CoarseMapperVisualizer(BaseVisualizer):
             )
         )
 
-        xs = np.concatenate([[centre[0] - half_x, centre[0] + half_x], polygon[:, 0]])
-        ys = np.concatenate([[centre[1] - half_y, centre[1] + half_y], polygon[:, 1]])
+        xs = np.concatenate([[center[0] - half_x, center[0] + half_x], polygon[:, 0]])
+        ys = np.concatenate([[center[1] - half_y, center[1] + half_y], polygon[:, 1]])
         pad = 0.05 * max(float(np.ptp(xs)), float(np.ptp(ys)), 1.0)
         axs.set_xlim(xs.min() - pad, xs.max() + pad)
         axs.set_ylim(ys.min() - pad, ys.max() + pad)

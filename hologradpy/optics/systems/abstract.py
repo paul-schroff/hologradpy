@@ -14,6 +14,7 @@ from ..modules.virtual_slms.abstract import VirtualSLM
 from ..modules.abstract import OpticsModule
 from ...fourier_optics import addressable_half_extent
 from ..complex_amplitude import ComplexAmplitude, FieldGeometry
+from ..modules.grid_adapter import GridAdapter
 from ..modules.slm_fields import SLMField
 from ..modules.hardware_models import PointingInstability
 from ..modules.recording import RecordingMixin
@@ -288,7 +289,7 @@ class OpticalSystem(nn.Module):
 
     def save(self, filename: str) -> None:
         """Save model parameters and constructor metadata to a checkpoint."""
-        # Ensure lazily initialised modules have created their parameters.
+        # Ensure lazily initialized modules have created their parameters.
         _ = self()
 
         checkpoint = OpticalSystemCheckpoint(
@@ -339,7 +340,7 @@ class OpticalSystem(nn.Module):
         spec.update(kwargs)
 
         model = cls.from_checkpoint_spec(spec)
-        # Ensure lazy modules are initialised before loading saved weights.
+        # Ensure lazy modules are initialized before loading saved weights.
         _ = model()
         model.load_state_dict(state_dict, strict=strict)
         return model
@@ -391,6 +392,65 @@ def load_optical_system(
     return system.load(str(filename), map_location=map_location, **kwargs)
 
 
+def slm_stages(
+    virtual_slm: VirtualSLM,
+    slm_field: SLMField,
+    grid_cache: bool = False,
+) -> dict[str, OpticsModule]:
+    """The SLM-plane stages, in the order a system runs them.
+
+    The beam comes first and the displayed phase second. The two are diagonal
+    multiplies and commute, and this order lets ``slm_field`` keep one free parameter
+    per real SLM pixel while ``virtual_slm`` works on the sub-pixel grid its crosstalk
+    model needs. The :class:`GridAdapter` between them carries the beam onto that grid,
+    and is a pass-through with no crosstalk fitted.
+
+    Args:
+        virtual_slm: The SLM stage, which says how fine the grid has to be.
+        slm_field: The measured SLM-plane beam.
+        grid_cache: Hold the resampled beam, worth switching on once the beam is
+            measured and frozen. See :class:`GridAdapter`.
+    """
+    return {
+        "slm_field": slm_field,
+        "grid_adapter": GridAdapter(
+            factor=virtual_slm.upscale_factor, cache=grid_cache
+        ),
+        "virtual_slm": virtual_slm,
+    }
+
+
+def camera_shift_pixels(
+    camera_shift: tuple[float, float],
+    camera_pixel_size: tuple[float, float],
+) -> tuple[float, float]:
+    """A camera shift in metres as the output pixels the modules carrying it want.
+
+    ``camera_shift`` is ``(x, y)`` metres in the focal plane, the convention the rest of
+    the package states a position in. ``camera_pixel_size`` is ``(height, width)``, so x
+    is divided by the width pitch and y by the height pitch.
+    """
+    return (
+        float(camera_shift[0]) / float(camera_pixel_size[1]),
+        float(camera_shift[1]) / float(camera_pixel_size[0]),
+    )
+
+def upscaled_padding(
+    padded_resolution: tuple[int, int] | None,
+    virtual_slm: VirtualSLM,
+) -> tuple[int, int] | None:
+    """``padded_resolution`` grown by the sub-pixel factor of the SLM stage.
+
+    A Fourier lens maps ``pixel_size_in * padded_resolution`` onto its focal plane, so
+    growing the padding by the same factor the pixel shrinks by leaves the focal-plane
+    sampling, the camera registration and any fitted affine exactly where they were.
+    """
+    if padded_resolution is None:
+        return None
+    factor = virtual_slm.upscale_factor
+    return tuple(int(length) * factor for length in padded_resolution)
+
+
 class SLMFourierLensModel(OpticalSystem):
     virtual_slm: VirtualSLM
     fourier_lens: OpticsModule
@@ -425,7 +485,7 @@ class SLMFourierLensModel(OpticalSystem):
                 seed=pointing_seed,
             )
             # Matched on the SLMField base, not a concrete subclass: the slot holds
-            # whichever parameterisation the caller supplied, and pointing applies
+            # whichever parameterization the caller supplied, and pointing applies
             # to all of them.
             self.insert_after(SLMField, "pointing_instability", pointing)
 

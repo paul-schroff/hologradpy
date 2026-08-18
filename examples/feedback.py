@@ -3,12 +3,12 @@ Feedback algorithm example
 ==========================
 
 This script calculates phase patterns for a phase-modulating liquid crystal on silicon
-(LCOS) spatial light modulator (SLM) to create accurate light potentials by modelling
-pixel crosstalk on the SLM and using conjugate gradient (CG) minimisation with camera
+(LCOS) spatial light modulator (SLM) to create accurate light potentials by modeling
+pixel crosstalk on the SLM and using conjugate gradient (CG) minimization with camera
 feedback (see https://doi.org/10.1038/s41598-023-30296-6).
 
 Using this script, it should be easy to switch between the different patterns from our
-publication, turn on pixel crosstalk modelling and switch between the fast Fourier
+publication, turn on pixel crosstalk modeling and switch between the fast Fourier
 transform (FFT) and the angular spectrum method (ASM) to model the propagation of light.
 """
 
@@ -210,7 +210,7 @@ holo = p.Hologram(
 # .. image:: images/target.png
 #
 # The target is shifted away from the center to avoid the zeroth order diffration spot.
-# The phase retrieval algorithm only optimises for the intensity inside the signal
+# The phase retrieval algorithm only optimizes for the intensity inside the signal
 # region.
 #
 # We use an analytic initial SLM phase guess consisting of a quadratic and a linear
@@ -293,7 +293,7 @@ else:
 # -------------------------------------
 # First, we create an object from ``torch_functions.PhaseRetrieval`` which sets the
 # phase retrieval method. By default, ``torch_functions.PhaseRetrieval`` performs
-# conjugate gradient minimisation using an amplitude-only cost function (see
+# conjugate gradient minimization using an amplitude-only cost function (see
 # https://doi.org/10.1364/OE.22.026548).
 #
 # This phase retrieval method is then used iteratively by the camera feedback algorithm
@@ -348,7 +348,7 @@ output = tfn.camera_feedback(
     [rmse_conv_sv, rmse_pred_conv_sv, eff_conv_sv, n_conv_sv],
 ) = output
 
-# %% After the first 50 CG iterations, the optimised SLM phase pattern is displayed on
+# %% After the first 50 CG iterations, the optimized SLM phase pattern is displayed on
 # the device and a camera image is taken:
 #
 # .. image:: images/fb0.png
@@ -407,7 +407,7 @@ im00 = axs[0].imshow(holo.i_slm / np.max(holo.i_slm), cmap="turbo", extent=exten
 divider00 = make_axes_locatable(axs[0])
 cax00 = divider00.append_axes("right", size="5%", pad=0.05)
 cbar00 = fig.colorbar(im00, cax=cax00, orientation="vertical")
-cbar00.set_label("normalised intensity")
+cbar00.set_label("normalized intensity")
 axs[0].set_title("Constant SLM intensity")
 axs[0].set_xlabel("x [mm]")
 axs[0].set_ylabel("y [mm]")
@@ -430,7 +430,7 @@ im20 = axs2[0].imshow(
 divider20 = make_axes_locatable(axs2[0])
 cax20 = divider20.append_axes("right", size="5%", pad=0.05)
 cbar20 = fig2.colorbar(im20, cax=cax20, orientation="vertical")
-cbar20.set_label("normalised intensity")
+cbar20.set_label("normalized intensity")
 axs2[0].set_title("Target intensity pattern")
 axs2[0].set_xlabel("x [mm]")
 axs2[0].set_ylabel("y [mm]")
@@ -465,7 +465,7 @@ im40 = axs4[0].imshow(img_crop_0 / np.max(img_crop_0), cmap="turbo", extent=exte
 divider40 = make_axes_locatable(axs4[0])
 cax40 = divider40.append_axes("right", size="5%", pad=0.05)
 cbar40 = fig.colorbar(im40, cax=cax40, orientation="vertical")
-cbar40.set_label("normalised intensity")
+cbar40.set_label("normalized intensity")
 axs4[0].set_title("First camera image")
 axs4[0].set_xlabel("x [mm]")
 axs4[0].set_ylabel("y [mm]")
@@ -484,7 +484,7 @@ im50 = axs5[0].imshow(img_crop_1 / np.max(img_crop_1), cmap="turbo", extent=exte
 divider50 = make_axes_locatable(axs5[0])
 cax50 = divider50.append_axes("right", size="5%", pad=0.05)
 cbar50 = fig.colorbar(im50, cax=cax50, orientation="vertical")
-cbar50.set_label("normalised intensity")
+cbar50.set_label("normalized intensity")
 axs5[0].set_title("Camera image after feedback")
 axs5[0].set_xlabel("x [mm]")
 axs5[0].set_ylabel("y [mm]")

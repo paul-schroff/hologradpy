@@ -13,7 +13,7 @@ ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 
 
 def to_canvas(field: ArrayLike, resolution: tuple[int, int]) -> ArrayLike:
-    """Centre ``field``'s last two axes on a canvas of ``resolution``, zero-padding or
+    """Center ``field``'s last two axes on a canvas of ``resolution``, zero-padding or
     cropping each axis as needed.
 
     Args:
@@ -111,7 +111,7 @@ def progress(
 class ProgressBar:
     """A bar for loops that are not a plain ``for``, advanced by :meth:`update`.
 
-    The optimisers here run their loop inside ``torchmin.Minimizer.step`` using a
+    The optimizers here run their loop inside ``torchmin.Minimizer.step`` using a
     callback, so there is no iterable to wrap. Use as a context manager so the bar
     closes even when the loop raises::
 

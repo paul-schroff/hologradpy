@@ -223,7 +223,7 @@ def test_a_single_term_reports_itself() -> None:
     assert list(
         MaskedIntensityMSE(signal_mask).components(batched_field, batched_target)
     ) == ["intensity mse"]
-    # Unnamed costs fall back to the class name rather than going unlabelled.
+    # Unnamed costs fall back to the class name rather than going unlabeled.
     assert list(losses["LossVorticity"].components(hologram_field)) == ["LossVorticity"]
 
 
@@ -309,22 +309,22 @@ def test_smallest_divisor_follows_the_dtype() -> None:
 
 
 @pytest.mark.parametrize(
-    "normalise, shape",
+    "normalize, shape",
     [
         (normalize_single_to_unit_sum, (4, 4)),
         (normalize_to_unit_sum, (2, 4, 4)),
     ],
 )
-def test_normalising_an_empty_image_does_not_produce_nan(normalise, shape) -> None:
+def test_normalizing_an_empty_image_does_not_produce_nan(normalize, shape) -> None:
     """The floor exists for this case: a frame that summed to zero must not poison the
     loss with a nan, which would take the whole fit with it."""
-    result = normalise(torch.zeros(shape))
+    result = normalize(torch.zeros(shape))
     assert not torch.isnan(result).any()
     assert not torch.isinf(result).any()
 
 
 def test_a_genuinely_small_sum_is_not_clamped() -> None:
-    """A sum the dtype represents perfectly normalises exactly, without a floor."""
+    """A sum the dtype represents perfectly normalizes exactly, without a floor."""
     image = torch.full((4,), 1e-30, dtype=torch.float64)
     assert float(normalize_single_to_unit_sum(image).sum()) == pytest.approx(1.0)
 

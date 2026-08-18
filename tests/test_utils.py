@@ -53,7 +53,7 @@ def test_progress_bar_closes_on_exception() -> None:
     with pytest.raises(RuntimeError):
         with bar:
             bar.update()
-            raise RuntimeError("optimiser blew up")
+            raise RuntimeError("optimizer blew up")
     assert bar._bar is None
 
 

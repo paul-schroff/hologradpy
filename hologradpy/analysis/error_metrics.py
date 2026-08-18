@@ -1,4 +1,4 @@
-"""Metrics characterising light potentials and wavefront errors."""
+"""Metrics characterizing light potentials and wavefront errors."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 def normalize(
     image: ArrayLike, roi: ArrayLike, threshold: float = 0.5
 ) -> ArrayLike:
-    """Normalises an image by the mean of its bright pixels in a region of interest.
+    """Normalizes an image by the mean of its bright pixels in a region of interest.
 
     Only pixels brighter than ``threshold * max(roi * image)`` are averaged, so the
     result does not depend on how much dark area the region happens to include.
@@ -29,7 +29,7 @@ def normalize(
             brightest pixel in the region. Defaults to 0.5.
 
     Returns:
-        ArrayLike: Normalised image, the same shape as ``image``.
+        ArrayLike: Normalized image, the same shape as ``image``.
     """
     xp = array_namespace(image, roi)
 
@@ -89,11 +89,11 @@ def rmse(
     measured_intensity: ArrayLike,
     threshold: float = 0.5,
 ) -> ArrayLike:
-    """Normalised root-mean-squared error between two images in a region of interest.
+    """Normalized root-mean-squared error between two images in a region of interest.
 
     Only pixels brighter than ``threshold * max(target_intensity)`` inside the region
     are considered, to avoid small values in the denominator blowing up the error. Both
-    images are normalised to unit sum over those pixels first, which makes the answer
+    images are normalized to unit sum over those pixels first, which makes the answer
     independent of exposure.
 
     Args:
@@ -104,7 +104,7 @@ def rmse(
             peak. Defaults to 0.5, which is half the peak.
 
     Returns:
-        ArrayLike: Normalised RMS error, as a scalar of the input backend.
+        ArrayLike: Normalized RMS error, as a scalar of the input backend.
     """
     xp = array_namespace(signal, target_intensity, measured_intensity)
 
@@ -147,7 +147,7 @@ def psnr(
 ) -> ArrayLike:
     """Peak signal-to-noise ratio between two images in a region of interest.
 
-    Follows https://doi.org/10.1364/OE.24.006249. Both images are normalised to unit sum
+    Follows https://doi.org/10.1364/OE.24.006249. Both images are normalized to unit sum
     over the region first, so the result does not depend on exposure.
 
     Args:

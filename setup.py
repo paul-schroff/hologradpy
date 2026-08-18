@@ -22,6 +22,7 @@ requirements = [
     "slmsuite",
     "tqdm",
     "asdf",
+    "einops",
 ]
 
 setup(

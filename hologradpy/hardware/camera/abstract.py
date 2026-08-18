@@ -309,7 +309,7 @@ class Camera(ABC):
         # camera is overexposed, not a field of hot pixels.
         saturated = frames_min >= full_scale
 
-        # Labelling connected components and counting their sizes in pixels
+        # Labeling connected components and counting their sizes in pixels
         components, count = label(saturated)
         sizes = np.bincount(components.ravel())
 
@@ -401,7 +401,7 @@ class Camera(ABC):
         ``tolerance``) the loop stops and settles on the closest exposure it reached.
 
         With ``detect_stuck_pixels`` the full frames captured along the way (spanning
-        the exposures the loop visited) are analysed for stuck pixels at the end,
+        the exposures the loop visited) are analyzed for stuck pixels at the end,
         populating :attr:`excluded_pixels` in the same call and avoiding a second sweep
         (see :meth:`find_stuck_pixels`). This runs only when the loop converged or
         settled, not when it railed.

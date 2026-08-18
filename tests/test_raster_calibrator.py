@@ -196,7 +196,7 @@ def test_auto_tilt_lands_spot_on_target(camera_angle):
 
 
 def _corner_setup():
-    """A calibrator plus the corner slices, ROI and centred detection spot used by
+    """A calibrator plus the corner slices, ROI and centered detection spot used by
     ``calibrate_lattice_corner_tilts``."""
     slm, camera = _build_setup(noise_level=6.0)
     calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
@@ -239,16 +239,16 @@ def test_corner_steering_recovers_offset_under_noise(monkeypatch):
     pitch_x = calibrator.camera.pixel_size[1]
     pitch_y = calibrator.camera.pixel_size[0]
     lattice_tilt = (300e-6, 300e-6)
-    shift_px = (7, -5)  # spot offset from the window centre, in pixels
+    shift_px = (7, -5)  # spot offset from the window center, in pixels
 
     rng = np.random.default_rng(1)
 
     def fake_capture(exposure, frame_averages):
         yy, xx = np.mgrid[0:window_height, 0:window_width]
-        centre_x = window_width / 2 + shift_px[0]
-        centre_y = window_height / 2 + shift_px[1]
+        center_x = window_width / 2 + shift_px[0]
+        center_y = window_height / 2 + shift_px[1]
         spot = 300.0 * np.exp(
-            -((xx - centre_x) ** 2 + (yy - centre_y) ** 2) / (2 * 4.0**2)
+            -((xx - center_x) ** 2 + (yy - center_y) ** 2) / (2 * 4.0**2)
         )
         return spot + rng.normal(16.0, 4.0, size=(window_height, window_width))
 

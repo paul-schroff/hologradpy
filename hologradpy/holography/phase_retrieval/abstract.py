@@ -188,10 +188,10 @@ class PhaseRetrieverBase:
     def set_optimizer(
         self, number_of_iterations: int, method: str, display: int = 0
     ) -> None:
-        """Build the optimiser this search steps.
+        """Build the optimizer this search steps.
 
         Args:
-            number_of_iterations: Maximum optimiser iterations.
+            number_of_iterations: Maximum optimizer iterations.
             method: Which torchmin method to use.
             display: torchmin's own verbosity.
         """
@@ -205,11 +205,11 @@ class PhaseRetrieverBase:
         )
 
     def optimizer_options(self) -> dict:
-        """Extra keyword arguments for the optimiser, for a search that needs them."""
+        """Extra keyword arguments for the optimizer, for a search that needs them."""
         return {}
 
     def callback(self, _) -> None:
-        """One optimiser iteration done, which is where the bar advances and a step is
+        """One optimizer iteration done, which is where the bar advances and a step is
         due.
 
         Not :meth:`closure`, which the line search calls several times per iteration.
@@ -218,7 +218,7 @@ class PhaseRetrieverBase:
         self.run.record_iteration(self.iteration, self.slm_camera_model)
 
     def closure(self) -> torch.Tensor:
-        """The objective, evaluated once per optimiser call."""
+        """The objective, evaluated once per optimizer call."""
         self.optimizer.zero_grad()
         loss = self.loss_function(self.slm_camera_model())
         self.run.record_loss(loss.item())
@@ -275,7 +275,7 @@ class PhaseRetrieverBase:
     def set_loss_function(self, loss_function: Callable) -> None:
         pass
 
-    # What this search optimises, and with which method. Named per subclass, so
+    # What this search optimizes, and with which method. Named per subclass, so
     # retrieve_phase below is the one implementation.
     PARAMETER_NAME: str = "virtual_slm.levels"
     METHOD: str = "cg"
@@ -292,10 +292,10 @@ class PhaseRetrieverBase:
         """Run the retrieval and return the SLM phase it arrived at.
 
         Args:
-            number_of_iterations: Maximum optimiser iterations.
-            parameter_name: What to optimise. Defaults to this retriever's
+            number_of_iterations: Maximum optimizer iterations.
+            parameter_name: What to optimize. Defaults to this retriever's
                 :attr:`PARAMETER_NAME`.
-            method: Optimiser method. Defaults to this retriever's :attr:`METHOD`.
+            method: Optimizer method. Defaults to this retriever's :attr:`METHOD`.
             verbose: Show a progress bar when one is not supplied.
             progress_bar: A bar to borrow. Reset here and handed back untouched, which
                 is what lets a feedback loop reuse a single bar across many retrievals.
@@ -358,7 +358,7 @@ class PhaseRetrieverBase:
             name: Label stored on the record.
             metrics: How the predicted potential is scored against the target, once at
                 the end. Defaults to rmse and psnr.
-            step_stride: Record the retrieval's parameter every nth optimiser
+            step_stride: Record the retrieval's parameter every nth optimizer
                 iteration. Defaults to None, which records nothing.
             step_directory: Where to save the recorded steps and model checkpoint. 
                 Required when a stride is given.

@@ -170,7 +170,7 @@ def _check(names: list[str]) -> None:
     generator = torch.Generator().manual_seed(1)
     phase = (0.2 * torch.randn(RESOLUTION, generator=generator)).requires_grad_(True)
 
-    # Run once so every lazily initialised module builds its parameters before
+    # Run once so every lazily initialized module builds its parameters before
     # the finite differences start.
     function(phase)
 

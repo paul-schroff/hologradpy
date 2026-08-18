@@ -24,6 +24,15 @@ from .diagonal_elements import (
 )
 from .slm_fields import PSFSLMField, SLMField, PixelwiseSLMField
 from .geometric_transforms import GeometricWarp
+from .grid_adapter import GridAdapter
+from .pixel_crosstalk import (
+    ConvolutionalCrosstalk,
+    FreeKernelCrosstalk,
+    NeighbourDifferenceCrosstalk,
+    PiecewiseSuperGaussianCrosstalk,
+    PixelCrosstalk,
+    SuperGaussianCrosstalk,
+)
 from .virtual_slms import VirtualSLM, ZernikeSLM
 from .propagators import (
     AngularSpectrumMethod,
@@ -50,6 +59,13 @@ __all__ = [
     "DoubletLens",
     "ZernikePhase",
     "GeometricWarp",
+    "GridAdapter",
+    "PixelCrosstalk",
+    "ConvolutionalCrosstalk",
+    "SuperGaussianCrosstalk",
+    "PiecewiseSuperGaussianCrosstalk",
+    "FreeKernelCrosstalk",
+    "NeighbourDifferenceCrosstalk",
     "VirtualSLM",
     "ZernikeSLM",
     "AngularSpectrumMethod",

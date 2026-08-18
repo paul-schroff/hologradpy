@@ -164,7 +164,7 @@ class SlmDisp(hw.SlmBase):
         self.slm_norm = 128  # Gray level on the SLM corresponding to max_phase
         # Gray level vs phase lookup table
         self.lut = np.load(
-            pms_obj.data_path + "23-02-17_13-49-14_calibrate_grey_values/phase.npy"
+            pms_obj.data_path + "23-02-17_13-49-14_calibrate_gray_values/phase.npy"
         )
         self.idx_lut = np.argmin(
             np.abs(self.lut - self.max_phase)
@@ -197,7 +197,7 @@ class SlmDisp(hw.SlmBase):
         cv.moveWindow("screen", monitor.x, monitor.y)
         cv.setWindowProperty("screen", cv.WND_PROP_FULLSCREEN, cv.WINDOW_FULLSCREEN)
         cv.waitKey(100)
-        print("SlmDisp initialised")
+        print("SlmDisp initialized")
 
     def display(self, phi_slm):
         im_res_y, im_res_x = phi_slm.shape

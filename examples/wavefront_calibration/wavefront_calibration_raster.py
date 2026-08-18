@@ -24,7 +24,9 @@ from hologradpy.visualizer import GridCell, PlotBuilder, PlotLayout
 
 from hologradpy.optics.systems import SLMCZT
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
-from hologradpy.optics.modules.hardware_models.pointing_instability import PointingInstability
+from hologradpy.optics.modules.hardware_models.pointing_instability import (
+    PointingInstability,
+)
 
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
 from hologradpy.profiles.zernike import Zernike
