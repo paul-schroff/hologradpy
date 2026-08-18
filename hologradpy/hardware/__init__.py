@@ -1,4 +1,9 @@
-from .camera import Camera, CameraOrientation, SimulatedCameraTorch
+from .camera import (
+    Camera,
+    CameraOrientation,
+    GenTLCamera,
+    SimulatedCameraTorch,
+)
 from .slm import SLM, SimulatedSLMTorch
 from ..roi import ROI
 from .as_native import as_camera, as_slm
@@ -20,6 +25,7 @@ from .slmsuite import (
 __all__ = [
     "SimulatedSLMTorch",
     "SimulatedCameraTorch",
+    "GenTLCamera",
     "Camera",
     "CameraOrientation",
     "SLM",

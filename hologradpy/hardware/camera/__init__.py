@@ -5,6 +5,7 @@ from .abstract import (
     get_orientation_transformation,
     probe_orientation,
 )
+from .gentl import GenTLCamera
 from .simulated import SimulatedCameraTorch
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "get_orientation_transformation",
     "probe_orientation",
     "SimulatedCameraTorch",
+    "GenTLCamera",
 ]
