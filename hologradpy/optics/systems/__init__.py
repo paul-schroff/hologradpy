@@ -1,4 +1,8 @@
-from .abstract import SLMFourierLensModel, load_optical_system
+from .abstract import (
+    SLMFourierLensModel,
+    load_optical_system,
+    with_pixel_crosstalk,
+)
 from .slm_fft import SLMFFT
 from .slm_fft_affine import SLMFFTAffine
 from .slm_nufft_affine import SLMNUFFTAffine
@@ -11,4 +15,5 @@ __all__ = [
     "SLMNUFFTAffine",
     "SLMCZT",
     "load_optical_system",
+    "with_pixel_crosstalk",
 ]

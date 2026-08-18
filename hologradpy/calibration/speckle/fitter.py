@@ -96,9 +96,17 @@ class SpeckleFitter(ABC):
             MaskedIntensityMSE(self.roi_mask) if loss is None else loss
         )
 
+        self.store: CaptureStore | None = None
         self.dataset: SampleDataset | None = None
         self.phase_bitdepth: int | None = None
         self.component_history: dict[str, list[float]] = {}
+
+    def close(self) -> None:
+        """Let go of the dataset file."""
+        if self.store is not None:
+            self.store.close()
+            self.store = None
+        self.dataset = None
 
     def fit(
         self,
@@ -172,7 +180,10 @@ class SpeckleFitter(ABC):
         batch_size: int,
         shuffle: bool,
     ) -> DataLoader:
+        # Closed first, so refitting does not leave the previous mapping behind.
+        self.close()
         store = CaptureStore.open(self.dataset_path)
+        self.store = store
         self.phase_bitdepth: int | None = store.phase_bitdepth
         self.dataset = SampleDataset(
             store,

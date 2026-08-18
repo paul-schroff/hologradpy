@@ -10,6 +10,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from ..modules.virtual_slms.abstract import VirtualSLM
+from ..modules.pixel_crosstalk import PixelCrosstalk
 
 from ..modules.abstract import OpticsModule
 from ...fourier_optics import addressable_half_extent
@@ -418,6 +419,49 @@ def slm_stages(
         ),
         "virtual_slm": virtual_slm,
     }
+
+
+# TODO: See if there is a more elegant solution than this.
+def with_pixel_crosstalk(
+    slm_camera_model: SLMFourierLensModel,
+    crosstalk: PixelCrosstalk,
+) -> SLMFourierLensModel:
+    """``slm_camera_model`` rebuilt with ``crosstalk`` mounted on its SLM stage.
+
+    Crosstalk cannot be inserted into a system that is already built, as it changes the
+    sampling of every stage after the SLM. The model is rebuilt from its construction
+    arguments instead, which needs an ``__init__`` decorated with ``@capture_init``.
+
+    Args:
+        slm_camera_model: The system to rebuild, before it has been run.
+        crosstalk: The model to mount, which the rebuilt system's SLM stage carries.
+
+    Returns:
+        SLMFourierLensModel: A new system of the same type, on the sub-pixel grid.
+
+    Raises:
+        ValueError: If the SLM stage has already been built for the coarse grid.
+        NotImplementedError: If the system cannot be rebuilt from its arguments.
+    """
+    virtual_slm = slm_camera_model.virtual_slm
+    if virtual_slm.initialized:
+        raise ValueError(
+            "The SLM stage has already been built for the coarse grid, so pixel "
+            "crosstalk cannot be added to it. Mount the crosstalk before running the "
+            "model or setting a phase on it."
+        )
+
+    try:
+        spec = slm_camera_model.get_checkpoint_spec()
+    except NotImplementedError as error:
+        raise NotImplementedError(
+            f"{type(slm_camera_model).__name__} cannot be rebuilt with pixel "
+            "crosstalk, because its __init__ is not decorated with @capture_init. "
+            "Build the model with a VirtualSLM carrying the crosstalk instead."
+        ) from error
+
+    virtual_slm.pixel_crosstalk = crosstalk
+    return type(slm_camera_model).from_checkpoint_spec(spec)
 
 
 def camera_shift_pixels(

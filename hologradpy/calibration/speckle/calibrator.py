@@ -98,6 +98,11 @@ class SpeckleCalibrator(CalibratorBase):
         self.loss_history: list[float] = []
         self.loss_component_history: dict[str, list[float]] = {}
 
+    def release_dataset(self) -> None:
+        """Let go of the dataset file, so the same path can be captured to again."""
+        if self.fitter is not None:
+            self.fitter.close()
+
     def _map_camera(self) -> CameraMapping:
         """Map the camera when no mapping was supplied, using :class:`CoarseMapper`."""
         print("No camera mapping supplied. Running a coarse mapping.")

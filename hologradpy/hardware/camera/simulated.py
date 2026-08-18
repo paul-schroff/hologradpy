@@ -5,47 +5,20 @@ import numpy as np
 import torch
 from numpy.typing import NDArray
 
-from ...optics.systems import SLMFourierLensModel
+from ...optics.systems import SLMFourierLensModel, with_pixel_crosstalk
 from ...optics.modules.hardware_models import (
     CameraSensor,
     BackgroundScatter,
     PowerInstability,
 )
-from ...optics.modules.pixel_crosstalk import SuperGaussianCrosstalk
+from ...optics.modules.pixel_crosstalk import (
+    ConvolutionalCrosstalk,
+    SuperGaussianCrosstalk,
+)
 from ...optics.modules.slm_fields import PixelwiseSLMField
 from ...utils import gpu_to_numpy
 from ...roi import ROI
 from .abstract import Camera, CameraOrientation
-
-
-def _with_pixel_crosstalk(
-    slm_camera_model: SLMFourierLensModel,
-    crosstalk: SuperGaussianCrosstalk,
-) -> SLMFourierLensModel:
-    """``slm_camera_model`` rebuilt with ``crosstalk`` fitted to its SLM stage.
-
-    Crosstalk cannot be inserted into a system that is already built as it changes the
-    sampling of every stage after the SLM.
-    """
-    virtual_slm = slm_camera_model.virtual_slm
-    if virtual_slm.initialized:
-        raise ValueError(
-            "The SLM stage has already been built for the coarse grid, so pixel "
-            "crosstalk cannot be added to it. Build the camera before running the "
-            "model or setting a phase on it."
-        )
-
-    try:
-        spec = slm_camera_model.get_checkpoint_spec()
-    except NotImplementedError as error:
-        raise NotImplementedError(
-            f"{type(slm_camera_model).__name__} cannot be rebuilt with pixel "
-            "crosstalk, because its __init__ is not decorated with @capture_init. "
-            "Build the model with a VirtualSLM carrying the crosstalk instead."
-        ) from error
-
-    virtual_slm.pixel_crosstalk = crosstalk
-    return type(slm_camera_model).from_checkpoint_spec(spec)
 
 
 class SimulatedCameraTorch(Camera):
@@ -114,7 +87,7 @@ class SimulatedCameraTorch(Camera):
         slmsuite orientation convention. :meth:`set_orientation` remounts it later.
         """
         if crosstalk_upscale_factor is not None:
-            slm_camera_model = _with_pixel_crosstalk(
+            slm_camera_model = with_pixel_crosstalk(
                 slm_camera_model,
                 SuperGaussianCrosstalk(
                     upscale_factor=crosstalk_upscale_factor,
@@ -247,6 +220,16 @@ class SimulatedCameraTorch(Camera):
         except (AttributeError, RuntimeError):
             return None
         return wavefront.detach().cpu().numpy()
+
+    @property
+    def static_crosstalk_kernel(self) -> NDArray | None:
+        """The fringing-field kernel this simulated Camera was built with."""
+        crosstalk = getattr(
+            self.slm_camera_model.virtual_slm, "pixel_crosstalk", None
+        )
+        if not isinstance(crosstalk, ConvolutionalCrosstalk):
+            return None
+        return crosstalk.kernel().detach().cpu().numpy()
 
     def set_orientation(self, orientation: CameraOrientation) -> None:
         """Remount the sensor, reorienting every frame from here on.

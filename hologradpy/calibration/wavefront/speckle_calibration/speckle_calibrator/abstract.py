@@ -294,6 +294,9 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
         Returns:
             WavefrontCalibrationData: The fitted SLM-plane complex amplitude.
         """
+        # A previous fit holds the file mapped, which blocks writing over it.
+        self.release_dataset()
+
         capture_data = self.dataset_generator.generate_dataset(
             speckle_pattern_extent,
             benchmark_calibration=benchmark_calibration,

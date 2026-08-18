@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Dict, List
+from typing import Dict, List, Literal
 
 import os
 from datetime import datetime
@@ -65,6 +65,7 @@ class DatasetGenerator:
         extent: tuple[float, float] | None = None,
         benchmark_calibration: WavefrontCalibrationData | None = None,
         seed: int | None = None,
+        pattern: Literal["band_limited", "uniform"] = "band_limited",
     ) -> SpeckleCaptureData:
         """Generate the patterns and capture their frames into one dataset file.
 
@@ -82,13 +83,18 @@ class DatasetGenerator:
                 measuring the residual of a previous fit.
             seed: Seed for the pattern noise. Leave as None to seed from the system
                 entropy, which makes the dataset irreproducible.
+            pattern: How each pattern is drawn, passed to
+                :meth:`generate_phase_patterns`.
 
         Returns:
             SpeckleCaptureData: What describes the capture, which is also written inside
             the dataset file so it can be reopened without it.
         """
         self.generate_phase_patterns(
-            extent, benchmark_calibration=benchmark_calibration, seed=seed
+            extent,
+            benchmark_calibration=benchmark_calibration,
+            seed=seed,
+            pattern=pattern,
         )
         return self.capture_camera_images()
 
@@ -128,8 +134,9 @@ class DatasetGenerator:
         benchmark_calibration: WavefrontCalibrationData | None = None,
         seed: int | None = None,
         verbose: bool = True,
+        pattern: Literal["band_limited", "uniform"] = "band_limited",
     ) -> None:
-        """Generate a set of smooth random phase patterns.
+        """Generate a set of random phase patterns.
 
         Each pattern is white noise band limited to the requested camera-plane extent,
         by :func:`~hologradpy.profiles.phase.band_limited_random_phase`. The Fourier
@@ -148,14 +155,22 @@ class DatasetGenerator:
                 they differ from one another and the whole set is reproducible. Leave
                 as None to seed from the system entropy, which makes the dataset
                 irreproducible.
+            pattern: ``"band_limited"`` draws the smooth speckle a wavefront fit wants.
+                ``"uniform"`` draws every SLM pixel independently, so neighbouring
+                pixels differ as much as they can, which is what excites pixel
+                crosstalk. A uniform pattern fills the whole addressable area, so
+                ``extent`` says nothing about where its light goes and the region of
+                interest becomes the sensor minus the zeroth order.
         """
-        if extent is None:
+        uniform = pattern == "uniform"
+        if extent is None and not uniform:
             extent = self.largest_extent_on_sensor()
 
         self.metadata["speckle_extent"] = extent
         self.metadata["seed"] = seed
+        self.phase_pattern_type = pattern
 
-        half_extent = tuple(size / 2 for size in extent)
+        half_extent = None if extent is None else tuple(size / 2 for size in extent)
 
         self.benchmark_calibration = benchmark_calibration
         if self.benchmark_calibration is None:
@@ -168,24 +183,30 @@ class DatasetGenerator:
                 .numpy()
             )
 
-        radius_fft_pixels = tuple(
-            float(
-                half_extent[i]
-                / fourier_lens_pixel_size(
-                    self.slm.wavelength,
-                    self.focal_length,
-                    self.slm.pixel_size[i],
-                    self.slm.resolution[i],
+        if half_extent is None:
+            # A uniform pattern is not band limited, so there is no band to size.
+            radius_fft_pixels = None
+            band_mask = torch.ones(tuple(self.slm.resolution), dtype=torch.bool)
+        else:
+            radius_fft_pixels = tuple(
+                float(
+                    half_extent[i]
+                    / fourier_lens_pixel_size(
+                        self.slm.wavelength,
+                        self.focal_length,
+                        self.slm.pixel_size[i],
+                        self.slm.resolution[i],
+                    )
                 )
+                for i in range(2)
             )
-            for i in range(2)
-        )
+            pixel_grid = get_pixel_grid(tuple(self.slm.resolution))
+            band_mask = elliptical_mask(
+                *pixel_grid,
+                radius_x=radius_fft_pixels[1],
+                radius_y=radius_fft_pixels[0],
+            )
         self.metadata["band_radius_fft_pixels"] = radius_fft_pixels
-
-        pixel_grid = get_pixel_grid(tuple(self.slm.resolution))
-        band_mask = elliptical_mask(
-            *pixel_grid, radius_x=radius_fft_pixels[1], radius_y=radius_fft_pixels[0]
-        )
 
         generator = torch.Generator(device=band_mask.device)
         if seed is None:
@@ -199,7 +220,18 @@ class DatasetGenerator:
             description="Generating phase patterns",
             verbose=verbose,
         ):
-            phase = band_limited_random_phase(band_mask, generator=generator)
+            if uniform:
+                phase = (
+                    torch.rand(
+                        tuple(self.slm.resolution),
+                        generator=generator,
+                        device=band_mask.device,
+                    )
+                    * 2
+                    * torch.pi
+                )
+            else:
+                phase = band_limited_random_phase(band_mask, generator=generator)
             phase = np.remainder(
                 phase.cpu().numpy() + benchmark_phase, 2 * np.pi
             )
@@ -214,13 +246,22 @@ class DatasetGenerator:
             (zeroth[1], zeroth[0]), self.camera.pixel_size, self.camera.resolution
         )
 
-        speckle_mask = elliptical_mask(
-            *camera_grid,
-            radius_x=half_extent[1],
-            radius_y=half_extent[0],
-            shift_x=shift_x,
-            shift_y=shift_y,
-        )
+        if uniform:
+            # The light fills everything the SLM can reach, so the only thing to keep
+            # out of the region is the undiffracted spot.
+            speckle_mask = torch.ones(
+                tuple(self.camera.resolution),
+                dtype=torch.bool,
+                device=camera_grid[0].device,
+            )
+        else:
+            speckle_mask = elliptical_mask(
+                *camera_grid,
+                radius_x=half_extent[1],
+                radius_y=half_extent[0],
+                shift_x=shift_x,
+                shift_y=shift_y,
+            )
 
         zeroth_order_mask = circular_mask(
             *camera_grid,
