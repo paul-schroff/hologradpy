@@ -170,7 +170,8 @@ def test_a_batch_is_the_same_as_one_pattern_at_a_time(
 
 def test_model_one_matches_the_published_kernel_construction() -> None:
     """Model I against a plain transcription of Eq. 9, at the fitted values of the
-    paper. Pins the frequency grid, the magnitude, and the normalization."""
+    paper. Pins the frequency grid, the magnitude, and the normalization.
+    """
 
     def published(pitch: float, upscale: int, extent: int, order, width) -> np.ndarray:
         size = upscale * extent
@@ -252,7 +253,8 @@ def test_the_neighbour_model_starts_as_the_plain_upscale() -> None:
 
 def test_a_neighbour_weight_moves_phase_from_the_pixel_it_names() -> None:
     """Turning on one transition matrix pulls each sub-pixel towards that neighbour
-    alone, by the fraction the matrix says."""
+    alone, by the fraction the matrix says.
+    """
     upscale_factor = 3
     model = NeighbourDifferenceCrosstalk(upscale_factor, 3)
     index = model.neighbour_offsets.index((0, 1))
@@ -494,7 +496,8 @@ def test_a_measured_response_wraps_where_its_table_ends() -> None:
 @pytest.mark.parametrize("phase_scaling", [0.6, 1.0, 1.5])
 def test_a_level_means_the_phase_the_response_says(phase_scaling: float) -> None:
     """Full scale reaches ``phase_scaling`` cycles, which is what the whole package
-    documents the number to mean."""
+    documents the number to mean.
+    """
     response = LinearResponse(bitdepth=8, phase_scaling=phase_scaling)
 
     assert float(response.phase_at(np.array(1.0))) == pytest.approx(
@@ -574,7 +577,8 @@ def test_an_slm_stage_refuses_a_field_it_cannot_divide() -> None:
 
 def test_an_slm_stage_refuses_a_factor_that_divides_but_disagrees() -> None:
     """A factor that happens to divide the resolution still has to land on the real
-    pitch, or the model is describing a different SLM."""
+    pitch, or the model is describing a different SLM.
+    """
 
     class _Device:
         pixel_size = (PITCH, PITCH)
@@ -642,7 +646,8 @@ def test_no_optical_power_is_created_or_lost(name: str) -> None:
 
 def test_the_reorder_leaves_a_system_without_crosstalk_alone() -> None:
     """The beam and the displayed phase are diagonal multiplies, so running the beam
-    first is the same calculation."""
+    first is the same calculation.
+    """
     system = _system(None)
     system()
     generator = torch.Generator().manual_seed(7)
@@ -807,7 +812,8 @@ def test_the_rebuilt_camera_reports_the_geometry_it_would_have_anyway() -> None:
 
 def test_a_phase_set_before_any_capture_reaches_the_sub_pixel_camera() -> None:
     """``SimulatedSLMTorch`` builds its virtual SLM from the SLM plane, which is
-    coarser than the field the stage reads once crosstalk is fitted."""
+    coarser than the field the stage reads once crosstalk is fitted.
+    """
     slm, camera, _ = _simulated_pair(3)
 
     grid_x, _unused = slm.get_spatial_grid()

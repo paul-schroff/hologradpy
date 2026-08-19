@@ -235,7 +235,8 @@ class ZernikePhase(DiagonalElement):
 
     def get_phase(self: ZernikePhase) -> torch.Tensor:
         """Per-wavelength phase ``(n_wavelengths, H, W)`` from the learnable
-        coefficients and the Zernike basis."""
+        coefficients and the Zernike basis.
+        """
         return torch.einsum(
             "lc,chw->lhw", self.zernike_coefficients, self.zernike_basis
         )

@@ -113,7 +113,9 @@ class PiecewiseSuperGaussianCrosstalk(ConvolutionalCrosstalk):
 
 
 def _frequency_grid(size: int, extent: int) -> Tensor:
-    """The ``(rows, columns)`` spatial frequencies of a kernel, in cycles per SLM pixel.
+    """The ``(rows, columns)`` spatial frequencies of a kernel.
+
+    In cycles per SLM pixel.
     """
     line = torch.arange(-size / 2, size / 2, 1.0) / extent
     return torch.stack(torch.meshgrid(line, line, indexing="ij"))

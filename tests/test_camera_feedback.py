@@ -391,7 +391,8 @@ def test_first_corrected_target_is_the_original(
     feedback_run: CameraFeedbackData,
 ) -> None:
     """Nothing to correct before the first measurement, so the retriever gets the
-    target as given (normalized over the signal region)."""
+    target as given (normalized over the signal region).
+    """
     original = feedback_run.target
     served = feedback_run.full_corrected_target(0)
     assert np.allclose(served, np.where(feedback_run.signal_region, original, 0.0))
@@ -433,7 +434,8 @@ def test_record_survives_a_round_trip(
     feedback_run: CameraFeedbackData, tmp_path
 ) -> None:
     """A save keeps every measurement, since those are the part of a run that cannot be
-    recreated without the bench, and the reloaded record still draws."""
+    recreated without the bench, and the reloaded record still draws.
+    """
     path = tmp_path / "feedback.asdf"
     feedback_run.save(path)
     reloaded = CameraFeedbackData.load(path)
@@ -459,7 +461,8 @@ def test_record_survives_a_round_trip(
 
 def test_a_run_stores_its_target_once(feedback_run: CameraFeedbackData) -> None:
     """The target and the signal region belong to the run, which holds them once. A
-    nested retrieval carries only the phase it produced."""
+    nested retrieval carries only the phase it produced.
+    """
     assert feedback_run.retrievals
     for retrieval in feedback_run.retrievals:
         assert retrieval.target is None
@@ -469,7 +472,8 @@ def test_a_run_stores_its_target_once(feedback_run: CameraFeedbackData) -> None:
 
 def test_no_dataset_without_a_path(tmp_path) -> None:
     """The cropped series on the record is the only copy unless a dataset is asked
-    for."""
+    for.
+    """
     feedback = _feedback()
     feedback.run(retriever_iterations=[5] * 2, averages=1, verbose=False)
 
@@ -478,7 +482,8 @@ def test_no_dataset_without_a_path(tmp_path) -> None:
 
 def test_a_run_writes_a_dataset_when_asked(tmp_path) -> None:
     """A feedback run is a set of (camera image, phase pattern) pairs, the same shape a
-    speckle capture produces, so it reads back as one."""
+    speckle capture produces, so it reads back as one.
+    """
     path = tmp_path / "run.asdf"
     feedback = _feedback()
     data = feedback.run(
@@ -511,7 +516,8 @@ def test_a_run_writes_a_dataset_when_asked(tmp_path) -> None:
 
 def test_a_written_dataset_describes_itself(tmp_path) -> None:
     """The record goes inside the file, so one path is the whole dataset and moving it
-    changes nothing."""
+    changes nothing.
+    """
     path = tmp_path / "run.asdf"
     feedback = _feedback()
     data = feedback.run(
@@ -576,7 +582,8 @@ def test_placement_reports_addressability() -> None:
 
 def test_patch_is_placed_at_the_requested_offset() -> None:
     """The patch center lands TARGET_POSITION from the zeroth order, converted through
-    the camera pitch."""
+    the camera pitch.
+    """
     feedback = _feedback()
     placement = feedback.placement_data()
 
@@ -594,7 +601,8 @@ def test_patch_is_placed_at_the_requested_offset() -> None:
 
 def test_mapping_seeds_the_model(monkeypatch) -> None:
     """A rotated or displaced camera is what this is for, and the loop must apply the
-    mapping before it measures anything."""
+    mapping before it measures anything.
+    """
     slm, camera, retriever, target, signal_region = _bench()
     applied = []
     monkeypatch.setattr(
@@ -666,7 +674,8 @@ def test_a_mapping_is_measured_when_none_is_given(monkeypatch) -> None:
 
 def test_registration_is_applied_only_once(monkeypatch) -> None:
     """calibrate_from_mapping composes a residual, so applying it twice would put the
-    rotation and shift in twice over."""
+    rotation and shift in twice over.
+    """
     slm, camera, retriever, target, signal_region = _bench()
     applied = []
     monkeypatch.setattr(
@@ -784,7 +793,8 @@ def test_set_target_changes_the_loss_for_zernike() -> None:
 
 def test_set_target_keeps_the_signal_region() -> None:
     """A retarget need only pass the target: feedback calls it every iteration with the
-    same region."""
+    same region.
+    """
     _, _, retriever, patch, region_patch = _bench()
     target, signal_region = _placed(patch, region_patch)
     retriever.set_target(target * 0.5)
@@ -864,7 +874,8 @@ def test_record_survives_a_save_load_round_trip(tmp_path) -> None:
 
 def test_a_loaded_record_finds_the_steps_beside_it(tmp_path) -> None:
     """A record whose steps live in a sibling file used to need the caller to remember
-    where they were, so a record opened on its own loaded and then failed at replay."""
+    where they were, so a record opened on its own loaded and then failed at replay.
+    """
     _, _, retriever, _, _ = _bench()
     record = retriever.retrieve(
         6, method="cg", verbose=False, step_stride=2, step_directory=tmp_path
@@ -927,7 +938,8 @@ def test_steps_are_recorded_at_the_stride(tmp_path) -> None:
 def test_steps_are_patterns_and_one_checkpoint(tmp_path) -> None:
     """Two files: the search's own parameter in one store, and the model that turns it
     back into predicted images. The images themselves are derived, so they are not
-    stored."""
+    stored.
+    """
     _, _, retriever, _, _ = _bench()
     record = retriever.retrieve(
         8, method="cg", verbose=False, step_stride=2, step_directory=tmp_path
@@ -944,7 +956,8 @@ def test_steps_are_patterns_and_one_checkpoint(tmp_path) -> None:
 
 def test_replay_reproduces_the_prediction(tmp_path, monkeypatch) -> None:
     """The claim the storage saving rests on: a saved phase and the model give back
-    exactly what the search saw, on the device it ran on."""
+    exactly what the search saw, on the device it ran on.
+    """
     _, _, retriever, _, _ = _bench()
     model = retriever.slm_camera_model
 
@@ -969,7 +982,8 @@ def test_replay_reproduces_the_prediction(tmp_path, monkeypatch) -> None:
 
 def test_replay_rebuilds_the_model_from_the_checkpoint(tmp_path) -> None:
     """No live model needed: the checkpoint beside the steps is enough, and it does
-    not have to be told which system wrote it."""
+    not have to be told which system wrote it.
+    """
     _, _, retriever, _, _ = _bench()
     record = retriever.retrieve(
         6, method="cg", verbose=False, step_stride=3, step_directory=tmp_path
@@ -1012,7 +1026,8 @@ def test_replay_without_a_checkpoint_raises() -> None:
 
 def test_recording_on_a_stochastic_model_raises() -> None:
     """A model that draws randomness per forward pass cannot have its images rebuilt,
-    and saying so beats saving an image the search never saw."""
+    and saying so beats saving an image the search never saw.
+    """
     slm, camera, retriever, _, _ = _bench()
     retriever.slm_camera_model.insert_after(
         "slm_field", "pointing", PointingInstability(1e-6)
@@ -1024,7 +1039,8 @@ def test_recording_on_a_stochastic_model_raises() -> None:
 
 def test_a_deterministic_hardware_module_does_not_block_recording(tmp_path) -> None:
     """The guard reads the module's state, not its class: noise switched off is
-    deterministic, and a speckle background drawn once into a buffer always was."""
+    deterministic, and a speckle background drawn once into a buffer always was.
+    """
     _, _, retriever, _, _ = _bench()
     retriever.slm_camera_model.insert_after(
         "slm_field", "scatter", BackgroundScatter(power=1e-9, seed=0)
@@ -1109,7 +1125,8 @@ def test_zero_gain_reproduces_the_target() -> None:
 
 def test_iteration_count_comes_from_the_retriever_iterations() -> None:
     """The list length is the run length, so there is no separate count to keep in
-    step with it."""
+    step with it.
+    """
     feedback = _feedback()
     data = feedback.run(
         retriever_iterations=[6, 5, 4], averages=1, verbose=False
@@ -1123,7 +1140,8 @@ def test_iteration_count_comes_from_the_retriever_iterations() -> None:
 
 def test_gain_takes_a_scalar_or_one_per_iteration() -> None:
     """Either form, since a flat gain is the common case and a decaying one is what
-    stops the loop overshooting at the end."""
+    stops the loop overshooting at the end.
+    """
     feedback = _feedback()
     flat = feedback.run(
         retriever_iterations=[5] * 3, gain=0.7, averages=1, verbose=False
@@ -1219,7 +1237,8 @@ def test_mismatched_patch_shapes_raise() -> None:
 
 def _panel_titles(panels) -> str:
     """Every title the panels set, as one string, by drawing them onto a scratch
-    figure."""
+    figure.
+    """
     titles = []
     for panel in panels.values():
         figure, axes = plt.subplots()
@@ -1287,7 +1306,8 @@ def test_each_row_renders_on_its_own(method: str, cells: int) -> None:
 
 def test_the_rows_and_the_whole_figure_agree() -> None:
     """default_layout and panels are built from the same section methods, so the
-    combined figure cannot drift away from the rows drawn individually."""
+    combined figure cannot drift away from the rows drawn individually.
+    """
     visualizer = _synthetic_data().visualizer()
 
     from_rows = set()
@@ -1300,7 +1320,8 @@ def test_the_rows_and_the_whole_figure_agree() -> None:
 
 def test_target_row_falls_back_without_an_initial_guess() -> None:
     """A record written before initial_guess was carried still renders, one cell
-    narrower, rather than raising."""
+    narrower, rather than raising.
+    """
     data = _synthetic_data(with_initial_guess=False)
     visualizer = data.visualizer()
 
@@ -1324,7 +1345,8 @@ def test_signal_region_shows_the_best_iteration() -> None:
 
 def test_best_iteration_does_not_depend_on_the_metric_being_called_rms() -> None:
     """Keyed on the run's first metric, not on a name, so relabeling the default
-    metric does not quietly send this back to the last iteration."""
+    metric does not quietly send this back to the last iteration.
+    """
     data = _synthetic_data(iterations=5, metric_names=("rmse",))
     data.metrics = {"rmse": [0.5, 0.2, 0.05, 0.3, 0.4]}
     data.lower_is_better = {"rmse": True}
@@ -1342,7 +1364,7 @@ def test_best_iteration_honours_a_figure_of_merit_first_metric() -> None:
 
 
 def test_best_index_follows_each_metric_own_direction() -> None:
-    """rms is best at its minimum, psnr at its maximum, and the record says which."""
+    """Rms is best at its minimum, psnr at its maximum, and the record says which."""
     data = _synthetic_data()
     data.lower_is_better = {"rmse": True, "psnr [dB]": False}
     best = data.visualizer()._best_index
@@ -1353,7 +1375,8 @@ def test_best_index_follows_each_metric_own_direction() -> None:
 
 def test_best_index_defaults_to_lower_is_better() -> None:
     """A record written before the flag existed, or a metric the run did not describe,
-    is scored as an error rather than a figure of merit."""
+    is scored as an error rather than a figure of merit.
+    """
     data = _synthetic_data()
     data.lower_is_better = {}
     assert data.visualizer()._best_index("anything", [5.0, 1.0, 9.0]) == 1
@@ -1405,7 +1428,8 @@ def test_visualizer_renders(iterations: int) -> None:
 )
 def test_visualizer_grows_a_panel_per_metric(metric_names: Sequence[str]) -> None:
     """The convergence row is built from the metrics dict, so a caller's own metric
-    plots itself without the visualizer knowing what it is."""
+    plots itself without the visualizer knowing what it is.
+    """
     data = _synthetic_data(metric_names=metric_names)
     visualizer = data.visualizer()
 
@@ -1464,7 +1488,8 @@ def test_run_result_renders(feedback_run: CameraFeedbackData) -> None:
 
 def test_phase_reaches_the_slm() -> None:
     """The loop displays what it retrieved, which is what makes the next measurement
-    mean anything."""
+    mean anything.
+    """
     feedback = _feedback()
     data = feedback.run(retriever_iterations=[5] * 1, averages=1, verbose=False)
 

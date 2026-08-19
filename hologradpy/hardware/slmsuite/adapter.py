@@ -9,7 +9,10 @@ dispatch (:mod:`hologradpy.hardware.as_native`) by this package's ``__init__``.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
+import torch
 from numpy.typing import NDArray
 
 from slmsuite.hardware.cameras.camera import Camera as SLMSuiteCamera
@@ -112,12 +115,13 @@ class SLMSuiteCameraAdapter(Camera):
         self, exposure_s: float | None = None, averaging: int = 1
     ) -> NDArray:
         """Capture a frame (``exposure_s`` sets the exposure first, ``averaging``
-        sums that many frames)."""
+        sums that many frames).
+        """
         if exposure_s is not None:
             self._camera.set_exposure(exposure_s)
         return self._camera.get_image(averaging=averaging)
 
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> Any:
         # Delegate anything not overridden above to the wrapped slmsuite camera. Guard
         # ``_camera`` so a half-built instance (copy / unpickle, before __init__) raises
         # AttributeError instead of recursing.
@@ -152,7 +156,7 @@ class SLMSuiteSLMAdapter(SLM):
         """Bits per pixel, from the wrapped SLM when it says."""
         return getattr(self._slm, "bitdepth", None)
 
-    def set_levels(self, levels) -> None:
+    def set_levels(self, levels: NDArray | torch.Tensor) -> None:
         """Display gray levels directly on the wrapped slmsuite SLM."""
         levels = np.asarray(levels)
         if not np.issubdtype(levels.dtype, np.integer):
@@ -163,7 +167,7 @@ class SLMSuiteSLMAdapter(SLM):
             )
         self._slm.set_phase(levels)
 
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> Any:
         # Delegate anything not overridden above to the wrapped slmsuite SLM.
         if name == "_slm":
             raise AttributeError(name)

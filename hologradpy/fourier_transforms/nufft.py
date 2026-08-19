@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import torch
 from torch import Tensor
@@ -9,7 +10,9 @@ import torchkbnufft as tkbn
 from .abstract import FourierBase
 
 
-def _as_per_wavelength(value, device: torch.device) -> Tensor:
+def _as_per_wavelength(
+    value: tuple[float, float] | Tensor, device: torch.device
+) -> Tensor:
     """Normalize a magnification / shift argument to a ``(n_wl, 2)`` float
     tensor in ``(x, y)`` order. Accepts a 2-tuple ``(x, y)`` (treated as a
     single wavelength) or an already-batched ``(n_wl, 2)`` tensor/sequence.
@@ -95,14 +98,14 @@ class KbNufftPartialAffine(FourierBase):
         self,
         resolution: tuple[int, int],
         resolution_out: tuple[int, int],
-        magnification,
-        shift=(0.0, 0.0),
+        magnification: tuple[float, float] | Tensor,
+        shift: tuple[float, float] | Tensor = (0.0, 0.0),
         angle: float = 0.0,
         grid_size: tuple[int, int] | None = None,
         dtype: torch.dtype = torch.float32,
         device: torch.device = "cpu",
         norm: str | None = None,
-        **nufft_kwargs,
+        **nufft_kwargs: Any,
     ) -> None:
         if grid_size is None:
             grid_size = resolution
@@ -143,7 +146,8 @@ class KbNufftPartialAffine(FourierBase):
     ) -> Tensor:
         """Tile the stored ``(2, n_wl, hw)`` trajectory across the image batch to
         ``(n_images * n_wl, 2, hw)``, matching the row-major ``(image,
-        wavelength)`` flattening of the field."""
+        wavelength)`` flattening of the field.
+        """
         trajectory = self.frequencies.moveaxis(0, 1)  # (n_wl, 2, hw): [:, 0] = x
         # torchkbnufft maps omega[0] onto the first image axis (rows / height) and
         # omega[1] onto columns / width, so hand it (omega_y, omega_x). Without
@@ -154,7 +158,8 @@ class KbNufftPartialAffine(FourierBase):
 
     def forward(self, input: Tensor) -> Tensor:
         """``input``: ``(n_images, n_wl, H, W)`` -> ``(n_images, n_wl, H_out,
-        W_out)``."""
+        W_out)``.
+        """
         number_of_images, number_of_wavelengths = input.shape[0], input.shape[1]
         field = input.reshape(
             number_of_images * number_of_wavelengths, 1, *self.resolution
@@ -167,7 +172,8 @@ class KbNufftPartialAffine(FourierBase):
 
     def adjoint(self, samples: Tensor) -> Tensor:
         """``samples``: ``(n_images, n_wl, H_out, W_out)`` -> ``(n_images, n_wl,
-        H, W)``."""
+        H, W)``.
+        """
         number_of_images, number_of_wavelengths = samples.shape[0], samples.shape[1]
         flat = samples.reshape(number_of_images * number_of_wavelengths, 1, -1)
         trajectory = self._batched_trajectory(number_of_images, number_of_wavelengths)

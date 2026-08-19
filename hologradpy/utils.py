@@ -46,7 +46,7 @@ def to_canvas(field: ArrayLike, resolution: tuple[int, int]) -> ArrayLike:
 
 
 def _canvas_margins(length: int, target: int) -> tuple[int, int]:
-    """How much to add either side of an axis of ``length`` to make it ``target``. 
+    """How much to add either side of an axis of ``length`` to make it ``target``.
     Negative means cropping.
     """
     before = target // 2 - length // 2
@@ -54,11 +54,10 @@ def _canvas_margins(length: int, target: int) -> tuple[int, int]:
 
 
 def get_device(verbose: bool = False) -> torch.device:
-    """
-    Select CUDA GPU if available, otherwise use CPU.
+    """Select CUDA GPU if available, otherwise use CPU.
 
     Args:
-        verbose (bool): If True, prints the selected device.
+        verbose: If True, prints the selected device.
 
     Returns:
         torch.device: The selected device.
@@ -88,7 +87,7 @@ def progress(
     verbose: bool = True,
     **kwargs,
 ) -> Iterable:
-    """Wrap ``iterable`` in a progress bar, or hand it back untouched. With 
+    """Wrap ``iterable`` in a progress bar, or hand it back untouched. With
     ``verbose=False`` the iterable is returned as it came.
 
     Args:
@@ -148,7 +147,7 @@ class ProgressBar:
         self.close()
 
     def update(self, steps: int = 1, **postfix) -> None:
-        """Advance by ``steps``, showing ``postfix`` after the bar. Postfix values are 
+        """Advance by ``steps``, showing ``postfix`` after the bar. Postfix values are
         formatted to four significant figures when they are numbers.
         """
         if self._bar is None:
@@ -177,6 +176,12 @@ class ProgressBar:
 
 
 class Timer:
+    """Time a block of work, as a context manager.
+
+    Reads the wall clock, or the CUDA stream through events when ``use_cuda`` is set.
+    The measured span is left on :attr:`elapsed_time` in seconds.
+    """
+
     def __init__(
         self,
         label: str = "Calculation",

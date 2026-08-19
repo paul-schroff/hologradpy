@@ -4,9 +4,9 @@
 # Sphinx documentation
 docs/_build/
 
-docs/auto_examples/searchindex.bak
-docs/auto_examples/searchindex.dat
-docs/auto_examples/searchindex.dir
+docs/auto_examples/
+docs/autoapi/
+docs/sg_execution_times.rst
 
 hologradpy.egg-info/
 

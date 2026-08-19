@@ -24,7 +24,8 @@ class ZernikePhaseRetriever(PhaseRetrieverBase):
 
     def optimizer_options(self) -> dict:
         """l-bfgs on Zernike coefficients converges long after the default tolerances
-        would stop it, so they are tightened well below them."""
+        would stop it, so they are tightened well below them.
+        """
         return {"tol": 1e-20, "options": {"gtol": 1e-20, "xtol": 1e-20}}
 
     # What this search optimizes, and with which method. The run itself is the

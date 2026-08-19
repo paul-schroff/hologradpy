@@ -35,6 +35,9 @@ from hologradpy.calibration.camera_mapping import (  # noqa: E402
     CameraMapping,
     FocalSpotFit,
 )
+from hologradpy.calibration.wavefront.raster_calibration import (  # noqa: E402
+    SuperpixelSlicer,
+)
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -176,7 +179,8 @@ def test_lattice_placement_same_diagonal_further_out():
 @pytest.mark.parametrize("camera_angle", [0.0, 15.0])
 def test_auto_tilt_lands_spot_on_target(camera_angle):
     """The auto tilt (built from a real coarse mapping) places the diffraction spot
-    at the intended camera pixel, even for a rotated camera."""
+    at the intended camera pixel, even for a rotated camera.
+    """
     slm, camera = _build_setup(camera_angle=camera_angle)
     calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
 
@@ -197,7 +201,8 @@ def test_auto_tilt_lands_spot_on_target(camera_angle):
 
 def _corner_setup():
     """A calibrator plus the corner slices, ROI and centered detection spot used by
-    ``calibrate_lattice_corner_tilts``."""
+    ``calibrate_lattice_corner_tilts``.
+    """
     slm, camera = _build_setup(noise_level=6.0)
     calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
     corner = 32
@@ -216,6 +221,21 @@ def _corner_setup():
     )
     spot_center = (sensor_width // 2, sensor_height // 2)  # unclamped window
     return calibrator, corner_slices, roi, spot_center, window
+
+
+def test_lattice_corner_slices_span_the_slm_corners():
+    """The four corner regions come from the SLM shape the slicer was built with."""
+    slm_shape = (1024, 1280)
+    slicer = SuperpixelSlicer(slm_shape, 4, 4, 32, 32)
+    size = 16
+    height, width = slm_shape
+
+    assert slicer.lattice_corner_slices(size) == [
+        (slice(0, size), slice(0, size)),
+        (slice(0, size), slice(width - size, width)),
+        (slice(height - size, height), slice(0, size)),
+        (slice(height - size, height), slice(width - size, width)),
+    ]
 
 
 def test_capture_averaged_reduces_noise(monkeypatch):
@@ -327,7 +347,8 @@ def test_corner_steering_gates_pure_noise(monkeypatch):
 def test_normalize_power_removes_laser_fluctuation(monkeypatch):
     """A PowerInstability fluctuates the laser power per frame. With normalize_power
     the reference spot shares each frame, so the recovered map is (almost) the same as
-    with a stable laser; without it the fluctuation clearly changes the map."""
+    with a stable laser; without it the fluctuation clearly changes the map.
+    """
     # Noise-free cameras (deterministic sim): one with a fluctuating laser, one
     # stable. Same optics, so their coarse mappings and placements match.
     slm_f, camera_f = _build_setup(power_std=0.04, power_seed=0)

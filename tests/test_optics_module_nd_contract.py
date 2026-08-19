@@ -54,7 +54,8 @@ def test_returns_complex_amplitude(module_name: str, rank: str) -> None:
 @pytest.mark.parametrize("rank", RANK_IDS)
 def test_rank_preserved(module_name: str, rank: str) -> None:
     """Output rank equals input rank: batch and wavelength axes survive even
-    when singleton. This is the regression guard for the NUFFT squeeze bug."""
+    when singleton. This is the regression guard for the NUFFT squeeze bug.
+    """
     shape, n_wavelengths = RANK_CASES[rank]
     field = make_field(shape, n_wavelengths)
 
@@ -127,7 +128,8 @@ def test_lazy_init_lifecycle(module_name: str) -> None:
 @pytest.mark.parametrize("module_name", MODULE_IDS)
 def test_forward_is_repeatable(module_name: str) -> None:
     """A second forward call (after the init hook is removed) still works and
-    yields the same result as the first."""
+    yields the same result as the first.
+    """
     module = MODULE_FACTORIES[module_name]()
     field = make_field(*RANK_CASES["4d"])
 
@@ -140,7 +142,8 @@ def test_forward_is_repeatable(module_name: str) -> None:
 def test_nufft_singleton_wavelength_batch_not_squeezed() -> None:
     """Explicit regression test for the historical NUFFT ``squeeze`` bug:
     a ``(B, 1, H, W)`` batch must not collapse to ``(B, H, W)`` and then be
-    misread as ``B`` wavelengths."""
+    misread as ``B`` wavelengths.
+    """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         field = make_field(*RANK_CASES["4d_single_wl"])
@@ -174,7 +177,8 @@ def _output_plane_field(shape, n_wavelengths):
 
 def test_nufft_adjoint_satisfies_inner_product_identity() -> None:
     """``adjoint`` is the true conjugate transpose of ``forward``:
-    ``<A x, y> == <x, A* y>`` for input-plane x and output-plane y."""
+    ``<A x, y> == <x, A* y>`` for input-plane x and output-plane y.
+    """
     module = MODULE_FACTORIES["FourierLensNUFFT"]()
     x = make_field((2, 16, 16), 2)
     module(x)  # lazily initialize
@@ -216,7 +220,8 @@ def _input_plane_geometry(n_wavelengths):
 
 def test_initialize_from_geometry_enables_adjoint_without_forward() -> None:
     """A module initialized from the input geometry can run ``adjoint``
-    without any prior ``forward``, matching the forward-initialized path."""
+    without any prior ``forward``, matching the forward-initialized path.
+    """
     geometry = _input_plane_geometry(2)
     output_field = _output_plane_field((2, 16, 16), 2)
 
@@ -246,7 +251,8 @@ def test_initialize_from_geometry_matches_forward_init(
     module_name: str,
 ) -> None:
     """initialize_from_geometry sets the same output geometry that a forward
-    on the equivalent field would, for every module."""
+    on the equivalent field would, for every module.
+    """
     geometry = _input_plane_geometry(2)
 
     via_geometry = MODULE_FACTORIES[module_name]()
@@ -273,7 +279,8 @@ SQUARE_PROPAGATORS = [
 @pytest.mark.parametrize("module_name", SQUARE_PROPAGATORS)
 def test_square_propagator_adjoint_identity(module_name: str) -> None:
     """``adjoint`` is the conjugate transpose of ``forward``:
-    ``<A x, y> == <x, A* y>``."""
+    ``<A x, y> == <x, A* y>``.
+    """
     module = MODULE_FACTORIES[module_name]()
     x = make_field((2, 16, 16), 2, seed=0)
     module(x)  # lazily initialize

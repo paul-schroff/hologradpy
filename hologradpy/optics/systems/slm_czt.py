@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from ..modules.propagators import FourierLensCZT
 from ..modules.slm_fields import SLMField
 from ..modules.virtual_slms.abstract import VirtualSLM

@@ -1,3 +1,5 @@
-sphinx_rtd_theme
-sphinx-gallery
-sphinx-autoapi
+sphinx>=7.2
+sphinx-autoapi>=3.0
+sphinx-gallery>=0.15
+furo>=2024.1.29
+myst-parser>=3.0

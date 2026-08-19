@@ -19,10 +19,6 @@ if TYPE_CHECKING:
 class PixelwiseSLMField(SLMField):
     """The SLM-plane field held one free complex value per pixel. As many free
     parameters as the SLM has pixels.
-
-    Args:
-        init_field: The field to start from. Defaults to a uniform one, built on the
-            first forward pass once the geometry is known.
     """
 
     @capture_init
@@ -30,6 +26,11 @@ class PixelwiseSLMField(SLMField):
         self: PixelwiseSLMField,
         init_field: ComplexAmplitude | None = None,
     ) -> None:
+        """
+        Args:
+            init_field: The field to start from. Defaults to a uniform one, built on the
+                first forward pass once the geometry is known.
+        """
         super().__init__()
         self.init_field: ComplexAmplitude | None = init_field
 
@@ -79,7 +80,7 @@ class PixelwiseSLMField(SLMField):
         return cls(init_field=calibration_data.complex_amplitude)
 
     def get_transmission(self: PixelwiseSLMField) -> Tensor:
-        """Complex transmission ``amplitude * exp(i * phase)``. The stored constant 
+        """Complex transmission ``amplitude * exp(i * phase)``. The stored constant
         field, applied as a per-pixel diagonal multiply.
         """
         return self.amplitude * torch.exp(1j * self.phase)

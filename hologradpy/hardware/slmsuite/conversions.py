@@ -8,20 +8,27 @@ conventions meet the native SI, ``(y, x)`` and :class:`ROI` representations.
 
 from __future__ import annotations
 
+from typing import Sequence, TypeVar
+
 import numpy as np
+import torch
 from numpy.typing import NDArray
 
 from array_api_compat import array_namespace
 
 from ...roi import ROI
 
+ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 
-def pixel_size_from_pitch_um(pitch_um) -> NDArray[np.float64]:
+
+def pixel_size_from_pitch_um(
+    pitch_um: Sequence[float] | NDArray,
+) -> NDArray[np.float64]:
     """``pitch_um`` (x, y) um -> ``pixel_size`` (y, x) m."""
     return np.asarray(pitch_um, dtype=np.float64)[::-1] * 1e-6
 
 
-def pitch_um_from_pixel_size(pixel_size):
+def pitch_um_from_pixel_size(pixel_size: ArrayLike) -> ArrayLike:
     """``pixel_size`` (y, x) m -> ``pitch_um`` (x, y) um.
 
     Backend-agnostic (numpy or torch) so a caller holding a torch tensor gets a tensor
@@ -33,7 +40,7 @@ def pitch_um_from_pixel_size(pixel_size):
 
 
 def wavelength_from_wav_um(wav_um: float) -> float:
-    """slmsuite ``wav_um`` [um] -> HoloGradPy ``wavelength`` [m]."""
+    """``wav_um`` [um] -> HoloGradPy ``wavelength`` [m]."""
     return float(wav_um) * 1e-6
 
 

@@ -84,7 +84,8 @@ def _pixelwise_calibrator(tmp_path):
 
 def _psf_calibrator(tmp_path, slm_field=None):
     """A PSF calibrator. With no ``slm_field`` the calibrator builds its own, which is
-    the normal path: a kernel cannot be sized until a mapping has fitted the spot."""
+    the normal path: a kernel cannot be sized until a mapping has fitted the spot.
+    """
     slm, camera, mapping, focal_length = _setup()
     return PSFSpeckleCalibrator(
         slm=slm,
@@ -98,7 +99,8 @@ def _psf_calibrator(tmp_path, slm_field=None):
 
 def test_the_base_calibrator_cannot_be_instantiated() -> None:
     """The neutral base has no cost of its own, so picking it must fail rather than
-    quietly fit without whatever prior the parameterization needed."""
+    quietly fit without whatever prior the parameterization needed.
+    """
     assert "_fit_settings" in SpeckleCalibrator.__abstractmethods__
 
     with pytest.raises(TypeError, match="abstract"):
@@ -114,7 +116,8 @@ def test_the_base_calibrator_cannot_be_instantiated() -> None:
 def test_a_field_of_the_wrong_type_is_replaced(tmp_path, capsys) -> None:
     """The calibrator owns the field it fits, so a model carrying something else has it
     swapped rather than being refused. It says so, since a field the caller supplied is
-    being discarded."""
+    being discarded.
+    """
     slm, camera, mapping, focal_length = _setup()
 
     calibrator = PSFSpeckleCalibrator(
@@ -144,7 +147,8 @@ def test_a_field_of_the_wrong_type_is_replaced(tmp_path, capsys) -> None:
 
 def test_a_pixelwise_field_asks_for_the_smoothness_prior(tmp_path) -> None:
     """Stored one value per SLM pixel, so it is unconstrained and needs a prior. One
-    term per quantity, so each can be weighted and plotted on its own."""
+    term per quantity, so each can be weighted and plotted on its own.
+    """
     settings = _pixelwise_calibrator(tmp_path)._fit_settings(MASK)
 
     assert isinstance(settings.loss, SumOfLosses)
@@ -158,7 +162,8 @@ def test_a_pixelwise_field_asks_for_the_smoothness_prior(tmp_path) -> None:
 
 def test_a_psf_field_asks_for_the_bare_mismatch_and_a_larger_step(tmp_path) -> None:
     """Band limited by construction, so no prior, and one kernel pixel moves the whole
-    SLM plane, so a larger step."""
+    SLM plane, so a larger step.
+    """
     settings = _psf_calibrator(tmp_path)._fit_settings(MASK)
 
     assert isinstance(settings.loss, MaskedIntensityMSE)
@@ -167,7 +172,8 @@ def test_a_psf_field_asks_for_the_bare_mismatch_and_a_larger_step(tmp_path) -> N
 
 def test_a_built_kernel_is_measured_from_the_camera(tmp_path) -> None:
     """A kernel the calibrator builds starts from the real focal spot, which carries
-    whatever aberration is actually present, rather than an idealised Gaussian."""
+    whatever aberration is actually present, rather than an idealised Gaussian.
+    """
     calibrator = _psf_calibrator(tmp_path)
     field = calibrator.slm_camera_model.slm_field
     kernel = field.init_psf_kernel
@@ -180,7 +186,8 @@ def test_a_built_kernel_is_measured_from_the_camera(tmp_path) -> None:
 
 def test_a_supplied_psf_field_is_used_exactly_as_given(tmp_path) -> None:
     """Supplying one is how an already-fitted model is reused, so nothing about it is
-    remeasured, including its starting kernel."""
+    remeasured, including its starting kernel.
+    """
     supplied = torch.full((5, 5), 0.25)
     slm_field = _psf_field(_setup()[1], 0.25, kernel_size=5, init_psf_kernel=supplied)
     calibrator = _psf_calibrator(tmp_path, slm_field=slm_field)
@@ -191,7 +198,8 @@ def test_a_supplied_psf_field_is_used_exactly_as_given(tmp_path) -> None:
 
 def test_a_pixelwise_calibrator_seeds_nothing(tmp_path) -> None:
     """Most parameterizations want no measured starting point, and the base hook must
-    leave them untouched rather than fail."""
+    leave them untouched rather than fail.
+    """
     calibrator = _pixelwise_calibrator(tmp_path)
 
     assert not hasattr(calibrator.slm_camera_model.slm_field, "init_psf_kernel")
@@ -226,7 +234,8 @@ def _visualization_payload(**extras):
 
 def test_each_payload_returns_its_own_visualizer() -> None:
     """So a calibration reloaded from disk can be plotted without remembering how it
-    was fitted."""
+    was fitted.
+    """
     static_data = SpeckleVisualizationData(**_visualization_payload())
     psf_data = PSFSpeckleVisualizationData(
         **_visualization_payload(psf_kernel=np.ones((7, 7), dtype=complex))

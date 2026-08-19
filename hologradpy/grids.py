@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import Tuple
 
 import torch
 from torch import Tensor
@@ -8,7 +7,7 @@ from torch import Tensor
 
 def get_pixel_grid(
     resolution: tuple[int, int], device: torch.device = "cpu"
-) -> Tuple[Tensor, Tensor]:
+) -> tuple[Tensor, Tensor]:
     height, width = resolution
 
     pixel_indices_x = torch.arange(-width // 2, width // 2, device=device)
@@ -21,7 +20,7 @@ def get_spatial_grid(
     resolution: tuple[int, int],
     pixel_size: tuple[float, float],
     device: torch.device = "cpu",
-) -> Tuple[Tensor, Tensor]:
+) -> tuple[Tensor, Tensor]:
     resolution = torch.tensor(resolution, device=device)
     pixel_size = torch.tensor(pixel_size, device=device)
 
@@ -66,7 +65,7 @@ def pixel_to_metres(
     pixel_size: tuple[float, float],
     resolution: tuple[int, int],
 ) -> tuple[float, float]:
-    """``(x, y)`` pixels to plane ``(x, y)`` metres from the center. The inverse of 
+    """``(x, y)`` pixels to plane ``(x, y)`` metres from the center. The inverse of
     :func:`metres_to_pixel`.
     """
     center_x, center_y = plane_center(resolution)
@@ -80,7 +79,7 @@ def get_frequency_grid(
     resolution: tuple[int, int],
     pixel_size: tuple[float, float],
     device: torch.device = "cpu",
-) -> Tuple[Tensor, Tensor]:
+) -> tuple[Tensor, Tensor]:
     resolution = torch.tensor(resolution, device=device)
     pixel_size = torch.tensor(pixel_size, device=device)
 

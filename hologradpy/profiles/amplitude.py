@@ -23,13 +23,12 @@ def get_focal_spot_radius(
     focal_length: float,
 ) -> float:
     """Calculates the radius of the focal spot for a Gaussian beam with a given
-    `beam_radius`, focussed by a lens with a given `focal_length`.
+    `beam_radius`, focused by a lens with a given `focal_length`.
 
     Args:
-        beam_radius (float): The radius of the Gaussian beam at the lens in
-            metres.
-        wavelength (float): The wavelength of the light in metres.
-        focal_length (float): The focal length of the lens in metres.
+        beam_radius: The radius of the Gaussian beam at the lens in metres.
+        wavelength: The wavelength of the light in metres.
+        focal_length: The focal length of the lens in metres.
 
     Returns:
         float: The radius of the focal spot in metres.
@@ -50,15 +49,13 @@ def gaussian_beam_intensity(
     """Gaussian beam intensity on a 2D grid with given radius and center.
 
     Args:
-        x (ArrayLike): X coordinates.
-        y (ArrayLike): Y coordinates.
-        beam_radius (float): Radius of the beam.
-        shift_x (float, optional): X shift of the beam center. Defaults to 0.0.
-        shift_y (float, optional): Y shift of the beam center. Defaults to 0.0.
-        intensity (float, optional): Peak intensity of the beam. Defaults to
-            1.0.
-        offset (float, optional): Offset added to the intensity. Defaults to
-            0.0.
+        x: X coordinates.
+        y: Y coordinates.
+        beam_radius: Radius of the beam.
+        shift_x: X shift of the beam center. Defaults to 0.0.
+        shift_y: Y shift of the beam center. Defaults to 0.0.
+        intensity: Peak intensity of the beam. Defaults to 1.0.
+        offset: Offset added to the intensity. Defaults to 0.0.
 
     Returns:
         ArrayLike: Gaussian beam intensity.
@@ -85,16 +82,16 @@ def super_gaussian(
     """2D super-Gaussian intensity distribution.
 
     Args:
-        x (ArrayLike): X meshgrid.
-        y (ArrayLike): Y meshgrid.
-        shift_x (int): X-offset of the Gaussian.
-        shift_y (int): Y-offset of the Gaussian.
-        number_of_pixels_x (int): X-order.
-        number_of_pixels_y (int): Y-order.
-        sigma_x (float): X-width.
-        sigma_y (float): Y-width.
-        amplitude (float, optional): Amplitude. Defaults to 1.0.
-        offset (float, optional): Offset. Defaults to 0.0.
+        x: X meshgrid.
+        y: Y meshgrid.
+        shift_x: X-offset of the Gaussian.
+        shift_y: Y-offset of the Gaussian.
+        number_of_pixels_x: X-order.
+        number_of_pixels_y: Y-order.
+        sigma_x: X-width.
+        sigma_y: Y-width.
+        amplitude: Amplitude. Defaults to 1.0.
+        offset: Offset. Defaults to 0.0.
 
     Returns:
         ArrayLike: 2D super-Gaussian.
@@ -120,14 +117,14 @@ def gaussian_spot_array(
     """Array of Gaussian spots with equal spacing.
 
     Args:
-        x (ArrayLike): X coordinates.
-        y (ArrayLike): Y coordinates.
-        number_of_rows (int): Number of array rows.
-        number_of_columns (int): Number of array columns.
-        shift_x (int): X-offset of the array.
-        shift_y (int): Y-offset of the array.
-        spot_separation (float): Separation between neighbouring spots.
-        beam_radius (float): Beam radius of the Gaussian spots.
+        x: X coordinates.
+        y: Y coordinates.
+        number_of_rows: Number of array rows.
+        number_of_columns: Number of array columns.
+        shift_x: X-offset of the array.
+        shift_y: Y-offset of the array.
+        spot_separation: Separation between neighboring spots.
+        beam_radius: Beam radius of the Gaussian spots.
 
     Returns:
         ArrayLike: Spot array.
@@ -161,13 +158,13 @@ def gaussian_ring(
     """Ring with a Gaussian radial profile.
 
     Args:
-        x (ArrayLike): X meshgrid.
-        y (ArrayLike): Y meshgrid.
-        shift_x (int): X-offset of the ring.
-        shift_y (int): Y-offset of the ring.
-        radius (float): Radius of the ring.
-        ring_sigma (float): Width of the Gaussian profile.
-        amplitude (float, optional): Amplitude. Defaults to 1.0.
+        x: X meshgrid.
+        y: Y meshgrid.
+        shift_x: X-offset of the ring.
+        shift_y: Y-offset of the ring.
+        radius: Radius of the ring.
+        ring_sigma: Width of the Gaussian profile.
+        amplitude: Amplitude. Defaults to 1.0.
 
     Returns:
         ArrayLike: Ring with a Gaussian profile.
@@ -189,19 +186,21 @@ def top_hat_gaussian_shoulders(
     """This function describes the convolution of a boxcar function with the
     intensity profile of a Gaussian beam, resulting in a top hat with soft shoulders.
     The Gaussian beam radius determines `shoulder_radius`. The width of the flat
-    plateu is specified by `plateau_width` (1 - 1/e^4 intensity threshold). The width
-    of the original boxcar function is `plateu_width - 2 * shoulder_radius`.
+    plateau is specified by `plateau_width` (1 - 1/e^4 intensity threshold). The width
+    of the original boxcar function is `plateau_width + 2 * shoulder_radius`.
 
     Args:
-        x (ArrayLike): x coordinates.
-        shift (float): Center of the top hat.
-        plateau_width (float): Width of the flat plateau (1 - 1/e^4 intensity
-            threshold).
-        shoulder_radius (float): Radius of the Gaussian shoulders.
-        amplitude (float): Amplitude of the top hat.
+        x: X coordinates.
+        shift: Center of the top hat.
+        plateau_width: Width of the flat plateau (1 - 1/e^4 intensity threshold).
+        shoulder_radius: Radius of the Gaussian shoulders.
+        amplitude: Amplitude of the top hat.
 
     Returns:
         ArrayLike: Top hat with Gaussian shoulders.
+
+    Raises:
+        ValueError: when the array namespace of `x` is neither numpy nor torch.
     """
     xp = array_namespace(x)
     backend_name = xp.__name__.split(".")[1]
@@ -231,17 +230,17 @@ def top_hat_2D(
     """2D top hat with Gaussian shoulders.
 
     Args:
-        x (ArrayLike): X meshgrid.
-        y (ArrayLike): Y meshgrid.
-        shift_x (float): X-offset of the top hat.
-        shift_y (float): Y-offset of the top hat.
-        plateau_width_x (float): Width of the flat plateau in the x-direction 
+        x: X meshgrid.
+        y: Y meshgrid.
+        shift_x: X-offset of the top hat.
+        shift_y: Y-offset of the top hat.
+        plateau_width_x: Width of the flat plateau in the x-direction
             (1 - 1/e^4 intensity threshold).
-        plateau_width_y (float): Width of the flat plateau in the y-direction 
+        plateau_width_y: Width of the flat plateau in the y-direction
             (1 - 1/e^4 intensity threshold).
-        shoulder_radius_x (float): Radius of the Gaussian shoulders in the x-direction.
-        shoulder_radius_y (float): Radius of the Gaussian shoulders in the y-direction.
-        amplitude (float): Amplitude of the top hat.
+        shoulder_radius_x: Radius of the Gaussian shoulders in the x-direction.
+        shoulder_radius_y: Radius of the Gaussian shoulders in the y-direction.
+        amplitude: Amplitude of the top hat.
 
     Returns:
         ArrayLike: 2D top hat with Gaussian shoulders.
@@ -256,13 +255,13 @@ def top_hat_2D(
 
 
 # Binary masks
-def gaussian_blur(input: torch.Tensor, beam_radius: float):
+def gaussian_blur(input: torch.Tensor, beam_radius: float) -> torch.Tensor:
     """Blurs the input tensor with the intensity distribution of a Gaussian
     focal spot with a given `beam_radius`.
 
     Args:
-        input (torch.Tensor): Input tensor.
-        beam_radius (float): Radius of the Gaussian beam.
+        input: Input tensor.
+        beam_radius: Radius of the Gaussian beam.
 
     Returns:
         torch.Tensor: Blurred output tensor.
@@ -294,11 +293,10 @@ def laser_speckle_intensity(
     Models a fixed scattering surface: complex Gaussian white noise is low-pass filtered
     (Gaussian blur of radius ``grain_radius``) to set the speckle grain size, and the
     squared magnitude gives the intensity. The first-order statistics are the expected
-    negative-exponential (``std/mean ~= 1``). The result is normalized to unit mean --
-    the physical scale is applied separately (e.g. by
+    negative-exponential (``std/mean ~= 1``). The result is normalized to unit mean,
+    and the physical scale is applied separately (e.g. by
     :class:`~hologradpy.optics.modules.hardware_models.background_scatter.BackgroundScatter`,
-    which scales
-    it to a total background power).
+    which scales it to a total background power).
 
     Args:
         resolution: Output resolution ``(height, width)`` in pixels.
@@ -310,7 +308,7 @@ def laser_speckle_intensity(
         generator: Optional RNG for reproducible speckle.
 
     Returns:
-        A ``(height, width)`` unit-mean speckle-intensity tensor.
+        torch.Tensor: A ``(height, width)`` unit-mean speckle-intensity tensor.
     """
     height, width = resolution
     grain_radius_pixels = max(grain_radius / pixel_size, 1.0)
@@ -350,7 +348,8 @@ def checkerboard(
         device: If given, return a torch tensor on that device, otherwise numpy.
 
     Returns:
-        A ``(height, width)`` array with the checkerboard pattern.
+        NDArray | torch.Tensor: A ``(height, width)`` array with the checkerboard
+        pattern.
     """
     height, width = resolution
     number_of_squares_y, number_of_squares_x = number_of_squares

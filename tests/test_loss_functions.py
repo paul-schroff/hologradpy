@@ -76,7 +76,8 @@ def test_hologram_losses_are_unchanged_by_the_merge(name) -> None:
 @pytest.mark.parametrize("name", sorted(BASELINES))
 def test_a_stored_target_ignores_a_passed_one(name) -> None:
     """These costs fix their target at construction, so the optional second argument
-    exists only to satisfy the shared contract and must not change the answer."""
+    exists only to satisfy the shared contract and must not change the answer.
+    """
     losses, field = _hologram_losses()
     nonsense = torch.full(RESOLUTION, 12345.0, dtype=torch.float64)
 
@@ -87,7 +88,8 @@ def test_a_stored_target_ignores_a_passed_one(name) -> None:
 
 def test_every_cost_shares_one_base() -> None:
     """The point of the merge: one contract, so anything that takes a cost takes all of
-    them."""
+    them.
+    """
     losses, _ = _hologram_losses()
     _, _, signal_mask, _ = _fixture()
 
@@ -98,7 +100,8 @@ def test_every_cost_shares_one_base() -> None:
 
 def test_costs_compose_across_the_two_families() -> None:
     """A hologram-search cost can now be weighted against another one, which is what the
-    efficiency and vorticity terms are for and what the old split prevented."""
+    efficiency and vorticity terms are for and what the old split prevented.
+    """
     losses, field = _hologram_losses()
     first, second = losses["LossIntensityMSE"], losses["LossEfficiency"]
 
@@ -111,7 +114,8 @@ def test_costs_compose_across_the_two_families() -> None:
 
 def test_sums_stay_flat() -> None:
     """``a + b + c`` holds three terms rather than nesting a sum inside a sum, so the
-    forwarding of the optional target does not deepen with each term."""
+    forwarding of the optional target does not deepen with each term.
+    """
     losses, field = _hologram_losses()
     terms = [losses[name] for name in ("LossIntensityMSE", "LossEfficiency")]
     terms.append(losses["LossVorticity"])
@@ -125,7 +129,8 @@ def test_sums_stay_flat() -> None:
 
 def test_the_calibration_costs_are_unchanged_by_the_merge() -> None:
     """Same pinning for the side that already used ``__call__``, since its signature
-    widened."""
+    widened.
+    """
     target_intensity, _, signal_mask, field = _fixture()
     batched_field = field.unsqueeze(0).unsqueeze(0)
     batched_target = target_intensity.unsqueeze(0).unsqueeze(0)
@@ -155,7 +160,8 @@ class _SLMField:
 @pytest.mark.parametrize("prior", [PhaseSmoothness, AmplitudeSmoothness])
 def test_a_prior_ignores_both_arguments(prior) -> None:
     """A prior reads the field module it was built on, which is what lets it be added to
-    a data term. Both arguments are optional for that reason."""
+    a data term. Both arguments are optional for that reason.
+    """
     smoothness = prior(_SLMField())
 
     # A flat field has no gradient, so the penalty is zero however it is called.
@@ -166,7 +172,8 @@ def test_a_prior_ignores_both_arguments(prior) -> None:
 def test_the_two_priors_are_the_old_combined_penalty() -> None:
     """The split has to be arithmetically invisible: the same weights on the same field
     must give the same number the single bundled term gave, or the prior itself moved
-    and every calibration fitted with it changes."""
+    and every calibration fitted with it changes.
+    """
     slm_field = _SLMField(structured=True)
     phase_scale, amplitude_scale = 2e-3, 5e-4
 
@@ -186,7 +193,8 @@ def test_the_two_priors_are_the_old_combined_penalty() -> None:
 
 def test_a_sum_reports_each_term_and_they_add_up_to_it() -> None:
     """What the convergence graph draws. The parts must be the same additions the total
-    is, so a curve can never say something the total does not."""
+    is, so a curve can never say something the total does not.
+    """
     _, _, signal_mask, _ = _fixture()
     slm_field = _SLMField(structured=True)
 
@@ -213,7 +221,8 @@ def test_a_sum_reports_each_term_and_they_add_up_to_it() -> None:
 
 def test_a_single_term_reports_itself() -> None:
     """No override needed for a term that is not a sum, so every cost can be plotted the
-    same way."""
+    same way.
+    """
     target_intensity, _, signal_mask, field = _fixture()
     losses, hologram_field = _hologram_losses()
 
@@ -229,7 +238,8 @@ def test_a_single_term_reports_itself() -> None:
 
 def test_a_repeated_term_keeps_both_curves() -> None:
     """Two terms of the same class in one sum must not collapse into one entry, or a
-    curve would silently vanish from the graph and the parts would stop adding up."""
+    curve would silently vanish from the graph and the parts would stop adding up.
+    """
     slm_field = _SLMField(structured=True)
 
     loss = PhaseSmoothness(slm_field, 1e-3) + PhaseSmoothness(slm_field, 4e-3)
@@ -244,7 +254,8 @@ def test_a_repeated_term_keeps_both_curves() -> None:
 @pytest.mark.parametrize("name", sorted(BASELINES))
 def test_every_cost_is_retuned_through_the_same_attribute(name) -> None:
     """One weight, named the same on every term, settable after construction. Tuning a
-    fit should not mean rebuilding the cost or remembering four different keywords."""
+    fit should not mean rebuilding the cost or remembering four different keywords.
+    """
     losses, field = _hologram_losses()
     loss = losses[name]
     before = float(loss(field))
@@ -257,7 +268,8 @@ def test_every_cost_is_retuned_through_the_same_attribute(name) -> None:
 def test_the_weight_is_applied_once() -> None:
     """The base multiplies by the scale, so a term's own evaluate must return the
     unweighted cost. Applying it in both places would square the weight and silently
-    change every fit."""
+    change every fit.
+    """
     slm_field = _SLMField(structured=True)
     prior = PhaseSmoothness(slm_field, scale=1e-2)
 
@@ -268,7 +280,8 @@ def test_the_weight_is_applied_once() -> None:
 
 def test_retuning_a_term_moves_the_sum_and_its_parts_together() -> None:
     """What tuning a calibration actually looks like: reach into the sum, change one
-    weight, and both the total and that term's curve follow."""
+    weight, and both the total and that term's curve follow.
+    """
     slm_field = _SLMField(structured=True)
     loss = PhaseSmoothness(slm_field) + AmplitudeSmoothness(slm_field)
     before = loss.components()["phase smoothness"]
@@ -317,7 +330,8 @@ def test_smallest_divisor_follows_the_dtype() -> None:
 )
 def test_normalizing_an_empty_image_does_not_produce_nan(normalize, shape) -> None:
     """The floor exists for this case: a frame that summed to zero must not poison the
-    loss with a nan, which would take the whole fit with it."""
+    loss with a nan, which would take the whole fit with it.
+    """
     result = normalize(torch.zeros(shape))
     assert not torch.isnan(result).any()
     assert not torch.isinf(result).any()

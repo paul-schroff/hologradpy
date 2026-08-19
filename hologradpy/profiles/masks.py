@@ -23,14 +23,12 @@ def rectangular_mask(
     """Rectangular mask with given width, height, and center.
 
     Args:
-        x (ArrayLike): X coordinates.
-        y (ArrayLike): Y coordinates.
-        width (float): Width of the rectangle.
-        height (float): Height of the rectangle.
-        shift_x (float, optional): X shift of the rectangle center. Defaults
-            to 0.0.
-        shift_y (float, optional): Y shift of the rectangle center. Defaults
-            to 0.0.
+        x: X coordinates.
+        y: Y coordinates.
+        width: Width of the rectangle.
+        height: Height of the rectangle.
+        shift_x: X shift of the rectangle center. Defaults to 0.0.
+        shift_y: Y shift of the rectangle center. Defaults to 0.0.
 
     Returns:
         ArrayLike: Binary mask.
@@ -52,12 +50,12 @@ def elliptical_mask(
     Reduces exactly to :func:`circular_mask` when the two semi-axes are equal.
 
     Args:
-        x (ArrayLike): X coordinates.
-        y (ArrayLike): Y coordinates.
-        radius_x (float): Semi-axis along x.
-        radius_y (float): Semi-axis along y.
-        shift_x (float, optional): X shift of the ellipse center. Defaults to 0.0.
-        shift_y (float, optional): Y shift of the ellipse center. Defaults to 0.0.
+        x: X coordinates.
+        y: Y coordinates.
+        radius_x: Semi-axis along x.
+        radius_y: Semi-axis along y.
+        shift_x: X shift of the ellipse center. Defaults to 0.0.
+        shift_y: Y shift of the ellipse center. Defaults to 0.0.
 
     Returns:
         ArrayLike: Binary mask.
@@ -75,13 +73,11 @@ def circular_mask(
     """Create a circular mask with a given radius and center.
 
     Args:
-        x (ArrayLike): X coordinates.
-        y (ArrayLike): Y coordinates.
-        radius (float): Radius of the circle.
-        shift_x (float, optional): X shift of the circle center. Defaults to
-            0.0.
-        shift_y (float, optional): Y shift of the circle center. Defaults to
-            0.0.
+        x: X coordinates.
+        y: Y coordinates.
+        radius: Radius of the circle.
+        shift_x: X shift of the circle center. Defaults to 0.0.
+        shift_y: Y shift of the circle center. Defaults to 0.0.
 
     Returns:
         ArrayLike: Binary mask.

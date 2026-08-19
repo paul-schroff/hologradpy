@@ -63,7 +63,8 @@ class NeighbourDifferenceCrosstalk(PixelCrosstalk):
     def neighbour_offsets(self) -> tuple[tuple[int, int], ...]:
         """The ``(rows, columns)`` offset of each neighbour, row-major from the top
         left, with the pixel itself left out. Indexes the first axis of
-        :attr:`transitions`."""
+        :attr:`transitions`.
+        """
         span = range(-self.reach, self.reach + 1)
         return tuple(
             offset for offset in itertools.product(span, span) if offset != (0, 0)

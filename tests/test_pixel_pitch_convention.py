@@ -85,7 +85,8 @@ def _build(camera_angle=0.0, camera_shift=(0.0, 0.0)):
 
 def test_simulated_camera_exposes_pixel_size_in_yx():
     """A non-square simulated camera exposes pixel_size as (y, x) in metres, the native
-    convention taken straight from the model (fails on an axis swap)."""
+    convention taken straight from the model (fails on an axis swap).
+    """
     _, camera, _ = _build()
     # camera_pixel_size (y, x) = (30, 20) um.
     np.testing.assert_allclose(camera.pixel_size, (30e-6, 20e-6), rtol=1e-6)
@@ -94,7 +95,8 @@ def test_simulated_camera_exposes_pixel_size_in_yx():
 def test_coarse_mapper_recovers_anisotropic_scales_nonsquare_camera():
     """With a non-square camera the coarse mapper must recover the correct anisotropic
     scale (camera pitch / model pixel per axis). A pitch axis swap anywhere in the
-    detection chain would invert the anisotropy or raise the reprojection error."""
+    detection chain would invert the anisotropy or raise the reprojection error.
+    """
     slm, camera, reference = _build(camera_angle=8.0, camera_shift=(15, -10))
     coarse = CoarseMapper(slm, camera, reference).map_camera()
 

@@ -24,7 +24,8 @@ def test_progress_yields_every_element_either_way() -> None:
 
 def test_progress_returns_the_iterable_untouched_when_off() -> None:
     """Not merely equal: the same object, so nothing is consumed or copied on the way
-    through."""
+    through.
+    """
     values = [3, 1, 4]
     assert progress(values, verbose=False) is values
 
@@ -39,7 +40,8 @@ def test_progress_bar_is_a_no_op_when_off() -> None:
 
 def test_progress_bar_updates_and_closes() -> None:
     """disable=False because pytest captures stderr, where tqdm would otherwise
-    suppress the bar and leave its counter at zero. This is about the mechanics."""
+    suppress the bar and leave its counter at zero. This is about the mechanics.
+    """
     with ProgressBar(total=3, description="loud", verbose=True, disable=False) as bar:
         for value in (1e10, 1e8, 1e6):
             bar.update(loss=value)
@@ -59,7 +61,8 @@ def test_progress_bar_closes_on_exception() -> None:
 
 def test_progress_bar_formats_numeric_postfix() -> None:
     """A loss running from 1e10 to 1e6 keeps a constant width, so the bar does not
-    jitter."""
+    jitter.
+    """
     with ProgressBar(total=1, verbose=True, disable=False) as bar:
         bar.update(loss=1.23456789e10, label="text")
         postfix = bar._bar.postfix

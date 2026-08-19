@@ -30,7 +30,8 @@ def _field() -> ComplexAmplitude:
 
 class _Preserving(OpticsModule):
     """Sampling-preserving: overrides only lazy_init to build state -- no super()
-    call, no geometry code, no init/guard in forward/adjoint."""
+    call, no geometry code, no init/guard in forward/adjoint.
+    """
 
     def lazy_init(self, complex_amplitude: ComplexAmplitude) -> None:
         self.register_buffer("gain", torch.ones(()))
@@ -132,7 +133,8 @@ def _pixelwise():
 @pytest.mark.parametrize("build", [_lens, _warp, _pixelwise], ids=lambda f: f.__name__)
 def test_a_module_reopens_as_what_it_was(build, tmp_path):
     """save() and from_file() are a pair, so a saved module comes back producing the
-    same field. The base used to write a file its own from_file could not read."""
+    same field. The base used to write a file its own from_file could not read.
+    """
     module = build()
     before = module(_field())
     path = str(tmp_path / "module.pt")
@@ -146,7 +148,8 @@ def test_a_module_reopens_as_what_it_was(build, tmp_path):
 
 def test_a_checkpoint_refuses_the_wrong_class(tmp_path):
     """One module's weights landing in another's parameters either fails on a shape a
-    long way from here, or does not fail at all."""
+    long way from here, or does not fail at all.
+    """
     path = str(tmp_path / "lens.pt")
     lens = _lens()
     lens(_field())

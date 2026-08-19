@@ -49,7 +49,8 @@ def _tilt(cycles_x: float, cycles_y: float) -> np.ndarray:
 
 def test_the_aberration_used_here_really_does_wrap() -> None:
     """Guards the premise: a metric that is wrap-safe is only interesting if the
-    test case wraps."""
+    test case wraps.
+    """
     aberration = _aberration()[_mask()]
     assert np.ptp(aberration) > 2 * np.pi
 
@@ -75,7 +76,8 @@ def test_no_correction_scores_one() -> None:
 
 def test_the_sign_ambiguity_is_forgiven() -> None:
     """Intensity-only sensing recovers a wavefront up to a conjugate, so the
-    global sign is not observable and must not be charged."""
+    global sign is not observable and must not be charged.
+    """
     aberration, mask = _aberration(), _mask()
     assert wavefront_residual(
         -aberration, aberration, mask
@@ -99,7 +101,8 @@ def test_tilt_is_not_charged_as_aberration(cycles) -> None:
 
 def test_recovering_only_tilt_buys_nothing() -> None:
     """The complement: a fit that returns pure tilt has achieved nothing, and
-    must not be flattered by how large that tilt looks."""
+    must not be flattered by how large that tilt looks.
+    """
     aberration, mask = _aberration(), _mask()
     assert wavefront_residual(
         _tilt(3.0, 2.0), aberration, mask
@@ -138,7 +141,8 @@ def test_strehl_amplitude_is_one_for_a_flat_error_and_falls_with_it() -> None:
 
 def test_strehl_amplitude_squares_to_the_intensity_strehl() -> None:
     """The reason for the name. For Gaussian phase the intensity Strehl is
-    ``exp(-sigma ** 2)``, and this returns its square root."""
+    ``exp(-sigma ** 2)``, and this returns its square root.
+    """
     rng = np.random.default_rng(0)
     mask = np.ones((256, 256), dtype=bool)
     sigma = 0.5

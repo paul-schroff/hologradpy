@@ -17,6 +17,7 @@ from ...visualizer import (
     PHASE_CMAP,
     Panel,
     PlotLayout,
+    VisualizationData,
     foreground_color,
 )
 
@@ -34,7 +35,7 @@ class SpeckleVisualizerBase(BaseVisualizer):
     ``loss_component_history``.
     """
 
-    def __init__(self, data) -> None:
+    def __init__(self, data: VisualizationData) -> None:
         self.data = data
 
     def _aspect(self, image: NDArray) -> float:
@@ -93,7 +94,7 @@ class SpeckleVisualizerBase(BaseVisualizer):
             **panels,
         }
 
-    def render_dataset(self, **kwargs) -> Figure:
+    def render_dataset(self, **kwargs: str | None) -> Figure:
         """Draw the captured dataset alone: one SLM pattern and the frame it produced.
 
         Available as soon as a dataset exists, so the capture can be checked before

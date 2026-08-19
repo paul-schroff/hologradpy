@@ -26,6 +26,7 @@ class CameraSensor(OpticsModule):
     :class:`ComplexAmplitude` and cannot be chained further.
 
     Two modes:
+
     - Default (``add_noise=True, quantize=True``): realistic capture -- Poisson
       read noise plus an integer bit-depth floor. Stochastic and not differentiable.
     - ``add_noise=False, quantize=False``: the deterministic expected ADU, fully

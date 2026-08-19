@@ -12,14 +12,15 @@ from scipy.sparse.csgraph import connected_components
 from scipy.sparse.linalg import LinearOperator, cg, lsqr, splu
 
 
-def wrap(x: NDArray[np.float_]) -> NDArray[np.float_]:
+def wrap(x: NDArray[np.float64]) -> NDArray[np.float64]:
     """Wrap phase values into the interval ``[-pi, pi)``.
 
-    Note the half-open end: an input of exactly pi comes back as ``-pi``, unlike
-    :func:`numpy.angle`, which returns ``pi``. The two agree everywhere else.
+    Note the half-open end: an input of exactly pi comes back as ``-pi``.
+    :func:`numpy.angle` uses the other half-open interval, ``(-pi, pi]``. The two agree
+    everywhere else.
 
     Args:
-        x (NDArray): Phase values.
+        x: Phase values.
 
     Returns:
         NDArray: Wrapped phase values.
@@ -33,7 +34,7 @@ def _neighbour_pairs(
     """Four-connected neighbour pairs inside a mask.
 
     Args:
-        mask (NDArray): Boolean mask defining the region of interest.
+        mask: Boolean mask defining the region of interest.
 
     Returns:
         tuple[NDArray, NDArray]: Two index arrays naming the ends of each pair, indexing
@@ -57,8 +58,8 @@ def _neighbour_pairs(
 
 
 def _normal_equations(
-    phase: NDArray[np.float_], mask: NDArray[np.bool_]
-) -> tuple[csr_matrix, NDArray[np.float_], NDArray[np.float_]]:
+    phase: NDArray[np.float64], mask: NDArray[np.bool_]
+) -> tuple[csr_matrix, NDArray[np.float64], NDArray[np.float64]]:
     """The least-squares system both unwrappers solve.
 
     One row per four-connected neighbour pair, reading -1 at one end and +1 at the
@@ -67,8 +68,8 @@ def _normal_equations(
     constant per connected region, which is the 2 pi gauge freedom of the problem.
 
     Args:
-        phase (NDArray): Wrapped phase image.
-        mask (NDArray): Boolean mask defining the region of interest.
+        phase: Wrapped phase image.
+        mask: Boolean mask defining the region of interest.
 
     Returns:
         tuple: The laplacian, the right-hand side, and the wrapped phase of the masked
@@ -104,11 +105,11 @@ def _region_anchors(laplacian: csr_matrix) -> tuple[int, NDArray, NDArray]:
 
 
 def _anchored(
-    solution: NDArray[np.float_],
-    wrapped: NDArray[np.float_],
+    solution: NDArray[np.float64],
+    wrapped: NDArray[np.float64],
     labels: NDArray,
     anchors: NDArray,
-) -> NDArray[np.float_]:
+) -> NDArray[np.float64]:
     """Set each region's free constant so it agrees with the measured phase there."""
     for region, anchor in enumerate(anchors):
         pixels = labels == region
@@ -117,15 +118,16 @@ def _anchored(
 
 
 def unwrap_2d_laplace(
-    phase: NDArray[np.float_], mask: NDArray[np.bool_]
-) -> NDArray[np.float_]:
+    phase: NDArray[np.float64], mask: NDArray[np.bool_]
+) -> NDArray[np.float64]:
     """Unwrap a phase image within a region of interest, by a direct sparse solve.
+
     Least-squares unwrapping over the four-connected pixels inside ``mask``. Exact but
     slow.
 
     Args:
-        phase (NDArray): Wrapped phase image.
-        mask (NDArray): Boolean mask defining the region of interest.
+        phase: Wrapped phase image.
+        mask: Boolean mask defining the region of interest.
 
     Returns:
         NDArray: Unwrapped phase image, zero outside the mask.
@@ -165,7 +167,7 @@ def _poisson_preconditioner(mask: NDArray[np.bool_]):
     # divide finite, then zeroed, which projects it out.
     eigenvalues[0, 0] = 1.0
 
-    def apply(vector: NDArray[np.float_]) -> NDArray[np.float_]:
+    def apply(vector: NDArray[np.float64]) -> NDArray[np.float64]:
         grid = np.zeros(mask.shape)
         grid[mask] = vector
         transformed = dctn(grid, type=2, norm="ortho") / -eigenvalues
@@ -176,30 +178,29 @@ def _poisson_preconditioner(mask: NDArray[np.bool_]):
 
 
 def unwrap_2d_poisson(
-    phase: NDArray[np.float_],
+    phase: NDArray[np.float64],
     mask: NDArray[np.bool_],
     tolerance: float = 1e-10,
     max_iterations: int = 500,
-) -> NDArray[np.float_]:
-    """Unwrap a phase image in a region of interest, by preconditioned Poisson solve. 
+) -> NDArray[np.float64]:
+    """Unwrap a phase image in a region of interest, by preconditioned Poisson solve.
+
     This is the method of Ghiglia and Romero, "Robust two-dimensional weighted and
     unweighted phase unwrapping that uses fast transforms and iterative methods",
-    J. Opt. Soc. Am. A 11, 107 (1994), https://doi.org/10.1364/JOSAA.11.000107. Much 
+    J. Opt. Soc. Am. A 11, 107 (1994), https://doi.org/10.1364/JOSAA.11.000107. Much
     faster than :func:`unwrap_2d_laplace` for large images.
 
     Args:
-        phase (NDArray): Wrapped phase image.
-        mask (NDArray): Boolean mask defining the region of interest.
-        tolerance (float, optional): Relative residual conjugate gradients stops at.
-            Defaults to 1e-10.
-        max_iterations (int, optional): Iteration cap, defaults to 500.
+        phase: Wrapped phase image.
+        mask: Boolean mask defining the region of interest.
+        tolerance: Relative residual conjugate gradients stops at. Defaults to 1e-10.
+        max_iterations: Iteration cap. Defaults to 500.
 
     Returns:
         NDArray: Unwrapped phase image, zero outside the mask.
 
     Raises:
-        RuntimeError: If conjugate gradients does not converge, rather than returning a
-            half-solved field.
+        RuntimeError: when conjugate gradients does not converge.
     """
     mask = np.asarray(mask, dtype=bool)
     number_of_pixels = int(mask.sum())
@@ -233,10 +234,10 @@ def unwrap_2d_poisson(
 
 
 def unwrap_nonuniform(
-    x: NDArray[np.float_],
-    y: NDArray[np.float_],
-    phase: NDArray[np.float_],
-) -> NDArray[np.float_]:
+    x: NDArray[np.float64],
+    y: NDArray[np.float64],
+    phase: NDArray[np.float64],
+) -> NDArray[np.float64]:
     """Unwrap phase sampled at non-uniform (scattered) points.
 
     Builds a Delaunay triangulation of the ``(x, y)`` points and solves a
@@ -244,9 +245,9 @@ def unwrap_nonuniform(
     the unwrapped phase difference to the wrapped measured difference.
 
     Args:
-        x (NDArray): X coordinates of the sample points.
-        y (NDArray): Y coordinates of the sample points.
-        phase (NDArray): Wrapped phase at each sample point.
+        x: X coordinates of the sample points.
+        y: Y coordinates of the sample points.
+        phase: Wrapped phase at each sample point.
 
     Returns:
         NDArray: Unwrapped phase at each sample point.

@@ -16,13 +16,15 @@ ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 TWO_PI = 2 * np.pi
 
 
-def level_dtype(bitdepth: int, xp: ModuleType = np):
+def level_dtype(
+    bitdepth: int, xp: ModuleType = np
+) -> type[np.unsignedinteger] | torch.dtype:
     """The smallest integer type that holds a level of this depth."""
     return xp.uint8 if int(bitdepth) <= 8 else xp.uint16
 
 
 class PhaseResponse(ABC):
-    """Gray level to phase response of the SLM. ``phase_scaling`` is the phase the 
+    """Gray level to phase response of the SLM. ``phase_scaling`` is the phase the
     SLM can reach in cycles.
     """
 
@@ -54,8 +56,9 @@ class PhaseResponse(ABC):
         return self.fraction_at(phase) * self.number_of_levels
 
     def round_to_levels(self, levels: ArrayLike) -> ArrayLike:
+        """Whole levels, wrapped into the range the SLM can display."""
         xp = array_namespace(levels)
-        return xp.round(levels) % self.number_of_levels
+        return xp.round(_as_float(levels)) % self.number_of_levels
 
     def display_levels(self, phase: ArrayLike) -> ArrayLike:
         """The integer levels that result in ``phase``, ready for an SLM to display."""

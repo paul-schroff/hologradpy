@@ -32,15 +32,16 @@ from __future__ import annotations
 import contextlib
 import os
 import typing
+from collections.abc import Iterator
 from dataclasses import MISSING, fields, is_dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, TypeVar
+from typing import Any, Callable, TypeVar
 
 import asdf
 import numpy as np
 import torch
-from asdf.extension import Converter, Extension
+from asdf.extension import Converter, Extension, SerializationContext
 
 from .optics.complex_amplitude import ComplexAmplitude
 from .phase_levels import LinearResponse, LookupResponse
@@ -62,9 +63,13 @@ def record_type(name: str, version: int = 1) -> Callable[[type[T]], type[T]]:
         version: Bumped when the fields change in a way older files need help with, at
             which point the class also gains a :meth:`SaveableRecord._migrate`.
 
+    Returns:
+        Callable[[type[T]], type[T]]: A decorator that registers the class and hands
+            it back.
+
     Raises:
-        TypeError: The class is not a dataclass. The converter writes a record by
-            walking :func:`dataclasses.fields`, so a plain class registers without
+        TypeError: when the class is not a dataclass. The converter writes a record
+            by walking :func:`dataclasses.fields`, so a plain class registers without
             complaint and then fails at the first save.
     """
 
@@ -119,17 +124,17 @@ class RecordConverter(Converter):
     def types(self) -> list[type]:
         return list(self._record_types.values())
 
-    def select_tag(self, obj, tags, ctx) -> str:
+    def select_tag(self, obj: Any, tags: list[str], ctx: SerializationContext) -> str:
         return _tag_for(type(obj).RECORD_TYPE, type(obj).RECORD_VERSION)
 
-    def to_yaml_tree(self, obj, tag, ctx) -> dict:
+    def to_yaml_tree(self, obj: Any, tag: str, ctx: SerializationContext) -> dict:
         # Values pass straight through: ASDF walks them and tags anything it knows,
         # including nested records and numpy arrays.
         return {
             field.name: _to_yaml(getattr(obj, field.name)) for field in fields(obj)
         }
 
-    def from_yaml_tree(self, node, tag, ctx):
+    def from_yaml_tree(self, node: dict, tag: str, ctx: SerializationContext) -> Any:
         name, version = _name_and_version(tag)
         if name not in RECORD_TYPES:
             raise TypeError(
@@ -169,21 +174,27 @@ class RecordConverter(Converter):
 class TensorConverter(Converter):
     """torch tensors, stored as the numpy array ASDF already handles."""
 
-    tags = [f"{NAMESPACE}/tags/torch_tensor-1.0.0"]
-    types = [torch.Tensor, torch.nn.Parameter]
+    tags: list[str] = [f"{NAMESPACE}/tags/torch_tensor-1.0.0"]
+    types: list[type] = [torch.Tensor, torch.nn.Parameter]
 
-    def to_yaml_tree(self, obj, tag, ctx) -> dict:
+    def to_yaml_tree(
+        self, obj: torch.Tensor, tag: str, ctx: SerializationContext
+    ) -> dict:
         return {"data": obj.detach().cpu().numpy()}
 
-    def from_yaml_tree(self, node, tag, ctx):
+    def from_yaml_tree(
+        self, node: dict, tag: str, ctx: SerializationContext
+    ) -> torch.Tensor:
         return torch.from_numpy(np.asarray(node["data"]))
 
 
 class ComplexAmplitudeConverter(Converter):
-    tags = [f"{NAMESPACE}/tags/complex_amplitude-1.0.0"]
-    types = [ComplexAmplitude]
+    tags: list[str] = [f"{NAMESPACE}/tags/complex_amplitude-1.0.0"]
+    types: list[type] = [ComplexAmplitude]
 
-    def to_yaml_tree(self, obj, tag, ctx) -> dict:
+    def to_yaml_tree(
+        self, obj: ComplexAmplitude, tag: str, ctx: SerializationContext
+    ) -> dict:
         # Power is not stored: it is the integral of the intensity, so the data carries
         # it already.
         return {
@@ -192,7 +203,9 @@ class ComplexAmplitudeConverter(Converter):
             "pixel_size": obj.pixel_size.detach().cpu().numpy(),
         }
 
-    def from_yaml_tree(self, node, tag, ctx):
+    def from_yaml_tree(
+        self, node: dict, tag: str, ctx: SerializationContext
+    ) -> ComplexAmplitude:
         return ComplexAmplitude(
             torch.from_numpy(np.asarray(node["data"])),
             wavelength=torch.from_numpy(np.asarray(node["wavelength"])),
@@ -200,12 +213,19 @@ class ComplexAmplitudeConverter(Converter):
         )
 
 
-def _to_yaml(value):
+def _to_yaml(value: Any) -> Any:
     """Prepare a value for the YAML tree.
 
     Only two things need help: YAML has no tuple, so one would come back as a list and
     fail somewhere far away, and a datetime is not a scalar ASDF round-trips through a
     tag of its own.
+
+    Args:
+        value: The field value to write, walked into if it is a tuple, list or dict.
+
+    Returns:
+        Any: The value, with every tuple and datetime inside it wrapped in a dict
+            carrying a marker key.
     """
     if isinstance(value, tuple):
         return {"__tuple__": [_to_yaml(item) for item in value]}
@@ -218,7 +238,7 @@ def _to_yaml(value):
     return value
 
 
-def _from_yaml(value):
+def _from_yaml(value: Any) -> Any:
     if isinstance(value, dict):
         if set(value) == {"__tuple__"}:
             return tuple(_from_yaml(item) for item in value["__tuple__"])
@@ -230,8 +250,17 @@ def _from_yaml(value):
     return value
 
 
-def _coerce(value, declared_type):
-    """Restore a declared tuple field, which YAML flattened to a list."""
+def _coerce(value: Any, declared_type: type | str) -> Any:
+    """Restore a declared tuple field, which YAML flattened to a list.
+
+    Args:
+        value: The stored value, still in its YAML tree form.
+        declared_type: The annotation the dataclass field carries, either the object
+            itself or the string a postponed annotation leaves behind.
+
+    Returns:
+        Any: The value, as a tuple where the field declares one.
+    """
     value = _from_yaml(value)
     if typing.get_origin(declared_type) is tuple and isinstance(value, list):
         return tuple(value)
@@ -248,7 +277,7 @@ class RecordExtension(Extension):
         self._record_converter = RecordConverter(record_types)
 
     @property
-    def converters(self):
+    def converters(self) -> list[Converter]:
         return [
             self._record_converter,
             TensorConverter(),
@@ -256,13 +285,14 @@ class RecordExtension(Extension):
         ]
 
     @property
-    def tags(self):
+    def tags(self) -> list[str]:
         return [tag for converter in self.converters for tag in converter.tags]
 
 
 def install_extension() -> None:
-    """Register every currently known record type with ASDF. Called again whenever the 
-    registry changes.
+    """Register every currently known record type with ASDF.
+
+    Called again whenever the registry changes.
     """
     config = asdf.get_config()
     for existing in list(config.extensions):
@@ -272,9 +302,14 @@ def install_extension() -> None:
 
 
 @contextlib.contextmanager
-def registered_as(name: str, cls):
-    """Point a stable name at a different class for the duration of the block. For 
-    reading a file whose class has been superseded.
+def registered_as(name: str, cls: type) -> Iterator[None]:
+    """Point a stable name at a different class for the duration of the block.
+
+    For reading a file whose class has been superseded.
+
+    Args:
+        name: The name on disk to point elsewhere.
+        cls: The class that name is read as inside the block.
     """
     previous = RECORD_TYPES.get(name)
     RECORD_TYPES[name] = cls
@@ -289,15 +324,15 @@ def registered_as(name: str, cls):
         install_extension()
 
 
-def check_record_recognized(record, source) -> None:
-    """Raise if ASDF handed back a raw tagged tree rather than a record.
+def check_record_recognized(record: Any, source: str | os.PathLike) -> None:
+    """Raise if ASDF handed back a raw tagged tree in place of a record.
 
     Args:
         record: Whatever came back from the tree.
         source: The file it came from, named in the error.
 
     Raises:
-        TypeError: No class is registered for the tag on disk.
+        TypeError: when no class is registered for the tag on disk.
     """
     tag = getattr(record, "_tag", None)
     if tag is not None:
@@ -308,8 +343,13 @@ def check_record_recognized(record, source) -> None:
         )
 
 
-def attach_source_path(value, path) -> None:
-    """Tell every record in ``value`` which file it came from."""
+def attach_source_path(value: Any, path: str | os.PathLike) -> None:
+    """Tell every record in ``value`` which file it came from.
+
+    Args:
+        value: A record, or a dataclass, list, tuple or dict holding records.
+        path: The file the records were read from.
+    """
     if isinstance(value, SaveableRecord):
         object.__setattr__(value, "_source_path", Path(path))
     if is_dataclass(value) and not isinstance(value, type):
@@ -324,7 +364,7 @@ def attach_source_path(value, path) -> None:
 
 
 class SaveableRecord:
-    """Mixin giving a result dataclass a versioned, type-checked ``save`` / ``load``
+    """Mixin giving a result dataclass a versioned, type-checked ``save``/``load``
     pair.
 
     Mix it into a dataclass, wear :func:`record_type`, and the pair comes for free::
@@ -355,19 +395,37 @@ class SaveableRecord:
         Overridden alongside a bump to ``version`` in :func:`record_type`. The default
         passes the fields through, which is right while only additions with defaults and
         removals have happened.
+
+        Args:
+            version: The version the stored fields were written at.
+            stored: The fields as they were read from the file.
+
+        Returns:
+            dict: The fields in the shape this class's constructor takes.
         """
         return stored
 
     def save(self, filename: str | os.PathLike) -> None:
-        """Write this record to ``filename``."""
+        """Write this record to ``filename``.
+
+        Args:
+            filename: The file to write.
+        """
         asdf.AsdfFile({"record": self}).write_to(str(Path(filename)))
 
     @classmethod
     def load(cls: type[RecordType], filename: str | os.PathLike) -> RecordType:
         """Read a record of this class back from ``filename``.
 
+        Args:
+            filename: The file to read.
+
+        Returns:
+            RecordType: The record the file holds.
+
         Raises:
-            TypeError: the file holds a record of an unrelated class.
+            TypeError: when the file holds a record of an unrelated class, or one
+                that no class is registered for.
         """
         path = Path(filename)
         # memmap=False so the arrays outlive the closed file, which a small record can
@@ -388,12 +446,20 @@ class SaveableRecord:
 RecordType = TypeVar("RecordType", bound=SaveableRecord)
 
 
-def register_dataclass(cls, name: str, version: int = 1):
+def register_dataclass(cls: type[T], name: str, version: int = 1) -> type[T]:
     """Register a nested dataclass that is not itself a record.
 
     ``ROI``, the visualization data and anything else that only ever travels inside a
     record. Written for classes that cannot wear the decorator because they are declared
     elsewhere. :func:`record_type` does the checking.
+
+    Args:
+        cls: The dataclass to register.
+        name: What the class is called on disk.
+        version: Bumped when the fields change in a way older files need help with.
+
+    Returns:
+        type[T]: The same class, now carrying its name and version.
     """
     return record_type(name, version)(cls)
 

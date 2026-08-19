@@ -52,9 +52,10 @@ _ADDRESSABLE_MARGIN = 0.9
 
 @dataclass
 class _SpotDetections:
-    """Fitted spots from :meth:`SpotArrayMapper._detect_and_fit`: pixel positions with 
+    """Fitted spots from :meth:`SpotArrayMapper._detect_and_fit`: pixel positions with
     their per-spot Gaussian fit parameters and covariances (parallel lists), and the 
-    peaks whose fit was rejected."""
+    peaks whose fit was rejected.
+    """
 
     points: list[tuple[float, float]]
     fit_parameters: list[NDArray]
@@ -63,7 +64,7 @@ class _SpotDetections:
 
 
 class SpotArrayMapper(CameraMapper):
-    """Map the model's output coordinates to the camera sensor using a random spot 
+    """Map the model's output coordinates to the camera sensor using a random spot
     array. Similar to slmsuite's
     :meth:`~slmsuite.hardware.cameraslms.FourierSLM.fourier_calibrate`.
 
@@ -458,8 +459,9 @@ class SpotArrayMapper(CameraMapper):
         generator: torch.Generator,
         max_attempts_per_spot: int = 2000,
     ) -> torch.Tensor:
-        """Rejection-sample ``number_of_spots`` points uniformly in the box centered at 
-        the origin, each at least ``minimum_separation`` from the rest."""
+        """Rejection-sample ``number_of_spots`` points uniformly in the box centered at
+        the origin, each at least ``minimum_separation`` from the rest.
+        """
         width, height = extent
         box = torch.tensor([width, height], device=self.device)
         positions = torch.empty((0, 2), device=self.device)
@@ -515,7 +517,8 @@ class SpotArrayMapper(CameraMapper):
     ) -> list[tuple[float, float]]:
         """Iteratively pick the brightest pixel and blank a disc around it, so each spot
         yields exactly one peak. Stops once the remaining maximum falls to the 
-        background ``threshold``. Returns (x, y) pixel positions, brightest first."""
+        background ``threshold``. Returns (x, y) pixel positions, brightest first.
+        """
         working = np.array(image, dtype=float, copy=True)
         peaks: list[tuple[float, float]] = []
         for _ in range(number_of_peaks):
@@ -536,11 +539,11 @@ class SpotArrayMapper(CameraMapper):
         snr_threshold: float,
         number_of_peaks: int,
     ) -> _SpotDetections:
-        """Detect up to ``number_of_peaks`` bright spots in ``image`` and fit a 2D 
+        """Detect up to ``number_of_peaks`` bright spots in ``image`` and fit a 2D
         Gaussian to each. Returns the fitted (x, y) pixel positions, the per-spot fit
         parameters / covariances (parallel lists), and the peaks whose fit was 
-        rejected."""
-        
+        rejected.
+        """
         grid = get_spatial_grid(image.shape, list(pitch))
         noise_std = background_noise(image)
         peaks = self._detect_peaks(
@@ -579,7 +582,8 @@ class SpotArrayMapper(CameraMapper):
         """Similarity transform (isotropic scale + rotation + translation, with a
         reflection first when ``chirality`` is -1) mapping two source points onto two
         destination points. Returns ``(matrix, translation)`` such that
-        ``mapped = points @ matrix.T + translation``."""
+        ``mapped = points @ matrix.T + translation``.
+        """
         flip = np.array([[1.0, 0.0], [0.0, float(chirality)]])
         source_vector = flip @ (source[1] - source[0])
         destination_vector = destination[1] - destination[0]
@@ -726,9 +730,10 @@ class SpotArrayMapper(CameraMapper):
         pitch: NDArray,
         amplitude_threshold: float,
     ) -> tuple[NDArray, NDArray] | None:
-        """Fit a 2D Gaussian to the ROI around a detected peak. Return ``(popt, pcov)`` 
+        """Fit a 2D Gaussian to the ROI around a detected peak. Return ``(popt, pcov)``
         or ``None`` if the fit is missing / poor (amplitude at or below 
-        ``amplitude_threshold`` counts as background, not a spot)."""
+        ``amplitude_threshold`` counts as background, not a spot).
+        """
         rows, cols = image.shape
         half = roi_size // 2
         top = int(np.clip(round(peak[1]) - half, 0, rows - 1))

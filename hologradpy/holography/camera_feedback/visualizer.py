@@ -22,7 +22,10 @@ from ...serialization import record_type
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
+    from matplotlib.cm import ScalarMappable
     from matplotlib.figure import Figure
+
+    from .abstract import CameraFeedbackData
 
 
 @record_type("target_placement")
@@ -77,7 +80,7 @@ class TargetPlacementVisualizer(BaseVisualizer):
     def panels(self) -> dict[str, Panel]:
         return {"placement": self._placement_panel}
 
-    def _placement_panel(self, axs: Axes):
+    def _placement_panel(self, axs: Axes) -> ScalarMappable:
         from matplotlib.patches import Polygon, Rectangle
 
         data = self.data
@@ -143,7 +146,7 @@ class TargetPlacementVisualizer(BaseVisualizer):
 class CameraFeedbackVisualizer(BaseVisualizer):
     """Render a feedback run: what was asked for, what was measured, and the gap."""
 
-    def __init__(self, data, iteration: int = -1) -> None:
+    def __init__(self, data: CameraFeedbackData, iteration: int = -1) -> None:
         self.data = data
         self.iteration = iteration
 
@@ -417,7 +420,8 @@ class CameraFeedbackVisualizer(BaseVisualizer):
 
     def _number(self) -> int:
         """The iteration being shown, counting from one, whichever way it was asked
-        for."""
+        for.
+        """
         return self.iteration + 1 if self.iteration >= 0 else (
             self.data.number_of_iterations + self.iteration + 1
         )

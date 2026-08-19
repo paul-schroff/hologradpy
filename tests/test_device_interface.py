@@ -165,7 +165,8 @@ def _build():
 
 def test_camera_native_properties():
     """The simulated camera implements the native Camera interface directly (no
-    slmsuite base), so as_camera passes it through unchanged."""
+    slmsuite base), so as_camera passes it through unchanged.
+    """
     _, sim = _build()
     assert isinstance(sim, Camera)      # native on its own
     assert as_camera(sim) is sim    # passthrough, no adapter
@@ -261,7 +262,8 @@ def test_quantizing_leaves_the_callers_pattern_alone() -> None:
 @pytest.mark.parametrize("bitdepth", [8, 12])
 def test_integer_patterns_are_displayed_as_given(bitdepth: int) -> None:
     """Levels go to the display untouched, so a stored pattern can be shown again
-    without a conversion that could round it somewhere else."""
+    without a conversion that could round it somewhere else.
+    """
     slm = _slm_at(bitdepth)
     levels = np.random.default_rng(4).integers(
         0, 2**bitdepth, slm.resolution, dtype=np.uint8 if bitdepth == 8 else np.uint16
@@ -301,7 +303,8 @@ def test_a_pattern_survives_a_display_round_trip() -> None:
 
 def test_levels_replay_with_a_phase_scaling() -> None:
     """A target wavelength away from the design one takes the other branch of the
-    conversion, where the wrap is folded into the scaling factor."""
+    conversion, where the wrap is folded into the scaling factor.
+    """
     slm = _slm_at(8, wav_design_um=WAVELENGTH * 1e6 / 1.4)
     assert slm.phase_scaling != 1
 
@@ -327,7 +330,8 @@ def _s_curve(bitdepth: int = 8, span: float = 1.9 * np.pi) -> LookupResponse:
 
 def test_a_nonlinear_response_is_what_a_level_means() -> None:
     """The point of the whole exercise: the phase a level imposes comes from the curve,
-    not from an assumption that the panel is linear."""
+    not from an assumption that the panel is linear.
+    """
     response = _s_curve()
     slm = _slm_at(8)
     slm.set_phase(np.zeros(slm.resolution))
@@ -384,7 +388,8 @@ def test_the_panel_discretizes_the_same_way_for_a_pattern_and_a_gradient(
 
 def test_quantize_leaves_the_gradient_alone() -> None:
     """Straight through: rounding has no useful derivative, so the estimator passes the
-    incoming one on rather than killing the search."""
+    incoming one on rather than killing the search.
+    """
     module = PhaseResponseModule(_s_curve())
     levels = torch.tensor([12.3, 200.7, 4.5], requires_grad=True)
 
@@ -396,7 +401,8 @@ def test_quantize_leaves_the_gradient_alone() -> None:
 def test_a_curve_that_cannot_reach_a_phase_clamps() -> None:
     """Under a full turn of modulation there are phases the panel simply cannot impose,
     and the nearest end is the honest answer rather than a wrap onto an unrelated
-    level."""
+    level.
+    """
     response = _s_curve(span=1.2 * np.pi)
     unreachable = np.array([-2.0 * np.pi])
 
@@ -414,7 +420,8 @@ def test_the_response_travels_with_the_model() -> None:
 
 def test_levels_at_the_wrong_depth_are_refused() -> None:
     """A model reading levels at a depth they were not captured at would fit the wrong
-    phase rather than fail, so it is caught."""
+    phase rather than fail, so it is caught.
+    """
     slm = _slm_at(8)
     slm.set_phase(np.zeros(slm.resolution))
 
@@ -442,7 +449,8 @@ def test_a_device_without_a_bitdepth_says_so() -> None:
 
 class _RawCamera(SLMSuiteCamera):
     """A minimal slmsuite camera with no native HoloGradPy properties (stands in for
-    real hardware, which is only reachable through the adapter)."""
+    real hardware, which is only reachable through the adapter).
+    """
 
     def __init__(self, resolution, bitdepth, pitch_um, name="raw"):
         super().__init__(
@@ -609,7 +617,8 @@ def test_import_spec_missing_attribute_raises_with_backend_name():
 
 def test_register_slmsuite_backends_registers_lazy_specs():
     """The opt-in registrar populates the factory registries with lazy specs, so no
-    vendor SDK is imported until one of these backends is actually opened."""
+    vendor SDK is imported until one of these backends is actually opened.
+    """
     from hologradpy.hardware import register_slmsuite_backends
     from hologradpy.hardware.factory import _CAMERA_BACKENDS, _SLM_BACKENDS
 
@@ -707,7 +716,8 @@ class _QuantizedCamera(Camera):
 
 def test_autoexpose_settles_on_best_discrete_step():
     """With a coarsely quantized exposure whose steps straddle the target, autoexpose
-    settles on the closest achievable exposure instead of spending its whole budget."""
+    settles on the closest achievable exposure instead of spending its whole budget.
+    """
     camera = _QuantizedCamera()  # peaks: 55 (1x), 110 (2x), 165 (3x). Target 128
     with pytest.warns(UserWarning, match="no finer exposure step"):
         exposure = camera.autoexpose(
@@ -781,7 +791,8 @@ class _HotPixelCamera(Camera):
 
 def test_autoexpose_excluded_pixels_targets_real_signal():
     """A stuck pixel reads as permanent saturation and rails the exposure. Excluding it
-    via Camera.excluded_pixels lets autoexpose target the real blob near the target."""
+    via Camera.excluded_pixels lets autoexpose target the real blob near the target.
+    """
     # Without excluding it, the stuck pixel forces the overexposed branch every step
     # until the exposure rails at the lower bound.
     railed = _HotPixelCamera()
@@ -811,7 +822,8 @@ def test_excluded_pixels_property_roundtrip():
 
 def test_excluded_pixels_are_per_instance():
     """The class-level default is only a sentinel: setting on one camera must not leak
-    to another (no shared mutable default)."""
+    to another (no shared mutable default).
+    """
     first, second = _HotPixelCamera(), _HotPixelCamera()
     first.excluded_pixels = [(0, 0)]
     assert first.excluded_pixels == [(0, 0)]
@@ -832,7 +844,8 @@ class _SceneCamera(Camera):
     frame and several pixels stuck at fixed values (see the module-level constants).
 
     The working pixels vary from frame to frame, so this exercises the noise-tolerant
-    detector rather than assuming exactly constant frames."""
+    detector rather than assuming exactly constant frames.
+    """
 
     def __init__(self, adu_levels=256, saturating=False, seed=0):
         self._adu = adu_levels
@@ -898,7 +911,8 @@ class _SceneCamera(Camera):
 def test_find_stuck_pixels_flags_hot_dead_and_nonzero():
     """The stuck pixels inside the illuminated disk (fixed random values) and the pixel
     stuck high in the dark surround are all flagged despite read noise. The pixel stuck
-    low in the dark surround is not, being indistinguishable from the background."""
+    low in the dark surround is not, being indistinguishable from the background.
+    """
     camera = _SceneCamera()
     found = set(camera.find_stuck_pixels())
     assert found == _DISK_STUCK | {_DARK_STUCK_HIGH}
@@ -907,7 +921,8 @@ def test_find_stuck_pixels_flags_hot_dead_and_nonzero():
 
 def test_find_stuck_pixels_warns_on_overexposed_blob():
     """A disk saturated across the whole sweep is the camera overexposed, not hot
-    pixels, so it warns and the saturated disk background is not excluded."""
+    pixels, so it warns and the saturated disk background is not excluded.
+    """
     camera = _SceneCamera(saturating=True)
     with pytest.warns(UserWarning, match="overexposed"):
         found = set(camera.find_stuck_pixels())
@@ -917,7 +932,8 @@ def test_find_stuck_pixels_warns_on_overexposed_blob():
 class _AutoDetectCamera(Camera):
     """A uniform field that saturates at the initial exposure, so autoexpose sweeps it
     down toward the target, capturing a wide exposure range, plus one dead pixel to find
-    from those frames."""
+    from those frames.
+    """
 
     def __init__(self, adu_levels=256, seed=0):
         self._adu = adu_levels
@@ -967,7 +983,8 @@ class _AutoDetectCamera(Camera):
 
 def test_autoexpose_detect_stuck_pixels_flag():
     """autoexpose(detect_stuck_pixels=True) runs the detection on the frames it captured
-    while converging, populating excluded_pixels in the same call (no second sweep)."""
+    while converging, populating excluded_pixels in the same call (no second sweep).
+    """
     camera = _AutoDetectCamera()
     camera.autoexpose(set_fraction=0.5, tolerance=0.05, detect_stuck_pixels=True)
     assert camera.excluded_pixels == [(8, 8)]
@@ -975,7 +992,8 @@ def test_autoexpose_detect_stuck_pixels_flag():
 
 def test_capture_exposure_sweep_drops_out_of_bounds_exposures():
     """Exposures above the upper bound are dropped, not clipped to it, so the sweep
-    keeps its spacing and still detects the stuck pixels from the in-bounds ones."""
+    keeps its spacing and still detects the stuck pixels from the in-bounds ones.
+    """
     camera = _SceneCamera()  # bounds (1e-4, 1.0)
     frames, exposures = camera._capture_exposure_sweep(
         exposures=[1e-4, 1e-1, 5.0, 10.0]
@@ -987,7 +1005,8 @@ def test_capture_exposure_sweep_drops_out_of_bounds_exposures():
 
 def test_find_stuck_pixels_needs_two_in_bounds_exposures():
     """Fewer than two exposures within the bounds cannot reveal a response, so it raises
-    rather than guessing."""
+    rather than guessing.
+    """
     camera = _SceneCamera()
     with pytest.raises(ValueError, match="at least two exposures"):
         camera.find_stuck_pixels(exposures=[1e-3, 5.0])
@@ -998,7 +1017,8 @@ def test_find_stuck_pixels_needs_two_in_bounds_exposures():
 
 def test_the_eight_orientations_are_distinct_and_recoverable():
     """A mounting is read back from the transform a camera applies, so the two have to
-    agree for all eight."""
+    agree for all eight.
+    """
     shape = (240, 320)
     matrices = set()
     for orientation in CameraOrientation.dihedral():
@@ -1010,14 +1030,16 @@ def test_the_eight_orientations_are_distinct_and_recoverable():
 
 def test_a_transform_outside_the_eight_has_no_orientation():
     """A camera is free to apply any transform to its frames, and saying so beats
-    naming the nearest of the eight."""
+    naming the nearest of the eight.
+    """
     stretch = np.array([[2.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
     assert CameraOrientation.from_matrix(stretch, (240, 320)) is None
 
 
 def test_composing_two_mountings_gives_a_third():
     """Remounting an already-mounted camera is one of the eight, which is what lets a
-    correction relative to the current mounting become the absolute one."""
+    correction relative to the current mounting become the absolute one.
+    """
     identity, flip = CameraOrientation(), CameraOrientation(fliplr=True)
 
     # self after other, matching GeometricTransform.compose.
@@ -1034,7 +1056,8 @@ def test_composing_two_mountings_gives_a_third():
 
 def test_composition_matches_applying_both_transforms():
     """The algebra has to agree with the frames, since the frames are what a camera
-    actually returns."""
+    actually returns.
+    """
     frame = np.arange(15).reshape(3, 5)
     for a in CameraOrientation.dihedral():
         for b in CameraOrientation.dihedral():
@@ -1054,7 +1077,8 @@ def test_a_camera_reports_the_orientation_it_was_built_with():
 
 def test_set_orientation_swaps_the_displayed_shape_for_a_quarter_turn():
     """What the constructor does for a rotated mount, done later: the frame comes back
-    transposed and the geometry follows it."""
+    transposed and the geometry follows it.
+    """
     _, camera = _build()
     camera.set_exposure(1e-3)
     assert camera.get_image().shape == (240, 320)
@@ -1074,7 +1098,8 @@ def test_set_orientation_swaps_the_displayed_shape_for_a_quarter_turn():
 def test_a_snapshot_records_the_panel_and_derives_the_frame():
     """A snapshot used to store the frame shape beside the region that defines it, and
     not store the panel at all, so a saved record could not answer what the sensor
-    was."""
+    was.
+    """
     from hologradpy.hardware.camera.abstract import CameraData
 
     _, camera = _build()
@@ -1097,7 +1122,8 @@ def _rotated_camera() -> Camera:
 
 def test_set_orientation_resets_a_crop_from_the_old_frame():
     """A region of interest is expressed in the displayed frame, which the new mounting
-    replaces, so keeping it would crop somewhere unintended."""
+    replaces, so keeping it would crop somewhere unintended.
+    """
     _, camera = _build()
     camera.set_roi(ROI(10, 20, 30, 40))
     camera.set_orientation(CameraOrientation("90"))
@@ -1127,7 +1153,8 @@ def test_a_camera_that_cannot_be_reoriented_says_so():
 
 def test_phase_and_levels_are_told_apart_by_the_caller() -> None:
     """Not by dtype: an integer array of radians would otherwise become levels, and the
-    call would look identical either way."""
+    call would look identical either way.
+    """
     slm = _slm_at(8)
 
     with pytest.raises(TypeError, match="set_levels"):
@@ -1171,7 +1198,8 @@ def _residual(displayed: torch.Tensor, aberration: torch.Tensor) -> float:
 
 def test_a_measured_wavefront_is_cancelled_not_doubled() -> None:
     """The whole point, and the one that catches the sign being backwards: a measurement
-    says what aberration is present, so the correction is its negative."""
+    says what aberration is present, so the correction is its negative.
+    """
     slm, aberration, measured = _aberrated_slm()
     slm.load_measured_wavefront(measured)
     flat = np.zeros(slm.resolution)
@@ -1186,7 +1214,8 @@ def test_a_measured_wavefront_is_cancelled_not_doubled() -> None:
 
 def test_the_correction_backwards_makes_it_worse() -> None:
     """What the negation on load buys. A bare array is taken as already a correction, so
-    handing it the aberration itself is the mistake this guards."""
+    handing it the aberration itself is the mistake this guards.
+    """
     slm, aberration, _ = _aberrated_slm()
     flat = np.zeros(slm.resolution)
     slm.set_phase(flat)
@@ -1200,7 +1229,8 @@ def test_the_correction_backwards_makes_it_worse() -> None:
 
 def test_a_correction_is_off_unless_it_is_asked_for() -> None:
     """The default that keeps a wavefront calibration honest: measuring through an
-    active correction recovers the wrong wavefront, and the error compounds."""
+    active correction recovers the wrong wavefront, and the error compounds.
+    """
     slm, _, measured = _aberrated_slm()
     flat = np.zeros(slm.resolution)
 
@@ -1229,7 +1259,8 @@ def test_a_correction_has_to_be_the_panels_shape() -> None:
 
 def test_only_the_phase_of_a_measurement_is_kept() -> None:
     """A phase-only panel cannot fix an amplitude, so the amplitude is dropped rather
-    than quietly folded in."""
+    than quietly folded in.
+    """
     slm, aberration, measured = _aberrated_slm()
     dim = ComplexAmplitude(
         0.01 * measured.as_tensor(),
@@ -1246,7 +1277,8 @@ def test_only_the_phase_of_a_measurement_is_kept() -> None:
 def test_a_vendor_correction_moves_the_level_it_says() -> None:
     """Vendors ship gray levels, calibrated against their own curve, so it is added
     after the conversion. Converting it through our response first would re-interpret
-    their numbers, and under a measured curve would land somewhere else entirely."""
+    their numbers, and under a measured curve would land somewhere else entirely.
+    """
     slm = _slm_at(8)
     slm.virtual_slm.phase_response = PhaseResponseModule(_s_curve())
     phase = np.full(slm.resolution, -2.0)
@@ -1274,7 +1306,8 @@ def test_a_vendor_correction_wraps_rather_than_clipping() -> None:
 
 def test_a_capture_carries_the_corrections_themselves() -> None:
     """Not a name for them. A dataset is reinterpreted long after the file a name points
-    at has moved, and by then only the numbers are any use."""
+    at has moved, and by then only the numbers are any use.
+    """
     from hologradpy.hardware.slm.abstract import SLMData
 
     slm, aberration, measured = _aberrated_slm()

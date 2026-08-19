@@ -79,7 +79,8 @@ FOCAL_LENGTH = 0.1
 
 def _build_hardware():
     """A small simulated SLM + camera whose 'hardware' carries a known non-flat
-    SLM-plane wavefront (gaussian amplitude + a mild quadratic phase)."""
+    SLM-plane wavefront (gaussian amplitude + a mild quadratic phase).
+    """
     geometry = FieldGeometry(
         resolution=SLM_RESOLUTION,
         pixel_size=torch.tensor([12.5e-6, 12.5e-6], device=DEVICE),
@@ -250,7 +251,8 @@ def test_visualization_data_populated_and_visualizer_renders(tmp_path) -> None:
 def test_a_dataset_can_be_inspected_before_a_fit_is_spent_on_it(tmp_path) -> None:
     """A capture is worth checking before paying for a fit: the region should sit on the
     speckle and the frame should be exposed rather than saturated. That needs a payload
-    carrying only what a dataset holds, so none of the fitted panels can be required."""
+    carrying only what a dataset holds, so none of the fitted panels can be required.
+    """
     slm, camera = _build_hardware()
     calibrator = PixelwiseSpeckleCalibrator(
         slm=slm,
@@ -329,7 +331,8 @@ def _calibrate(tmp_path, **kwargs):
 def test_a_simulated_bench_records_what_was_injected(tmp_path) -> None:
     """Only simulated hardware can say what the calibration was trying to recover, and
     recording it is what makes the comparison panels and the residual metrics possible
-    without the caller keeping the truth to hand."""
+    without the caller keeping the truth to hand.
+    """
     result = _calibrate(tmp_path)
     data = result.visualization_data
 
@@ -346,7 +349,8 @@ def test_the_comparison_mask_is_cut_from_the_injected_beam(tmp_path) -> None:
     """A mask cut from the recovery moves with the fit's own errors: a run that flattens
     the beam would be judged on a region its own mistake chose, and the panels would
     change shape between runs that ought to be comparable. One definition, so the figure
-    and the reported numbers describe the same pixels."""
+    and the reported numbers describe the same pixels.
+    """
     result = _calibrate(tmp_path)
     data = result.visualization_data
 
@@ -359,7 +363,8 @@ def test_the_comparison_mask_is_cut_from_the_injected_beam(tmp_path) -> None:
 
 def test_a_real_camera_falls_back_to_the_recovered_beam(tmp_path, monkeypatch) -> None:
     """There is no truth to cut a mask from on a real bench, so the region reverts to
-    the recovered beam, which is also the region tilt was fitted over."""
+    the recovered beam, which is also the region tilt was fitted over.
+    """
     monkeypatch.delattr(SimulatedCameraTorch, "static_slm_field")
 
     result = _calibrate(tmp_path)
@@ -400,7 +405,8 @@ def test_the_beam_mask_threshold_is_settable(tmp_path) -> None:
 
 def test_a_real_camera_leaves_the_comparison_out(tmp_path, monkeypatch) -> None:
     """A camera that cannot answer for the truth must not break the calibration, or the
-    diagnostics figure. It simply gets no comparison, and asking for one says why."""
+    diagnostics figure. It simply gets no comparison, and asking for one says why.
+    """
     # A real camera has no such attribute. Taking it off is the closest stand-in that
     # leaves every other behavior of the simulated bench identical.
     monkeypatch.delattr(SimulatedCameraTorch, "static_slm_field")
@@ -458,7 +464,8 @@ def test_dataset_survives_being_moved(tmp_path) -> None:
 
 def test_fitting_without_a_dataset_fails_loudly(tmp_path) -> None:
     """Skipping the capture must name the missing step, not fail on a None attribute
-    somewhere inside the region-of-interest helper."""
+    somewhere inside the region-of-interest helper.
+    """
     slm, camera = _build_hardware()
     calibrator = PixelwiseSpeckleCalibrator(
         slm=slm,
@@ -475,7 +482,8 @@ def test_fitting_without_a_dataset_fails_loudly(tmp_path) -> None:
 
 def test_a_dataset_can_be_captured_once_and_refitted(tmp_path) -> None:
     """The two-phase workflow the removed wrapper used to serve: capture through the
-    generator, then fit as many times as wanted without recapturing."""
+    generator, then fit as many times as wanted without recapturing.
+    """
     slm, camera = _build_hardware()
     calibrator = PixelwiseSpeckleCalibrator(
         slm=slm,
@@ -547,7 +555,8 @@ def test_a_coarse_mapping_is_run_when_none_is_supplied(tmp_path) -> None:
 
 def _plain_model(slm, camera, focal_length: float = 0.25) -> SLMCZT:
     """A model carrying nothing but an unmodulated field, as a caller would hand over
-    without having decided how the SLM-plane field should be parameterized."""
+    without having decided how the SLM-plane field should be parameterized.
+    """
     return SLMCZT(
         input_geometry=slm.input_geometry,
         virtual_slm=VirtualSLM.from_slm(slm),
@@ -604,7 +613,8 @@ def test_the_calibrator_builds_the_field_it_fits_from_its_own_mapping(tmp_path) 
 
 def test_the_swap_leaves_no_ghost_of_the_replaced_field(tmp_path) -> None:
     """The old field must leave the model entirely, or the optimizer would carry
-    parameters that no longer affect the forward pass."""
+    parameters that no longer affect the forward pass.
+    """
     import sys
 
     sys.path.insert(0, os.path.dirname(__file__))
@@ -632,7 +642,8 @@ def test_the_swap_leaves_no_ghost_of_the_replaced_field(tmp_path) -> None:
 
 def test_a_supplied_field_of_the_right_type_is_kept(tmp_path) -> None:
     """Supplying one is how a fit is warm-started from an earlier calibration, so it
-    must be used exactly as given rather than rebuilt from a fresh measurement."""
+    must be used exactly as given rather than rebuilt from a fresh measurement.
+    """
     import sys
 
     sys.path.insert(0, os.path.dirname(__file__))
@@ -661,7 +672,8 @@ def test_a_supplied_field_of_the_right_type_is_kept(tmp_path) -> None:
 
 def test_a_supplied_mapping_skips_the_coarse_mapping(tmp_path) -> None:
     """Passing one must use it as given, so a mapping saved from an earlier session is
-    honoured rather than silently remeasured."""
+    honoured rather than silently remeasured.
+    """
     slm, camera = _build_hardware()
     mapping = _synthetic_mapping()
 
@@ -689,7 +701,8 @@ def test_dataset_manifest_rejects_the_wrong_record_type(tmp_path) -> None:
 
 def test_capturing_before_generating_patterns_fails_loudly(tmp_path) -> None:
     """Capturing without a region-of-interest mask raises instead of metering the
-    exposure against the whole sensor, zeroth order included."""
+    exposure against the whole sensor, zeroth order included.
+    """
     slm, camera = _build_hardware()
     generator = DatasetGenerator(
         slm=slm,
@@ -718,7 +731,8 @@ def _generator_for(camera_mapping, slm, camera, tmp_path) -> DatasetGenerator:
 def test_the_speckle_extent_is_a_width_not_a_radius(tmp_path) -> None:
     """A requested extent must measure across the speckle, so it can be compared
     against the sensor size. Passing it through as a radius made every region twice the
-    size asked for, which silently overran the sensor."""
+    size asked for, which silently overran the sensor.
+    """
     slm, camera = _build_hardware()
     generator = _generator_for(_synthetic_mapping(), slm, camera, tmp_path)
 
@@ -740,7 +754,8 @@ def test_the_default_extent_is_the_largest_that_fits_an_off_axis_camera(
 ) -> None:
     """The speckle is centered on the zeroth order, not on the sensor, so the default
     has to be measured from the mapping. Assuming a centered beam puts a third of the
-    region off the sensor, where it contributes nothing but skews the autoexposure."""
+    region off the sensor, where it contributes nothing but skews the autoexposure.
+    """
     slm, camera = _build_hardware()
     # A quarter of the way down, so the top edge is the nearest one.
     zeroth = (CAMERA_RESOLUTION[0] / 4, CAMERA_RESOLUTION[1] / 2)
@@ -766,7 +781,8 @@ def test_the_default_extent_is_the_largest_that_fits_an_off_axis_camera(
 def test_a_zeroth_order_off_the_sensor_refuses_to_pick_an_extent(tmp_path) -> None:
     """Coarse mapping extrapolates the zeroth order through the affine, so it can land
     off the sensor. Nothing centered there fits, and the arithmetic would otherwise hand
-    back a negative width and an empty region."""
+    back a negative width and an empty region.
+    """
     slm, camera = _build_hardware()
     off_sensor = (-5.0, CAMERA_RESOLUTION[1] / 2)
     generator = _generator_for(_synthetic_mapping(off_sensor), slm, camera, tmp_path)
@@ -1011,7 +1027,8 @@ def test_phase_patterns_span_one_2pi_cycle_without_wrapping() -> None:
     """The SLM wraps its phase into one 2 pi cycle, so a pattern spanning more
     than that gains discontinuities it was never meant to have, and a
     discontinuity is broadband: it scatters light right out of the region the
-    band limit was chosen to fill."""
+    band limit was chosen to fill.
+    """
     from hologradpy.profiles.phase import band_limited_random_phase
 
     rows, columns = np.indices((64, 64))
@@ -1022,7 +1039,7 @@ def test_phase_patterns_span_one_2pi_cycle_without_wrapping() -> None:
     ).numpy()
 
     assert phase.min() >= 0.0
-    assert np.isclose(phase.ptp(), 2 * np.pi)
+    assert np.isclose(np.ptp(phase), 2 * np.pi)
     steps = np.concatenate(
         [np.abs(np.diff(phase, axis=0)).ravel(), np.abs(np.diff(phase, axis=1)).ravel()]
     )

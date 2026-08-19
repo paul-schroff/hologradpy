@@ -3,8 +3,13 @@ from __future__ import annotations
 import operator
 from functools import reduce
 
+from typing import TYPE_CHECKING
+
 import torch
 import torch.nn as nn
+
+if TYPE_CHECKING:
+    from .optics.modules.slm_fields import SLMField
 
 
 INTENSITY_MSE_SCALE = 1e12
@@ -45,7 +50,7 @@ def masked_intensity_mse(
         region_pixel_count: How many pixels the mask selects.
 
     Returns:
-        The mismatch, averaged over the batch.
+        torch.Tensor: The mismatch, averaged over the batch.
     """
     number_of_targets = target_intensity.shape[-3]
     intensity = field.abs() ** 2 * mask
@@ -157,16 +162,17 @@ class MaskedIntensityMSE(LossFunction):
     :class:`LossIntensityMSE` scores the same quantity against a fixed target held from
     construction rather than a measured frame per batch, and without the region scaling
     (see :func:`masked_intensity_mse`), so the two are not interchangeable weights.
-
-    Args:
-        mask: Region of interest, already cropped to its bounding box and in the
-            model's dtype and device.
-        scale: Weight of this term.
     """
 
     name = "intensity mse"
 
     def __init__(self, mask: torch.Tensor, scale: float = 1.0) -> None:
+        """
+        Args:
+            mask: Region of interest, already cropped to its bounding box and in the
+                model's dtype and device.
+            scale: Weight of this term.
+        """
         self.mask: torch.Tensor = mask
         self.region_pixel_count: float = float(mask.sum())
         self.scale: float = scale
@@ -189,15 +195,16 @@ class PhaseSmoothness(LossFunction):
 
     Ignores ``field`` and ``target``: it reads the field module it was built on, which
     is what makes it addable to a data term.
-
-    Args:
-        slm_field: The field module being fitted, carrying ``phase``.
-        scale: Weight of this penalty, relative to the data term.
     """
 
     name = "phase smoothness"
 
-    def __init__(self, slm_field, scale: float = 1e-3) -> None:
+    def __init__(self, slm_field: SLMField, scale: float = 1e-3) -> None:
+        """
+        Args:
+            slm_field: The field module being fitted, carrying ``phase``.
+            scale: Weight of this penalty, relative to the data term.
+        """
         self.slm_field = slm_field
         self.scale: float = scale
 
@@ -213,15 +220,16 @@ class AmplitudeSmoothness(LossFunction):
     The amplitude counterpart of :class:`PhaseSmoothness`, and the other half of the
     prior a per-pixel field needs. Weighted separately, since the two quantities are
     independent.
-
-    Args:
-        slm_field: The field module being fitted, carrying ``amplitude``.
-        scale: Weight of this penalty, relative to the data term.
     """
 
     name = "amplitude smoothness"
 
-    def __init__(self, slm_field, scale: float = 1e-3) -> None:
+    def __init__(self, slm_field: SLMField, scale: float = 1e-3) -> None:
+        """
+        Args:
+            slm_field: The field module being fitted, carrying ``amplitude``.
+            scale: Weight of this penalty, relative to the data term.
+        """
         self.slm_field = slm_field
         self.scale: float = scale
 
@@ -285,6 +293,12 @@ def mean_curvature(input: torch.Tensor, pixel_pitch: float = 1.0) -> torch.Tenso
 
 
 class LossIntensityMSE(LossFunction):
+    """Squared error between the produced and target intensity, over the signal region.
+
+    Compares intensity alone and says nothing about phase, so a retrieval driven by
+    this term is free to choose whatever image-plane phase suits it.
+    """
+
     def __init__(
         self,
         target_intensity: torch.Tensor,
@@ -294,12 +308,9 @@ class LossIntensityMSE(LossFunction):
         """Amplitude-only cost function from https://doi.org/10.1364/OE.22.026548.
 
         Args:
-            target_intensity : torch.Tensor
-                Target intensity pattern.
-            signal_mask : torch.Tensor
-                Binary mask containing signal region.
-            scale : float, optional
-                Weight of this term, by default 1e12.
+            target_intensity: Target intensity pattern.
+            signal_mask: Binary mask containing signal region.
+            scale: Weight of this term, by default 1e12.
         """
         self.mse = nn.MSELoss(reduction="sum")
         self.signal_mask = signal_mask
@@ -315,14 +326,11 @@ class LossIntensityMSE(LossFunction):
         """Calculate the loss based on the complex amplitude at the image plane.
 
         Args:
-            field : torch.Tensor
-                Complex amplitude at the image plane.
-            target : torch.Tensor, optional
-                Ignored. The target was fixed at construction.
+            field: Complex amplitude at the image plane.
+            target: Ignored. The target was fixed at construction.
 
         Returns:
-            torch.Tensor
-                Cost.
+            torch.Tensor: Cost.
         """
         intensity_out = field.abs() ** 2 * self.signal_mask
         intensity_out = normalize_single_to_unit_sum(intensity_out)
@@ -330,6 +338,12 @@ class LossIntensityMSE(LossFunction):
 
 
 class LossFidelity(LossFunction):
+    """Overlap of the produced field with a target amplitude and phase.
+
+    Scores amplitude and phase together, so unlike :class:`LossIntensityMSE` it
+    constrains the image-plane phase as well.
+    """
+
     def __init__(
         self,
         target_intensity: torch.Tensor,
@@ -340,14 +354,10 @@ class LossFidelity(LossFunction):
         """Phase and amplitude cost function from https://doi.org/10.1364/OE.25.011692.
 
         Args:
-            target_intensity : torch.Tensor
-                Target intensity pattern.
-            target_phase : torch.Tensor
-                Target phase pattern.
-            signal_mask : torch.Tensor
-                Binary mask containing signal region.
-            scale : float, optional
-                Weight of this term, by default 1e12.
+            target_intensity: Target intensity pattern.
+            target_phase: Target phase pattern.
+            signal_mask: Binary mask containing signal region.
+            scale: Weight of this term, by default 1e12.
         """
         self.scale: float = scale
         self.signal_mask = signal_mask
@@ -361,14 +371,11 @@ class LossFidelity(LossFunction):
         """Calculate the loss based on the electric field.
 
         Args:
-            field : torch.Tensor
-                Electric field at the image plane.
-            target : torch.Tensor, optional
-                Ignored. The target was fixed at construction.
+            field: Electric field at the image plane.
+            target: Ignored. The target was fixed at construction.
 
         Returns:
-            torch.Tensor
-                Cost.
+            torch.Tensor: Cost.
         """
         amplitude_out = field.abs()
         phase_out = field.angle()
@@ -389,6 +396,12 @@ class LossFidelity(LossFunction):
 
 
 class LossEfficiency(LossFunction):
+    """The fraction of the total power that misses the signal region.
+
+    Costs light thrown outside the target, so adding this term to a shape term trades
+    accuracy inside the region against how much power reaches it.
+    """
+
     def __init__(
         self,
         signal_mask: torch.Tensor,
@@ -398,12 +411,9 @@ class LossEfficiency(LossFunction):
         """Efficiency cost function.
 
         Args:
-            signal_mask : torch.Tensor
-                Binary mask containing signal region.
-            total_power : float
-                Total optical power.
-            scale : float, optional
-                Weight of this term, by default 1e12.
+            signal_mask: Binary mask containing signal region.
+            total_power: Total optical power.
+            scale: Weight of this term, by default 1e12.
         """
         self.signal_mask = signal_mask
         self.total_power = total_power
@@ -415,14 +425,11 @@ class LossEfficiency(LossFunction):
         """Calculate the loss based on the electric field.
 
         Args:
-            field : torch.Tensor
-                Electric field at the image plane.
-            target : torch.Tensor, optional
-                Ignored. This term has no target.
+            field: Electric field at the image plane.
+            target: Ignored. This term has no target.
 
         Returns:
-            torch.Tensor
-                Cost.
+            torch.Tensor: Cost.
         """
         intensity = torch.abs(field) ** 2
         efficiency = (intensity * self.signal_mask).sum() / self.total_power
@@ -434,7 +441,7 @@ class LossVorticity(LossFunction):
         self,
         target_intensity: torch.Tensor,
         scale: float = 1e12,
-    ):
+    ) -> None:
         self.scale: float = scale
         self.target_intensity = target_intensity
 

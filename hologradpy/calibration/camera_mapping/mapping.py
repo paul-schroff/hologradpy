@@ -63,7 +63,8 @@ class CameraMapping(SaveableRecord):
     @property
     def affine(self) -> AffineTransform:
         """The camera -> model transform as an :class:`AffineTransform` value object
-        (the single home for the rotation / mirror / scale decomposition)."""
+        (the single home for the rotation / mirror / scale decomposition).
+        """
         return AffineTransform.from_matrix(
             np.asarray(self.transform, dtype=np.float64)
         )
@@ -82,14 +83,15 @@ class CameraMapping(SaveableRecord):
         This is the ``(scale, angle, shift)`` parameterization the differentiable
         Fourier lenses and the field warp calibrate against, so it is fit directly
         from the correspondences rather than reduced from the 6-DOF
-        :attr:`affine` (which would discard shear inconsistently)."""
+        :attr:`affine` (which would discard shear inconsistently).
+        """
         return PartialAffineTransform.fit(
             self.detected_points, self.calculated_points
         )
 
     @property
     def zeroth_order_xy(self) -> tuple[float, float]:
-        """The zeroth order as ``(x, y)`` camera pixels. :attr:`zeroth_order_position` 
+        """The zeroth order as ``(x, y)`` camera pixels. :attr:`zeroth_order_position`
         is ``(row, column)``, which most of the geometry wants the other way round.
         """
         row, column = self.zeroth_order_position
@@ -113,7 +115,8 @@ class CameraMapping(SaveableRecord):
     def rotation_degrees(self) -> float:
         """Rotation of the camera axes relative to the model plane in degrees, from the
         polar decomposition of the transform (reflection factored out for a mirrored
-        camera)."""
+        camera).
+        """
         return self.affine.rotation_degrees
 
     @property
@@ -122,6 +125,7 @@ class CameraMapping(SaveableRecord):
         return self.affine.scales
 
     def lean(self) -> CameraMapping:
-        """A copy without the frames it was fit from, for embedding in another record.
+        """A copy without the frames it was fit from, ready to embed in another
+        record.
         """
         return replace(self, visualization_data=None)

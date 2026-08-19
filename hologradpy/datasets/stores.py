@@ -1,6 +1,6 @@
-"""The file a set is written to one ASDF tree and one streamed block. ASDF allows a 
-single streamed block and it must be last, so everything else, the record included, is
-known before the first frame.
+"""The file a set is written to holds one ASDF tree and one streamed block. ASDF
+allows a single streamed block and it must be last, so everything else, the record
+included, is known before the first frame.
 """
 
 from __future__ import annotations
@@ -9,12 +9,12 @@ import gc
 import os
 from dataclasses import fields, is_dataclass
 from pathlib import Path
-from typing import Sequence, TypedDict, TypeVar
+from typing import Any, BinaryIO, Sequence, TypedDict, TypeVar
 
 import asdf
 import numpy as np
 from asdf.tags.core import NDArrayType
-from numpy.typing import NDArray
+from numpy.typing import DTypeLike, NDArray
 
 from ..phase_levels import level_dtype
 from ..serialization import (
@@ -58,16 +58,15 @@ class _SampleStore:
         self,
         path: str | os.PathLike,
         *,
-        file=None,
-        handle=None,
-        frame_dtype=SAMPLE_DTYPE,
+        file: asdf.AsdfFile | None = None,
+        handle: BinaryIO | None = None,
+        frame_dtype: DTypeLike = SAMPLE_DTYPE,
     ) -> None:
         self.path = Path(path)
         self._file = file
         self._handle = handle
         self._frame_dtype = frame_dtype
         self._appended = 0
-
 
     @classmethod
     def _start(
@@ -77,8 +76,8 @@ class _SampleStore:
         *,
         streaming: str,
         frame_shape: tuple[int, int],
-        frame_dtype,
-        **state,
+        frame_dtype: DTypeLike,
+        **state: Any,
     ) -> StoreType:
         """Write everything but the streamed series, and hold the file open for it."""
         tree[_BLOCK_NAMES[streaming]] = asdf.Stream(list(frame_shape), frame_dtype)
@@ -126,10 +125,10 @@ class _SampleStore:
         """The named series in full, still belonging to the open file."""
         return {name: self._series(name) for name in names}
 
-    def _series(self, name: str):
+    def _series(self, name: str) -> NDArrayType | None:
         return self._require_file().tree.get(_BLOCK_NAMES[name])
 
-    def _require_file(self):
+    def _require_file(self) -> asdf.AsdfFile:
         if self._file is None:
             raise RuntimeError(
                 f"{self.path} is open for writing, not reading. Close it and reopen "
@@ -152,7 +151,7 @@ class _SampleStore:
     def __enter__(self: StoreType) -> StoreType:
         return self
 
-    def __exit__(self, *exception) -> None:
+    def __exit__(self, *exception: object) -> None:
         self.close()
 
 
@@ -166,7 +165,9 @@ class CaptureStore(_SampleStore):
     dataset.
     """
 
-    def __init__(self, *args, phase_bitdepth: int | None = None, **kwargs) -> None:
+    def __init__(
+        self, *args: Any, phase_bitdepth: int | None = None, **kwargs: Any
+    ) -> None:
         super().__init__(*args, **kwargs)
         self._phase_bitdepth = phase_bitdepth
 
@@ -179,7 +180,7 @@ class CaptureStore(_SampleStore):
         frame_shape: tuple[int, int],
         slm_levels: Sequence[NDArray],
         phase_bitdepth: int,
-        frame_dtype=SAMPLE_DTYPE,
+        frame_dtype: DTypeLike = SAMPLE_DTYPE,
     ) -> CaptureStore:
         """Open a store and write everything but the camera frames.
 
@@ -220,7 +221,7 @@ class CaptureStore(_SampleStore):
         camera_images: Sequence[NDArray],
         slm_levels: Sequence[NDArray],
         phase_bitdepth: int,
-        frame_dtype=SAMPLE_DTYPE,
+        frame_dtype: DTypeLike = SAMPLE_DTYPE,
     ) -> Path:
         """Write a complete capture in one call, for one that fits in memory."""
         tree = _tree(record, phase_bitdepth)
@@ -256,7 +257,7 @@ class CaptureStore(_SampleStore):
         """Description of this capture.
 
         Raises:
-            TypeError: The file holds a record no class is registered for.
+            TypeError: when the file holds a record no class is registered for.
         """
         record = self._require_file().tree.get("record")
         check_record_recognized(record, self.path)
@@ -274,7 +275,7 @@ class RetrievalStepStore(_SampleStore):
         path: str | os.PathLike,
         *,
         frame_shape: tuple[int, int],
-        frame_dtype=SAMPLE_DTYPE,
+        frame_dtype: DTypeLike = SAMPLE_DTYPE,
     ) -> RetrievalStepStore:
         """Open a store to stream the search's parameter into."""
         return cls._start(
@@ -289,8 +290,8 @@ class RetrievalStepStore(_SampleStore):
         return {"slm_fraction": np.array(self._series("slm_fraction")[index])}
 
 
-def _realised(value):
-    """Read a lazily loaded value in, so it outlives the file it came from. Only ASDF's 
+def _realised(value: Any) -> Any:
+    """Read a lazily loaded value in, so it outlives the file it came from. Only ASDF's
     own lazy array type is converted. Tensors and complex amplitudes are already read in
     by their converters, and everything else is left as it is.
     """
@@ -310,7 +311,9 @@ def _realised(value):
     return value
 
 
-def _dtype_for(series: str, phase_bitdepth: int | None, frame_dtype=SAMPLE_DTYPE):
+def _dtype_for(
+    series: str, phase_bitdepth: int | None, frame_dtype: DTypeLike = SAMPLE_DTYPE
+) -> DTypeLike:
     if series == "slm_levels":
         return level_dtype(phase_bitdepth or 8)
     return frame_dtype
@@ -328,7 +331,7 @@ def _stack(
     arrays: Sequence[NDArray],
     series: str,
     phase_bitdepth: int | None,
-    frame_dtype=SAMPLE_DTYPE,
+    frame_dtype: DTypeLike = SAMPLE_DTYPE,
 ) -> NDArray:
     """The series as one array, in the width the samples justify."""
     return np.asarray(

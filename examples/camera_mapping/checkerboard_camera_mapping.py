@@ -1,3 +1,11 @@
+"""
+Camera mapping from a checkerboard
+==================================
+
+Displaying a checkerboard and detecting its corners, fitting an affine transform 
+between the image plane and the sensor.
+"""
+
 # %% Imports
 import matplotlib.pyplot as plt
 import torch
@@ -35,7 +43,7 @@ slm = open_slm(
 )
 
 gaussian_intensity = gaussian_beam_intensity(
-    *slm.get_spatial_grid(),
+    *slm.get_spatial_grid(device),
     beam_radius=5e-3,
 )
 gaussian_beam = ComplexAmplitude(

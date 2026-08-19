@@ -11,7 +11,7 @@ Two decoupled concerns:
 - :class:`BaseVisualizer` provides reusable, content-only drawing helpers
   (``draw_image`` / ``draw_line`` / ``draw_points``) plus static figure composition. A
   concrete visualizer supplies a :meth:`default_layout` and a :meth:`panels` mapping of
-  cell name to a ``panel(axs)`` callable -- no frame, since most plots are static.
+  cell name to a ``panel(axs)`` callable, with no frame, since most plots are static.
   :class:`AnimatedVisualizer` adds the animation / GIF machinery for the few plots that
   move: an animation is just composing the static panels once per frame.
 
@@ -23,9 +23,11 @@ visualizers can be mixed and matched into one :class:`PlotLayout` and rendered t
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
+from numpy.typing import ArrayLike
+
 from .serialization import record_type
 
 if TYPE_CHECKING:
@@ -64,24 +66,18 @@ class VisualizationData:
 class GridCell:
     """Geometry of one named axes cell in a :class:`PlotLayout`.
 
-    Parameters
-    ----------
-    name : str
-        Key used to look the axes up in ``layout.axes[name]``.
-    colspan : int
-        Number of grid columns the cell spans.
-    aspect : float | str
-        Cell height-to-width ratio. A float is the ratio ``height / width``;
-        ``"equal"`` is a square cell (ratio 1.0); ``"auto"`` leaves the height to
-        ``height`` (or the row default) -- use it for line plots.
-    colorbar : bool
-        If True, a matched-height colorbar axes is appended on the right and
-        exposed as ``layout.colorbar_axes[name]``.
-    height : float | None
-        Explicit cell height [inches], overriding ``aspect`` for the row height.
-        Mainly for ``aspect="auto"`` line rows.
-    sharex : str | None
-        Name of another cell whose x-axis this cell should share.
+    Args:
+        name: Key used to look the axes up in ``layout.axes[name]``.
+        colspan: Number of grid columns the cell spans.
+        aspect: Cell height-to-width ratio. A float is the ratio
+            ``height / width``, ``"equal"`` is a square cell (ratio 1.0), and
+            ``"auto"`` leaves the height to ``height`` or the row default and
+            suits line plots.
+        colorbar: If True, a matched-height colorbar axes is appended on the
+            right and exposed as ``layout.colorbar_axes[name]``.
+        height: Explicit cell height [inches], overriding ``aspect`` for the row
+            height. Mainly for ``aspect="auto"`` line rows.
+        sharex: Name of another cell whose x-axis this cell should share.
     """
 
     name: str
@@ -96,9 +92,10 @@ class PlotLayout:
     """Build a figure of named, neatly aligned axes cells.
 
     Add rows of :class:`GridCell` with :meth:`add_row`, then :meth:`build`. Columns are
-    equal width; each row's height follows from its cells' aspect ratios so images stay
-    undistorted and rows line up. Built on ``mpl_toolkits.axes_grid1.Divider`` (absolute
-    inch sizing) with ``make_axes_locatable`` for matched colorbars.
+    equal width, and each row's height follows from its cells' aspect ratios so images
+    stay undistorted and rows line up. Built on ``mpl_toolkits.axes_grid1.Divider``
+    (absolute inch sizing), with every colorbar placed in its own divider cell so it
+    matches the height of the cell it belongs to.
     """
 
     def __init__(
@@ -133,8 +130,8 @@ class PlotLayout:
     def copy(self) -> PlotLayout:
         """Return an independent clone (same style + cells) for reuse.
 
-        A configured layout can seed many figures; ``copy()`` lets you tweak one (e.g.
-        add a row) without disturbing the original.
+        A configured layout can seed many figures, and ``copy()`` lets you tweak one
+        (e.g. add a row) without disturbing the original.
         """
         clone = PlotLayout(
             column_width=self.column_width,
@@ -269,9 +266,9 @@ class PlotLayout:
 
         number_of_rows = len(self._rows)
         for row_index, (row, (widths, _)) in enumerate(zip(self._rows, row_plans)):
-            # One divider per row, over that row's own cells. Colorbars sit in their
-            # own divider cell rather than coming from make_axes_locatable, so the
-            # panels and their bars are placed by the same absolute sizing.
+            # One divider per row, over that row's own cells. Colorbars sit in
+            # their own divider cell, so the panels and their bars are placed by
+            # the same absolute sizing.
             horizontal: list = [Size.Fixed(left)]
             slots: list[tuple[int, int | None]] = []
             for position, (cell, width) in enumerate(zip(row, widths)):
@@ -333,7 +330,7 @@ class BaseVisualizer:
     @staticmethod
     def draw_image(
         axs: Axes,
-        data,
+        data: ArrayLike,
         *,
         cmap: str = "viridis",
         vmin: float | None = None,
@@ -341,7 +338,7 @@ class BaseVisualizer:
         title: str | None = None,
         interpolation: str | None = None,
     ) -> ScalarMappable:
-        """Show ``data`` as an image; return the mappable (for a colorbar)."""
+        """Show ``data`` as an image and return the mappable (for a colorbar)."""
         axs.set_xticks([])
         axs.set_yticks([])
         mappable = axs.imshow(
@@ -358,15 +355,15 @@ class BaseVisualizer:
     @staticmethod
     def draw_points(
         axs: Axes,
-        x,
-        y,
+        x: ArrayLike,
+        y: ArrayLike,
         *,
         marker: str = "o",
         color: str = "red",
         size: float = 8.0,
         edgecolor: str = "white",
         legend: bool = False,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """Overlay scatter points (markers only) on top of an image/axes.
 
@@ -437,10 +434,10 @@ class BaseVisualizer:
     @staticmethod
     def draw_quiver(
         axs: Axes,
-        x,
-        y,
-        u,
-        v,
+        x: ArrayLike,
+        y: ArrayLike,
+        u: ArrayLike,
+        v: ArrayLike,
         *,
         scale: float | None = None,
         color: str = "C0",
@@ -452,7 +449,7 @@ class BaseVisualizer:
         """Draw a vector field ``(u, v)`` anchored at ``(x, y)`` in data units.
 
         ``scale`` follows matplotlib's ``scale_units="xy"`` convention (drawn
-        length = vector length / scale, so ``scale < 1`` magnifies); ``None``
+        length = vector length / scale, so ``scale < 1`` magnifies). ``None``
         lets matplotlib autoscale. ``invert_y`` matches image coordinates
         (y grows downward).
         """
@@ -512,7 +509,7 @@ class BaseVisualizer:
 
 
 class AnimatedVisualizer(BaseVisualizer):
-    """A :class:`BaseVisualizer` whose figure is animated -- one static frame per
+    """A :class:`BaseVisualizer` whose figure is animated, one static frame per
     index.
 
     A subclass supplies :meth:`frame_count` and :meth:`panels_for_frame` (the static
@@ -586,10 +583,9 @@ class AnimatedVisualizer(BaseVisualizer):
 
         Each frame is quantized with a 256-color adaptive palette and Floyd-Steinberg
         dithering. matplotlib's default GIF writer maps every frame onto the 216-color
-        web-safe palette, which badly posterizes smooth gradients; the adaptive,
-        dithered palette keeps them smooth. (Note ``quantize(colors=...)`` median-cut
-        does not dither -- only the ``palette=`` path does -- so the dithering happens
-        in a second pass.)
+        web-safe palette, which badly posterizes smooth gradients, and the adaptive,
+        dithered palette keeps them smooth. The dithering happens in a second pass,
+        because only the ``palette=`` form of ``quantize`` dithers.
         """
         import matplotlib.pyplot as plt
         from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -632,12 +628,12 @@ class AnimatedVisualizer(BaseVisualizer):
 class PlotBuilder:
     """Builder that fills a :class:`PlotLayout`'s named cells with content.
 
-    The layout defines the grid of named :class:`GridCell`s (geometry only); the builder
-    draws into them *by name*. Every ``draw_*`` method takes the target cell name first
-    and returns ``self`` so calls chain, and repeated calls on the same cell layer (e.g.
-    an image then markers). :meth:`build` folds each cell's ops into one panel and
-    composes the figure -- it is pure sugar over :meth:`BaseVisualizer.compose`, so no
-    dict or ``lambda axs:`` is needed.
+    The layout defines the grid of named :class:`GridCell` cells (geometry only), and
+    the builder draws into them *by name*. Every ``draw_*`` method takes the target cell
+    name first and returns ``self`` so calls chain, and repeated calls on the same
+    cell layer (e.g. an image then markers). :meth:`build` folds each cell's ops
+    into one panel and composes the figure. It is pure sugar over
+    :meth:`BaseVisualizer.compose`, so no dict or ``lambda axs:`` is needed.
 
     >>> layout = PlotLayout(column_width=4.0)
     >>> layout.add_row([
@@ -659,8 +655,8 @@ class PlotBuilder:
         self._ops.setdefault(cell, []).append(op)
         return self
 
-    def draw_image(self, cell: str, data, **kwargs) -> PlotBuilder:
-        """Draw an image into the named cell. Keyword arguments are forwarded to 
+    def draw_image(self, cell: str, data: ArrayLike, **kwargs: Any) -> PlotBuilder:
+        """Draw an image into the named cell. Keyword arguments are forwarded to
         :meth:`BaseVisualizer.draw_image`.
         """
         return self._add(
@@ -688,7 +684,9 @@ class PlotBuilder:
             ),
         )
 
-    def draw_points(self, cell: str, x, y, **style) -> PlotBuilder:
+    def draw_points(
+        self, cell: str, x: ArrayLike, y: ArrayLike, **style: Any
+    ) -> PlotBuilder:
         """Layer scatter markers onto the named cell (after its image)."""
         return self._add(
             cell, lambda axs: BaseVisualizer.draw_points(axs, x, y, **style)
@@ -697,10 +695,10 @@ class PlotBuilder:
     def draw_quiver(
         self,
         cell: str,
-        x,
-        y,
-        u,
-        v,
+        x: ArrayLike,
+        y: ArrayLike,
+        u: ArrayLike,
+        v: ArrayLike,
         *,
         scale: float | None = None,
         color: str = "C0",
@@ -727,7 +725,7 @@ class PlotBuilder:
     def _fold(ops: list[Panel]) -> Panel:
         # One panel that runs every op for a cell, returning the last mappable (the
         # image's) so a declared colorbar still gets one.
-        def panel(axs):
+        def panel(axs: Axes) -> ScalarMappable | None:
             mappable = None
             for op in ops:
                 result = op(axs)

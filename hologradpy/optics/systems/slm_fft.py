@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from ..complex_amplitude import FieldGeometry
 
 from ..modules.propagators import FourierLensFFT

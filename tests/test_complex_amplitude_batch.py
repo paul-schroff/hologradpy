@@ -61,7 +61,8 @@ def test_flatten_unflatten_roundtrip(shape, n_wl, _batch_shape) -> None:
 @pytest.mark.parametrize("shape, n_wl, batch_shape", BATCH_SHAPE_CASES)
 def test_unflatten_with_changed_resolution(shape, n_wl, batch_shape) -> None:
     """A resampling propagator changes spatial resolution while preserving
-    batch and wavelength axes; unflatten must honour the new spatial size."""
+    batch and wavelength axes; unflatten must honour the new spatial size.
+    """
     field = make_field(shape, n_wl)
     flat, spec = field.flatten_batch()
 

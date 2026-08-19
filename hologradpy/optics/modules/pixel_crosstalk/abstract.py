@@ -71,8 +71,7 @@ class PixelCrosstalk(nn.Module):
 
 
 def replicate_pad(phase: Tensor, before: int, after: int | None = None) -> Tensor:
-    """``phase`` with its border repeated outwards, ``before`` and ``after`` samples.
-    """
+    """``phase`` with its border repeated outwards, ``before`` and ``after`` samples."""
     after = before if after is None else after
     if before == 0 and after == 0:
         return phase

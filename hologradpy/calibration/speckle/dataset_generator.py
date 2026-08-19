@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Dict, List, Literal
+from typing import Literal
 
 import os
 from datetime import datetime
@@ -49,10 +49,10 @@ class DatasetGenerator:
         self.number_of_random_patterns: int = number_of_random_patterns
         self.benchmark_calibration: WavefrontCalibrationData | None = None
 
-        self.phase_patterns: List[NDArray[np.float_]] = []
+        self.phase_patterns: list[NDArray[np.float64]] = []
 
         self.phase_pattern_type: str = "band_limited_random"
-        self.metadata: Dict[str, tuple[float, float] | float | int | None] = {
+        self.metadata: dict[str, tuple[float, float] | float | int | None] = {
             "band_radius_bins": None,
             "speckle_extent": None,
             "seed": None,
@@ -155,6 +155,8 @@ class DatasetGenerator:
                 they differ from one another and the whole set is reproducible. Leave
                 as None to seed from the system entropy, which makes the dataset
                 irreproducible.
+            verbose: Show a progress bar while the patterns are generated. Defaults
+                to True.
             pattern: ``"band_limited"`` draws the smooth speckle a wavefront fit wants.
                 ``"uniform"`` draws every SLM pixel independently, so neighbouring
                 pixels differ as much as they can, which is what excites pixel

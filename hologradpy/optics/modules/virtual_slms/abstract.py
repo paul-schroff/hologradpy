@@ -15,10 +15,8 @@ from ..abstract import OpticsModule
 from ..pixel_crosstalk import PixelCrosstalk
 from ...complex_amplitude import ComplexAmplitude, FieldGeometry
 
-from slmsuite.hardware.slms.slm import SLM
-
 if TYPE_CHECKING:
-    from ....hardware.slm import SLMData
+    from ....hardware.slm import SLM, SLMData
 
 
 class VirtualSLM(OpticsModule):
@@ -188,7 +186,9 @@ class VirtualSLM(OpticsModule):
         )
 
     @classmethod
-    def _from_source(cls: type[VirtualSLM], source, **extra) -> VirtualSLM:
+    def _from_source(
+        cls: type[VirtualSLM], source: SLM | SLMData, **extra
+    ) -> VirtualSLM:
         """Build from anything describing an SLM: a device, or a saved record."""
         pixel_size = source.pixel_size
         if pixel_size[0] != pixel_size[1]:

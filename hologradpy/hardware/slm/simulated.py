@@ -84,8 +84,7 @@ class SimulatedSLMTorch(SLM):
 
     @property
     def phase_response(self) -> PhaseResponse:
-        """Phase realized by applying a certain gray level, read from the virtual SLM.
-        """
+        """Phase realized by a given gray level, read from the virtual SLM."""
         virtual = getattr(self, "virtual_slm", None)
         if virtual is None:
             return self._response

@@ -236,7 +236,8 @@ def test_map_camera_returns_populated_mapping(spot_array_mapping):
 def test_map_camera_recovers_rotated_camera():
     """Regression: a rotated camera must yield the rotated transform, not bogus
     background fits at the unrotated positions (which silently produced a
-    rotation-free transform)."""
+    rotation-free transform).
+    """
     slm, camera, slm_camera_model = _build_setup(camera_angle=10.0)
     mapper = SpotArrayMapper(slm, camera, slm_camera_model)
     mapping = mapper.map_camera(number_of_spots=8, seed=1)
@@ -258,7 +259,8 @@ def test_map_camera_recovers_rotated_camera():
 
 def test_map_camera_fills_sensor_and_respects_border():
     """With no coarse mapping supplied, the mapper builds one internally and the
-    detected spots fill the (rotated) sensor while keeping a border."""
+    detected spots fill the (rotated) sensor while keeping a border.
+    """
     slm, camera, model = _build_setup(camera_angle=10.0)
     mapping = SpotArrayMapper(slm, camera, model).map_camera(
         number_of_spots=30, seed=1

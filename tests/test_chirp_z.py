@@ -94,7 +94,8 @@ def test_czt_is_differentiable() -> None:
 def test_pad_crop_centers_a_field_in_a_larger_frame() -> None:
     """The center sample has to land on the center sample. Any other offset is a phase
     ramp in the conjugate plane, so it reads as a tilt across the focal plane rather
-    than as a shifted image."""
+    than as a shifted image.
+    """
     field = torch.zeros((64, 80), dtype=torch.complex64)
     field[64 // 2, 80 // 2] = 1.0
 
@@ -106,7 +107,8 @@ def test_pad_crop_centers_a_field_in_a_larger_frame() -> None:
 
 def test_pad_crop_crops_as_well_as_grows() -> None:
     """The same call shrinks a frame, which is what lets a rotation out into a larger
-    frame and the rotation back into the smaller one be the same operation."""
+    frame and the rotation back into the smaller one be the same operation.
+    """
     field = _elliptical_gaussian(96, 10.0, 6.0, 0.0)
 
     assert tuple(to_canvas(field, (48, 64)).shape) == (48, 64)
@@ -115,7 +117,8 @@ def test_pad_crop_crops_as_well_as_grows() -> None:
 
 def test_growing_a_frame_is_the_transpose_of_shrinking_it() -> None:
     """``FourierLensCZT`` grows the frame on the way out and shrinks it on the way back,
-    and its adjoint is a true conjugate transpose only if those two are transposes."""
+    and its adjoint is a true conjugate transpose only if those two are transposes.
+    """
     small, large = (32, 40), (48, 56)
     generator = torch.Generator().manual_seed(0)
     source = torch.randn(small, generator=generator, dtype=torch.float64)
@@ -132,7 +135,8 @@ def test_growing_a_frame_is_the_transpose_of_shrinking_it() -> None:
 def test_chirpz_rotation_conserves_power() -> None:
     """The rotation is area preserving, so it must not cost the field any power. A
     compact field, since anything the shear carries past the frame edge is cropped and
-    that loss is framing, not rotation."""
+    that loss is framing, not rotation.
+    """
     field = _elliptical_gaussian(96, 10.0, 6.0, 0.0)
     settings = ((96, 96), (96, 96), (1.0, 1.0))
 
@@ -188,7 +192,8 @@ def test_chirpz_angle_gradient_matches_finite_differences(angle: float) -> None:
 def test_chirpz_rotates_in_the_direction_it_claims() -> None:
     """An elongated gaussian, so the direction is unmistakable: its transform must match
     the transform of the analytically rotated ellipse and clearly not the opposite
-    rotation. A symmetric field would pass either way."""
+    rotation. A symmetric field would pass either way.
+    """
     theta = math.radians(25)
     plain = ChirpZPartialAffine((96, 96), (96, 96), (1.0, 1.0))
     rotated = ChirpZPartialAffine((96, 96), (96, 96), (1.0, 1.0), angle=theta).forward(

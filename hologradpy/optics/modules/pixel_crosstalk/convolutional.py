@@ -52,7 +52,7 @@ def normalized(kernel: Tensor) -> Tensor:
 
 
 class FreeKernelCrosstalk(ConvolutionalCrosstalk):
-    """Every kernel sample learned, with nothing tying them together. Starts as a delta 
+    """Every kernel sample learned, with nothing tying them together. Starts as a delta
     at the center, which is the identity.
     """
 
@@ -93,7 +93,8 @@ class FreeKernelCrosstalk(ConvolutionalCrosstalk):
         learnable: bool = True,
     ) -> FreeKernelCrosstalk:
         """A free kernel seeded from a fitted parametric one: the warm start a fit
-        wants."""
+        wants.
+        """
         return cls(
             upscale_factor=source.upscale_factor,
             extent=source.extent,

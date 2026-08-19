@@ -18,7 +18,9 @@ from scipy.fft import next_fast_len
 def _pad_axis_asymmetric(
     field: Tensor, axis: int, before: int, after: int
 ) -> Tensor:
-    """Zero-pad ``before`` and ``after`` samples either side of ``axis`` (complex-safe).
+    """Zero-pad ``before`` and ``after`` samples either side of ``axis``.
+
+    Complex-safe.
     """
 
     def zeros(count: int) -> Tensor:

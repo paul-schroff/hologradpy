@@ -1,3 +1,14 @@
+"""
+Wavefront calibration by rastering
+==================================
+
+Subdivides the SLM into a grid of superpixels, and sequentially fills each of them with
+a linear phase, measureing the power of each diffracted spot on the camera to 
+reconstruct the intensity profile of the beam incident onto the SLM. Repeating this with
+a fixed reference superpixel and extracting the phases from the resulting interference 
+fringes recovers the phase.
+"""
+
 # %% Imports
 import matplotlib.pyplot as plt
 import numpy as np
@@ -82,7 +93,7 @@ simulated_camera_model = SLMCZT(
     focal_length=0.25,
     slm_field=PixelwiseSLMField(gaussian_beam),
     camera_angle=10,
-    camera_shift=(50, -20),
+    camera_shift=(170e-6, -70e-6),       # (x, y) metres in the focal plane
     pointing_focal_shift_std=0.25e-6,
 )
 

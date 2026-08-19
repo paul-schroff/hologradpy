@@ -22,15 +22,12 @@ from .records import SpeckleCaptureData
 
 @dataclass(frozen=True)
 class FitSettings:
-    """The cost and the step size a parameterization is fitted with.
+    """The cost and the step size a parameterization is fitted with."""
 
-    Attributes:
-        loss: The cost, taking ``(predicted_field, camera_image)``.
-        learning_rate: Adam step size. The parameterization sets the gradient scale, so
-            it also sets this.
-    """
-
+    #: The cost, taking ``(predicted_field, camera_image)``.
     loss: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+    #: Adam step size. The parameterization sets the gradient scale, so it also sets
+    #: this.
     learning_rate: float
 
 

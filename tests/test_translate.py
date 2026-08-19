@@ -29,7 +29,8 @@ def _centroid_column(image) -> float:
 
 def test_a_whole_sample_shift_is_a_roll() -> None:
     """The fractional case is the point, but the whole-sample case has a known answer,
-    so it pins the sign convention: positive moves towards increasing index."""
+    so it pins the sign convention: positive moves towards increasing index.
+    """
     spike = torch.zeros(32, 32)
     spike[10, 12] = 1.0
 
@@ -41,7 +42,8 @@ def test_a_whole_sample_shift_is_a_roll() -> None:
 
 def test_a_band_limited_pattern_shifts_exactly() -> None:
     """No resampling kernel, so no interpolation error to bound: for a pattern the
-    sampling actually resolves, the shift is the identity up to round-off."""
+    sampling actually resolves, the shift is the identity up to round-off.
+    """
     size = 64
     shift = (0.25, 0.5)
     smooth = _gaussian(size)
@@ -95,7 +97,8 @@ def test_moving_an_intensity_does_not_change_how_much_there_is(
 ) -> None:
     """Squaring a magnitude cannot go negative, so the ringing needs no clipping. Were
     the intensity moved directly and its overshoot clipped away, a top hat would gain
-    several percent of energy from being put half a sample to the left."""
+    several percent of energy from being put half a sample to the left.
+    """
     hat = torch.zeros(64, 64)
     hat[28:36, 28:36] = 1.0
 
@@ -115,7 +118,8 @@ def test_shifting_back_returns_the_pattern() -> None:
 
 def test_no_shift_changes_nothing() -> None:
     """Asked for nothing, it does nothing, rather than paying a transform to return
-    almost the same numbers."""
+    almost the same numbers.
+    """
     smooth = _gaussian()
     assert torch.equal(fft_translate(smooth, (0.0, 0.0)).real, smooth)
 
@@ -134,7 +138,8 @@ def test_an_intensity_stays_non_negative() -> None:
 
 def test_a_pattern_is_not_wrapped_around_the_frame() -> None:
     """The transform is cyclic, so without padding a pattern near one edge would
-    reappear at the other."""
+    reappear at the other.
+    """
     edge = torch.zeros(32, 32)
     edge[:, -1] = 1.0
 

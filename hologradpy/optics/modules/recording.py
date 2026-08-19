@@ -41,11 +41,14 @@ class RecordingMixin:
 
     def recordables(self) -> dict[str, Tensor]:
         """Named tensors to capture each forward while recording is on. Override to
-        declare them (e.g. ``{"angle": ...}``); the base records nothing."""
+        declare them, for example ``{"angle": ...}``. The base records nothing.
+        """
         return {}
 
     @staticmethod
-    def _record_forward(module: RecordingMixin, inputs, output) -> None:
+    def _record_forward(
+        module: RecordingMixin, inputs: tuple[object, ...], output: object
+    ) -> None:
         if not module._recording:
             return
         for name, value in module.recordables().items():
@@ -64,7 +67,8 @@ class RecordingMixin:
     @contextmanager
     def record_samples(self) -> Iterator[RecordingMixin]:
         """Record :meth:`recordables` for the duration of the ``with`` block
-        (recording is turned off again on exit). Read them from :attr:`history`."""
+        (recording is turned off again on exit). Read them from :attr:`history`.
+        """
         self.record(True)
         try:
             yield self
@@ -74,7 +78,8 @@ class RecordingMixin:
     @property
     def history(self) -> dict[str, Tensor]:
         """Everything recorded, as ``{name: (n, ...) tensor}`` (one row per forward).
-        Empty ``{}`` if nothing was recorded."""
+        Empty ``{}`` if nothing was recorded.
+        """
         return {
             name: torch.stack(values)
             for name, values in self._history.items()

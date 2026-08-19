@@ -7,6 +7,7 @@ from ...complex_amplitude import (
     ComplexAmplitude,
     broadcast_wavelength_operand,
 )
+from ....phase_levels import PhaseResponse
 from ....profiles.zernike import (
     DEFAULT_UNIT_DISK_MODE,
     Zernike,
@@ -36,7 +37,7 @@ class ZernikeSLM(VirtualSLM):
         initial_coefficients: torch.Tensor | None = None,
         convention: Conventions = "Noll",
         unit_disk_mode: str = DEFAULT_UNIT_DISK_MODE,
-        phase_response=None,
+        phase_response: PhaseResponse | None = None,
     ) -> None:
         """
         Args:
@@ -51,6 +52,9 @@ class ZernikeSLM(VirtualSLM):
             convention: Zernike ordering/normalization convention.
             unit_disk_mode: How the unit disk maps onto the resolution
                 (``"fill"`` covers the corners, ``"fit"`` inscribes it).
+            phase_response: The gray level to phase curve of the device, which
+                :meth:`apply_phase_transforms` wraps the reconstructed phase into.
+                Defaults to a linear response built from ``phase_scaling``.
         """
         super().__init__(
             phase_scaling=phase_scaling, phase_response=phase_response
@@ -101,13 +105,15 @@ class ZernikeSLM(VirtualSLM):
 
     def get_phase(self: ZernikeSLM) -> torch.Tensor:
         """Reconstruct the per-wavelength phase ``(n_wavelengths, H, W)`` from
-        the learnable coefficients and the Zernike basis."""
+        the learnable coefficients and the Zernike basis.
+        """
         return torch.einsum(
             "lc,chw->lhw", self.zernike_coefficients, self.zernike_basis
         )
 
     def apply_phase_transforms(self, phase: torch.Tensor) -> torch.Tensor:
-        """Wrap into the modulation range, then hand on for quantization and crosstalk.
+        """Wrap into the modulation range, then hand on for quantization and
+        crosstalk.
         """
         response = self.phase_response.response
         wrapped = response.phase_at(response.fraction_at(phase))
@@ -115,7 +121,8 @@ class ZernikeSLM(VirtualSLM):
 
     def align_phase(self, phase: torch.Tensor, field_ndim: int) -> torch.Tensor:
         """The phase here is per wavelength, so the wavelength axis goes at dim -3 and
-        broadcasts over any leading batch axes."""
+        broadcasts over any leading batch axes.
+        """
         return broadcast_wavelength_operand(phase, field_ndim)
 
     @classmethod

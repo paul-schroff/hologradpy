@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import torch
-from torch import nn, Tensor
+from torch import Tensor
 
 from ....fourier_transforms import FastFourierTransform
 from ....utils import to_canvas
@@ -36,10 +36,11 @@ class FourierLensFFT(OpticsModule):
                 "Specify either pixel_size_out or padded_resolution, not both."
             )
 
-        self.focal_length: float = nn.Parameter(
-            torch.tensor(focal_length, dtype=torch.float32),
-            requires_grad=False,
+
+        self.register_buffer(
+            "focal_length", torch.tensor(focal_length, dtype=torch.float32)
         )
+        self.focal_length: Tensor
         self._padded_resolution_init: tuple[int, int] | None = padded_resolution
 
         # Scale the transform by the physical Fourier-optics prefactor so a
@@ -49,6 +50,8 @@ class FourierLensFFT(OpticsModule):
         self.kwargs = kwargs
 
     def lazy_init(self, complex_amplitude: ComplexAmplitude) -> None:
+        self.focal_length = self.focal_length.to(complex_amplitude.device)
+
         # This lens genuinely computes its output geometry from the input; it sets
         # _resolution_out / _pixel_size_out directly (pixel_size_out is also a
         # dynamic property below). Branch on which constructor arg was given.
@@ -195,7 +198,8 @@ class FourierLensFFT(OpticsModule):
         f)`` per wavelength, so the transform conserves optical power
         (``integral|E_focal|^2 dx == integral|E_slm|^2 du`` with ``norm=
         "backward"``). Computed in float64 then cast to the field's real dtype;
-        the ``1/i`` global phase is omitted as it does not affect power."""
+        the ``1/i`` global phase is omitted as it does not affect power.
+        """
         pixel_size_in = self.pixel_size_in
         area = pixel_area(pixel_size_in)
         wavelength = self.input_geometry.wavelength.to(torch.float64)

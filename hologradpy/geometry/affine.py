@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 
 from .abstract import GeometricTransform
 
@@ -21,7 +21,9 @@ class AffineTransform(GeometricTransform):
         return 6
 
     @classmethod
-    def fit(cls, source, destination, *, robust: bool = True) -> AffineTransform:
+    def fit(
+        cls, source: ArrayLike, destination: ArrayLike, *, robust: bool = True
+    ) -> AffineTransform:
         """Estimate an affine transform from ``source -> destination`` point pairs.
 
         ``robust=True`` (the default) uses ``cv2.estimateAffine2D`` (RANSAC).
@@ -86,14 +88,16 @@ class AffineTransform(GeometricTransform):
     @property
     def rotation_matrix(self) -> NDArray:
         """The orthonormal rotation-and-mirror part of the linear map (``U @ Vt``
-        from its SVD, with the mirror preserved)."""
+        from its SVD, with the mirror preserved).
+        """
         left, _, right = np.linalg.svd(self.linear)
         return left @ right
 
     @property
     def rotation_degrees(self) -> float:
         """Rotation of the destination axes relative to the source, in degrees, with
-        any reflection factored out."""
+        any reflection factored out.
+        """
         left, _, right = np.linalg.svd(self.linear)
         if np.linalg.det(left @ right) < 0:
             left[:, -1] *= -1

@@ -346,7 +346,8 @@ class CoarseMapper(CameraMapper):
     @staticmethod
     def _linear_rotation_degrees(linear: NDArray) -> float:
         """Rotation [deg] of a 2x2 linear map (reflection factored out), matching
-        CameraMapping.rotation_degrees."""
+        CameraMapping.rotation_degrees.
+        """
         return AffineTransform.from_matrix(
             np.column_stack([linear, [0.0, 0.0]])
         ).rotation_degrees
@@ -410,10 +411,11 @@ class CoarseMapper(CameraMapper):
         detected_points: NDArray,
         affine_probe_positions: NDArray,
     ) -> CoarseVisualizationData:
-        """Bundle the per-stage captures and output-plane geometry recorded during 
+        """Bundle the per-stage captures and output-plane geometry recorded during
         map_camera into a self-contained CoarseVisualizationData for
         CoarseMapperVisualizer. Output-plane pixels are (x, y); pixel_size_out /
-        resolution_out are (y, x) / (height, width)."""
+        resolution_out are (y, x) / (height, width).
+        """
         center = np.array(plane_center(resolution_out), dtype=float)
         # Spiral candidate tilts (metres) to output-plane pixels
         tilts = np.asarray(
@@ -465,6 +467,17 @@ class CoarseMapper(CameraMapper):
         a probe fit fails or lands implausibly.
 
         Args:
+            probe_tilts: The ``(x, y)`` probe tilts in focal-plane metres, displayed
+                one at a time on the SLM and rendered in the model.
+            exposure_time: Camera exposure in seconds held for every probe. If None,
+                the camera autoexposes on each probe.
+            focal_length: Focal length of the Fourier lens in metres, which turns each
+                tilt into the deflection angle of the phase ramp that steers the spot.
+            camera_pixel_size: Camera pixel size ``(y, x)`` in metres, converting each
+                fitted spot position into camera pixels.
+            camera_shape: Camera resolution ``(height, width)`` in pixels, used for
+                that conversion and to pad every cropped frame back to a full frame.
+            field_of_view: Extent ``(width, height)`` of the camera sensor in metres.
             model_window_offset: ``(x, y)`` output pixels to move the model's render
                 window by while the probes are measured, so it covers the same region
                 the camera does. Removed again from the reported model positions, which
@@ -656,7 +669,7 @@ class CoarseMapper(CameraMapper):
         return exposure
 
     def _confirm_zeroth_order(self, image: NDArray, spot_radius: float) -> bool:
-        """Whether the bright spot in ``image`` (found at zero tilt) is the true zeroth 
+        """Whether the bright spot in ``image`` (found at zero tilt) is the true zeroth
         order and not fixed stray light / speckle.
 
         A 2-pixel-period 0/pi binary grating has no DC term (``exp(1j*0) + exp(1j*pi) =
@@ -705,8 +718,9 @@ class CoarseMapper(CameraMapper):
         focal_length: float,
         spot_radius_guess: float,
     ) -> float:
-        """Measure the focal-spot 1/e^2 radius by fitting a Gaussian to the found spot, 
-        replacing the initial estimate. Falls back to the guess if the fit fails."""
+        """Measure the focal-spot 1/e^2 radius by fitting a Gaussian to the found spot,
+        replacing the initial estimate. Falls back to the guess if the fit fails.
+        """
         self._display_tilt(tilt, focal_length)
         self.camera.autoexpose(
             set_fraction=0.5, exposure_bounds=(0, 1), verbose=False
@@ -742,8 +756,9 @@ class CoarseMapper(CameraMapper):
         exposure_time: float | None,
         spot_radius: float,
     ) -> tuple[float, float]:
-        """Find a tilt whose probe spot lands on the sensor, walking the rectangular 
-        spiral outward from the zeroth order."""
+        """Find a tilt whose probe spot lands on the sensor, walking the rectangular
+        spiral outward from the zeroth order.
+        """
         for tilt in self._spiral_tilts(
             half_extent[0], half_extent[1], search_step
         ):
@@ -767,11 +782,12 @@ class CoarseMapper(CameraMapper):
     def _prefer_main_order(
         self, tilt: tuple[float, float], focal_length: float
     ) -> tuple[float, float]:
-        """The found spot can be the much dimmer conjugate ghost of the blazed grating, 
+        """The found spot can be the much dimmer conjugate ghost of the blazed grating,
         with its main order sitting at the mirrored tilt. Check the mirrored tilt at a 
         much shorter exposure. Only a main order stays near saturation there, and is 
         preferred when present. If both orders land on the sensor, either choice is a 
-        genuine spot."""
+        genuine spot.
+        """
         exposure = float(self.camera.get_exposure())
         self.camera.set_exposure(exposure / 30.0)
         self._display_tilt((-tilt[0], -tilt[1]), focal_length)
@@ -793,7 +809,8 @@ class CoarseMapper(CameraMapper):
         moves (the tilt is stepped by ``probe_shift``, kept small so the spot stays on 
         the sensor), while static background (stray light) does not. A spot that shifts 
         by less than one focal-spot radius (``spot_radius``, metres) is deemed static 
-        background."""
+        background.
+        """
         row, column = np.unravel_index(int(np.argmax(image)), image.shape)
         self._display_tilt(
             (tilt[0] + probe_shift, tilt[1]), focal_length
@@ -825,7 +842,8 @@ class CoarseMapper(CameraMapper):
         The Jacobian comes from how the detected spot moves when the tilt is perturbed.
         The zeroth order does not move with tilt and can be brighter than the first
         order, so it is masked (a disk around the reference spot) in the derivative
-        captures."""
+        captures.
+        """
         center = np.array([(camera_shape[1] - 1) / 2, (camera_shape[0] - 1) / 2])
         exposure = float(self.camera.get_exposure())
         # Deflect by twice the detection window so the offset spot lands clear of
@@ -861,9 +879,10 @@ class CoarseMapper(CameraMapper):
         def axis_column(
             minus: tuple[float, float], plus: tuple[float, float]
         ) -> NDArray | None:
-            """One-sided pixel-per-metre column: try ``minus`` (left / top, tilt - 
+            """One-sided pixel-per-metre column: try ``minus`` (left / top, tilt -
             offset), else ``plus`` (right / bottom, tilt + offset). The ZOD is masked so
-            a bright zeroth order cannot hijack the fit."""
+            a bright zeroth order cannot hijack the fit.
+            """
             position = measure(minus, mask_center=initial_position)
             if position is not None:
                 return (position - initial_position) / (-offset)
@@ -948,8 +967,9 @@ class CoarseMapper(CameraMapper):
         exposure_time: float | None,
         spot_radius: float,
     ) -> NDArray | None:
-        """Display a probe tilt and check whether a spot lands on the sensor, adapting 
-        the exposure. Returns the captured image when a spot is present, else None."""
+        """Display a probe tilt and check whether a spot lands on the sensor, adapting
+        the exposure. Returns the captured image when a spot is present, else None.
+        """
         self._display_tilt(tilt, focal_length)
         if exposure_time is not None:
             self.camera.set_exposure(exposure_time)
@@ -962,7 +982,8 @@ class CoarseMapper(CameraMapper):
         image: NDArray, half_window: int = 3
     ) -> tuple[float, float]:
         """Sub-pixel (x, y) position of the brightest spot: intensity-weighted
-        centroid of a small window around the global maximum."""
+        centroid of a small window around the global maximum.
+        """
         row, column = np.unravel_index(int(np.argmax(image)), image.shape)
         top = max(row - half_window, 0)
         left = max(column - half_window, 0)

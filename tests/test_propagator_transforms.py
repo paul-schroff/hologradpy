@@ -60,7 +60,8 @@ def test_fourier_lens_nufft_orientation_matches_czt() -> None:
     """The NUFFT lens shares the x/y orientation of the exact CZT lens (and a
     plain FFT): an x-tilt deflects the focal spot along x, not y -- the regression
     guard for the historical KbNufft omega[0]<->omega[1] transpose. They also
-    agree to within the NUFFT's interpolation error."""
+    agree to within the NUFFT's interpolation error.
+    """
     resolution = (32, 32)
     pixel_in = (8e-6, 8e-6)
     # Output pixel = the natural focal pixel (magnification 1), so a tilt gives a
@@ -146,7 +147,8 @@ def test_asm_accepts_chirpz_transform() -> None:
     accepted
     and produces a finite field of the right shape (a band-limited variant -- the
     point is that the transfer function is built on the transform's own
-    frequencies)."""
+    frequencies).
+    """
     field = make_field((2, H, W), 2, seed=0)
     transform = ChirpZPartialAffine((2 * H, 2 * W), (2 * H, 2 * W), (1.0, 1.0))
     asm = AngularSpectrumMethod(propagation_distance=1e-4, transform=transform)
@@ -248,7 +250,8 @@ def test_camera_angle_turns_the_focal_plane_the_same_way_in_both_lenses(angle) -
 def test_a_frame_the_same_size_is_left_alone() -> None:
     """Both propagators explicitly allow a padded resolution equal to the input, and
     the crop helper they used to share returned an empty tensor for it: the slice was
-    ``[..., 0:-0]``. Nothing raised, so the shape simply vanished."""
+    ``[..., 0:-0]``. Nothing raised, so the shape simply vanished.
+    """
     field = make_field((H, W), 1, seed=0)
 
     lens = FourierLensFFT(focal_length=0.1, padded_resolution=(H, W))
@@ -263,7 +266,8 @@ def test_a_frame_the_same_size_is_left_alone() -> None:
 def test_an_odd_size_difference_pads_to_what_was_asked_for() -> None:
     """The pad used to round down, so a one-pixel difference was a no-op: the lens
     reported a padded resolution it had not produced, and the output geometry it
-    computed belonged to a frame that never existed."""
+    computed belonged to a frame that never existed.
+    """
     field = make_field((H - 1, W - 1), 1, seed=0)
 
     lens = FourierLensFFT(focal_length=0.1, padded_resolution=(H, W))

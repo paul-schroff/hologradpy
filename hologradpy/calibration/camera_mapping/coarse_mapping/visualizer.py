@@ -30,6 +30,8 @@ from ....serialization import record_type
 from ..visualizer import CameraMappingVisualizationData
 
 if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.cm import ScalarMappable
     from matplotlib.figure import Figure
 
 # TODO: Sanity check and tidy up
@@ -41,29 +43,27 @@ class CoarseVisualizationData(CameraMappingVisualizationData):
     The shared frames plus the coarse search's own captures, attached to
     ``CameraMapping.visualization_data``. Pixel coordinates are output-plane (model)
     pixels in ``(x, y)`` order. ``output_resolution`` is ``(height, width)``.
-
-    Attributes:
-        array_image: Camera capture of the full calibration spot array, or None when the
-            zeroth order was on the sensor (no array was displayed).
-        walk_image: Max-projection of the center-search captures (the probe spot's trail
-            as it walks towards the sensor center), or None.
-        probe_image: Max-projection of the four affine-probe captures.
-        detected_points: Fitted probe positions in camera pixels, shape (N, 2).
-        array_spot_positions: Candidate spiral spot positions, shape (N, 2).
-        affine_probe_positions: The four affine probes in output-plane pixels.
-        nyquist_half_extent_px: SLM Nyquist half-extent (x, y).
-        output_resolution: Output-plane resolution (height, width).
-        sensor_rectangle: The four camera-sensor corners, shape (4, 2).
     """
 
+    #: Camera capture of the full calibration spot array, or None when the zeroth order
+    #: was on the sensor, in which case no array was displayed.
     array_image: NDArray | None
+    #: Max-projection of the center-search captures, the probe spot's trail as it walks
+    #: towards the sensor center, or None.
     walk_image: NDArray | None
+    #: Max-projection of the four affine-probe captures.
     probe_image: NDArray
+    #: Fitted probe positions in camera pixels, ``(N, 2)``.
     detected_points: NDArray
+    #: Candidate spiral spot positions, ``(N, 2)``.
     array_spot_positions: NDArray
+    #: The four affine probes in output-plane pixels.
     affine_probe_positions: NDArray
+    #: SLM Nyquist half-extent ``(x, y)``.
     nyquist_half_extent_px: tuple[float, float]
+    #: Output-plane resolution ``(height, width)``.
     output_resolution: tuple[int, int]
+    #: The four camera-sensor corners, ``(4, 2)``.
     sensor_rectangle: NDArray
 
 
@@ -97,9 +97,10 @@ class CoarseMapperVisualizer(BaseVisualizer):
         )
         return layout
 
-    def _plane_panel(self, axs) -> None:
+    def _plane_panel(self, axs: Axes) -> None:
         """Schematic of the output plane: Nyquist zone, candidate spots, zeroth
-        order and camera-sensor footprint (all in output-plane pixels)."""
+        order and camera-sensor footprint (all in output-plane pixels).
+        """
         import matplotlib.patches as patches
 
         data = self.data
@@ -159,9 +160,9 @@ class CoarseMapperVisualizer(BaseVisualizer):
         return None
 
     @staticmethod
-    def _image_panel(image, title: str, placeholder: str) -> Panel:
+    def _image_panel(image: NDArray | None, title: str, placeholder: str) -> Panel:
         """Panel that shows ``image`` (or ``placeholder`` text when None)."""
-        def panel(axs):
+        def panel(axs: Axes) -> ScalarMappable | None:
             if image is None:
                 axs.set_xticks([])
                 axs.set_yticks([])
@@ -177,7 +178,7 @@ class CoarseMapperVisualizer(BaseVisualizer):
 
         return panel
 
-    def _probes_panel(self, axs):
+    def _probes_panel(self, axs: Axes) -> ScalarMappable:
         """The 4-probe composite with the detected spot positions overlaid."""
         mappable = BaseVisualizer.draw_image(
             axs, np.asarray(self.data.probe_image), cmap=INTENSITY_CMAP,

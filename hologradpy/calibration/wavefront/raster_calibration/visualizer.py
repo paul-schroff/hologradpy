@@ -99,7 +99,7 @@ class RasterCalibratorVisualizer(AnimatedVisualizer):
     def _has_lattice(self) -> bool:
         return self.data.lattice_images is not None
 
-    def _phase_frame(self, array) -> np.ndarray:
+    def _phase_frame(self, array: NDArray) -> np.ndarray:
         step = self.phase_downsample
         return np.asarray(array)[::step, ::step]
 
@@ -154,7 +154,16 @@ class RasterCalibratorVisualizer(AnimatedVisualizer):
             )
         return mappable
 
-    def _draw_camera_pair(self, axs, frame, images, fits, *, show_fit, title):
+    def _draw_camera_pair(
+        self,
+        axs: Axes,
+        frame: int,
+        images: NDArray,
+        fits: NDArray,
+        *,
+        show_fit: bool,
+        title: str,
+    ) -> ScalarMappable:
         shared_max = max(
             float(images[frame].max()), float(fits[frame].max()), 1.0
         )
@@ -189,7 +198,7 @@ class RasterCalibratorVisualizer(AnimatedVisualizer):
         return layout
 
     def plot_drift_tracking(
-        self, injected_x=None, injected_y=None
+        self, injected_x: NDArray | None = None, injected_y: NDArray | None = None
     ) -> Figure:
         """Plot the lattice-tracked pointing drift [um] over the scan.
 

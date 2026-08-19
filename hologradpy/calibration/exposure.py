@@ -7,6 +7,8 @@ search) now live on :class:`~hologradpy.hardware.camera.Camera` itself, as
 spot-aware search, which depends on the calibration-level spot detection.
 """
 
+from __future__ import annotations
+
 import numpy as np
 from numpy.typing import NDArray
 

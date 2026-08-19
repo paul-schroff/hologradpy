@@ -17,8 +17,7 @@ from .....optics.modules.slm_fields import PixelwiseSLMField
 
 
 class PixelwiseSpeckleCalibrator(WavefrontSpeckleCalibrator):
-    """Recover the SLM-plane field stored directly, one complex value per SLM pixel.
-    """
+    """Recover the SLM-plane field stored directly, one complex value per SLM pixel."""
 
     slm_field_type = PixelwiseSLMField
 

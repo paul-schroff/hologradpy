@@ -61,7 +61,8 @@ def test_fit_optical_lattice_recovers_phases():
 def test_coordinate_shift_recovers_phase_under_drift():
     """A pointing shift moves the camera pattern by a displacement; fitting the
     main fringes on coordinates ``grid - displacement`` recovers the true phase,
-    while the naive (unshifted) fit is biased."""
+    while the naive (unshifted) fit is biased.
+    """
     x, y = _grid()
     separation_x, separation_y = 2e-3, 1.5e-3  # coarse main pattern
     true_phase, amplitude = 0.5, 3.0

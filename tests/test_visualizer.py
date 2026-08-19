@@ -183,7 +183,8 @@ def _cell_size(layout, name):
 def test_cells_of_different_shapes_come_out_the_same_height():
     """A square image beside a wide one should line up along the row, with the wide one
     given the extra width it needs. Sizing both the same width instead leaves the wide
-    one letterboxed inside a cell taller than itself."""
+    one letterboxed inside a cell taller than itself.
+    """
     layout = PlotLayout()
     layout.add_row([GridCell("square", aspect=1.0), GridCell("wide", aspect=0.5)])
     layout.build()
@@ -201,7 +202,8 @@ def test_cells_of_different_shapes_come_out_the_same_height():
 
 def test_cells_of_the_same_shape_stay_equally_wide():
     """The common case must not move: matching heights across a uniform row is just the
-    equal-width layout it always had."""
+    equal-width layout it always had.
+    """
     layout = PlotLayout()
     layout.add_row([GridCell("a", aspect=0.8), GridCell("b", aspect=0.8)])
     layout.build()
@@ -215,7 +217,8 @@ def test_cells_of_the_same_shape_stay_equally_wide():
 def test_a_colorbar_gets_room_for_its_tick_labels():
     """The labels hang off the right of the bar, into whatever comes next. Without an
     allowance they run into the neighbouring panel, which is what the default col_gap
-    of 0.3 inches left them doing."""
+    of 0.3 inches left them doing.
+    """
     layout = PlotLayout()
     layout.add_row([GridCell("left", colorbar=True), GridCell("right")])
     layout.build()
@@ -236,7 +239,8 @@ def test_a_colorbar_gets_room_for_its_tick_labels():
 
 def test_a_line_row_keeps_equal_columns():
     """A line plot has no natural height, so there is nothing to match it against and
-    the row falls back to equal columns."""
+    the row falls back to equal columns.
+    """
     layout = PlotLayout()
     layout.add_row([GridCell("image", aspect=0.5), GridCell("curve", aspect="auto")])
     layout.build()
@@ -386,7 +390,8 @@ def _loss_axes(visualizer):
 
 def test_the_convergence_panel_draws_the_total_and_each_term():
     """The point of recording the terms: a flat total can be the mismatch still falling
-    while a prior climbs to meet it, and only the separate curves show that."""
+    while a prior climbs to meet it, and only the separate curves show that.
+    """
     visualizer = _fake_speckle_data(loss_component_history=THREE_TERMS).visualizer()
 
     figure, axs = _loss_axes(visualizer)
@@ -404,7 +409,8 @@ def test_the_convergence_panel_draws_the_total_and_each_term():
 
 def test_the_total_curve_follows_the_theme():
     """It used to be hard coded black, which is invisible on a dark background. A PSF
-    fit draws that one curve and nothing else, so the whole panel came out empty."""
+    fit draws that one curve and nothing else, so the whole panel came out empty.
+    """
     with plt.style.context("dark_background"):
         visualizer = _fake_speckle_data(
             loss_component_history=THREE_TERMS
@@ -420,7 +426,8 @@ def test_the_total_curve_follows_the_theme():
 
 def test_the_convergence_panel_skips_a_lone_term():
     """A PSF calibration fits against the mismatch alone, so its one component curve
-    would sit exactly on the total and say nothing."""
+    would sit exactly on the total and say nothing.
+    """
     visualizer = _fake_speckle_data(
         loss_component_history={"intensity mse": [1.0, 0.5]}
     ).visualizer()
@@ -434,7 +441,8 @@ def test_the_convergence_panel_skips_a_lone_term():
 
 def test_a_record_without_the_terms_still_draws_its_total():
     """Payloads pickled before the terms were recorded have to keep rendering, which is
-    what the field's default is for."""
+    what the field's default is for.
+    """
     visualizer = _fake_speckle_data().visualizer()
 
     figure, axs = _loss_axes(visualizer)
@@ -447,7 +455,8 @@ def test_a_record_without_the_terms_still_draws_its_total():
 def test_a_term_starting_at_zero_leaves_the_log_axis_alone():
     """A smoothness prior on a field that starts flat is exactly zero for the first
     epoch, every single run. Letting that pick the scale would flatten a loss that falls
-    two decades, so the total governs it and the zero simply has no point."""
+    two decades, so the total governs it and the zero simply has no point.
+    """
     terms = dict(THREE_TERMS)
     terms["amplitude smoothness"] = [0.0, 0.05]
     visualizer = _fake_speckle_data(loss_component_history=terms).visualizer()
@@ -460,7 +469,8 @@ def test_a_term_starting_at_zero_leaves_the_log_axis_alone():
 
 def test_a_non_positive_total_drops_the_panel_to_a_linear_axis():
     """A cost with a negative term, such as an efficiency reward, has no log axis to
-    draw on and must not lose points to one."""
+    draw on and must not lose points to one.
+    """
     data = _fake_speckle_data(loss_component_history=THREE_TERMS)
     data.loss_history = [1.0, -0.5]
     visualizer = data.visualizer()
@@ -489,7 +499,8 @@ def test_speckle_comparison_draws_six_cells():
 
 def test_speckle_comparison_difference_is_symmetric_about_zero():
     """The neutral color has to mean agreement, which only holds if the limits are
-    symmetric. Otherwise a residual of zero reads as some arbitrary color."""
+    symmetric. Otherwise a residual of zero reads as some arbitrary color.
+    """
     visualizer = _fake_speckle_data().visualizer()
 
     figure = visualizer.render_comparison()
@@ -509,7 +520,8 @@ def test_speckle_comparison_difference_is_symmetric_about_zero():
 
 def test_speckle_comparison_without_truth_says_why():
     """A calibration from a real bench has nothing to compare against. Asking has to
-    name what is missing rather than drawing empty axes."""
+    name what is missing rather than drawing empty axes.
+    """
     data = _fake_speckle_data(with_truth=False)
 
     # The diagnostics figure is unaffected by the absence.
@@ -522,7 +534,8 @@ def test_speckle_comparison_without_truth_says_why():
 
 def test_speckle_payload_predating_the_comparison_still_renders():
     """The two fields were added with defaults so that records pickled before they
-    existed keep working. Constructing without them is that case."""
+    existed keep working. Constructing without them is that case.
+    """
     data = SpeckleVisualizationData(
         camera_image=np.zeros((8, 8)),
         roi_mask=np.ones((8, 8), dtype=bool),
@@ -547,7 +560,8 @@ def test_speckle_payload_predating_the_comparison_still_renders():
 
 def test_the_dataset_figure_needs_a_pattern_to_be_worth_drawing():
     """Without one it would be a single cell the full diagnostics already carries, so
-    it says so rather than drawing a lone camera frame."""
+    it says so rather than drawing a lone camera frame.
+    """
     data = SpeckleVisualizationData(
         camera_image=np.zeros((8, 8)), roi_mask=np.ones((8, 8), dtype=bool)
     )
@@ -558,7 +572,8 @@ def test_the_dataset_figure_needs_a_pattern_to_be_worth_drawing():
 
 def test_the_dataset_figure_draws_before_anything_is_fitted():
     """The point of it: a capture can be checked before a fit is spent on it, so it
-    must not need any of the fitted arrays."""
+    must not need any of the fitted arrays.
+    """
     data = SpeckleVisualizationData(
         camera_image=np.random.default_rng(0).uniform(size=(8, 8)),
         roi_mask=np.ones((8, 8), dtype=bool),

@@ -22,7 +22,7 @@ from .slm import SLM
 
 
 @singledispatch
-def as_camera(device) -> Camera:
+def as_camera(device: object) -> Camera:
     """Return a native-camera interface for ``device`` (idempotent).
 
     Dispatches on the device type so consumers accept *any* device and normalize
@@ -38,12 +38,12 @@ def as_camera(device) -> Camera:
 
 
 @as_camera.register(Camera)
-def _(device):
+def _(device: Camera) -> Camera:
     return device  # Already native (a Camera subclass or an adapter).
 
 
 @singledispatch
-def as_slm(device) -> SLM:
+def as_slm(device: object) -> SLM:
     """Return a native-SLM interface for ``device`` (see :func:`as_camera`)."""
     raise TypeError(
         f"No native SLM for {type(device).__name__!r}. Register one with "
@@ -52,5 +52,5 @@ def as_slm(device) -> SLM:
 
 
 @as_slm.register(SLM)
-def _(device):
+def _(device: SLM) -> SLM:
     return device  # Already native (an SLM subclass or an adapter).

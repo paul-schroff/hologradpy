@@ -1,4 +1,4 @@
-import torch
+from __future__ import annotations
 
 from .vortex_detection import VortexDetector
 
@@ -7,7 +7,7 @@ from ..phase_retrieval.conjugate_gradient import CGPhaseRetriever
 
 # TODO: Docstrings
 class VortexAnnihilator:
-    def __init__(self, phase_retriever: CGPhaseRetriever):
+    def __init__(self, phase_retriever: CGPhaseRetriever) -> None:
         self.phase_retriever = phase_retriever
         self.vortex_detector = VortexDetector(
             self.phase_retriever.slm_camera_model[-1].resolution_out,
@@ -19,7 +19,7 @@ class VortexAnnihilator:
         target_intensity_threshold: float = 0.2,
         max_iterations: int = 5,
         cg_iterations: int = 20,
-    ) -> torch.Tensor:
+    ) -> None:
         target_intensity = self.phase_retriever.target
 
         number_of_vortices = 1

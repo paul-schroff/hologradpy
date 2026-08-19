@@ -1,3 +1,11 @@
+"""
+Pixel crosstalk calibration from speckle
+========================================
+
+Recovering the fringing field between neighboring liquid-crystal pixels on the SLM by 
+fitting a crosstalk model to the speckle that random SLM patterns produce.
+"""
+
 # %% Imports
 from pathlib import Path
 from typing import Literal

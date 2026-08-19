@@ -125,6 +125,7 @@ class AngularSpectrumMethod(OpticsModule):
     def adjoint(
         self: AngularSpectrumMethod, complex_amplitude: ComplexAmplitude
     ) -> ComplexAmplitude:
-        """Back-propagation by ``-propagation_distance`` — the conjugate
-        transpose of :meth:`forward`."""
+        """Back-propagation by ``-propagation_distance``, the conjugate
+        transpose of :meth:`forward`.
+        """
         return self._propagate(complex_amplitude, self.phase_factor.conj())

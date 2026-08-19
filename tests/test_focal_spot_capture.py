@@ -59,7 +59,8 @@ class _FakeCamera:
 
 def test_a_centered_zeroth_order_needs_no_steering() -> None:
     """The tilt is a correction, so a beam already in the middle gets none. Anything
-    else would move a working setup off center."""
+    else would move a working setup off center.
+    """
     center = (CAMERA_RESOLUTION[0] / 2, CAMERA_RESOLUTION[1] / 2)
 
     tilt = tilt_to_sensor_center(_FakeCamera(), _mapping(center))
@@ -69,7 +70,8 @@ def test_a_centered_zeroth_order_needs_no_steering() -> None:
 
 def test_the_tilt_carries_the_beam_from_the_zeroth_order_to_the_middle() -> None:
     """With an identity mapping the tilt is the camera-plane displacement in metres,
-    (x, y), from a zeroth order stored (row, column)."""
+    (x, y), from a zeroth order stored (row, column).
+    """
     zeroth = (20.0, 70.0)  # (row, column)
 
     tilt = tilt_to_sensor_center(_FakeCamera(), _mapping(zeroth))
@@ -82,7 +84,8 @@ def test_the_tilt_carries_the_beam_from_the_zeroth_order_to_the_middle() -> None
 def test_the_tilt_is_taken_through_the_mapping_not_along_the_sensor() -> None:
     """A tilt steers along the *model* axes, which are rotated with respect to the
     sensor, so the camera-plane displacement cannot be used directly. Rotating the
-    mapping by 90 degrees must swap the two components."""
+    mapping by 90 degrees must swap the two components.
+    """
     zeroth = (20.0, 70.0)
     camera = _FakeCamera()
 
@@ -95,7 +98,8 @@ def test_the_tilt_is_taken_through_the_mapping_not_along_the_sensor() -> None:
 
 def test_a_scaled_mapping_scales_the_tilt() -> None:
     """The model plane can be sampled at a different pitch from the sensor, and the
-    tilt lives in the model plane."""
+    tilt lives in the model plane.
+    """
     zeroth = (20.0, 70.0)
     camera = _FakeCamera()
 
@@ -107,7 +111,8 @@ def test_a_scaled_mapping_scales_the_tilt() -> None:
 
 def _build_hardware(camera_shift):
     """A small simulated bench whose zeroth order sits wherever ``camera_shift`` puts
-    it."""
+    it.
+    """
     geometry = FieldGeometry(
         resolution=SLM_RESOLUTION,
         pixel_size=torch.tensor([12.5e-6, 12.5e-6], device=DEVICE),
@@ -172,7 +177,8 @@ def _zeroth_order_position(slm, camera) -> tuple[float, float]:
 def test_the_captured_spot_lands_in_the_middle_of_the_kernel(camera_shift) -> None:
     """The kernel is applied about its own center, so a spot sitting off center in the
     crop is an unwanted tilt baked into the seed. Steering puts the spot in the middle
-    whatever the geometry, and the same crop then holds it."""
+    whatever the geometry, and the same crop then holds it.
+    """
     slm, camera = _build_hardware(camera_shift)
     zeroth = _zeroth_order_position(slm, camera)
     kernel_size = 21
@@ -193,7 +199,8 @@ def test_the_captured_spot_lands_in_the_middle_of_the_kernel(camera_shift) -> No
 
 def test_a_spot_that_never_arrives_is_reported() -> None:
     """A seed of pure noise would fit happily and recover nothing, so an empty frame
-    has to be an error rather than a kernel."""
+    has to be an error rather than a kernel.
+    """
     slm, camera = _build_hardware((0.0, 0.0))
     zeroth = _zeroth_order_position(slm, camera)
     camera.set_exposure(0.0)

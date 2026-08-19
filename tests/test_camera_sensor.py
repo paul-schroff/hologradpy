@@ -173,7 +173,8 @@ def test_camera_exposure_drives_sensor() -> None:
 
 def test_get_image_torch_backend_matches_numpy() -> None:
     """backend="torch" runs the full pipeline (orientation, ROI crop, averaging) on
-    tensors and matches the numpy path value for value."""
+    tensors and matches the numpy path value for value.
+    """
     model = _make_model()
     camera = SimulatedCameraTorch(
         model,

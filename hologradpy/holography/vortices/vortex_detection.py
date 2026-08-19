@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import TypeVar
 import numpy as np
 from numpy.typing import NDArray
@@ -57,8 +59,10 @@ class VortexDetector:
 
 def find_zero_crossings(input: torch.Tensor) -> torch.Tensor:
     """Find zero crossings in a 2D array.
+
     Args:
-        input (torch.Tensor): Input 2D array.
+        input: Input 2D array.
+
     Returns:
         torch.Tensor: Boolean array indicating the positions of zero
             crossings.
@@ -81,12 +85,14 @@ def coordinates_to_indices(
     coordinates: torch.Tensor,
 ) -> list[tuple[int, int]]:
     """Convert coordinates to pixel indices.
+
     Args:
-        x (torch.Tensor): The x-coordinates of the spatial grid.
-        y (torch.Tensor): The y-coordinates of the spatial grid.
-        coordinates (torch.Tensor): The coordinates to convert. x-coordinates
-            are in `coordinates[:, 0]` and y-coordinates are in
-            `coordinates[:, 1]`.
+        x: The x-coordinates of the spatial grid.
+        y: The y-coordinates of the spatial grid.
+        coordinates: The coordinates to convert. x-coordinates are in
+            ``coordinates[:, 0]`` and y-coordinates are in
+            ``coordinates[:, 1]``.
+
     Returns:
         list[tuple[int, int]]: The indices of the coordinates.
     """
@@ -109,15 +115,19 @@ def find_zero_crossing_intersections(
     threshold: float = 0.2,
 ) -> ArrayLike:
     """Find the intersections of zero crossings in the real and imaginary
-    parts of the `electric_field`. Only considers intersections where the
-    `target_intensity` is above a given `threshold`.
+    parts of the ``complex_amplitude``. Only considers intersections where
+    the ``target_intensity`` is above a given ``threshold``.
 
     Args:
-        complex_amplitude (ComplexAmplitude): The complex electric field.
-        target_intensity (ArrayLike): The target intensity to threshold the
-            zero crossings.
-        threshold (float, optional): The intensity threshold to consider a
-            zero crossing valid. Defaults to 0.2.
+        complex_amplitude: The complex electric field.
+        target_intensity: The target intensity to threshold the zero
+            crossings.
+        threshold: The intensity threshold to consider a zero crossing
+            valid. Defaults to 0.2.
+
+    Returns:
+        ArrayLike: Boolean array marking the zero crossing intersections
+            that pass the intensity threshold.
     """
     zero_crossings_real = find_zero_crossings(complex_amplitude.real)
     zero_crossings_imag = find_zero_crossings(complex_amplitude.imag)
@@ -129,13 +139,14 @@ def label_connected_components(
     boolean_mask: torch.Tensor,
 ) -> tuple[torch.Tensor, int]:
     """Label connected components in a boolean mask. Uses
-    `scipy.ndimage.label` for labeling.
+    ``scipy.ndimage.label`` for labeling.
 
     Args:
-        boolean_mask (torch.Tensor): Boolean mask to label.
+        boolean_mask: Boolean mask to label.
+
     Returns:
-        tuple[torch.Tensor, int]: A tuple containing the labeled mask and the
-        number of labels.
+        tuple[torch.Tensor, int]: A tuple containing the labeled mask and
+            the number of labels.
     """
     labels, number_of_labels = label(gpu_to_numpy(boolean_mask))
     return (
@@ -148,14 +159,16 @@ def find_label_centers(
     x: torch.Tensor, y: torch.Tensor, labels: torch.Tensor
 ) -> torch.Tensor:
     """Finds the centers of regions in a labeled mask.
+
     Args:
-        x (torch.Tensor): The x-coordinates of the spatial grid.
-        y (torch.Tensor): The y-coordinates of the spatial grid.
-        labels (torch.Tensor): The labeled mask.
+        x: The x-coordinates of the spatial grid.
+        y: The y-coordinates of the spatial grid.
+        labels: The labeled mask.
+
     Returns:
-        torch.Tensor: The coordinates of the centers of the labeled regions.
-            x-coordinates are in `centers[:, 0]` and y-coordinates are in
-            `centers[:, 1]`.
+        torch.Tensor: The coordinates of the centers of the labeled
+            regions. x-coordinates are in ``label_centers[:, 0]`` and
+            y-coordinates are in ``label_centers[:, 1]``.
     """
     number_of_labels = int(labels.max().item())
     label_centers = torch.zeros(number_of_labels, 2, device=labels.device)
@@ -180,18 +193,19 @@ def find_vortex_charge(
     """Finds the charge of vortices given their centers.
 
     Args:
-        complex_amplitude (ComplexAmplitude): The complex electric field.
-        x (torch.Tensor): The x-coordinates of the spatial grid.
-        y (torch.Tensor): The y-coordinates of the spatial grid.
-        center_indices (torch.Tensor): The coordinates of the vortex centers.
-            x-coordinates are in `center_indices[:, 1]` and y-coordinates are in
-            `center_indices[:, 0]`.
-        pad (int, optional): The padding around the center to consider for
-            charge calculation. Defaults to 1.
+        complex_amplitude: The complex electric field.
+        x: The x-coordinates of the spatial grid.
+        y: The y-coordinates of the spatial grid.
+        center_indices: The coordinates of the vortex centers.
+            x-coordinates are in ``center_indices[:, 1]`` and y-coordinates
+            are in ``center_indices[:, 0]``.
+        pad: The padding around the center to consider for charge
+            calculation. Defaults to 1.
+
     Returns:
         torch.Tensor: The charges of the vortices. The charge is +1 for a
-            clockwise vortex, -1 for a counter-clockwise vortex, and 0 if the
-            phase difference is smaller than pi.
+            clockwise vortex, -1 for a counter-clockwise vortex, and 0 if
+            the phase difference is smaller than pi in magnitude.
     """
     charges = torch.zeros(
         len(center_indices), dtype=torch.int, device=complex_amplitude.device
@@ -230,8 +244,9 @@ def find_vortex_charge(
 # TODO: Move to analysis/unwrapping.py
 def unwrap_phase_1D(phase: torch.Tensor) -> torch.Tensor:
     """Unwrap a 1D phase array.
+
     Args:
-        phase (torch.Tensor): 1D phase tensor.
+        phase: 1D phase tensor.
 
     Returns:
         torch.Tensor: Unwrapped 1D phase tensor.
@@ -252,16 +267,16 @@ def vortex_phase(
     center_coordinates: torch.Tensor,
     charge: torch.Tensor,
 ) -> torch.Tensor:
-    """Calculate the phase of an optical vortex at a given `center` with a
-    given `charge`.
+    """Calculate the phase of an optical vortex at given
+    ``center_coordinates`` with a given ``charge``.
 
     Args:
-        x (torch.Tensor): x-coordinates of the spatial grid.
-        y (torch.Tensor): y-coordinates of the spatial grid.
-        center_coordinates (torch.Tensor): Coordinates of the vortex center.
-            x-coordinate is in `center_coordinates[0]` and y-coordinate is in
-            `center_coordinates[1]`.
-        charge (torch.Tensor): Charge of the vortex.
+        x: x-coordinates of the spatial grid.
+        y: y-coordinates of the spatial grid.
+        center_coordinates: Coordinates of the vortex center. The
+            x-coordinate is in ``center_coordinates[0]`` and the
+            y-coordinate is in ``center_coordinates[1]``.
+        charge: Charge of the vortex.
 
     Returns:
         torch.Tensor: The phase of the vortex.
@@ -278,17 +293,17 @@ def vortex_field(
     vortex_coordinates: torch.Tensor,
     charges: torch.Tensor,
 ) -> torch.Tensor:
-    """
-    Calculated the electric field of multiple vortices at given `centers` with
-    given `charges`.
+    """Calculate the electric field of multiple vortices at given
+    ``vortex_coordinates`` with given ``charges``.
 
     Args:
-        x (torch.Tensor): x-coordinates of the spatial grid.
-        y (torch.Tensor): y-coordinates of the spatial grid.
-        vortex_coordinates (torch.Tensor): Coordinates of the vortex centers.
-            x-coordinates are in `vortex_coordinates[:, 0]` and y-coordinates
-            are in `vortex_coordinates[:, 1]`.
-        charges (torch.Tensor): Charges of the vortices.
+        x: x-coordinates of the spatial grid.
+        y: y-coordinates of the spatial grid.
+        vortex_coordinates: Coordinates of the vortex centers.
+            x-coordinates are in ``vortex_coordinates[:, 0]`` and
+            y-coordinates are in ``vortex_coordinates[:, 1]``.
+        charges: Charges of the vortices.
+
     Returns:
         torch.Tensor: The resulting electric field with vortices.
     """

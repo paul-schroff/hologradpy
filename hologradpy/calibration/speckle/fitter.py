@@ -28,7 +28,7 @@ def region_of_interest(
     slm_camera_model: SLMFourierLensModel,
     roi_mask: NDArray[np.bool_] | None = None,
 ) -> tuple[ROI, torch.Tensor]:
-    """The region the fit scores over, as a crop and a mask. Shared by 
+    """The region the fit scores over, as a crop and a mask. Shared by
     :class:`SpeckleFitter`, which crops its predictions to the ``ROI``.
 
     Args:
@@ -57,15 +57,6 @@ class SpeckleFitter(ABC):
     For each captured ``(slm pattern, camera_image)`` the model predicts the camera
     speckle pattern and the parameters named by :meth:`trainable_parameters` are stepped
     to match.
-
-    Args:
-        capture_data: The captured dataset.
-        slm_camera_model: The differentiable model to fit.
-        dataset_path: The dataset file holding the samples.
-        loss: The cost, taking ``(predicted_field, camera_image)``. Defaults to
-            :class:`~hologradpy.loss_functions.MaskedIntensityMSE`.
-        learning_rate: Adam step size.
-        roi_mask: A region mask to use instead of the capture's own.
     """
 
     # Shown on the progress bar.
@@ -80,6 +71,16 @@ class SpeckleFitter(ABC):
         learning_rate: float = 1e-2,
         roi_mask: NDArray[np.bool_] | None = None,
     ) -> None:
+        """
+        Args:
+            capture_data: The captured dataset.
+            slm_camera_model: The differentiable model to fit.
+            dataset_path: The dataset file holding the samples.
+            loss: The cost, taking ``(predicted_field, camera_image)``. Defaults to
+                :class:`~hologradpy.loss_functions.MaskedIntensityMSE`.
+            learning_rate: Adam step size.
+            roi_mask: A region mask to use instead of the capture's own.
+        """
         self.capture_data: SpeckleCaptureData = capture_data
         self.dataset_path: Path = Path(dataset_path)
         self.slm_camera_model: SLMFourierLensModel = slm_camera_model
@@ -123,7 +124,7 @@ class SpeckleFitter(ABC):
             batch_size: Phase patterns per iteration.
             subset_indices: Which dataset samples to use. Defaults to all.
             shuffle: Reshuffle the samples between epochs.
-            verbose: Show a progress bar. 
+            verbose: Show a progress bar.
 
         Returns:
             list[float]: The mean loss of each epoch.
@@ -252,8 +253,8 @@ class SpeckleFitter(ABC):
 
     def measured_and_predicted_roi(
         self, sample_index: int = 0
-    ) -> tuple[NDArray[np.float_], NDArray[np.float_]]:
-        """Measured and predicted ROI intensity for one dataset sample. Requires 
+    ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+        """Measured and predicted ROI intensity for one dataset sample. Requires
         :meth:`fit` to have run.
         """
         if self.dataset is None:

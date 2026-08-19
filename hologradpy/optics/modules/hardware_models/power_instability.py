@@ -16,17 +16,18 @@ class PowerInstability(OpticsModule):
     ``PixelwiseSLMField`` in the SLM-plane chain, so the SLM-plane field, which is
     otherwise fixed, carries a freshly sampled power on every forward pass. Output
     geometry equals input geometry.
-
-    Args:
-        power_std: Standard deviation of the (mean-1) Gaussian relative power factor.
-            For example 0.05 is a 5 percent RMS power fluctuation. The drawn factor is
-            clamped at 0 so the power stays non-negative.
-        seed: Optional integer seed. When given, an internal
-            :class:`torch.Generator` (on the field's device) is seeded with it for
-            reproducible sampling; otherwise the global RNG is used.
     """
 
     def __init__(self, power_std: float, *, seed: int | None = None) -> None:
+        """
+        Args:
+            power_std: Standard deviation of the (mean-1) Gaussian relative power
+                factor. For example 0.05 is a 5 percent RMS power fluctuation. The drawn
+                factor is clamped at 0 so the power stays non-negative.
+            seed: Optional integer seed. When given, an internal
+                :class:`torch.Generator` (on the field's device) is seeded with it for
+                reproducible sampling; otherwise the global RNG is used.
+        """
         super().__init__()
         self.power_std = float(power_std)
         self.seed = seed
@@ -45,14 +46,16 @@ class PowerInstability(OpticsModule):
     def last_power_factor(self) -> Tensor | None:
         """The most recently sampled relative power factor, or ``None`` before the
         first :meth:`forward`. Handy for recording the realized per-frame power (e.g.
-        to verify a downstream power-normalization)."""
+        to verify a downstream power-normalization).
+        """
         return self._last_power_factor
 
     def recordables(self) -> dict[str, Tensor]:
         """Record the sampled relative power factor each forward as
         ``{"power_factor": factor}`` (see
         :class:`~hologradpy.optics.modules.recording.RecordingMixin`);
-        empty before the first :meth:`forward`."""
+        empty before the first :meth:`forward`.
+        """
         if self._last_power_factor is None:
             return {}
         return {"power_factor": self._last_power_factor}
@@ -61,7 +64,8 @@ class PowerInstability(OpticsModule):
     def power_factor_history(self) -> Tensor:
         """The relative power factors recorded while :meth:`record` was on, as an
         ``(n,)`` tensor (empty ``(0,)`` if none). Convenience alias for
-        ``history["power_factor"]``."""
+        ``history["power_factor"]``.
+        """
         return self.history.get("power_factor", torch.empty((0,)))
 
     def lazy_init(self, complex_amplitude: ComplexAmplitude) -> None:
@@ -92,7 +96,8 @@ class PowerInstability(OpticsModule):
 
     def adjoint(self, complex_amplitude: ComplexAmplitude) -> ComplexAmplitude:
         """Conjugate transpose of the most recent :meth:`forward`. A real scalar
-        scaling is self-adjoint, so re-apply the last sampled square-root factor."""
+        scaling is self-adjoint, so re-apply the last sampled square-root factor.
+        """
         if self._last_power_factor is None:
             raise RuntimeError(
                 "PowerInstability.adjoint() needs a prior forward() -- it re-applies "

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -8,8 +10,8 @@ from scipy.ndimage import distance_transform_edt
 
 
 def inpaint(
-    image: NDArray[np.float_], covered: NDArray[np.bool_]
-) -> NDArray[np.float_]:
+    image: NDArray[np.float64], covered: NDArray[np.bool_]
+) -> NDArray[np.float64]:
     missing = ~covered
 
     number_of_pixels = image.size

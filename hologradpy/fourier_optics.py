@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from numpy.typing import NDArray
 from torch import Tensor
 
 
@@ -97,7 +98,7 @@ def fourier_lens_half_extent(
 def addressable_half_extent(
     wavelength: float,
     focal_length: float,
-    pixel_size,
+    pixel_size: tuple[float, float] | NDArray | Tensor,
 ) -> tuple[float, float]:
     """Half-extent ``(x, y)`` of the focal-plane region an SLM can address, in metres.
     The first-order deflection of a grating at the SLM's Nyquist frequency, per axis.

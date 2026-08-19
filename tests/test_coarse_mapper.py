@@ -268,7 +268,8 @@ def test_detect_spot_rejects_spot_below_dynamic_range_floor():
 
 def test_detect_spot_accepts_sub_pixel_spot():
     """A legitimately sub-pixel spot is a single bright pixel; the min-core
-    floor of 1 must not reject it."""
+    floor of 1 must not reject it.
+    """
     rng = np.random.default_rng(2)
     frame = 5.0 + rng.normal(0.0, 1.0, (80, 120))
     frame[30, 40] += 800.0
@@ -285,7 +286,8 @@ def test_detect_spot_rejects_peak_at_border():
 
 def test_detect_spot_rejects_unenclosed_broad_blob():
     """A broad plateau still bright at the window edge (the shoulder of an
-    order sitting off the sensor) is rejected by the enclosure gate."""
+    order sitting off the sensor) is rejected by the enclosure gate.
+    """
     frame = _gaussian_frame((120, 120), (60, 60), amplitude=800.0, sigma_px=100.0)
     assert detect_spot(frame, SPOT_RADIUS, _fake_camera()) is None
 
@@ -346,7 +348,8 @@ def test_map_camera_suggests_camera_orientation():
 
 def test_the_suggested_orientation_can_be_adopted():
     """The point of suggesting one: the camera takes it, and a second mapping of the
-    reoriented camera then has nothing left to suggest."""
+    reoriented camera then has nothing left to suggest.
+    """
     slm, camera, model = _build_setup(fliplr=True)
     first = CoarseMapper(slm, camera, model).map_camera(find_camera_orientation=True)
 
@@ -411,7 +414,8 @@ def test_coarse_mapping_initial_tilt_without_spot_raises():
 def test_coarse_mapping_with_zeroth_order_off_sensor():
     """The camera only sees a region away from the zeroth order: the spiral
     search must find the sensor, and the zeroth-order position is extrapolated
-    (legitimately off the sensor)."""
+    (legitimately off the sensor).
+    """
     slm, camera, model = _build_setup(
         camera_angle=10.0, camera_shift=(60, 100), camera_resolution=(120, 160)
     )
@@ -437,7 +441,8 @@ def test_coarse_mapping_survives_pointing_instability():
     """Real beam-pointing drift jitters the focal spot frame-to-frame. The
     probe search (and _is_static_background in particular) must still find and
     accept the spots, and the recovered transform must stay correct: the
-    deterministic tilt step dwarfs a 1 um (~sub-px) jitter."""
+    deterministic tilt step dwarfs a 1 um (~sub-px) jitter.
+    """
     slm, camera, model = _build_setup(
         camera_angle=10.0, camera_shift=(20, -10), pointing_focal_shift_std=1e-6
     )
@@ -461,7 +466,8 @@ def test_coarse_mapping_survives_pointing_instability():
 
 def test_coarse_mapping_survives_background_scatter():
     """A static laser-speckle background (stray light added before the ND filter)
-    raises the camera floor, but the coarse mapper still recovers the transform."""
+    raises the camera floor, but the coarse mapper still recovers the transform.
+    """
     slm, camera, model = _build_setup(
         camera_angle=10.0, camera_shift=(20, -10), background_scatter_power=2e-8
     )
@@ -479,7 +485,8 @@ def test_coarse_mapping_survives_background_scatter():
 
 def _calibration_args(slm, resolution):
     """(focal_length, half_extent, search_step, spot_radius) for
-    _calibrate_exposure, mirroring how map_camera derives them."""
+    _calibrate_exposure, mirroring how map_camera derives them.
+    """
     slm = as_slm(slm)  # the mapper works on the native (adapter) interface
     focal_length = 0.25
     beam_diameter = min(
@@ -505,7 +512,8 @@ def _calibration_args(slm, resolution):
 def test_calibrate_exposure_uses_visible_array():
     """With the zeroth order off the sensor, the randomised-phase probe array is
     visible, so _calibrate_exposure returns a fixed exposure (not the per-probe-
-    ladder sentinel None)."""
+    ladder sentinel None).
+    """
     slm, camera, model = _build_setup(
         camera_angle=10.0, camera_shift=(60, 100), camera_resolution=(120, 160)
     )
@@ -517,7 +525,8 @@ def test_calibrate_exposure_uses_visible_array():
 
 def test_calibrate_exposure_none_when_zeroth_order_on_sensor():
     """When the zeroth order lands on the sensor no array calibration is needed;
-    the helper returns None so the search keeps its normal per-probe path."""
+    the helper returns None so the search keeps its normal per-probe path.
+    """
     slm, camera, model = _build_setup()  # centered sensor: DC on it
     mapper = CoarseMapper(slm, camera, model)
     assert mapper._calibrate_exposure(*_calibration_args(slm, (240, 320))) is None
@@ -526,7 +535,8 @@ def test_calibrate_exposure_none_when_zeroth_order_on_sensor():
 def test_calibrate_exposure_rejects_speckle_as_zeroth_order():
     """A bright static speckle background must not be mistaken for the zeroth
     order. The zero-tilt probe latches onto a speckle grain, but the 0/pi-grating
-    confirmation rejects it (it does not dim), so the array path is taken."""
+    confirmation rejects it (it does not dim), so the array path is taken.
+    """
     slm, camera, model = _build_setup(
         camera_angle=10.0, camera_shift=(60, 100), camera_resolution=(120, 160),
         background_scatter_power=2e-8, background_scatter_grain_radius=60e-6,
@@ -544,7 +554,8 @@ def test_calibrate_exposure_rejects_speckle_as_zeroth_order():
 
 def test_calibrate_exposure_warns_and_clamps_below_hardware_bound():
     """A per-probe exposure below the camera's minimum hardware exposure warns
-    the user and clamps to the bound."""
+    the user and clamps to the bound.
+    """
     slm, camera, model = _build_setup(
         camera_angle=10.0, camera_shift=(60, 100), camera_resolution=(120, 160)
     )
@@ -557,7 +568,8 @@ def test_calibrate_exposure_warns_and_clamps_below_hardware_bound():
 
 def test_calibrate_exposure_falls_back_on_autoexposure_rail(monkeypatch):
     """A genuinely too-dim array rails the autoexposure; the helper returns None
-    so the per-probe ladder takes over."""
+    so the per-probe ladder takes over.
+    """
     slm, camera, model = _build_setup(
         camera_angle=10.0, camera_shift=(60, 100), camera_resolution=(120, 160)
     )
@@ -572,7 +584,8 @@ def test_calibrate_exposure_falls_back_on_autoexposure_rail(monkeypatch):
 
 def test_map_camera_falls_back_to_ladder_when_calibration_returns_none(monkeypatch):
     """When calibration returns None (dim array / rail), map_camera still maps
-    correctly via the per-probe ladder."""
+    correctly via the per-probe ladder.
+    """
     slm, camera, model = _build_setup(
         camera_angle=10.0, camera_shift=(60, 100), camera_resolution=(120, 160)
     )
@@ -588,7 +601,8 @@ def test_map_camera_falls_back_to_ladder_when_calibration_returns_none(monkeypat
 
 def test_coarse_visualization_data_populated_and_visualizer_renders():
     """A zeroth-order-off-sensor mapping records every stage capture as its
-    visualization_data and the CoarseMapperVisualizer renders all four panels."""
+    visualization_data and the CoarseMapperVisualizer renders all four panels.
+    """
     from matplotlib.figure import Figure
 
     slm, camera, model = _build_setup(
@@ -615,7 +629,8 @@ def test_coarse_visualization_data_populated_and_visualizer_renders():
 
 def test_coarse_visualizer_renders_with_zeroth_order_on_sensor():
     """When the zeroth order is on the sensor no array is displayed
-    (array_image is None); the visualizer still renders (placeholder panel)."""
+    (array_image is None); the visualizer still renders (placeholder panel).
+    """
     from matplotlib.figure import Figure
 
     slm, camera, model = _build_setup()  # centered sensor: DC on it
@@ -631,7 +646,8 @@ def test_coarse_visualizer_renders_with_zeroth_order_on_sensor():
 
 def test_coarse_visualization_data_follows_visualization_data_pattern():
     """CoarseVisualizationData is a VisualizationData and CameraMapping exposes
-    the standard optional visualization_data field."""
+    the standard optional visualization_data field.
+    """
     import dataclasses
 
     from hologradpy.visualizer import VisualizationData

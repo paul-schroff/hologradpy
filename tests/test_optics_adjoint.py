@@ -111,7 +111,8 @@ WITHOUT_ADJOINT: dict[str, callable] = {
 @pytest.fixture(autouse=True)
 def double_precision():
     """Float64 throughout, so the tolerances measure the module and not the
-    accumulation of float32 rounding."""
+    accumulation of float32 rounding.
+    """
     previous = torch.get_default_dtype()
     torch.set_default_dtype(torch.float64)
     try:
@@ -166,7 +167,8 @@ def test_adjoint_is_the_conjugate_transpose(name: str) -> None:
 @pytest.mark.parametrize("name", sorted(WITHOUT_ADJOINT))
 def test_modules_without_an_adjoint_say_so(name: str) -> None:
     """These raise rather than silently returning something that is not an
-    adjoint."""
+    adjoint.
+    """
     module = WITHOUT_ADJOINT[name]()
     field = _random_field(RESOLUTION, PIXEL_SIZE, seed=0)
     module(field)

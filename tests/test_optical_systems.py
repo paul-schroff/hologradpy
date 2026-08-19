@@ -201,7 +201,8 @@ def test_insert_after_places_module_in_chain() -> None:
 def test_pointing_instability_inserted_after_static_field(name: str) -> None:
     """Each SLM model builds a PointingInstability from pointing_focal_shift_std
     (using its own focal_length) and inserts it right after its PixelwiseSLMField
-    stage (whatever that layer happens to be named)."""
+    stage (whatever that layer happens to be named).
+    """
     from hologradpy.optics.modules.hardware_models import (
         PointingInstability,
     )
@@ -220,7 +221,8 @@ def test_pointing_instability_inserted_after_static_field(name: str) -> None:
 @pytest.mark.parametrize("name", SYSTEM_IDS)
 def test_checkpoint_spec_reconstructs_system(name: str) -> None:
     """get_checkpoint_spec -> from_checkpoint_spec yields an equivalent system
-    (in-memory, no file)."""
+    (in-memory, no file).
+    """
     model = SYSTEM_FACTORIES[name]()
     expected = model()._data.clone()
 
@@ -262,7 +264,8 @@ def test_load_rejects_wrong_class(name: str, tmp_path) -> None:
 
 def test_checkpoint_preserves_pointing_instability(tmp_path) -> None:
     """A model built with pointing (and a seed) round-trips through save/load: the
-    PointingInstability and its seed survive, and params match."""
+    PointingInstability and its seed survive, and params match.
+    """
     from hologradpy.optics.modules.hardware_models import (
         PointingInstability,
     )

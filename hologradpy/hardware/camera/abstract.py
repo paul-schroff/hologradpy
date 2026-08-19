@@ -44,7 +44,7 @@ class Camera(ABC):
 
     @property
     def resolution(self) -> tuple[int, int]:
-        """Resolution ``(height, width)`` of the frame :meth:`get_image` returns. 
+        """Resolution ``(height, width)`` of the frame :meth:`get_image` returns.
         Describes the region of interest, not the whole sensor.
         """
         roi = self.roi
@@ -118,7 +118,8 @@ class Camera(ABC):
 
     def flush(self) -> None:
         """Discard two frames so the next :meth:`get_image` is fresh (matches the
-        slmsuite two-frame buffer flush)."""
+        slmsuite two-frame buffer flush).
+        """
         self.get_image()
         self.get_image()
 

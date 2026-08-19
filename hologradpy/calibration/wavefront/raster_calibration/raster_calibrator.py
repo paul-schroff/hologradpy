@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 
 import numpy as np
@@ -9,7 +11,7 @@ from scipy.ndimage import gaussian_filter
 from ....hardware import Camera, SLM
 from ....roi import ROI
 
-from . import SuperpixelSlicer
+from .superpixel_slicer import SuperpixelSlicer
 from .visualizer import RasterVisualizationData
 
 from ..abstract import WavefrontCalibratorBase, WavefrontCalibrationData
@@ -49,9 +51,7 @@ _AUTOEXPOSURE_SET_FRACTION = 0.9
 
 
 class RasterCalibrator(WavefrontCalibratorBase):
-    """
-    Class to calibrate the SLM wavefront using a raster scan.
-    """
+    """Class to calibrate the SLM wavefront using a raster scan."""
 
     def __init__(
         self,
@@ -66,7 +66,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         self.autoexposure_max_iterations = autoexposure_max_iterations
         self.camera_mapping: CameraMapping | None = None
         self._slm_camera_model: SLMFourierLensModel | None = None
-        self.power_reference: NDArray[np.float_] | None = None
+        self.power_reference: NDArray[np.float64] | None = None
 
     def _build_slm_camera_model(self) -> SLMFourierLensModel:
         """A minimal ideal SLM -> Fourier-lens model for the coarse mapping.
@@ -141,14 +141,14 @@ class RasterCalibrator(WavefrontCalibratorBase):
         ).map_camera()
 
     def _addressable_half_extent(self) -> tuple[float, float]:
-        """The focal-plane addressable half-extent ``(x, y)`` in metres, computed from 
+        """The focal-plane addressable half-extent ``(x, y)`` in metres, computed from
         the SLM pitch and the focal length directly.
         """
         return addressable_half_extent(
             float(self.slm.wavelength), self.focal_length, self.slm.pixel_size
         )
 
-    def _orientation_matrix(self) -> NDArray[np.float_]:
+    def _orientation_matrix(self) -> NDArray[np.float64]:
         """2x2 map from camera-plane metres to model / focal-plane metres from
         ``self.camera_mapping``.
 
@@ -169,17 +169,19 @@ class RasterCalibrator(WavefrontCalibratorBase):
             return np.diag(pixel_size_out) @ affine.linear @ np.diag(1.0 / camera_pitch)
         return affine.rotation_matrix  # orthonormal, preserves the mirror
 
-    def _rotation_matrix(self) -> NDArray[np.float_]:
+    def _rotation_matrix(self) -> NDArray[np.float64]:
         """Orthonormal rotation+mirror part of the camera->model transform, from the
         SVD of its linear block (no scale). Identity for an aligned camera, so it
-        orients the fits without touching an aligned scan."""
+        orients the fits without touching an aligned scan.
+        """
         return self.camera_mapping.affine.rotation_matrix
 
     def _orient_grid(self, grid: list[NDArray]) -> list[NDArray]:
         """Rotate a camera-plane ``(x, y)`` metre grid into the model / SLM axes via
         the camera mapping, so the fringe/lattice fits (which use SLM-axis
         separations) line up with a rotated/mirrored camera. Identity without a
-        mapping."""
+        mapping.
+        """
         if self.camera_mapping is None:
             return grid
         matrix = self._rotation_matrix()
@@ -189,10 +191,11 @@ class RasterCalibrator(WavefrontCalibratorBase):
             matrix[1, 0] * grid_x + matrix[1, 1] * grid_y,
         ]
 
-    def _diagonal_direction(self) -> NDArray[np.float_]:
+    def _diagonal_direction(self) -> NDArray[np.float64]:
         """Unit 45/135/225/315 deg diagonal pointing from the zeroth order toward the
         sensor center (away from the DC). Shared by the main and lattice placements
-        so both sit at the same angle."""
+        so both sit at the same angle.
+        """
         zeroth = np.asarray(self.camera_mapping.zeroth_order_xy)
         height, width = self.camera.sensor_shape
         center = np.array(plane_center((height, width)), dtype=float)
@@ -204,7 +207,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         self,
         camera_roi_size: tuple[int, int],
         clearance: float,
-        direction: NDArray[np.float_],
+        direction: NDArray[np.float64],
     ) -> tuple[tuple[float, float], tuple[float, float]]:
         """A linear-phase tilt (focal-plane metres) placing the pattern along
         ``direction`` from the zeroth order, as close to the sensor center as
@@ -265,12 +268,13 @@ class RasterCalibrator(WavefrontCalibratorBase):
         camera_roi_size: tuple[int, int],
         camera_mapping: CameraMapping | None,
         slm_camera_model: SLMFourierLensModel | None,
-    ) -> tuple[tuple[float, float], tuple[float, float], NDArray[np.float_]]:
+    ) -> tuple[tuple[float, float], tuple[float, float], NDArray[np.float64]]:
         """Ensure a coarse mapping and place the main interference pattern centrally
         along the shared diagonal, clearing the zeroth order by two interference-
         pattern ROI widths (``camera_roi_size``, not the combined lattice+pattern
         window). Returns ``(tilt, target, direction)`` so the lattice can reuse the
-        direction and the main target."""
+        direction and the main target.
+        """
         if self.camera_mapping is None:
             self._ensure_camera_mapping(camera_mapping, slm_camera_model)
         direction = self._diagonal_direction()
@@ -313,7 +317,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
     def get_blazed_grating(
         self,
         linear_phase_tilt: tuple[float, float],
-    ) -> NDArray[np.float_]:
+    ) -> NDArray[np.float64]:
         return linear_phase(
             *self.spatial_grid_slm,
             *linear_phase_tilt,
@@ -326,11 +330,12 @@ class RasterCalibrator(WavefrontCalibratorBase):
         self,
         exposure_time: float,
         frame_averages: int,
-    ) -> NDArray[np.float_]:
+    ) -> NDArray[np.float64]:
         """Mean of ``frame_averages`` camera frames at ``exposure_time`` (see
         :meth:`hologradpy.hardware.camera.Camera.get_averaged_image`). Used where the
         signal is dim (single corner spots, the lattice baseline), a handful of times
-        rather than once per scanned superpixel."""
+        rather than once per scanned superpixel.
+        """
         return self.camera.get_averaged_image(exposure_time, frame_averages)
 
     def calibrate_lattice_corner_tilts(
@@ -455,7 +460,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
         target_superpixel_height: int = 32,
     ) -> tuple[int, int]:
         """Return (n_superpixels_x, n_superpixels_y) for the superpixel size
-        closest to the target, using divisors of the SLM dimensions."""
+        closest to the target, using divisors of the SLM dimensions.
+        """
         height, width = self.slm.resolution
         factors_x = [i for i in range(1, width + 1) if width % i == 0]
         factors_y = [i for i in range(1, height + 1) if height % i == 0]
@@ -476,7 +482,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
         target_superpixels_y: int = 16,
     ) -> tuple[int, int]:
         """Return (superpixel_width, superpixel_height) using the closest divisors of
-        the SLM dimensions to slm_size / target_superpixels. """
+        the SLM dimensions to slm_size / target_superpixels.
+        """
         height, width = self.slm.resolution
         factors_x = [i for i in range(1, width + 1) if width % i == 0]
         factors_y = [i for i in range(1, height + 1) if height % i == 0]
@@ -533,9 +540,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
         slm_camera_model: SLMFourierLensModel | None = None,
         normalize_power: bool = False,
         verbose: bool = True,
-    ) -> tuple[NDArray[np.float_], NDArray[np.float_]]:
-        """
-        This function measures the intensity profile of the laser beam incident onto the
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        """Measure the intensity profile of the laser beam incident onto the
         SLM by displaying a sequence of rectangular phase masks on the SLM. The phase
         mask contains a linear phase which creates a diffraction spot on the camera. The
         position of the phase mask is varied across the entire area of the SLM and the
@@ -543,26 +549,29 @@ class RasterCalibrator(WavefrontCalibratorBase):
         https://doi.org/10.1038/s41598-023-30296-6 for details.
 
         Args:
-            number_of_superpixels_x : int
-                Number of superpixels along x.
-            number_of_superpixels_y : int
-                Number of superpixels along y.
-            superpixel_width : int
-                Width of superpixels [px].
-            superpixel_height : int
-                Height of superpixels [px].
-            linear_phase_tilt : tuple[float, float]
-                x and y gradient of the linear phase in units of the resulting spot
-                displacement in the Fourier plane in metres.
-            camera_roi_size : tuple[int, int] | None
-                Height and width of the region of interest on the camera around each
-                diffraction spot. If None, it is sized automatically from the
-                superpixel's sinc^2 spot (see below).
-            normalize_power : bool
-                If True, correct laser-power drift over the scan.
+            number_of_superpixels_x: Number of superpixels along x.
+            number_of_superpixels_y: Number of superpixels along y.
+            superpixel_width: Width of superpixels [px].
+            superpixel_height: Height of superpixels [px].
+            linear_phase_tilt: x and y gradient of the linear phase in units of the
+                resulting spot displacement in the Fourier plane in metres. If None,
+                the spot is placed automatically from the camera mapping.
+            camera_roi_size: Height and width of the region of interest on the camera
+                around each diffraction spot. If None, it is sized automatically from
+                the superpixel's sinc^2 spot.
+            camera_mapping: Coordinate mapping between the camera pixels and the
+                simulated image, used to place the diffraction spot and the power
+                reference on the sensor. If None, a :class:`CoarseMapper` run
+                provides one where it is needed.
+            slm_camera_model: Model of the SLM and the Fourier lens. It sets the
+                orientation and scale used to turn a camera position into a phase
+                tilt, and seeds the coarse mapping when none is supplied.
+            normalize_power: If True, correct laser-power drift over the scan.
+            verbose: If True, prints the progress of the measurement.
+
         Returns:
-            superpixel_intensity : NDArray
-                Intensity of the superpixels.
+            tuple[NDArray, NDArray]: The intensity profile of the beam across the
+            SLM, and the camera image recorded for each superpixel.
         """
         timer = Timer(verbose=verbose)
         timer.start()
@@ -790,7 +799,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         superpixel_height: int,
         linear_phase_tilt: tuple[float, float] | None = None,
         camera_roi_size: tuple[int, int] | None = None,
-        measured_intensity: NDArray[np.float_] | None = None,
+        measured_intensity: NDArray[np.float64] | None = None,
         compensate_pointing: bool = False,
         lattice_phase_tilt: tuple[float, float] | None = None,
         lattice_superpixel_size: int | None = None,
@@ -799,57 +808,59 @@ class RasterCalibrator(WavefrontCalibratorBase):
         slm_camera_model: SLMFourierLensModel | None = None,
         verbose: bool = True,
         record_displayed_phases: bool = False,
-    ) -> tuple[NDArray[np.float_], NDArray[np.float_], NDArray[np.float_]]:
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
         """This function measures the constant phase at the SLM by displaying
         a sequence of rectangular phase masks on the SLM. This scheme was adapted from
         Phillip Zupancic's work (https://doi.org/10.1364/OE.24.013881). For details of
         our implementation, see the supplementary material of
         https://doi.org/10.1038/s41598-023-30296-6.
 
-        Parameters
-        ----------
-        number_of_superpixels_x : int
-            Number of superpixels along x.
-        number_of_superpixels_y : int
-            Number of superpixels along y.
-        superpixel_width : int
-            Width of superpixels [px].
-        superpixel_height : int
-            Height of superpixels [px].
-        linear_phase_tilt : tuple[float, float]
-            x and y gradient of the linear phase in units of the resulting spot
-            displacement in the Fourier plane in metres.
-        camera_roi_size : tuple[int, int] | None
-            Height and width of the region of interest on the camera around the main
-            interference spot. If None, sized automatically to the superpixel's sinc^2
-            central lobe (out to the first zero).
-        compensate_pointing : bool, optional
-            If True, also display four corner superpixels forming a 2D optical lattice
-            and use its phase to correct for beam pointing drift. Default is False.
-        lattice_phase_tilt : tuple[float, float] | None, optional
-            x and y gradient (metres in the Fourier plane) steering the optical lattice
-            to a separate camera region. Required if compensate_pointing is True.
-        lattice_superpixel_size : int | None, optional
-            Side length [px] of the square corner superpixels. If None, sized
-            automatically from measured_intensity to match the fringe brightness.
-        lattice_roi_size : tuple[int, int] | None, optional
-            Height and width of the camera region of interest around the optical
-            lattice. If None, sized automatically to the corner superpixel's sinc^2
-            central lobe (out to the first zero).
-        verbose : bool, optional
-            If True, prints the progress of the measurement. Default is True.
-        record_displayed_phases : bool, optional
-            If True, store the displayed SLM phase (``slm.display``) for every
-            scanned superpixel in ``self.displayed_slm_phases`` so the scan can be
-            visualized afterwards (see ``RasterCalibratorVisualizer``). Off by
-            default as it keeps a full-resolution frame per superpixel.
+        Args:
+            number_of_superpixels_x: Number of superpixels along x.
+            number_of_superpixels_y: Number of superpixels along y.
+            superpixel_width: Width of superpixels in pixels.
+            superpixel_height: Height of superpixels in pixels.
+            linear_phase_tilt: x and y gradient of the linear phase, in units of the
+                resulting spot displacement in the Fourier plane in metres. If None,
+                the interference pattern is placed automatically from the camera
+                mapping.
+            camera_roi_size: Height and width of the region of interest on the camera
+                around the main interference spot. If None, sized automatically to the
+                superpixel's sinc^2 central lobe, out to the first zero.
+            measured_intensity: Intensity profile of the beam incident onto the SLM,
+                as returned by :meth:`measure_intensity`. A Gaussian beam is fitted to
+                it, enlarging the superpixels in dim regions of the SLM and setting the
+                size of the lattice corner superpixels. If None, a uniform intensity is
+                assumed.
+            compensate_pointing: If True, also display four corner superpixels forming
+                a 2D optical lattice and use its phase to correct for beam pointing
+                drift. Defaults to False.
+            lattice_phase_tilt: x and y gradient, in metres in the Fourier plane,
+                steering the optical lattice to a separate camera region. Required if
+                ``compensate_pointing`` is True.
+            lattice_superpixel_size: Side length in pixels of the square corner
+                superpixels. If None, sized automatically from the measured intensity
+                to match the fringe brightness.
+            lattice_roi_size: Height and width of the camera region of interest around
+                the optical lattice. If None, sized automatically to the corner
+                superpixel's sinc^2 central lobe, out to the first zero.
+            camera_mapping: Coordinate mapping between the camera pixels and the
+                simulated image, used to place the interference pattern and the
+                optical lattice on the sensor. If None, a :class:`CoarseMapper` run
+                provides one where it is needed.
+            slm_camera_model: Model of the SLM and the Fourier lens. It sets the
+                orientation and scale used to turn a camera position into a phase
+                tilt, and seeds the coarse mapping when none is supplied.
+            verbose: If True, prints the progress of the measurement.
+            record_displayed_phases: If True, store the displayed SLM phase
+                (``slm.display``) for every scanned superpixel in
+                ``self.visualization_data.displayed_slm_phases``, so the scan can
+                be visualized afterwards with ``RasterCalibratorVisualizer``. Off
+                by default, since it keeps a full-resolution frame per superpixel.
 
-        Returns
-        -------
-        superpixel_phase : NDArray
-            Phase of the superpixels.
-        camera_images : NDArray
-            Camera images.
+        Returns:
+            tuple[NDArray, NDArray, NDArray]: The measured SLM phase, the camera
+            images, and the fitted fringe images.
         """
         if (
             compensate_pointing

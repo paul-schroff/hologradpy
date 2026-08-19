@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -14,7 +16,7 @@ class SuperpixelSlicer:
         start_index_y: int = 0,
         end_index_x: int | None = None,
         end_index_y: int | None = None,
-        intensity: NDArray[np.float_] | None = None,
+        intensity: NDArray[np.float64] | None = None,
         max_correction_factor: int = 4,
     ) -> None:
         # TODO: Make this function less convoluted.
@@ -110,9 +112,7 @@ class SuperpixelSlicer:
     def remove_invalid_slices(
         self,
     ) -> list[tuple[slice, slice]]:
-        """
-        Removes slices that are out of bounds of the SLM shape.
-        """
+        """Removes slices that are out of bounds of the SLM shape."""
         valid_slices = []
         for slice_ in self.slices:
             if (
@@ -151,12 +151,10 @@ class SuperpixelSlicer:
 
     @property
     def central_index(self) -> int:
-        """
-        Index of the central superpixel.
-        Returns
-        -------
-        int
-            The index of the central superpixel.
+        """Index of the central superpixel.
+
+        Returns:
+            int: The index of the central superpixel.
         """
         return (
             self.number_of_superpixels_y // 2 * self.number_of_superpixels_x
@@ -165,12 +163,10 @@ class SuperpixelSlicer:
 
     @property
     def central_slice(self) -> tuple[slice, slice]:
-        """
-        Slice of the central superpixel.
-        Returns
-        -------
-        tuple[slice, slice]
-            The slice of the central superpixel.
+        """Slice of the central superpixel.
+
+        Returns:
+            tuple[slice, slice]: The slice of the central superpixel.
         """
         return self.get_slice(self.central_index)
 
@@ -206,7 +202,10 @@ class SuperpixelSlicer:
         camera image.
 
         Args:
-            superpixel_index (int): The index of the superpixel to adjust.
+            superpixel_index: The index of the superpixel to adjust.
+            max_correction_factor: Upper limit on the factor by which the superpixel
+                side lengths are scaled up in dim regions of the SLM.
+
         Returns:
             tuple[slice, slice]: The adjusted slice for the superpixel.
         """
@@ -238,7 +237,7 @@ class SuperpixelSlicer:
 
     def lattice_corner_slices(self, size: int) -> list[tuple[slice, slice]]:
         """The four square corner regions of the SLM, as ``(rows, columns)`` slices."""
-        height, width = self.resolution
+        height, width = self.slm_shape
         return [
             (slice(0, size), slice(0, size)),
             (slice(0, size), slice(width - size, width)),

@@ -1,6 +1,18 @@
 line-length = 88
 
 [lint]
-# Ruff's defaults (E4/E7/E9/F) omit the line-length rule, so enable it
-# explicitly to flag lines over the configured length.
-extend-select = ["E501"]
+# Enable line-length rule
+extend-select = ["E501", "D"]
+ignore = [
+    "D1",
+    "D205", # Docstring summaries wrapping 
+    "D212", # Avoids breaking sphinx napoleon extension
+]
+
+[lint.per-file-ignores]
+# An example's module docstring is a sphinx-gallery header
+"examples/*.py" = ["D415"]
+"examples/**/*.py" = ["D415"]
+
+[lint.pydocstyle]
+convention = "google"

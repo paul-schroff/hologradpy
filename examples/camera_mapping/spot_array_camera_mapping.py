@@ -1,3 +1,14 @@
+"""
+Camera mapping from an array of spots
+=====================================
+
+Generates a random array of spots on the camera by calculating an SLM phase pattern via
+superposition of linear phases, then detects the positions of the resulting focal spots 
+on the camera, fitting an affine transform between the camera coordinates and the
+coordinates of the simulated output plane. Needs a coarse mapping first to know where to
+place the spots on the camera.
+"""
+
 # %% Imports
 import matplotlib.pyplot as plt
 import numpy as np

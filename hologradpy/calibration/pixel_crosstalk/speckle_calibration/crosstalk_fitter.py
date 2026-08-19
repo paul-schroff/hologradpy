@@ -7,6 +7,7 @@ from typing import Iterable
 import torch
 
 from ...speckle.fitter import SpeckleFitter
+from ....optics.modules.pixel_crosstalk import PixelCrosstalk
 
 
 class CrosstalkFitter(SpeckleFitter):
@@ -38,6 +39,6 @@ class CrosstalkFitter(SpeckleFitter):
 
         return self.enabled_parameters()
 
-    def get_crosstalk(self):
+    def get_crosstalk(self) -> PixelCrosstalk | None:
         """The crosstalk model that was fitted."""
         return self.slm_camera_model.virtual_slm.pixel_crosstalk

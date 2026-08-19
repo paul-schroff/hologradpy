@@ -83,10 +83,12 @@ class SLM(ABC):
 
         levels = self.phase_to_levels(phase)
         if apply_vendor_correction:
-            levels = (
-                levels + self._required_correction("vendor")
-            ) % self.phase_response.number_of_levels
-            levels = levels.astype(phase_levels.level_dtype(self.bitdepth))
+            wide = np.asarray(levels, dtype=np.int64) + np.asarray(
+                self._required_correction("vendor"), dtype=np.int64
+            )
+            levels = (wide % self.phase_response.number_of_levels).astype(
+                phase_levels.level_dtype(self.bitdepth)
+            )
 
         self.set_levels(levels)
 
@@ -205,7 +207,7 @@ class SLM(ABC):
         response = self.phase_response
         return 1.0 if response is None else response.phase_scaling
 
-    def phase_to_levels(self, phase) -> NDArray:
+    def phase_to_levels(self, phase: NDArray | torch.Tensor) -> NDArray:
         """Convert a target phase to levels the device would display.
 
         Raises:
@@ -217,6 +219,8 @@ class SLM(ABC):
                 f"{type(self).__name__} reports no bitdepth, so its phase cannot be "
                 "expressed as display levels."
             )
+        if torch.is_tensor(phase):
+            phase = phase.detach().cpu()
         return self.phase_response.display_levels(np.asarray(phase))
 
     @property
@@ -273,8 +277,7 @@ class SLMData(SaveableRecord):
 
 
 def _phase_of(source: WavefrontSource) -> NDArray:
-    """Extracts the per-pixel phase in radians inside ``source``.
-    """
+    """Extracts the per-pixel phase in radians inside ``source``."""
     phase = getattr(source, "complex_amplitude", source)
     if hasattr(phase, "as_tensor"):
         phase = phase.as_tensor()

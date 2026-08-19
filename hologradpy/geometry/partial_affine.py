@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 from .affine import AffineTransform, _matrix_from_linear, _rotation_matrix
 
@@ -22,7 +23,7 @@ class PartialAffineTransform(AffineTransform):
         return 4
 
     @classmethod
-    def fit(cls, source, destination) -> PartialAffineTransform:
+    def fit(cls, source: ArrayLike, destination: ArrayLike) -> PartialAffineTransform:
         import cv2
 
         source = np.asarray(source, dtype=np.float64).reshape(-1, 1, 2)
@@ -44,7 +45,8 @@ class PartialAffineTransform(AffineTransform):
         center: tuple[float, float] = (0.0, 0.0),
     ) -> PartialAffineTransform:
         """Build a similarity transform from a uniform ``scale``, ``angle_deg`` and
-        ``shift``, keeping ``center`` fixed before the shift."""
+        ``shift``, keeping ``center`` fixed before the shift.
+        """
         linear = scale * _rotation_matrix(angle_deg)
         return cls(_matrix_from_linear(linear, shift, center))
 

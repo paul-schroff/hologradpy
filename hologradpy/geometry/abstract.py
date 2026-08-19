@@ -8,20 +8,24 @@ objects are immutable, so operations return new instances.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
+
+if TYPE_CHECKING:
+    import torch
 
 
 class GeometricTransform(ABC):
     """A 2D coordinate transform from a source plane to a destination plane.
 
     Subclasses constrain the degrees of freedom (partial affine, affine, and later
-    perspective) and supply a type-specific :meth:`fit`; everything else (applying to
+    perspective) and supply a type-specific :meth:`fit`. Everything else (applying to
     points, inverting, composing) is shared and works on the 3x3 matrix.
     """
 
-    def __init__(self, matrix: NDArray) -> None:
+    def __init__(self, matrix: ArrayLike) -> None:
         matrix = np.asarray(matrix, dtype=np.float64)
         if matrix.shape == (2, 3):
             matrix = np.vstack([matrix, [0.0, 0.0, 1.0]])
@@ -44,18 +48,18 @@ class GeometricTransform(ABC):
 
     @classmethod
     @abstractmethod
-    def fit(cls, source, destination) -> GeometricTransform:
+    def fit(cls, source: ArrayLike, destination: ArrayLike) -> GeometricTransform:
         """Estimate the transform from ``source -> destination`` point pairs.
 
         ``source`` and ``destination`` are ``(N, 2)`` arrays of ``(x, y)`` points.
         """
 
     @classmethod
-    def from_matrix(cls, matrix) -> GeometricTransform:
+    def from_matrix(cls, matrix: ArrayLike) -> GeometricTransform:
         """Wrap an existing 3x3 (or 2x3) matrix as this transform type."""
         return cls(matrix)
 
-    def transform_points(self, points) -> NDArray:
+    def transform_points(self, points: ArrayLike) -> NDArray:
         """Map ``(N, 2)`` source ``(x, y)`` points to destination ``(x, y)`` points."""
         points = np.asarray(points, dtype=np.float64).reshape(-1, 2)
         homogeneous = np.hstack([points, np.ones((points.shape[0], 1))])
@@ -75,7 +79,7 @@ class GeometricTransform(ABC):
         return result_type.from_matrix(self._matrix @ other.matrix)
 
     def reprojection_error(
-        self, source, destination
+        self, source: ArrayLike, destination: ArrayLike
     ) -> tuple[NDArray, float]:
         """Residual vectors ``mapped - destination`` and their RMS length."""
         errors = self.transform_points(source) - np.asarray(
@@ -88,7 +92,9 @@ class GeometricTransform(ABC):
         """The transform matrix: 3x3 homogeneous, or the 2x3 top rows."""
         return self.matrix if homogeneous else self._matrix[:2, :].copy()
 
-    def to_torch(self, device=None, dtype=None):
+    def to_torch(
+        self, device: torch.device | None = None, dtype: torch.dtype | None = None
+    ) -> torch.Tensor:
         """The 3x3 matrix as a torch tensor (torch imported lazily)."""
         import torch
 
@@ -109,7 +115,8 @@ def _more_general_type(
     first: type[GeometricTransform], second: type[GeometricTransform]
 ) -> type[GeometricTransform]:
     """The more general of two related transform types (the superclass in the
-    partial-affine < affine < perspective chain)."""
+    partial-affine < affine < perspective chain).
+    """
     if issubclass(first, second):
         return second
     if issubclass(second, first):

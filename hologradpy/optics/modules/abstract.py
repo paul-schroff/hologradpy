@@ -81,7 +81,8 @@ def _check_checkpoint_class(state: dict, expected: type, path: str) -> None:
 
 def _auto_init_forward(forward: Callable) -> Callable:
     """Wrap a subclass ``forward`` so the module lazily initializes itself from
-    its input field on first use (replaces the old forward pre-hook)."""
+    its input field on first use (replaces the old forward pre-hook).
+    """
 
     @functools.wraps(forward)
     def wrapper(self, complex_amplitude, *args, **kwargs):
@@ -96,7 +97,8 @@ def _auto_init_forward(forward: Callable) -> Callable:
 def _auto_init_adjoint(adjoint: Callable) -> Callable:
     """Wrap a subclass ``adjoint`` so it requires the module to be initialized
     first -- its input is an output-plane field, so it cannot infer the input
-    geometry and must have seen a forward() / initialize_from_geometry()."""
+    geometry and must have seen a forward() / initialize_from_geometry().
+    """
 
     @functools.wraps(adjoint)
     def wrapper(self, complex_amplitude, *args, **kwargs):
@@ -111,6 +113,7 @@ class OpticsModule(RecordingMixin, nn.Module):
     """Base class for an optical element (a differentiable field transform).
 
     Subclassing contract:
+
     - Implement ``forward(field) -> field`` and, if invertible, ``adjoint(field)``.
     - Initialization is **automatic**: the module lazily initializes from the input
       field on the first ``forward``; ``adjoint`` requires a prior ``forward`` (or
@@ -143,12 +146,13 @@ class OpticsModule(RecordingMixin, nn.Module):
         pixel_size_out: tuple[float, float] | None = None,
         resolution_out: tuple[int, int] | None = None,
     ) -> None:
-        """Args:
-        pixel_size_out (tuple[float, float] | None): Output pixel size in metres
-            (height, width) when known at construction. Defaults to None
-            (sampling-preserving, or set later via set_output_geometry()).
-        resolution_out (tuple[int, int] | None): Output resolution in pixels
-            (height, width) when known at construction. Defaults to None.
+        """
+        Args:
+            pixel_size_out: Output pixel size in metres ``(height, width)`` when known
+                at construction. Defaults to None, which preserves the input sampling,
+                or set it later with :meth:`set_output_geometry`.
+            resolution_out: Output resolution in pixels ``(height, width)`` when known
+                at construction. Defaults to None.
         """
         super().__init__()
         self._pixel_size_out_init = pixel_size_out
@@ -193,7 +197,8 @@ class OpticsModule(RecordingMixin, nn.Module):
 
     def _set_default_output_geometry(self) -> None:
         """Default output geometry: the values passed at construction, else the
-        input geometry (sampling-preserving). Runs before lazy_init()."""
+        input geometry (sampling-preserving). Runs before lazy_init().
+        """
         if self._pixel_size_out_init is None:
             self._pixel_size_out = self.pixel_size_in
         else:
@@ -207,7 +212,8 @@ class OpticsModule(RecordingMixin, nn.Module):
 
     def _finalize_output_geometry(self) -> None:
         """Validate the output geometry is set and broadcast the output pixel size
-        across wavelengths."""
+        across wavelengths.
+        """
         if self._resolution_out is None or self._pixel_size_out is None:
             raise ValueError(
                 f"{type(self).__name__}: output geometry is unset after "
@@ -227,7 +233,8 @@ class OpticsModule(RecordingMixin, nn.Module):
     def _lazy_initialize(self, complex_amplitude: ComplexAmplitude) -> None:
         """Initialize from an input-plane field (or probe): record the input
         geometry, set the default output geometry, let the subclass build its state
-        in lazy_init(), then validate + broadcast the output geometry."""
+        in lazy_init(), then validate + broadcast the output geometry.
+        """
         self._input_geometry = complex_amplitude.geometry
         self.initialized = True
         self._set_default_output_geometry()
@@ -260,7 +267,7 @@ class OpticsModule(RecordingMixin, nn.Module):
             else (number_of_wavelengths, *geometry.resolution)
         )
         # Probe carries only geometry/dtype/device into lazy_init, which never
-        # reads field values — so the (uninitialized) contents are unused.
+        # reads field values, so the (uninitialized) contents are unused.
         probe = ComplexAmplitude(
             torch.empty(shape, dtype=dtype, device=geometry.wavelength.device),
             geometry.wavelength,
@@ -368,7 +375,7 @@ class OpticsModule(RecordingMixin, nn.Module):
         self.load_state_dict(state["state_dict"])
 
     @classmethod
-    def from_file(cls, path: str, device: torch.device = "cpu"):
+    def from_file(cls, path: str, device: torch.device = "cpu") -> OpticsModule:
         """Rebuild a module saved by :meth:`save`.
 
         The constructor arguments are replayed, the module is initialized from the input

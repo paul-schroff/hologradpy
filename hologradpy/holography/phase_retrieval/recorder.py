@@ -16,20 +16,7 @@ RETRIEVAL_STEPS_NAME = "retrieval_steps.asdf"
 
 
 class RetrievalStepWriter:
-    """Saves the retrieval's own parameter every ``stride`` iterations.
-
-    Args:
-        stride: Record every nth optimizer iteration.
-        directory: Where to save the file and the checkpoint. Created if it does not 
-            exist.
-        model: The model whose parameter is recorded, checked here so a retrieval that
-            could not be replayed fails before it starts rather than after.
-
-    Raises:
-        ValueError: The stride is below one, no directory was given, or the model draws
-            randomness on every forward pass (output is not deterministic and cannot be
-            reconstructed).
-    """
+    """Saves the retrieval's own parameter every ``stride`` iterations."""
 
     def __init__(
         self,
@@ -37,6 +24,19 @@ class RetrievalStepWriter:
         directory: str | os.PathLike | None,
         model: SLMFourierLensModel,
     ) -> None:
+        """
+        Args:
+            stride: Record every nth optimizer iteration.
+            directory: Where to save the file and the checkpoint. Created if it does not
+                exist.
+            model: The model whose parameter is recorded, checked here so a retrieval
+                that could not be replayed fails before it starts rather than after.
+
+        Raises:
+            ValueError: The stride is below one, no directory was given, or the model
+                draws randomness on every forward pass (output is not deterministic and
+                cannot be reconstructed).
+        """
         if stride < 1:
             raise ValueError(f"step_stride must be at least 1, got {stride}.")
         if directory is None:
@@ -86,19 +86,19 @@ class RetrievalStepWriter:
 
 
 class RetrievalRun:
-    """The accumulated output of a phase retrieval run.
-
-    Args:
-        steps: Where the per-iteration parameter goes, or None to record none.
-        progress_bar: A bar to advance, or None. Attached by whoever owns the bar, since
-            it may be borrowed for several retrievals in a row.
-    """
+    """The accumulated output of a phase retrieval run."""
 
     def __init__(
         self,
         steps: RetrievalStepWriter | None = None,
         progress_bar: ProgressBar | None = None,
     ) -> None:
+        """
+        Args:
+            steps: Where the per-iteration parameter goes, or None to record none.
+            progress_bar: A bar to advance, or None. Attached by whoever owns the bar,
+                since it may be borrowed for several retrievals in a row.
+        """
         self.steps: RetrievalStepWriter | None = steps
         self.progress_bar: ProgressBar | None = progress_bar
         self.loss_history: list[float] = []

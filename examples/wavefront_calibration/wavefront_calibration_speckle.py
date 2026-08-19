@@ -1,3 +1,13 @@
+"""
+Wavefront calibration from speckle
+==================================
+
+Fitting a parametrised model of the complex field illuminating the SLM by minimising the
+difference between camera images of speckle intensity patterns and their simulated
+counterparts. The phase patterns displayed on the SLM are smooth to reduce effects of
+pixel crosstalk, which are not included in the model.
+"""
+
 # %% Imports
 from pathlib import Path
 from typing import Literal
@@ -80,7 +90,7 @@ simulated_camera_model = SLMCZT(
     focal_length=FOCAL_LENGTH,
     slm_field=PixelwiseSLMField(aberrated_beam),
     camera_angle=5.0,
-    camera_shift=(-200, 50),
+    camera_shift=(-700e-6, 150e-6),      # (x, y) metres in the focal plane
     padded_resolution=(int(1.2 * 900), int(1.2 * 1440)),
 )
 

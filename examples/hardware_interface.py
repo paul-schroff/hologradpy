@@ -1,4 +1,6 @@
-"""Using the HoloGradPy hardware interface.
+"""
+Using the HoloGradPy hardware interface
+=======================================
 
 HoloGradPy talks to cameras and SLMs through a small native interface, so the rest of
 the library never has to know which physical device is attached. This script walks

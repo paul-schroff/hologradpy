@@ -81,7 +81,8 @@ class ROI:
     @classmethod
     def from_bounds(cls, top: int, bottom: int, left: int, right: int) -> ROI:
         """From ``(top, bottom, left, right)`` pixel indices, the convention returned by
-        :meth:`to_bounds` and used by array slicing."""
+        :meth:`to_bounds` and used by array slicing.
+        """
         return cls(int(top), int(left), int(bottom) - int(top), int(right) - int(left))
 
     @classmethod
@@ -89,7 +90,8 @@ class ROI:
         cls, image: ArrayLike, threshold: float = 0.5, pad: int = 10
     ) -> ROI:
         """The ROI bounding pixels above ``threshold * max(image)``, padded by ``pad``
-        pixels per side and clipped to the image extent."""
+        pixels per side and clipped to the image extent.
+        """
         xp = array_namespace(image)
         rows, cols = xp.nonzero(image > threshold * xp.max(image))
         top = int(xp.clip(xp.min(rows) - pad, 0, image.shape[0]))
@@ -106,7 +108,8 @@ class ROI:
         self, image: ArrayLike, original_shape: tuple[int, int]
     ) -> ArrayLike:
         """Inverse of :meth:`crop`: place ``image`` back into a zero array of
-        ``original_shape`` ``(height, width)`` at this ROI."""
+        ``original_shape`` ``(height, width)`` at this ROI.
+        """
         xp = array_namespace(image)
         output = xp.zeros(
             (*image.shape[:-2], *original_shape),

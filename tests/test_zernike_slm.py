@@ -36,7 +36,8 @@ def _field(shape, n_wavelengths):
 
 def test_learns_coefficients_not_phase() -> None:
     """The learnable parameter is the Zernike coefficient tensor, shaped
-    ``(n_wavelengths, n_coefficients)`` — not a per-pixel phase param."""
+    ``(n_wavelengths, n_coefficients)``, not a per-pixel phase param.
+    """
     module = ZernikeSLM(
         phase_scaling=1.0, number_of_radial_orders=ZERNIKE_RADIAL_ORDERS
     )

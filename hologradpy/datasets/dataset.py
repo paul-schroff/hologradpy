@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 import torch
 from torch.utils.data import Dataset
 
@@ -7,21 +10,22 @@ from .stores import CapturedSample, RetrievalSample, _SampleStore
 
 
 class SampleDataset(Dataset):
-    """Torch dataset over the samples of a store. Takes an open store rather than a 
+    """Torch dataset over the samples of a store. Takes an open store rather than a
     path.
-
-    Args:
-        store: An open :class:`CaptureStore` or :class:`RetrievalStepStore`.
-        transform: Applied to each sample as it is loaded.
-        cache: Keep loaded samples in memory.
     """
 
     def __init__(
         self,
         store: _SampleStore,
-        transform=None,
+        transform: Callable[[Any], CapturedSample | RetrievalSample] | None = None,
         cache: bool = False,
     ) -> None:
+        """
+        Args:
+            store: An open :class:`CaptureStore` or :class:`RetrievalStepStore`.
+            transform: Applied to each sample as it is loaded.
+            cache: Keep loaded samples in memory.
+        """
         self.store = store
         self.transform = transform
         self.cache = cache

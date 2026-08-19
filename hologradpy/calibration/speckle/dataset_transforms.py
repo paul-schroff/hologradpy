@@ -7,10 +7,11 @@ import torch
 
 from ...datasets import CapturedSample
 from ...loss_functions import smallest_divisor
+from ...roi import ROI
 
 
 class TransformToTensor:
-    def __init__(self, device, dtype):
+    def __init__(self, device: torch.device, dtype: torch.dtype) -> None:
         self.device = device
         self.dtype = dtype
 
@@ -22,7 +23,7 @@ class TransformToTensor:
 
 
 class CropToRoi:
-    def __init__(self, roi):
+    def __init__(self, roi: ROI) -> None:
         self.roi = roi
 
     def __call__(self, sample: CapturedSample) -> CapturedSample:
@@ -30,7 +31,7 @@ class CropToRoi:
 
 
 class Normalize:
-    def __init__(self, roi_mask: NDArray[np.bool_] | torch.Tensor):
+    def __init__(self, roi_mask: NDArray[np.bool_] | torch.Tensor) -> None:
         self.roi_mask = torch.as_tensor(roi_mask)
 
     def __call__(self, sample: CapturedSample) -> CapturedSample:
@@ -41,11 +42,17 @@ class Normalize:
 
 
 class PrepareSample:
-    """The full chain from a raw captured sample to training tensors. Convert to torch, 
+    """The full chain from a raw captured sample to training tensors. Convert to torch,
     crop to the region of interest, then normalize.
     """
 
-    def __init__(self, roi, roi_mask, device, dtype) -> None:
+    def __init__(
+        self,
+        roi: ROI,
+        roi_mask: NDArray[np.bool_] | torch.Tensor,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> None:
         self.transforms = (
             TransformToTensor(device, dtype),
             CropToRoi(roi),

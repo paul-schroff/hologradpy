@@ -1,0 +1,49 @@
+/* Sphinx-gallery styles its download buttons from its own palette and knows nothing 
+    about the theme. */
+
+:root,
+html[data-theme="light"],
+body[data-theme="light"],
+html[data-theme="dark"],
+body[data-theme="dark"],
+html[data-theme="auto"],
+body[data-theme="auto"] {
+    --sg-download-a-background-color: var(--color-background-secondary);
+    --sg-download-a-background-image: none;
+    --sg-download-a-border-color: 1px solid var(--color-background-border);
+    --sg-download-a-color: var(--color-brand-content);
+    --sg-download-a-hover-background-color: var(--color-background-hover);
+    --sg-download-a-hover-box-shadow-1: transparent;
+    --sg-download-a-hover-box-shadow-2: transparent;
+}
+
+/* The three buttons are stacked block containers by default. Lay them out as one
+   wrapping row, so they read as a group of related actions. */
+div.sphx-glr-footer-example {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
+}
+
+div.sphx-glr-footer-example div.sphx-glr-download,
+div.sphx-glr-footer-example div.sphx-glr-download p {
+    margin: 0;
+}
+
+/* The label sits in a <code> element, which is why it renders monospaced and reads as
+   a snippet instead of an action. */
+div.sphx-glr-download code.download {
+    font-family: inherit;
+    font-size: var(--font-size--small);
+    font-weight: 500;
+    background: none;
+    border: none;
+    padding: 0;
+    color: inherit;
+}
+
+div.sphx-glr-download a {
+    padding: 0.5rem 1rem;
+    transition: background-color 120ms ease-in-out;
+}

@@ -1,3 +1,12 @@
+"""
+Conjugate-gradient phase retrieval
+==================================
+
+Finds the SLM phase that forms a target light potential, by minimising a cost function
+based on the output of a model that simluates the propagation of light from the SLM to 
+the camera.
+"""
+
 # %% Imports
 import matplotlib.pyplot as plt
 

@@ -50,7 +50,8 @@ def _aberration_phase(
     seed: int,
 ) -> torch.Tensor:
     """Random Zernike phase (astigmatism and up), normalized so its intensity-
-    weighted RMS over the beam equals ``rms_radians`` (0 -> flat)."""
+    weighted RMS over the beam equals ``rms_radians`` (0 -> flat).
+    """
     if rms_radians == 0.0:
         return torch.zeros(resolution, device=DEVICE)
     zernike = Zernike(resolution, number_of_radial_orders=5, convention="ANSI")
@@ -197,7 +198,8 @@ def test_map_camera_builds_coarse_and_recovers_affine(checkerboard_mapping):
 
 def test_zeroth_order_clears_board_footprint(checkerboard_mapping):
     """The board is placed clear of the zeroth order: the DC pixel lies outside
-    the detected board's camera footprint."""
+    the detected board's camera footprint.
+    """
     mapping = checkerboard_mapping
     detected = np.asarray(mapping.detected_points, dtype=float)
     board_center = detected.mean(axis=0)
@@ -233,7 +235,8 @@ def test_map_camera_accepts_explicit_coarse_mapping(mapper, coarse_mapping):
 
 def test_auto_square_size_within_quarter_nyquist(mapper, coarse_mapping):
     """The auto square size keeps the board width within a quarter of the SLM's
-    Nyquist-rectangle width on both axes."""
+    Nyquist-rectangle width on both axes.
+    """
     lens = mapper.slm_camera_model.fourier_lens
     pixel_size_out = lens.pixel_size_out.tolist()[0]  # (y, x) metres
     resolution_out = tuple(lens.resolution_out)
@@ -265,7 +268,8 @@ def test_auto_square_size_within_quarter_nyquist(mapper, coarse_mapping):
 @pytest.mark.parametrize("camera_angle", [15.0, 30.0, 40.0])
 def test_map_camera_recovers_rotated_camera(camera_angle):
     """The mapper recovers the camera rotation up to the +/-45 deg limit (tested
-    at 45 deg during development; 40 deg leaves margin)."""
+    at 45 deg during development; 40 deg leaves margin).
+    """
     slm, camera, slm_camera_model = _build_setup(camera_angle=camera_angle)
     mapping = CheckerboardMapper(
         slm, camera, slm_camera_model
@@ -303,7 +307,8 @@ def test_map_camera_breaks_beyond_45_degrees():
 def test_tolerates_mild_aberration_and_speckle():
     """A mild unknown wavefront error (~0.3 rad RMS, below the ~0.5-1.0 rad break)
     together with a static speckle background at half the beam power is still
-    recovered: corner detection and the affine fit survive."""
+    recovered: corner detection and the affine fit survive.
+    """
     slm, camera, slm_camera_model = _build_setup(
         aberration_rms=0.3, aberration_seed=1, background_power_ratio=0.5
     )

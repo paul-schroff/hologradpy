@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 
 from ...hardware import Camera, SLM, as_camera, as_slm
 from ...optics import SLMFourierLensModel
@@ -20,7 +20,7 @@ class CameraMapper:
         slm: SLM,
         camera: Camera,
         slm_camera_model: SLMFourierLensModel,
-    ):
+    ) -> None:
         self.slm = as_slm(slm)
         self.camera = as_camera(camera)
         self.slm_camera_model = slm_camera_model
@@ -36,9 +36,9 @@ class CameraMapper:
 
     @staticmethod
     def calculate_reprojection_error(
-        detected_points,
-        calculated_points,
-        transform,
+        detected_points: ArrayLike,
+        calculated_points: ArrayLike,
+        transform: ArrayLike,
     ) -> tuple[NDArray, float]:
         """Residuals of mapping the detected points through the affine transform.
 

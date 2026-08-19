@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import TYPE_CHECKING
 
 import torch
 from torch import Tensor
@@ -14,6 +15,9 @@ from ....fourier_transforms import ChirpZPartialAffine
 from ....fourier_optics import fourier_lens_magnification
 from ....grids import get_spatial_grid
 from ....profiles.amplitude import gaussian_beam_intensity
+
+if TYPE_CHECKING:
+    from ....calibration.camera_mapping.mapping import CameraMapping
 
 
 def kernel_size_from_waist(
@@ -38,7 +42,7 @@ def kernel_size_from_waist(
     return max(3, size + 1 - size % 2)
 
 
-def waist_from_camera_mapping(camera_mapping) -> float:
+def waist_from_camera_mapping(camera_mapping: CameraMapping) -> float:
     """The focal spot waist measured by a camera mapping."""
     return float(camera_mapping.spot_fit.waist)
 
@@ -96,7 +100,7 @@ class PSFSLMField(SLMField):
     @classmethod
     def from_camera_mapping(
         cls,
-        camera_mapping,
+        camera_mapping: CameraMapping,
         focal_length: float,
         camera_pixel_size: tuple[float, float],
         kernel_size: int | None = None,
@@ -208,7 +212,10 @@ class PSFSLMField(SLMField):
         )
 
     def _normalized(
-        self: PSFSLMField, kernel: Tensor, device, real_dtype: torch.dtype
+        self: PSFSLMField,
+        kernel: Tensor,
+        device: torch.device,
+        real_dtype: torch.dtype,
     ) -> Tensor:
         """A kernel checked for shape and scaled to unit peak."""
         if tuple(kernel.shape[-2:]) != self.psf_kernel_size:

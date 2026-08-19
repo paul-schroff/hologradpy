@@ -6,7 +6,6 @@ checked against the other.
 
 from __future__ import annotations
 
-from typing import Tuple
 
 import torch
 from torch import Tensor
@@ -18,7 +17,7 @@ def get_zoom_frequency_grid(
     magnification: tuple[float, float],
     shift: tuple[float, float] = (0.0, 0.0),
     device: torch.device = "cpu",
-) -> Tuple[Tensor, Tensor]:
+) -> tuple[Tensor, Tensor]:
     """Per-axis k-space sample points (rad/sample) of a scaled + shifted output
     window, shared by the zoom transforms (NUFFT, chirp-z) so they sample
     identical points.
@@ -48,7 +47,7 @@ def window_offset_from_pixels(
     shift: tuple[float, float] | Tensor,
     resolution: tuple[int, int],
     magnification: tuple[float, float] | Tensor,
-) -> Tuple[Tensor, Tensor]:
+) -> tuple[Tensor, Tensor]:
     """The rad/sample window offset that moves the image by ``shift`` output pixels.
     This produces the ``shift`` that :func:`get_zoom_frequency_grid` takes.
 

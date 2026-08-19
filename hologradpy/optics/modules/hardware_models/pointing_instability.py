@@ -17,15 +17,6 @@ class PointingInstability(OpticsModule):
     change in beam angle which shifts the focal spot downstream. Intended to sit
     just after ``PixelwiseSLMField`` in the SLM-plane chain. Output geometry equals
     input geometry.
-
-    Args:
-        tilt_std: Standard deviation of the (zero-mean Gaussian) beam angle [rad]
-            -- a scalar (same for x and y) or ``(std_x, std_y)``. Each forward
-            draws ``angle_x ~ N(0, std_x)`` and ``angle_y ~ N(0, std_y)``; ``x``
-            is the width axis, ``y`` the height axis.
-        seed: Optional integer seed. When given, an internal
-            :class:`torch.Generator` (on the field's device) is seeded with it for
-            reproducible sampling; otherwise the global RNG is used.
     """
 
     def __init__(
@@ -34,6 +25,16 @@ class PointingInstability(OpticsModule):
         *,
         seed: int | None = None,
     ) -> None:
+        """
+        Args:
+            tilt_std: Standard deviation of the (zero-mean Gaussian) beam angle [rad].
+                Can be a scalar (same for x and y) or ``(std_x, std_y)``. Each forward
+                draws ``angle_x ~ N(0, std_x)`` and ``angle_y ~ N(0, std_y)``. ``x``
+                is the width axis, ``y`` the height axis.
+            seed: Optional integer seed. When given, an internal
+                :class:`torch.Generator` (on the field's device) is seeded with it for
+                reproducible sampling; otherwise the global RNG is used.
+        """
         super().__init__()
         self.tilt_std = self._as_pair(tilt_std)
         self.seed = seed
@@ -83,14 +84,16 @@ class PointingInstability(OpticsModule):
     def last_angle(self) -> tuple[Tensor, Tensor] | None:
         """The most recently sampled beam tilt ``(angle_x, angle_y)`` [rad], or
         ``None`` before the first :meth:`forward`. Handy for recording the realized
-        per-frame jitter (e.g. to verify a downstream pointing tracker)."""
+        per-frame jitter (e.g. to verify a downstream pointing tracker).
+        """
         return self._last_angle
 
     def recordables(self) -> dict[str, Tensor]:
         """Record the sampled beam tilt each forward as ``{"angle": (angle_x,
         angle_y)}`` (see
         :class:`~hologradpy.optics.modules.recording.RecordingMixin`);
-        empty before the first :meth:`forward`."""
+        empty before the first :meth:`forward`.
+        """
         if self._last_angle is None:
             return {}
         angle_x, angle_y = self._last_angle
@@ -100,7 +103,8 @@ class PointingInstability(OpticsModule):
     def angle_history(self) -> Tensor:
         """The beam tilts recorded while :meth:`record` was on, as an ``(n, 2)``
         tensor ``[angle_x, angle_y]`` per :meth:`forward` (empty ``(0, 2)`` if
-        none). Convenience alias for ``history["angle"]``."""
+        none). Convenience alias for ``history["angle"]``.
+        """
         return self.history.get("angle", torch.empty((0, 2)))
 
     def lazy_init(
@@ -159,7 +163,8 @@ class PointingInstability(OpticsModule):
         self: PointingInstability, complex_amplitude: ComplexAmplitude
     ) -> ComplexAmplitude:
         """Conjugate transpose of the most recent :meth:`forward` (the unitary
-        inverse of the last sampled tilt): undo the tilt."""
+        inverse of the last sampled tilt): undo the tilt.
+        """
         if self._last_tilt is None:
             raise RuntimeError(
                 "PointingInstability.adjoint() needs a prior forward() -- it "

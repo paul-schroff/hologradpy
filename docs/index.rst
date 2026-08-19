@@ -1,48 +1,23 @@
-.. HoloGradPy documentation master file, created by
-   sphinx-quickstart on Thu Jun  1 15:17:54 2023.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
 HoloGradPy Documentation
 ########################
 
-HoloGradPy provides functionality to holographically generate light potentials of
-arbitrary shape using a phase-modulating SLM
-(see `our publication <https://doi.org/10.1038/s41598-023-30296-6>`_).
-Additional SLM calibration methods based on 
-`more recent work <https://doi.org/10.1364/OE.539548>`_ will soon be added to this 
-package.
-
-Author
-******
-This package was created by Paul Schroff during his PhD at the University of
-Strathclyde in the research group of Stefan Kuhr.
+HoloGradPy provides functionality for generating light potentials using a 
+phase-modulating SLM (see
+`our publication <https://doi.org/10.1038/s41598-023-30296-6>`_).
+SLM calibration methods using random speckle intensity patterns based on
+`more recent work <https://doi.org/10.1364/OE.539548>`_ are included as well.
 
 .. note::
-   For questions or suggestions, email paul.schroff@strath.ac.uk.
-
-Features
-********
-To calculate the SLM phase pattern for a given target light potential, we
-implemented a phase-retrieval algorithm based on
-`conjugate gradient minimisation <https://doi.org/10.1364/OE.22.026548>`_.
-The gradient used in the conjugate gradient minimisation is calculated using PyTorch's
-automatic differentiation capabilities.
-
-Functions to characterise the beam profile and the constant phase at the SLM are
-provided. These measurements are crucial for accurate experimental results.
-
-We employed a `feedback algorithm <https://dx.doi.org/10.1088/0953-4075/48/11/115303>`_
-and model pixel crosstalk on the SLM to further reduce experimental errors in the light
-potentials.
-
-
-.. note::
-   This package works best with a Nvidia GPU to run the phase retrieval algorithm.
+   The algorithms in this package work best with CUDA acceleration, especially the
+   speckle calibration algorithms.
 
 .. warning::
-   This documentation is work in progress - refer to the :ref:`example scripts <Examples>` to get started.
+   This documentation is work in progress. Refer to the
+   :ref:`example scripts <Examples>` to get started.
 
+.. include:: ../README.md
+   :parser: myst_parser.sphinx_
+   :start-after: <!-- docs-start -->
 
 .. toctree::
    :maxdepth: 1
@@ -50,21 +25,15 @@ potentials.
 
    install
    auto_examples/index
+   API Reference <autoapi/hologradpy/index>
 
 .. toctree::
    :hidden:
    :caption: Links
 
-   ↪ Publication <https://doi.org/10.1038/s41598-023-30296-6>
-   ↪ GitHub <https://github.com/paul-schroff/hologradpy>
-
-Cite as
-*******
-If you are using this code, please cite our publication:
-
-P. Schroff, A. La Rooij, E. Haller, S. Kuhr,
-Accurate holographic light potentials using pixel crosstalk modelling.
-*Sci Rep* **13**, 3252 (2023). https://doi.org/10.1038/s41598-023-30296-6
+   Sci. Rep. 13, 3252 (2023) <https://doi.org/10.1038/s41598-023-30296-6>
+   Opt. Express 32, 48957 (2024) <https://doi.org/10.1364/OE.539548>
+   GitHub <https://github.com/paul-schroff/hologradpy>
 
 Indices and tables
 ==================

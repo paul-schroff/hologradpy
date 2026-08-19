@@ -40,7 +40,8 @@ def make_field(shape, n_wl, seed=0, pixel_size=PIXEL_IN):
 
 def _identity_pixel_out():
     """The output pixel size for which the base magnification is exactly 1, i.e.
-    the chirp-z window equals the full FFT grid."""
+    the chirp-z window equals the full FFT grid.
+    """
     return (
         800e-9 * FOCAL_LENGTH / (PIXEL_IN[0] * RESOLUTION[0]),
         800e-9 * FOCAL_LENGTH / (PIXEL_IN[1] * RESOLUTION[1]),
@@ -60,7 +61,8 @@ def test_czt_lens_is_exact_at_identity_parameters() -> None:
 def test_czt_lens_power_normalized_conserves_power() -> None:
     """With power_normalized the (du*dv)/(lambda*f) prefactor makes the exact
     chirp-z conserve optical power: at magnification 1 over the full focal plane,
-    focal power == input power (Parseval)."""
+    focal power == input power (Parseval).
+    """
     field = make_field(RESOLUTION, 1, seed=0)
     lens = FourierLensCZT(
         FOCAL_LENGTH, RESOLUTION, _identity_pixel_out(),
@@ -218,7 +220,8 @@ def test_padding_keeps_the_corners_a_rotation_would_otherwise_clip() -> None:
 
 def test_padding_smaller_than_the_field_is_refused() -> None:
     """Silently cropping the field would look like a badly converged calibration rather
-    than a configuration error."""
+    than a configuration error.
+    """
     field = make_field(RESOLUTION, 1, seed=5)
     lens = FourierLensCZT(
         FOCAL_LENGTH, RESOLUTION, _identity_pixel_out(), padded_resolution=(8, 8)

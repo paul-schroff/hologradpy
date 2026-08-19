@@ -31,16 +31,14 @@ class CameraMappingVisualizationData(VisualizationData):
 
     What every mapper records, and all :class:`CameraMapperVisualizer` needs. A mapper
     with more to show subclasses this and its own visualizer draws the rest.
-
-    Attributes:
-        camera_image: What the camera saw.
-        simulated_image: What the model predicted for the same pattern.
-        zeroth_order_mask: True over the camera pixels a mapper left out of both the
-            exposure and the detection, None when it masked nothing.
     """
 
+    #: What the camera saw.
     camera_image: NDArray
+    #: What the model predicted for the same pattern.
     simulated_image: NDArray
+    #: True over the camera pixels a mapper left out of both the exposure and the
+    #: detection, None when it masked nothing.
     zeroth_order_mask: NDArray | None = None
 
 

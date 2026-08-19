@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 
 import torch
 import torchmin
@@ -208,7 +208,7 @@ class PhaseRetrieverBase:
         """Extra keyword arguments for the optimizer, for a search that needs them."""
         return {}
 
-    def callback(self, _) -> None:
+    def callback(self, _: torch.Tensor) -> None:
         """One optimizer iteration done, which is where the bar advances and a step is
         due.
 
@@ -349,7 +349,7 @@ class PhaseRetrieverBase:
         step_directory: str | os.PathLike | None = None,
         model_checkpoint: str | None = None,
         metadata: dict | None = None,
-        **options,
+        **options: Any,
     ) -> PhaseRetrievalData:
         """Run the search and return it as a saveable record.
 

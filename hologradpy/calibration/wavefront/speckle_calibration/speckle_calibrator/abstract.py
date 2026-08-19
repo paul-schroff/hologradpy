@@ -61,7 +61,7 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
 
     @abstractmethod
     def _build_slm_field(self) -> SLMField:
-        """Build the field from the camera mapping. Called only when the model does not 
+        """Build the field from the camera mapping. Called only when the model does not
         already have one of :attr:`slm_field_type`.
         """
 
@@ -211,8 +211,6 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
             beam_mask_threshold: Fraction of the peak intensity above which a pixel
                 counts as illuminated. Default is 1/e^4 (~0.0183).
         """
-        
-
         field = self.fitter.get_wavefront().detach().cpu().numpy()
 
         intensity = np.abs(field) ** 2

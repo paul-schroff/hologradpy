@@ -79,22 +79,6 @@ class FeedbackCorrectorBase(ABC):
     Works with any :class:`~hologradpy.holography.phase_retrieval.PhaseRetrieverBase`
     that implements set_target() and run(). Uses 
     :class:`~hologradpy.holography.phase_retrieval.CGPhaseRetriever` by default.
-
-    Args:
-        slm: The SLM displaying the hologram.
-        camera: The camera watching the light potential.
-        target: The target intensity to produce, on the camera grid.
-        signal_region: Where the target is optimized.
-        slm_camera_model: The model simulating the propagation of light from the SLM to
-            the camera. Required unless ``phase_retriever`` is given, in which case it 
-            is taken from there.
-        init_slm_phase: Starting phase for the retriever.
-        phase_retriever: Use an existing phase retriever instead of building one.
-        camera_mapping: How the camera sits relative to the model, used to seed the
-            model's registration before the loop starts. Measured with a
-            :class:`~hologradpy.calibration.camera_mapping.SpotArrayMapper` when not
-            given.
-        loss_scale: Slope of the cost function used by the retriever this builds.
     """
 
     def __init__(
@@ -110,6 +94,27 @@ class FeedbackCorrectorBase(ABC):
         camera_mapping: CameraMapping | None = None,
         loss_scale: float | None = None,
     ) -> None:
+        """
+        Args:
+            slm: The SLM displaying the hologram.
+            camera: The camera watching the light potential.
+            target: The target intensity to produce, on the camera grid.
+            signal_region: Where the target is optimized.
+            target_position: Where to place the target, as ``(x, y)`` metres in
+                the Nyquist plane measured from the zeroth order. The camera's
+                rotation and scale are applied, so this is a position in the
+                image plane and not in sensor pixels.
+            slm_camera_model: The model simulating the propagation of light from the SLM
+                to the camera. Required unless ``phase_retriever`` is given, in which
+                case it is taken from there.
+            init_slm_phase: Starting phase for the retriever.
+            phase_retriever: Use an existing phase retriever instead of building one.
+            camera_mapping: How the camera sits relative to the model, used to seed the
+                model's registration before the loop starts. Measured with a
+                :class:`~hologradpy.calibration.camera_mapping.SpotArrayMapper` when not
+                given.
+            loss_scale: Slope of the cost function used by the retriever this builds.
+        """
         self.slm = slm
         self.camera = camera
         self.camera_mapping = camera_mapping
@@ -198,7 +203,7 @@ class FeedbackCorrectorBase(ABC):
         return float(pitch[0]), float(pitch[1])
 
     def _camera_pixels_from_optical_metres(self, points: np.ndarray) -> np.ndarray:
-        """Optical-plane ``(x, y)`` metres from the zeroth order to sensor 
+        """Optical-plane ``(x, y)`` metres from the zeroth order to sensor
         ``(row, column)``.
         """
         pitch_y, pitch_x = self._camera_pitch()
@@ -267,7 +272,7 @@ class FeedbackCorrectorBase(ABC):
         self.phase_retriever.set_target(self._target, self.signal_region)
 
     def _warn_if_zeroth_order_inside(self) -> None:
-        """Warn when the undiffracted spot sits inside the signal region. Only warn if 
+        """Warn when the undiffracted spot sits inside the signal region. Only warn if
         the signal region is not the entire sensor.
         """
         region = self.signal_region
@@ -469,5 +474,5 @@ class FeedbackCorrectorBase(ABC):
             )
 
     @abstractmethod
-    def run(self):
+    def run(self) -> CameraFeedbackData:
         pass

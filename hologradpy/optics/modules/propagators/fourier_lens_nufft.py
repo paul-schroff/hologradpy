@@ -172,7 +172,8 @@ class FourierLensNUFFT(OpticsModule):
         """Fourier-lens amplitude prefactor ``(du*dv) / (lambda*f)`` per
         wavelength, so the transform carries physical optical power. The KbNufft
         is approximate, so power is conserved only up to interpolation error.
-        Shaped ``(1, n_wl, 1, 1)`` for the flattened field."""
+        Shaped ``(1, n_wl, 1, 1)`` for the flattened field.
+        """
         pixel_size_in = self.pixel_size_in
         area = pixel_area(pixel_size_in)
         wavelength = self.input_geometry.wavelength.to(torch.float64).reshape(-1)

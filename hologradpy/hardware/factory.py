@@ -36,7 +36,8 @@ def register_camera_backend(name: str, driver: type | str) -> None:
 
 def register_slm_backend(name: str, driver: type | str) -> None:
     """Register an SLM driver under ``name`` for :func:`open_slm` (see
-    :func:`register_camera_backend` for the lazy ``"module:Attr"`` spec form)."""
+    :func:`register_camera_backend` for the lazy ``"module:Attr"`` spec form).
+    """
     _SLM_BACKENDS[name] = driver
 
 
@@ -52,7 +53,8 @@ def available_camera_backends() -> list[str]:
 
 def available_slm_backends() -> list[str]:
     """Return the names :func:`open_slm` accepts, sorted (see
-    :func:`available_camera_backends` for the opt-in slmsuite caveat)."""
+    :func:`available_camera_backends` for the opt-in slmsuite caveat).
+    """
     return sorted(_SLM_BACKENDS)
 
 
@@ -71,7 +73,7 @@ def open_camera(
 ) -> Camera: ...
 @overload
 def open_camera(driver: str, *args: Any, **kwargs: Any) -> Camera: ...
-def open_camera(driver, *args, **kwargs) -> Camera:
+def open_camera(driver: Callable[..., Any] | str, *args: Any, **kwargs: Any) -> Camera:
     """Construct a camera and return it as a native HoloGradPy device, in one call.
 
     ``driver`` is a camera driver class (whose constructor signature is preserved for
@@ -100,15 +102,18 @@ def open_slm(
 ) -> SLM: ...
 @overload
 def open_slm(driver: str, *args: Any, **kwargs: Any) -> SLM: ...
-def open_slm(driver, *args, **kwargs) -> SLM:
+def open_slm(driver: Callable[..., Any] | str, *args: Any, **kwargs: Any) -> SLM:
     """Construct an SLM and return it as a native HoloGradPy device (see
     :func:`open_camera`, including how a native subclass keeps its concrete type
-    while a wrapped slmsuite driver comes back as the base ``SLM``)."""
+    while a wrapped slmsuite driver comes back as the base ``SLM``).
+    """
     driver = _resolve_backend(driver, _SLM_BACKENDS, "SLM")
     return as_slm(driver(*args, **kwargs))
 
 
-def _resolve_backend(driver, registry: dict[str, type | str], kind: str) -> type:
+def _resolve_backend(
+    driver: Callable[..., Any] | str, registry: dict[str, type | str], kind: str
+) -> Callable[..., Any]:
     """Resolve a driver argument to a driver class.
 
     A class is returned as is. A registered ``name`` is looked up, and a registry entry

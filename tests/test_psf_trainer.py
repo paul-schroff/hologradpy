@@ -120,7 +120,8 @@ def test_the_kernel_is_a_single_complex_parameter() -> None:
 
 def test_kernel_gradients_reach_the_whole_slm_field() -> None:
     """Every kernel pixel must move the whole field, which is why it converges
-    at a different step size from a per-pixel field."""
+    at a different step size from a per-pixel field.
+    """
     module = PSFSLMField(
         focal_length=FOCAL_LENGTH,
         camera_pixel_size=CAMERA_PIXEL_SIZE,
@@ -137,7 +138,8 @@ def test_kernel_gradients_reach_the_whole_slm_field() -> None:
 
 def test_multiple_wavelengths_are_refused_clearly() -> None:
     """The kernel to SLM magnification scales with wavelength, so one kernel
-    cannot serve several at once."""
+    cannot serve several at once.
+    """
     geometry = FieldGeometry(
         resolution=(32, 32),
         pixel_size=torch.tensor([SLM_PIXEL_SIZE, SLM_PIXEL_SIZE]),
@@ -160,7 +162,8 @@ def test_multiple_wavelengths_are_refused_clearly() -> None:
 def test_kernel_size_tracks_the_fitted_waist() -> None:
     """A broader measured spot buys a larger kernel, which is the point: the
     waist is fitted to the aberrated spot, so the kernel grows with the
-    aberration."""
+    aberration.
+    """
     small = kernel_size_from_waist(5e-6, 3.45e-6)
     large = kernel_size_from_waist(15e-6, 3.45e-6)
     assert large > small
@@ -170,7 +173,8 @@ def test_kernel_size_tracks_the_fitted_waist() -> None:
 
 def test_a_static_field_model_is_not_treated_as_a_psf_one(tmp_path) -> None:
     """A PixelwiseSLMField model must not pick up the PSF parameterization's
-    settings."""
+    settings.
+    """
     import sys
 
     sys.path.insert(0, os.path.dirname(__file__))

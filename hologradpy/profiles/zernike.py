@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Literal
 import torch
 
@@ -35,7 +37,7 @@ class ZernikeConventionHandler:
 
         # Build the ordered m sequence for this radial group.
         # Noll rule: even j → m ≥ 0, odd j → m ≤ 0.
-        # Within the group, modes are ordered by |m| ascending; for each |m|
+        # Within the group, modes are ordered by |m| ascending. For each |m|
         # pair the sign is determined by the running j parity at that position.
         j_start = n * (n + 1) // 2 + 1
         ordered_ms: list[int] = []
@@ -87,7 +89,7 @@ class ZernikeConventionHandler:
                 return self.fringe_arizona_indices_to_nm(j)
             case "wyant":
                 # Wyant convention is the same as the Fringe/Arizona,
-                # starting at j=0 instead of j=1.
+                # with its indexing starting at j=0.
                 return self.fringe_arizona_indices_to_nm(j + 1)
 
 
@@ -307,11 +309,14 @@ class Zernike:
         :meth:`fit`).
 
         Args:
-            coefficients (torch.Tensor): Coefficients of shape
-                ``(*batch, number_of_zernikes)``.
+            coefficients: Coefficients of shape ``(*batch, number_of_zernikes)``.
 
         Returns:
             torch.Tensor: Phase of shape ``(*batch, H, W)``.
+
+        Raises:
+            ValueError: when the number of coefficients does not match the number
+                of Zernike polynomials.
         """
         if coefficients.shape[-1] != self.number_of_zernikes:
             raise ValueError(
@@ -338,19 +343,17 @@ class Zernike:
         the Zernike basis. Any leading dimensions of ``phase`` (e.g. batch and
         wavelength) are fitted independently. Because the basis is sampled on a
         discrete, masked grid it is not perfectly orthonormal, so the fit is a
-        least-squares solve rather than a direct projection.
+        least-squares solve.
 
         Args:
-            phase (torch.Tensor): Measured phase of shape ``(*batch, H, W)``.
-            mask (torch.Tensor | None, optional): Mask of the pixels to fit
-                over, broadcastable to ``phase`` (e.g. ``(H, W)`` shared,
-                ``(n_wavelengths, H, W)`` per wavelength, or ``(*batch, H, W)``
-                per sample). Combined with the unit-disk mask. Defaults to the
-                unit disk only.
+            phase: Measured phase of shape ``(*batch, H, W)``.
+            mask: Mask of the pixels to fit over, broadcastable to ``phase``
+                (e.g. ``(H, W)`` shared, ``(n_wavelengths, H, W)`` per wavelength,
+                or ``(*batch, H, W)`` per sample). Combined with the unit-disk
+                mask. Defaults to the unit disk only.
 
         Returns:
-            torch.Tensor: Coefficients of shape
-            ``(*batch, number_of_zernikes)``.
+            torch.Tensor: Coefficients of shape ``(*batch, number_of_zernikes)``.
         """
         number_of_pixels = self.resolution[0] * self.resolution[1]
         basis = self.zernike_array.reshape(
@@ -388,6 +391,7 @@ def make_per_wavelength_coefficients(
     """Build a ``(n_wavelengths, n_coefficients)`` Zernike coefficient tensor.
 
     ``initial_coefficients`` may be:
+
     - ``None`` -> small random values,
     - a 1D tensor ``(n_coefficients,)`` -> broadcast across all wavelengths,
     - a 2D tensor ``(n_wavelengths, n_coefficients)`` -> used as-is.

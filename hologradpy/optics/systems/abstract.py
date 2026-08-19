@@ -3,7 +3,7 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TypeVar, Type, TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 import torch
 import torch.nn as nn
@@ -36,9 +36,7 @@ class OpticalSystemCheckpoint:
 
 
 class OpticalSystem(nn.Module):
-    """
-    Sequential container for optical systems with named layers.
-    """
+    """Sequential container for optical systems with named layers."""
 
     # Every subclass, by name.
     _subclasses: dict[str, type[OpticalSystem]] = {}
@@ -100,7 +98,8 @@ class OpticalSystem(nn.Module):
     def _reject_if_name_taken(self, name: str) -> None:
         """Reject a layer name that is already used or collides with a reserved
         ``nn.Module`` attribute/method (e.g. ``forward``, ``training``, ``to``),
-        which would otherwise silently shadow it."""
+        which would otherwise silently shadow it.
+        """
         if name in self._order:
             raise ValueError(f"Layer '{name}' already exists")
         if hasattr(self, name):
@@ -116,7 +115,7 @@ class OpticalSystem(nn.Module):
 
     def insert_after(
         self,
-        reference: str | Type[OpticsModule],
+        reference: str | type[OpticsModule],
         name: str,
         module: OpticsModule,
     ) -> None:
@@ -161,20 +160,21 @@ class OpticalSystem(nn.Module):
     def layers(self) -> dict[str, OpticsModule]:
         return {name: getattr(self, name) for name in self._order}
 
-    def get(self, module_type: Type[T]) -> T:
+    def get(self, module_type: type[T]) -> T:
         for name in self._order:
             module = getattr(self, name)
             if isinstance(module, module_type):
                 return module
         raise KeyError(f"No module of type {module_type.__name__}")
 
-    def has(self, module_type: Type[OpticsModule]) -> bool:
+    def has(self, module_type: type[OpticsModule]) -> bool:
         return any(isinstance(getattr(self, n), module_type) for n in self._order)
 
     def record(self, enabled: bool = True) -> None:
         """Toggle recording on every layer that supports it (see
         :class:`~hologradpy.optics.modules.recording.RecordingMixin`).
-        Read the per-layer result from :attr:`history`."""
+        Read the per-layer result from :attr:`history`.
+        """
         for name in self._order:
             module = getattr(self, name)
             if isinstance(module, RecordingMixin):
@@ -184,7 +184,8 @@ class OpticalSystem(nn.Module):
     def record_samples(self) -> Iterator[OpticalSystem]:
         """Record every layer's declared values for the duration of the ``with``
         block (recording is turned off again on exit). Read them from
-        :attr:`history`."""
+        :attr:`history`.
+        """
         self.record(True)
         try:
             yield self
@@ -194,7 +195,8 @@ class OpticalSystem(nn.Module):
     @property
     def history(self) -> dict[str, dict[str, Tensor]]:
         """Per-layer recording, ``{layer_name: {value_name: (n, ...) tensor}}``,
-        including only layers that recorded something."""
+        including only layers that recorded something.
+        """
         result: dict[str, dict[str, Tensor]] = {}
         for name in self._order:
             module = getattr(self, name)
@@ -204,7 +206,7 @@ class OpticalSystem(nn.Module):
                     result[name] = layer_history
         return result
 
-    def summary(self):
+    def summary(self) -> None:
         for i, name in enumerate(self._order):
             module = getattr(self, name)
             print(f"{i:02d}  {name:15} {module.__class__.__name__}")
@@ -220,22 +222,22 @@ class OpticalSystem(nn.Module):
         "type", "power", "efficiency"}, ...]}``.
 
         Notes:
-        - Power is absolute (watts) only when the input field / ``SLMField``
-          beam carries an absolute power and the FFT lens is ``power_normalized``.
-          The diagonal-stage (phase/amplitude) efficiencies are scale-invariant
-          ratios and meaningful regardless.
-        - For a ``power_normalized`` FFT system the ``fourier_lens`` stage is
-          ~1.0 by Parseval. The **camera-FOV capture fraction** is NOT the
-          ``affine_transform`` stage efficiency: that resampling conserves the
-          discrete L2 norm ``sum|E|^2`` (via ``1/sqrt(scale.prod())``), which
-          equals physical power ``sum|E|^2 * pixel_area`` only when the pixel
-          size is unchanged. When the affine changes the pixel size (FFT plane
-          -> camera) the physical power scales by ``(pixel_out/pixel_in)**2``,
-          so the stage ratio is ``1/scale**2``, not the capture fraction. A
-          NUFFT lens likewise only computes the camera window. The physical
-          capture fraction comes from integrating ``|E_fft|^2`` over the FOV at
-          the FFT-plane pixel size (crop the power-normalized FFT plane) -- see
-          the NUFFT power diagnosis.
+            - Power is absolute (watts) only when the input field / ``SLMField``
+              beam carries an absolute power and the FFT lens is ``power_normalized``.
+              The diagonal-stage (phase/amplitude) efficiencies are scale-invariant
+              ratios and meaningful regardless.
+            - For a ``power_normalized`` FFT system the ``fourier_lens`` stage is
+              ~1.0 by Parseval. The **camera-FOV capture fraction** is NOT the
+              ``affine_transform`` stage efficiency: that resampling conserves the
+              discrete L2 norm ``sum|E|^2`` (via ``1/sqrt(scale.prod())``), which
+              equals physical power ``sum|E|^2 * pixel_area`` only when the pixel
+              size is unchanged. When the affine changes the pixel size (FFT plane
+              -> camera) the physical power scales by ``(pixel_out/pixel_in)**2``,
+              so the stage ratio is ``1/scale**2``, not the capture fraction. A
+              NUFFT lens likewise only computes the camera window. The physical
+              capture fraction comes from integrating ``|E_fft|^2`` over the FOV
+              at the FFT-plane pixel size, cropping the power-normalized FFT
+              plane. See the NUFFT power diagnosis.
         """
         field = self.init_field if input_field is None else input_field
         input_power = field.power().detach()
@@ -351,10 +353,10 @@ class OpticalSystem(nn.Module):
             return getattr(self, self._order[key])
         return getattr(self, key)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._order)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         lines = ["OpticalSystem("]
         for name in self._order:
             lines.append(f"  ({name}): {repr(getattr(self, name))}")
@@ -371,7 +373,7 @@ def load_optical_system(
     map_location: str | torch.device | None = None,
     **kwargs,
 ) -> OpticalSystem:
-    """Reopen a checkpoint without knowing which system wrote it. 
+    """Reopen a checkpoint without knowing which system wrote it.
     :meth:`OpticalSystem.load` refuses a file saved by a different class.
 
     Raises:
@@ -496,6 +498,8 @@ def upscaled_padding(
 
 
 class SLMFourierLensModel(OpticalSystem):
+    """A differentiable model of an SLM imaged onto a camera through a Fourier lens."""
+
     virtual_slm: VirtualSLM
     fourier_lens: OpticsModule
 

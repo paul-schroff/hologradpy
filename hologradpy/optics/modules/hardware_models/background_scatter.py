@@ -23,16 +23,17 @@ class BackgroundScatter(OpticsModule):
     ``E``) is what lets the background appear on dark pixels where ``|E| = 0``. Only
     ``|E|^2`` changes, so the module is only meaningful right before a terminal
     intensity sensor (:class:`CameraSensor`).
-
-    Args:
-        power: Total added background optical power in watts.
-        grain_radius: Speckle grain radius in metres.
-        seed: Optional RNG seed for a reproducible speckle pattern.
     """
 
     def __init__(
         self, power: float, grain_radius: float = 5e-6, seed: int | None = None
     ) -> None:
+        """
+        Args:
+            power: Total added background optical power in watts.
+            grain_radius: Speckle grain radius in metres.
+            seed: Optional RNG seed for a reproducible speckle pattern.
+        """
         super().__init__()
         self.power = float(power)
         self.grain_radius = float(grain_radius)

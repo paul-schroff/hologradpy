@@ -152,7 +152,8 @@ def test_loading_the_wrong_class_raises(tmp_path) -> None:
 
 def test_an_unregistered_dataclass_is_refused(tmp_path) -> None:
     """Caught when writing, so a missing registration cannot produce a file that will
-    not read back."""
+    not read back.
+    """
 
     @dataclass
     class Unregistered:
@@ -169,7 +170,8 @@ def test_an_unregistered_dataclass_is_refused(tmp_path) -> None:
 
 def test_registering_a_plain_class_is_refused() -> None:
     """A record is written by walking its fields, so a class that has none registers
-    happily and then fails at the first save, a long way from the registration."""
+    happily and then fails at the first save, a long way from the registration.
+    """
     with pytest.raises(TypeError, match="not a dataclass"):
 
         @record_type("test_plain")
@@ -180,7 +182,8 @@ def test_registering_a_plain_class_is_refused() -> None:
 def test_a_snapshot_carrying_arrays_compares_and_hashes() -> None:
     """A device snapshot ends up in a dict or a set, and an array field answers neither
     question: == returns an array and hash() refuses. The array fields are therefore
-    excluded from both, so two snapshots of the same device are equal."""
+    excluded from both, so two snapshots of the same device are equal.
+    """
     response = LinearResponse(bitdepth=8, phase_scaling=1.0)
     correction = np.linspace(0, 1, 16).reshape(4, 4)
 
@@ -204,7 +207,8 @@ def test_a_snapshot_carrying_arrays_compares_and_hashes() -> None:
 
 def test_a_class_that_moved_still_loads(tmp_path) -> None:
     """The whole point. The tag on disk names the record, not the import path, so the
-    class can move to another module between writing and reading."""
+    class can move to another module between writing and reading.
+    """
     path = tmp_path / "shapes.asdf"
     _shapes().save(path)
 
@@ -279,7 +283,8 @@ def test_pickle_would_not_survive_that_move(tmp_path) -> None:
 
 def test_an_added_field_defaults_and_a_removed_one_is_ignored(tmp_path) -> None:
     """Fields drift without a version bump as long as the change is additive with a
-    default, or a removal."""
+    default, or a removal.
+    """
     path = tmp_path / "drift.asdf"
 
     @record_type("test_drift")
@@ -308,7 +313,8 @@ def test_an_added_field_defaults_and_a_removed_one_is_ignored(tmp_path) -> None:
 
 def test_a_renamed_field_needs_a_migration(tmp_path) -> None:
     """A rename is not additive, so it takes a version bump and a _migrate, and the
-    error names the fix when there is not one."""
+    error names the fix when there is not one.
+    """
     path = tmp_path / "renamed.asdf"
 
     @record_type("test_rename")

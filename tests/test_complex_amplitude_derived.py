@@ -1,6 +1,6 @@
 """Derived real quantities of ComplexAmplitude: intensity / amplitude / phase.
 
-These must be **plain real ``torch.Tensor``s** (not ``ComplexAmplitude`` — an
+These must be **plain real ``torch.Tensor``s** (not ``ComplexAmplitude``, since an
 intensity is not a complex field), have the correct physical values, and stay
 attached to the autograd graph so they can drive optimization. The graph may
 live either on the inner ``_data`` (a field built directly from graph-carrying
@@ -58,7 +58,8 @@ def test_gradient_flows_when_data_carries_graph() -> None:
 @pytest.mark.parametrize("name", DERIVED)
 def test_gradient_flows_when_wrapper_carries_graph(name: str) -> None:
     """Field produced by an OpticsModule forward: graph is on the wrapper, so
-    ``_data`` is detached and only ``as_tensor()`` preserves the gradient."""
+    ``_data`` is detached and only ``as_tensor()`` preserves the gradient.
+    """
     module = MODULE_FACTORIES["ZernikeSLM"]()
     field = make_field(*RANK_CASES["3d"])
 
@@ -103,7 +104,8 @@ def test_gradient_matches_plain_torch_through_complex_multiply() -> None:
     The wrapper autograd previously dropped the conjugation for complex operands
     (correct only when the operand was real-valued), corrupting the gradient of
     any field produced by a complex per-pixel multiply (e.g. a ``VirtualSLM`` or
-    ``PixelwiseSLMField``)."""
+    ``PixelwiseSLMField``).
+    """
     constant = torch.tensor(
         [[1 + 2j, 3 - 1j], [0.5 + 0.7j, -1 + 0.3j]], dtype=torch.complex128
     )

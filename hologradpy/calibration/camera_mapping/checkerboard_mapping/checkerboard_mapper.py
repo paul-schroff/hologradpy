@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 import torch
 import numpy as np
@@ -26,6 +28,8 @@ from ..abstract import CameraMapper, CameraMapping
 from ..mapping import FocalSpotFit, MappingFit
 from ..visualizer import CameraMappingVisualizationData
 
+DETECTOR_MARGIN = 20
+
 
 class CheckerboardMapper(CameraMapper):
     def __init__(
@@ -50,12 +54,14 @@ class CheckerboardMapper(CameraMapper):
         exposure_time: float | None = None,
         coarse_mapping: CameraMapping | None = None,
     ) -> CameraMapping:
-        """Map the camera from a checkerboard target. 
+        """Map the camera from a checkerboard target.
         
-        .. warning:: This mapper has a chicken-and-egg problem since it is sensitive to
-        aberrations and will only work with a calibrated wavefront. Its included in this
-        package for legacy reasons, but the *SpotArrayMapper* is more robust, more
-        accurate, and does not rely on a calibrated wavefront.
+        .. warning::
+
+            This mapper has a chicken-and-egg problem: it is sensitive to aberrations
+            and only works with a calibrated wavefront. It is included for legacy
+            reasons. :class:`SpotArrayMapper` is more robust, more accurate, and does
+            not need a calibrated wavefront.
 
         An SLM phase for a checkerboard target is computed (CG phase retrieval) and
         displayed. The checkerboard corners are detected sub-pixel in both the captured
@@ -221,10 +227,11 @@ class CheckerboardMapper(CameraMapper):
                     square_size * squares_plus[0] * magnification,  # width
                 ),
             )
+
             self.camera.autoexpose(
                 set_fraction=0.95,
-                exposure_bounds=(0, 1),
                 roi=board_roi,
+                raise_on_rail=False,
                 verbose=self.verbose,
             )
 
@@ -234,16 +241,16 @@ class CheckerboardMapper(CameraMapper):
         )
 
         # Detecting checkerboard corners in the captured and simulated images
-        detected_corners, detected_score = self.detect_checkerboard(
-            averaged_camera_image * gpu_to_numpy(roi_mask_camera),
+        detected_corners, detected_score = self.detect_in_region(
+            averaged_camera_image,
+            gpu_to_numpy(roi_mask_camera),
             number_of_corners=number_of_corners,
-            number_of_attempts=3,
         )
 
-        calculated_corners, calculated_score = self.detect_checkerboard(
-            simulated_camera_image * gpu_to_numpy(roi_mask_simulation),
+        calculated_corners, calculated_score = self.detect_in_region(
+            simulated_camera_image,
+            gpu_to_numpy(roi_mask_simulation),
             number_of_corners=number_of_corners,
-            number_of_attempts=3,
         )
 
         # A failed detection returns a scalar rather than an (N, 2) array.
@@ -373,9 +380,8 @@ class CheckerboardMapper(CameraMapper):
         caused by pixel crosstalk on the SLM.
 
         Args:
-            slm_phase (torch.Tensor): SLM phase pattern to display.
-            number_of_shifts (int, optional): Number of phase shifts to apply.
-                Defaults to 10.
+            slm_phase: SLM phase pattern to display.
+            number_of_shifts: Number of phase shifts to apply. Defaults to 10.
 
         Returns:
             NDArray: Averaged camera image.
@@ -386,6 +392,38 @@ class CheckerboardMapper(CameraMapper):
             self.slm.set_phase(shifted_slm_phase)
             averaged_camera_image += self.camera.get_image() / number_of_shifts
         return averaged_camera_image
+
+    @classmethod
+    def detect_in_region(
+        cls,
+        image: NDArray,
+        mask: NDArray,
+        number_of_corners: tuple[int, int],
+        number_of_attempts: int = 3,
+    ) -> tuple[NDArray, float]:
+        """Detect the checkerboard within ``mask``, and return its corners in the
+        coordinates of the whole ``image``.
+
+        Args:
+            image: The whole frame, from the camera or from the model.
+            mask: True over the region the board was placed in.
+            number_of_corners: Inner corners as (rows, columns).
+            number_of_attempts: Detection attempts with increasing blur.
+
+        Returns:
+            tuple[NDArray, float]: Corner coordinates in ``image`` and the detection
+                score. A failed detection returns a scalar rather than corners.
+        """
+        region = ROI.detect(mask.astype(float), threshold=0.5, pad=DETECTOR_MARGIN)
+        corners, score = cls.detect_checkerboard(
+            region.crop(image * mask),
+            number_of_corners=number_of_corners,
+            number_of_attempts=number_of_attempts,
+        )
+        corners = np.asarray(corners)
+        if corners.ndim == 2:
+            corners = corners + (region.left_column, region.top_row)
+        return corners, score
 
     @staticmethod
     def detect_checkerboard(
@@ -399,12 +437,12 @@ class CheckerboardMapper(CameraMapper):
         successful or the maximum number of attempts is reached.
 
         Args:
-            image (NDArray): 2D array containing the image to detect the
-                checkerboard pattern.
-            number_of_corners (tuple[int, int]): Number of corners in the
-                checkerboard pattern (rows, columns).
-            number_of_attempts (int): Number of attempts to detect the
-                checkerboard with increasing blur.
+            image: 2D array containing the image to detect the checkerboard
+                pattern.
+            number_of_corners: Number of corners in the checkerboard pattern
+                (rows, columns).
+            number_of_attempts: Number of attempts to detect the checkerboard with
+                increasing blur.
 
         Returns:
             tuple[NDArray, float]: Detected corner coordinates and the

@@ -102,8 +102,8 @@ def detect_spot(
     contain no on-sensor spot.
 
     Args:
-        image: Captured camera frame. spot_radius: Diffraction-limited focal-spot radius
-        (1/e^2 intensity) in metres.
+        image: Captured camera frame.
+        spot_radius: Diffraction-limited focal-spot radius (1/e^2 intensity) in metres.
         camera: Supplies the pixel pitch (``camera.pixel_size``) and the full-scale
             pixel value (``camera.max_pixel_value``), only read, never captured from or
             mutated.
@@ -112,7 +112,8 @@ def detect_spot(
             camera's full-scale value.
 
     Returns:
-        The ``(row, column)`` of the spot peak, or ``None`` if no spot is found.
+        tuple[int, int] | None: The ``(row, column)`` of the spot peak, or ``None`` if
+        no spot is found.
     """
     pixel_pitch = min(camera.pixel_size)
     spot_radius_px = spot_radius / pixel_pitch
@@ -189,46 +190,37 @@ def get_diffraction_spot_position(
     roi_pad: int = 50,
     roi_threshold: float = 0.5,
     verbose: bool = True,
-) -> tuple[tuple[float, float], float, NDArray, tuple[int, int, int, int]]:
-    """
-    This function generates a spot on the camera by displaying a circular
-    aperture on the SLM containing a linear phase gradient. The position of the
-    spot is found by fitting a Gaussian to the camera image.
+) -> tuple[tuple[float, float], float, NDArray, ROI]:
+    """This function generates a spot on the camera by displaying a circular aperture
+    on the SLM containing a linear phase gradient. The position of the spot is found by
+    fitting a Gaussian to the camera image.
 
     Args:
-        slm : SLM
-            Instance of your SLM subclass.
-        camera : Camera
-            Instance of your camera subclass.
-        linear_phase_tilt : tuple[float, float]
-            x and y gradient of the linear phase.
-        focal_length : float
-            Focal length of the Fourier lens in metres.
-        exposure_time : float | None
-            Exposure time in seconds. If None, the camera will perform
+        slm: Instance of your SLM subclass.
+        camera: Instance of your camera subclass.
+        linear_phase_tilt: x and y gradient of the linear phase.
+        focal_length: Focal length of the Fourier lens in metres.
+        exposure_time: Exposure time in seconds. If None, the camera will perform
             autoexposure.
-        slm_mask_diameter : float | None
-            Diameter of the circular aperture in metres. If None, the diameter
-            is set to the size of the SLM.
-        units : str
-            Units of the returned spot position: "metres" (default) for the
-            (x, y) coordinates in the camera plane, or "pixels" for integer
-            camera pixel coordinates. The focal spot radius is always in metres.
-        roi_pad : int
-            Padding in pixels added around the detected spot when cropping the
+        slm_mask_diameter: Diameter of the circular aperture in metres. If None, the
+            diameter is set to the size of the SLM.
+        units: Units of the returned spot position: "metres" (default) for the (x, y)
+            coordinates in the camera plane, or "pixels" for integer camera pixel
+            coordinates. The focal spot radius is always in metres.
+        roi_pad: Padding in pixels added around the detected spot when cropping the
             camera image before the fit (passed to ROI.detect).
-        roi_threshold : float
-            Fraction of the peak intensity used to detect the spot region of
+        roi_threshold: Fraction of the peak intensity used to detect the spot region of
             interest (passed to ROI.detect).
-        verbose : bool
-            If True, prints progress messages to the console.
+        verbose: If True, prints progress messages to the console.
 
     Returns:
-        tuple[tuple[float, float], float, NDArray, tuple[int, int, int, int]]
-            Tuple of x and y coordinates of the spot on the full sensor (in
-            metres or pixels, see ``units``), the focal spot radius in metres,
-            the cropped camera image used for the fit, and the (top, bottom,
-            left, right) region of interest used to crop it.
+        tuple[tuple[float, float], float, NDArray, ROI]: The x and y coordinates of the
+        spot on the full sensor (in metres or pixels, see ``units``), the focal spot
+        radius in metres, the cropped camera image used for the fit, and the region of
+        interest used to crop it.
+
+    Raises:
+        ValueError: When ``units`` is neither "metres" nor "pixels".
     """
     if units not in ("metres", "pixels"):
         raise ValueError(f"units must be 'metres' or 'pixels', got {units!r}.")
@@ -322,7 +314,7 @@ def get_diffraction_spot_position(
 # TODO: Move to roi.py?
 def _meter_and_capture(
     camera: Camera, roi: ROI, set_fraction: float
-) -> NDArray[np.float_]:
+) -> NDArray[np.float64]:
     """One frame, metered on ``roi``, with the previous exposure put back afterwards."""
     previous_exposure: float = camera.get_exposure()
     try:
@@ -333,7 +325,7 @@ def _meter_and_capture(
 
 
 def _brightest_pixel(
-    image: NDArray[np.float_],
+    image: NDArray[np.float64],
     exclude: tuple[float, float] | None = None,
     exclude_radius: float = 0.0,
 ) -> tuple[int, int]:
@@ -392,7 +384,7 @@ def capture_focal_spot(
     kernel_size: int | tuple[int, int],
     set_fraction: float = 0.8,
     search_factor: float = 3.0,
-) -> NDArray[np.float_]:
+) -> NDArray[np.float64]:
     """Capture the focal spot, steered to the middle of the sensor, in amplitude.
 
     This is the point spread function itself, so it is the natural seed for a
@@ -488,7 +480,7 @@ def capture_focal_spot(
 
     spot_roi = ROI.centered(found, (height, width)).moved_inside(sensor)
 
-    crop: NDArray[np.float_] = spot_roi.crop(image)
+    crop: NDArray[np.float64] = spot_roi.crop(image)
     # A robust floor, so read-out background does not become part of the seed.
     background: float = float(np.percentile(crop, 10.0))
     return np.sqrt(np.clip(crop - background, 0.0, None))

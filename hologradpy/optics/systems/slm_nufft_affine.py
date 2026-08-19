@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from ..modules.propagators import FourierLensNUFFT
 from ..modules.slm_fields import SLMField
 from ..modules.geometric_transforms import GeometricWarp

@@ -1,21 +1,21 @@
-from setuptools import setup
+from setuptools import find_packages, setup
 
 name = "hologradpy"
 version = "1.0"
 author = "Paul Schroff"
 author_email = "paul.schroff@strath.ac.uk"
 description = (
-    "Module to holographically generete light "
-    "potentials of arbitrary shape using a "
-    "phase-modulating spatial light modulator (SLM)."
+    "Accurate SLM holography from a calibrated, differentiable model of the optical "
+    "setup."
 )
-py_modules = ["hologradpy"]
+license = "LGPL-3.0-only"
+url = "https://github.com/paul-schroff/hologradpy"
 requirements = [
     "numpy",
     "scipy",
     "matplotlib",
     "torch",
-    "kbnufft",
+    "torchkbnufft",
     "pytorch-minimize",
     "opencv-python",
     "checkerboard",
@@ -23,6 +23,9 @@ requirements = [
     "tqdm",
     "asdf",
     "einops",
+    "array_api_compat",
+    "jaxtyping",
+    "kornia", # TODO: We can probably do without kornia.
 ]
 
 setup(
@@ -31,6 +34,9 @@ setup(
     author=author,
     author_email=author_email,
     description=description,
-    py_modules=py_modules,
+    license=license,
+    url=url,
+    packages=find_packages(include=["hologradpy", "hologradpy.*"]),
+    python_requires=">=3.10",
     install_requires=requirements,
 )

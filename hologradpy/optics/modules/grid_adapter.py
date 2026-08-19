@@ -67,7 +67,7 @@ class GridAdapter(OpticsModule):
         """Drop the held field, so the next call resamples again."""
         self._cached = None
 
-    def _apply(self, *args, **kwargs):
+    def _apply(self, *args, **kwargs) -> GridAdapter:
         """Drop the held field on any ``.to()`` / ``.cuda()`` / dtype change.
 
         The cache is a plain attribute, so ``nn.Module`` never moves it. A field held

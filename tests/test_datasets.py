@@ -167,7 +167,8 @@ def test_the_steps_read_back_as_the_search_parameter(tmp_path) -> None:
 
 def test_the_steps_are_continuous(tmp_path) -> None:
     """The optimizer's own parameter, not a quantized level: rounding it would lose
-    where the search had got to."""
+    where the search had got to.
+    """
     path = tmp_path / "retrieval_steps.asdf"
     with RetrievalStepStore.capture(path, frame_shape=(4, 4)) as store:
         store.append(np.full((4, 4), 0.3125))
@@ -191,7 +192,8 @@ def test_the_steps_carry_no_record(tmp_path) -> None:
 
 def test_a_capture_cut_short_keeps_its_frames(tmp_path) -> None:
     """A bench capture does get interrupted, and the frames taken so far are the point
-    of streaming rather than buffering."""
+    of streaming rather than buffering.
+    """
     path = tmp_path / "capture.asdf"
     frames = _frames(6)
     _capture(path, frames, _levels(6))
@@ -249,7 +251,8 @@ def test_reading_one_sample_does_not_read_the_rest(tmp_path) -> None:
 
 def test_a_sample_outlives_the_store(tmp_path) -> None:
     """The arrays are read on demand, so what read() hands back has to be a copy rather
-    than a view into a file the caller is about to close."""
+    than a view into a file the caller is about to close.
+    """
     path = tmp_path / "capture.asdf"
     _capture(path, _frames(3))
 
@@ -263,7 +266,8 @@ def test_a_sample_outlives_the_store(tmp_path) -> None:
 
 def test_length_while_capturing_counts_what_was_appended(tmp_path) -> None:
     """Asking how far a capture has got is the obvious thing to do during one, and it
-    used to raise because the count was only ever read back off the file."""
+    used to raise because the count was only ever read back off the file.
+    """
     store = CaptureStore.capture(
         tmp_path / "capture.asdf",
         _Capture(),
@@ -349,7 +353,8 @@ def test_dataset_applies_the_transform(tmp_path) -> None:
 
 def test_dataset_caches_when_asked(tmp_path) -> None:
     """Rereading every epoch is what the cache exists to avoid, so it has to be the same
-    object rather than an equal one."""
+    object rather than an equal one.
+    """
     path = tmp_path / "capture.asdf"
     _capture(path, _frames(1))
 

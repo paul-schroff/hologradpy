@@ -1,3 +1,14 @@
+"""
+Coarse camera mapping
+=====================
+
+Sequentially displays linear phases on the SLM and detects the position of the resulting
+focal spots on the camera, fitting an partial affine transform (translation, scale, and
+rotation) between the camera coordinates and the coordinates of the simulated output
+plane. Robust to aberrations and works with the zeroth order on or off the sensor.
+Figures out any flips or rotations of the camera relative to the SLM.
+"""
+
 # %% Imports
 import matplotlib.pyplot as plt
 import numpy as np

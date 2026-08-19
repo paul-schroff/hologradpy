@@ -4,10 +4,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from collections.abc import Mapping
+from typing import Any
 
 import torch
 from torch import Tensor
+from torch.autograd.function import FunctionCtx
 from torch.utils._pytree import tree_map, tree_flatten
+from torch._ops import OpOverload
 from torch._prims_common import (
     corresponding_complex_dtype,
     corresponding_real_dtype,
@@ -24,7 +27,8 @@ def _real_dtype(dtype: torch.dtype) -> torch.dtype:
     """Real dtype for geometry metadata (wavelength / pixel_size) that matches a
     field of ``dtype``: the corresponding real dtype for a complex field (so a
     ``complex128`` field gets ``float64`` geometry, ``complex64`` gets
-    ``float32``), the dtype itself if already real-floating, else the default."""
+    ``float32``), the dtype itself if already real-floating, else the default.
+    """
     if dtype.is_complex:
         return corresponding_real_dtype(dtype)
     if dtype.is_floating_point:
@@ -37,7 +41,7 @@ def broadcast_wavelength_operand(operand: Tensor, field_ndim: int) -> Tensor:
 
     The operand is laid out as ``(n_wavelengths, H, W)``. A 2D field carries no
     wavelength axis (it is single-wavelength), so the singleton wavelength axis
-    is dropped; otherwise leading singleton batch axes are added so it
+    is dropped. Otherwise leading singleton batch axes are added so it
     broadcasts against ``(*batch, n_wavelengths, H, W)`` without changing rank.
     """
     if field_ndim == 2:
@@ -75,12 +79,12 @@ class _WrapperToTensor(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, field: ComplexAmplitude) -> Tensor:
+    def forward(ctx: FunctionCtx, field: ComplexAmplitude) -> Tensor:
         ctx.geometry = field.geometry
         return field._data
 
     @staticmethod
-    def backward(ctx, grad: Tensor) -> ComplexAmplitude:
+    def backward(ctx: FunctionCtx, grad: Tensor) -> ComplexAmplitude:
         geometry = ctx.geometry
         return ComplexAmplitude(grad, geometry.wavelength, geometry.pixel_size)
 
@@ -102,7 +106,7 @@ class _TensorToWrapper(torch.autograd.Function):
 
     @staticmethod
     def forward(
-        ctx,
+        ctx: FunctionCtx,
         data: Tensor,
         wavelength: Tensor,
         pixel_size: Tensor,
@@ -112,7 +116,7 @@ class _TensorToWrapper(torch.autograd.Function):
         return ComplexAmplitude(data.detach(), wavelength, pixel_size)
 
     @staticmethod
-    def backward(ctx, grad: ComplexAmplitude) -> tuple[Tensor, None, None]:
+    def backward(ctx: FunctionCtx, grad: ComplexAmplitude) -> tuple[Tensor, None, None]:
         inner = grad._data if isinstance(grad, ComplexAmplitude) else grad
         # wavelength / pixel_size are geometry metadata and never differentiable.
         return inner, None, None
@@ -126,7 +130,7 @@ def pixel_area(pixel_size: Tensor) -> Tensor:
 
 
 def _power_factor(
-    current_power: Tensor, power: float | Tensor, ndim: int, device
+    current_power: Tensor, power: float | Tensor, ndim: int, device: torch.device
 ) -> Tensor:
     """The amplitude scale taking a field of ``current_power`` to ``power``."""
     target_power = torch.as_tensor(power, dtype=torch.float64, device=device)
@@ -166,6 +170,20 @@ class FieldGeometry:
 
 
 class ComplexAmplitude(Tensor):
+    """An electric field: complex values carrying the geometry that gives them meaning.
+
+    A tensor subclass, so a field can be multiplied, propagated and differentiated like
+    any other tensor, while :attr:`wavelength` and :attr:`pixel_size` travel with it.
+    That is what lets an :class:`~hologradpy.optics.modules.abstract.OpticsModule` read
+    the sampling of its input rather than being told it.
+
+    Operations are intercepted through ``__torch_dispatch__``, which keeps the geometry
+    attached across them. The wrapper is an autograd leaf, so a field built straight
+    from a graph-carrying tensor would strand that graph. Use :meth:`from_tensor` to
+    cross into a field and :meth:`as_tensor` to cross back out, since both route through
+    an autograd function that preserves the edge.
+    """
+
     __torch_function__ = torch._C._disabled_torch_function_impl
 
     @staticmethod
@@ -175,7 +193,7 @@ class ComplexAmplitude(Tensor):
         wavelength: float | Tensor,
         pixel_size: tuple[float, float] | Tensor,
         power: float | Tensor | None = None,
-    ):
+    ) -> ComplexAmplitude:
         if isinstance(data, cls):
             # Keep the outer wrapper's requires_grad flag so that gradients
             # flowing through the ComplexAmplitude dispatch mechanism are not
@@ -208,7 +226,7 @@ class ComplexAmplitude(Tensor):
         wavelength: float | Tensor,
         pixel_size: tuple[float, float] | Tensor,
         power: float | Tensor | None = None,
-    ):
+    ) -> None:
         """Wrap ``data`` as a field with the given geometry.
 
         Note on autograd: this builds the wrapper with
@@ -311,7 +329,8 @@ class ComplexAmplitude(Tensor):
             power: If given, scale the field to this absolute power (watts).
 
         Returns:
-            ComplexAmplitude carrying the geometry's wavelength and pixel size.
+            ComplexAmplitude: A field carrying the geometry's wavelength and
+            pixel size.
         """
         if data is None:
             number_of_wavelengths = geometry.number_of_wavelengths
@@ -374,11 +393,11 @@ class ComplexAmplitude(Tensor):
         so ``._data`` is detached and would break gradient flow.
         """
         if self._data.requires_grad:
-            # Field built directly from graph-carrying data; the inner tensor
-            # is already on the graph.
+            # Field built directly from graph-carrying data, so the inner
+            # tensor is already on the graph.
             return self._data
         if self.requires_grad:
-            # Field produced via dispatch; the graph lives on the wrapper.
+            # Field produced via dispatch, so the graph lives on the wrapper.
             return _WrapperToTensor.apply(self)
         return self._data
 
@@ -422,7 +441,8 @@ class ComplexAmplitude(Tensor):
         cls, data: Tensor, pixel_size: Tensor, power: float | Tensor
     ) -> Tensor:
         """Return ``data`` scaled so its integrated power equals ``power`` (W),
-        preserving phase. The scale ratio is computed in float64."""
+        preserving phase. The scale ratio is computed in float64.
+        """
         intensity = data.real**2 + data.imag**2
         current_power = cls._integrate_power(intensity, pixel_size)
         factor = _power_factor(current_power, power, data.ndim, data.device)
@@ -450,7 +470,8 @@ class ComplexAmplitude(Tensor):
         factor = _power_factor(self.power(), power, self.ndim, self.device)
         return self * factor.to(self.dtype_r)
 
-    def numpy(self) -> NDArray[np.complex_]:
+    def numpy(self) -> NDArray[np.complex128]:
+        """The field as a numpy array, detached and on the host."""
         return self._data.detach().cpu().numpy()
 
     @property
@@ -471,7 +492,7 @@ class ComplexAmplitude(Tensor):
     def eps(self: ComplexAmplitude) -> float:
         return torch.finfo(self.dtype_r).eps
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"ComplexAmplitude(shape={tuple(self._data.shape)}, "
             f"dtype={self._data.dtype}, "
@@ -487,12 +508,10 @@ class ComplexAmplitude(Tensor):
         """Return this ComplexAmplitude with updated wavelength / pixel_size
         metadata, preserving the autograd graph.
 
-        This is the preferred alternative to constructing a new
-        ``ComplexAmplitude(result, new_wavelength, new_pixel_size)`` from an
-        intermediate result, which would sever the autograd graph.  Instead
-        this method replaces only the ``geometry`` attribute (pure metadata)
-        while keeping the existing tensor wrapper – and therefore the
-        ``grad_fn`` – intact.
+        Only the ``geometry`` attribute (pure metadata) is replaced, so the
+        existing tensor wrapper, and therefore the ``grad_fn``, stays intact.
+        This is the preferred way to retag an intermediate result with a new
+        wavelength or pixel size.
 
         Args:
             wavelength: New wavelength(s). If *None*, the existing value is
@@ -501,8 +520,7 @@ class ComplexAmplitude(Tensor):
                 kept.
 
         Returns:
-            ComplexAmplitude
-                The same object with updated geometry.
+            ComplexAmplitude: The same object with updated geometry.
         """
         if wavelength is None:
             wavelength = self.geometry.wavelength
@@ -620,10 +638,18 @@ class ComplexAmplitude(Tensor):
         return cls.from_tensor(out, wavelength, pixel_size)
 
     @classmethod
-    def __torch_dispatch__(cls, func, types, args=(), kwargs=None):
-        """This method ensures that ComplexAmplitude is treated like
-        torch.Tensor, including propagation of gradients. Useful
-        references on how this works:
+    def __torch_dispatch__(
+        cls,
+        func: OpOverload,
+        types: tuple[type, ...],
+        args: tuple = (),
+        kwargs: dict | None = None,
+    ) -> Any:
+        """Ensure that ComplexAmplitude is treated like a ``torch.Tensor``,
+        including propagation of gradients.
+
+        Useful references on how this works:
+
         - https://docs.google.com/presentation/d/1piuv9nBzyoqdH49D1SoE5OZUPSMpOOFqfSKOhr-ab2c/edit#slide=id.p1
         - https://github.com/albanD/subclass_zoo
         - https://dev-discuss.pytorch.org/t/what-and-why-is-torch-dispatch/557
@@ -658,7 +684,7 @@ class ComplexAmplitude(Tensor):
                         "ComplexAmplitude arguments must have the same resolution."
                     )
 
-        def unwrap(x):
+        def unwrap(x: Any) -> Any:
             if not isinstance(x, cls):
                 return x
             inner = x._data
@@ -733,7 +759,7 @@ class ComplexAmplitude(Tensor):
                 return n_wavelength == 1
             return x.shape[-3] == n_wavelength
 
-        def wrap_output(x):
+        def wrap_output(x: Any) -> Any:
             if isinstance(x, Tensor):
                 if should_wrap_tensor(x):
                     return cls(x, geometry.wavelength, geometry.pixel_size)

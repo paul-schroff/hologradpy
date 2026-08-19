@@ -11,6 +11,8 @@ drift if slmsuite renames a driver module or class (:func:`open_camera` then rai
 clear ImportError / AttributeError pointing at the offending backend).
 """
 
+from __future__ import annotations
+
 from ..factory import register_camera_backend, register_slm_backend
 
 # name -> "module:class" import spec (imported lazily on first open).

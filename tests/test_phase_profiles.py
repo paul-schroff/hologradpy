@@ -73,7 +73,8 @@ def test_linear_phase_requires_wavenumber():
 def test_linear_phase_degrees_matches_radians():
     """Regression: the degrees branch used to take tan() of a degree value with
     no deg->rad conversion. It must now equal the radians branch at the same
-    angle."""
+    angle.
+    """
     x, y = _grid()
     degrees = linear_phase(x, y, 0.03, -0.02, tilt_units="degrees",
                            wavenumber=WAVENUMBER)
@@ -106,7 +107,8 @@ def test_linear_phase_ramp_value():
 
 def test_linear_phase_lines_per_mm_period():
     """A grating of nu lines/mm advances the phase by 2*pi over one line pitch,
-    1 / (nu * 1e3) metres, along the grating axis."""
+    1 / (nu * 1e3) metres, along the grating axis.
+    """
     lines_per_mm = 10.0
     pitch = 1.0 / (lines_per_mm * 1e3)  # metres
     x = np.array([[0.0, pitch]])
@@ -118,7 +120,8 @@ def test_linear_phase_lines_per_mm_period():
 
 def test_linear_phase_lines_per_mm_is_wavelength_independent():
     """A fixed grating imprints the same geometric phase ramp regardless of
-    wavelength (the wavenumber cancels)."""
+    wavelength (the wavenumber cancels).
+    """
     x, y = _grid()
     phase_a = linear_phase(x, y, 8.0, 3.0, tilt_units="lines_per_mm",
                            wavenumber=2 * math.pi / 0.5e-6)

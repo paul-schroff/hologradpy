@@ -35,7 +35,7 @@ class CalibratorBase(ABC):
         )
 
     def fit_gaussian_beam(
-        self, measured_intensity: NDArray[np.float_]
+        self, measured_intensity: NDArray[np.float64]
     ) -> tuple[float, float, float]:
         """Fit a Gaussian beam to a measured SLM-plane intensity.
 

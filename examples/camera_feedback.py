@@ -1,3 +1,11 @@
+"""
+Camera feedback
+===============
+
+Reduces inhomogeneities in the measured light potential by iteratively adjusting the
+target passed to the phase retrieval algorithm.
+"""
+
 # %% Imports
 import matplotlib.pyplot as plt
 import torch

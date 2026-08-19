@@ -28,22 +28,27 @@ def tilt_to_angle(
     place that maps every supported tilt representation onto that angle:
 
     - ``"radians"``: the beam deflection angle directly.
-    - ``"degrees"``: the angle in degrees (small-angle, consistent with``"radians"``).
-    - ``"metres"``: a focal-plane displacement ``d``. Paraxially 
-        ``angle = d / focal_length``.
-    - ``"lines_per_mm"``: a grating spatial frequency ``nu``; the first order deflects 
-        by ``angle = nu * 1e3 * wavelength`` with ``wavelength = 2 * pi / wavenumber``.
+    - ``"degrees"``: the angle in degrees (small-angle, consistent with ``"radians"``).
+    - ``"metres"``: a focal-plane displacement ``d``. Paraxially
+      ``angle = d / focal_length``.
+    - ``"lines_per_mm"``: a grating spatial frequency ``nu``. The first order deflects
+      by ``angle = nu * 1e3 * wavelength`` with ``wavelength = 2 * pi / wavenumber``.
 
     Args:
-        tilt: Tilt value(s) in ``tilt_units``. tilt_units: One of ``"radians"``,
-            ``"degrees"``, ``"metres"``, ``"lines_per_mm"``.
+        tilt: Tilt value(s) in ``tilt_units``.
+        tilt_units: One of ``"radians"``, ``"degrees"``, ``"metres"``,
+            ``"lines_per_mm"``.
         wavenumber: Wavenumber ``2 * pi / wavelength`` [rad/m]. Required for
             ``"lines_per_mm"``.
-        focal_length: Focal length of the downstream Fourier lens [m]. Required for 
+        focal_length: Focal length of the downstream Fourier lens [m]. Required for
             ``"metres"``.
 
     Returns:
-        The beam deflection angle in radians (same type/shape as ``tilt``).
+        ArrayLike: The beam deflection angle in radians (same type/shape as ``tilt``).
+
+    Raises:
+        ValueError: when an argument required by ``tilt_units`` is missing, or when
+            ``tilt_units`` is not one of the supported values.
     """
     match tilt_units:
         case "radians":
@@ -77,10 +82,10 @@ def lens_phase(
     """Calculates the phase of an ideal lens on a 2D grid.
 
     Args:
-        x (ArrayLike): X coordinates.
-        y (ArrayLike): Y coordinates.
-        focal_length (float): Focal length of the lens.
-        wavenumber (float): Wavenumber of the light.
+        x: X coordinates.
+        y: Y coordinates.
+        focal_length: Focal length of the lens.
+        wavenumber: Wavenumber of the light.
 
     Returns:
         ArrayLike: Lens phase.
@@ -98,12 +103,14 @@ def spherical_surface(
     """Calculates a spherical surface.
 
     Args:
-        x (ArrayLike): X-meshgrid [m].
-        y (ArrayLike): Y-meshgrid [m].
-        wavenumber (float): Wavenumber [rad/m].
-        radius (float): Radius of curvature [m].
-        shift_x (float): X-offset of lens [m].
-        shift_y (float): Y-offset of lens [m].
+        x: X-meshgrid [m].
+        y: Y-meshgrid [m].
+        radius: Radius of curvature [m].
+        shift_x: X-offset of lens [m].
+        shift_y: Y-offset of lens [m].
+
+    Returns:
+        ArrayLike: The spherical surface [m].
     """
     xp = array_namespace(x, y)
     surface = radius * (
@@ -127,23 +134,20 @@ def doublet_lens(
     """Calculates the phase of a doublet lens.
 
     Args:
-        x (ArrayLike): X-meshgrid [m].
-        y (ArrayLike): Y-meshgrid [m].
-        wavenumber (float): Wavenumber [rad/m].
-        refractive_index_flint (float): Refractive index of flint.
-        refractive_index_crown (float): Refractive index of crown.
-        radius_crown (float): Radius of curvature of the first crown surface
-            [m].
-        radius_crown_flint (float): Radius of curvature of the second crown
-            surface/ first flint surface [m].
-        radius_flint (float): Radius of curvature of the second flint surface
-            [m].
-        shift_x (float): X-offset of lens [m].
-        shift_y (float): Y-offset of lens [m].
-        wavenumber (float): Phase of the doublet lens [rad].
+        x: X-meshgrid [m].
+        y: Y-meshgrid [m].
+        wavenumber: Wavenumber [rad/m].
+        refractive_index_flint: Refractive index of flint.
+        refractive_index_crown: Refractive index of crown.
+        radius_crown: Radius of curvature of the first crown surface [m].
+        radius_crown_flint: Radius of curvature of the second crown surface / first
+            flint surface [m].
+        radius_flint: Radius of curvature of the second flint surface [m].
+        shift_x: X-offset of lens [m].
+        shift_y: Y-offset of lens [m].
 
     Returns:
-        ArrayLike: Phase of the doublet lens.
+        ArrayLike: Phase of the doublet lens [rad].
     """
     crown_surface = spherical_surface(x, y, radius_crown, shift_x, shift_y)
 
@@ -174,18 +178,21 @@ def linear_phase(
     deflection angles are obtained from the tilt via :func:`tilt_to_angle`.
 
     Args:
-        x (ArrayLike): X coordinates.
-        y (ArrayLike): Y coordinates.
-        tilt_x (float): Tilt in the x direction.
-        tilt_y (float): Tilt in the y direction.
-        tilt_units (TiltUnits, optional): Units for tilt. Defaults to "metres".
-        wavenumber (float | None, optional): Wavenumber ``2 * pi / wavelength``.
-            Always required; also sets the wavelength for "lines_per_mm". Defaults to 
+        x: X coordinates.
+        y: Y coordinates.
+        tilt_x: Tilt in the x direction.
+        tilt_y: Tilt in the y direction.
+        tilt_units: Units for tilt. Defaults to "metres".
+        wavenumber: Wavenumber ``2 * pi / wavelength``. Always required. Also sets
+            the wavelength for "lines_per_mm". Defaults to None.
+        focal_length: Focal length required if `tilt_units` is "metres". Defaults to
             None.
-        focal_length (float | None, optional): Focal length required if `tilt_units` is 
-            "metres". Defaults to None.
+
     Returns:
         ArrayLike: Linear phase.
+
+    Raises:
+        ValueError: when ``wavenumber`` is None.
     """
     if wavenumber is None:
         raise ValueError("wavenumber must be provided.")
@@ -205,13 +212,13 @@ def quadratic_phase(
     `aspect_ratio` on a 2D grid.
 
     Args:
-        x (ArrayLike): X coordinates.
-        y (ArrayLike): Y coordinates.
-        curvature (float): Curvature for quadratic phase.
-        aspect_ratio (float, optional): Aspect ratio for quadratic phase.
-            Defaults to 0.5.
-        curvature_units (CurvatureUnits, optional): Units for curvature.
-            Defaults to "radians_per_metre_squared".
+        x: X coordinates.
+        y: Y coordinates.
+        curvature: Curvature for quadratic phase.
+        aspect_ratio: Aspect ratio for quadratic phase. Defaults to 0.5.
+        curvature_units: Units for curvature. Defaults to
+            "radians_per_metre_squared".
+
     Returns:
         ArrayLike: Quadratic phase.
     """
@@ -236,21 +243,18 @@ def analytic_phase_guess(
     """Calculates a combined linear and quadratic phase term.
 
     Args:
-        x (ArrayLike): X coordinates.
-        y (ArrayLike): Y coordinates.
-        tilt_x (float): Tilt in the x direction.
-        tilt_y (float): Tilt in the y direction.
-        curvature (float): Curvature for quadratic phase.
-        aspect_ratio (float, optional): Aspect ratio for quadratic phase.
-            Defaults to 0.5.
-        tilt_units (TiltUnits, optional): Units for tilt. Defaults to "metres".
-        curvature_units (CurvatureUnits, optional): Units for curvature.
-            Defaults to "radians_per_metre_squared".
-        wavenumber (float | None, optional): Wavenumber for linear phase.
-            Required if tilt_units is "degrees", "radians", or "metres".
-            Defaults to None.
-        focal_length (float | None, optional): Focal length for linear phase.
-            Required if tilt_units is "metres". Defaults to None.
+        x: X coordinates.
+        y: Y coordinates.
+        tilt_x: Tilt in the x direction.
+        tilt_y: Tilt in the y direction.
+        curvature: Curvature for quadratic phase.
+        aspect_ratio: Aspect ratio for quadratic phase. Defaults to 0.5.
+        tilt_units: Units for tilt. Defaults to "metres".
+        curvature_units: Units for curvature. Defaults to
+            "radians_per_metre_squared".
+        wavenumber: Wavenumber for linear phase. Always required. Defaults to None.
+        focal_length: Focal length for linear phase. Required if tilt_units is
+            "metres". Defaults to None.
 
     Returns:
         ArrayLike: Combined linear and quadratic phase.
@@ -269,23 +273,25 @@ def binary_phase_grating(
     axis: int = 1,
     high: float = np.pi,
     low: float = 0.0,
-) -> NDArray[np.float_]:
+) -> NDArray[np.float64]:
     """A period-2-pixel binary phase grating (the SLM Nyquist grating).
 
     Every other line along ``axis`` is set to ``high`` and the rest to ``low``.
     Applied to the unmodulated SLM area it deflects the light into the plus and minus
-    first Nyquist orders, away from the bright zeroth order, instead of leaving a flat
-    phase.
+    first Nyquist orders, away from the bright zeroth order.
 
     Args:
-        shape (tuple[int, int]): Output shape (height, width).
-        axis (int, optional): Axis whose lines alternate. ``1`` (the default)
-            alternates columns for a vertical grating, ``0`` alternates rows.
-        high (float, optional): Phase of every other line. Defaults to ``np.pi``.
-        low (float, optional): Phase of the remaining lines. Defaults to ``0.0``.
+        shape: Output shape (height, width).
+        axis: Axis whose lines alternate. ``1`` (the default) alternates columns for a
+            vertical grating, ``0`` alternates rows.
+        high: Phase of every other line. Defaults to ``np.pi``.
+        low: Phase of the remaining lines. Defaults to ``0.0``.
 
     Returns:
-        NDArray[np.float_]: The grating phase, shape ``shape``.
+        NDArray[np.float64]: The grating phase, shape ``shape``.
+
+    Raises:
+        ValueError: when ``axis`` is neither 0 nor 1.
     """
     grating = np.full(shape, low, dtype=float)
     if axis == 1:
@@ -302,7 +308,7 @@ def band_limited_random_phase(
     generator: torch.Generator | None = None,
     clip_sigma: float | None = None,
 ) -> torch.Tensor:
-    """Smooth random phase with diffracted light landing inside ``band_mask`` in the 
+    """Smooth random phase with diffracted light landing inside ``band_mask`` in the
     Fourier plane.
 
     Args:
