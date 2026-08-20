@@ -43,6 +43,38 @@ PHASE_CMAP = "twilight"
 DIFFERENCE_CMAP = "seismic"
 
 
+def region_bounding_box(
+    region: ArrayLike, margin_fraction: float = 0.0
+) -> tuple[slice, slice]:
+    """The box a boolean mask occupies, as row and column slices.
+
+    A signal region is usually a small part of the plane, so a full-frame view spends
+    most of its area on darkness. The box is tight by default, so what is drawn is the
+    region and nothing else.
+
+    Args:
+        region: The mask to bound. A mask that is false everywhere gives back slices
+            covering the whole array.
+        margin_fraction: Extra space on each side, as a fraction of the box it bounds.
+            Zero by default, for a box that ends where the region does.
+
+    Returns:
+        tuple[slice, slice]: Row and column slices, ready to index an image with.
+    """
+    region = np.asarray(region, dtype=bool)
+    rows = np.flatnonzero(region.any(axis=1))
+    columns = np.flatnonzero(region.any(axis=0))
+    if rows.size == 0 or columns.size == 0:
+        return slice(None), slice(None)
+
+    def span(indices: np.ndarray, size: int) -> slice:
+        first, last = int(indices[0]), int(indices[-1])
+        margin = round(margin_fraction * (last - first + 1))
+        return slice(max(first - margin, 0), min(last + margin + 1, size))
+
+    return span(rows, region.shape[0]), span(columns, region.shape[1])
+
+
 def foreground_color() -> str:
     # TODO: Move imports to top of file
     from matplotlib import rcParams

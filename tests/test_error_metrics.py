@@ -4,7 +4,7 @@ The trap these exist to avoid: a recovered field's phase comes from
 ``numpy.angle`` and is therefore wrapped into ``(-pi, pi]``, while an aberration
 of any size is not. Subtracting one from the other and fitting a plane, which is
 what ``remove_tilt`` followed by ``rms_phase`` does, is skewed by the 2 pi
-discontinuities. Scoring a *perfect* recovery that way returned 0.57 instead of
+discontinuities. Measuring a *perfect* recovery that way returned 0.57 instead of
 0, which silently corrupted every comparison built on it.
 """
 
@@ -55,7 +55,7 @@ def test_the_aberration_used_here_really_does_wrap() -> None:
     assert np.ptp(aberration) > 2 * np.pi
 
 
-def test_a_perfect_recovery_scores_zero_even_when_wrapped() -> None:
+def test_a_perfect_recovery_gives_zero_even_when_wrapped() -> None:
     """The case the previous metric failed, returning 0.57 for a perfect fit."""
     aberration, mask = _aberration(), _mask()
     wrapped = np.angle(np.exp(1j * aberration))
@@ -66,7 +66,7 @@ def test_a_perfect_recovery_scores_zero_even_when_wrapped() -> None:
         ) == pytest.approx(0, abs=1e-6)
 
 
-def test_no_correction_scores_one() -> None:
+def test_no_correction_gives_one() -> None:
     """Doing nothing must leave exactly what was there."""
     aberration, mask = _aberration(), _mask()
     assert wavefront_residual(

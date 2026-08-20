@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Sequence
 
+import torch
+from torch import Tensor
+
+from ...analysis.error_metrics import IntensityMetric, evaluate_metrics
 from ...datasets import RetrievalStepStore
+from ...optics.complex_amplitude import ComplexAmplitude
 from ...optics.systems import SLMFourierLensModel
 from ...utils import ProgressBar, gpu_to_numpy
 
@@ -92,20 +98,52 @@ class RetrievalRun:
         self,
         steps: RetrievalStepWriter | None = None,
         progress_bar: ProgressBar | None = None,
+        metrics: Sequence[IntensityMetric] = (),
+        signal_region: Tensor | None = None,
+        target: Tensor | None = None,
     ) -> None:
         """
         Args:
             steps: Where the per-iteration parameter goes, or None to record none.
             progress_bar: A bar to advance, or None. Attached by whoever owns the bar,
                 since it may be borrowed for several retrievals in a row.
+            metrics: Measured against the field each time the objective is evaluated. 
+                Needs ``signal_region`` and ``target`` to have anything to compare
+                against.
+            signal_region: The region the metrics are evaluated over.
+            target: The intensity the metrics compare against.
         """
         self.steps: RetrievalStepWriter | None = steps
         self.progress_bar: ProgressBar | None = progress_bar
         self.loss_history: list[float] = []
+        self.metric_history: dict[str, list[float]] = {}
 
-    def record_loss(self, loss: float) -> None:
-        """Note one objective evaluation."""
+        self._metrics = tuple(metrics)
+        self._signal_region = signal_region
+        self._target = target
+
+    def record_loss(self, loss: float, field: ComplexAmplitude | None = None) -> None:
+        """Note one objective evaluation, and evaluate it using the field it was taken
+        from.
+
+        Args:
+            loss: The objective value.
+            field: The field it was evaluated on, or None to record the loss alone.
+        """
         self.loss_history.append(float(loss))
+
+        if field is None or not self._metrics:
+            return
+        if self._signal_region is None or self._target is None:
+            return
+        with torch.no_grad():
+            evaluate_metrics(
+                self._metrics,
+                self._signal_region,
+                self._target,
+                field.intensity.detach(),
+                history=self.metric_history,
+            )
 
     def record_iteration(self, iteration: int, model: SLMFourierLensModel) -> None:
         """Note one completed optimizer iteration."""

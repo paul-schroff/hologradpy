@@ -17,6 +17,7 @@ from hologradpy.loss_functions import (
     normalize_to_unit_sum,
     smallest_divisor,
     LossEfficiency,
+    LossAbsoluteIntensityMSE,
     LossFidelity,
     LossFunction,
     LossIntensityMSE,
@@ -46,10 +47,13 @@ def _fixture():
     return target_intensity, target_phase, signal_mask, field
 
 
-# Captured through the pre-merge ``.loss(field)`` API.
+# Captured through the pre-merge ``.loss(field)`` API. LossFidelity is the exception:
+# its baseline was recaptured when its normalisation was corrected, since the pinned
+# value encoded a denominator that took the square root before summing and so could
+# never reach zero. See test_a_matching_field_costs_nothing.
 BASELINES = {
     "LossIntensityMSE": 9827295079.770136,
-    "LossFidelity": 862000186137.2855,
+    "LossFidelity": 157866822238.04988,
     "LossEfficiency": -10065783943216.678,
     "LossVorticity": 9.900637990590128e16,
 }
@@ -71,6 +75,34 @@ def test_hologram_losses_are_unchanged_by_the_merge(name) -> None:
     losses, field = _hologram_losses()
 
     assert float(losses[name](field)) == pytest.approx(BASELINES[name], rel=1e-12)
+
+
+def test_a_matching_field_costs_nothing() -> None:
+    """The fidelity cost must bottom out at zero when the field is the target.
+
+    The overlap is a Cauchy-Schwarz ratio, so it reaches one only when the square root
+    is taken over the summed powers. Taking it pixel by pixel instead caps the overlap
+    somewhere far below one and leaves a floor the optimiser cannot get under.
+    """
+    target_intensity, target_phase, signal_mask, _ = _fixture()
+    loss = LossFidelity(target_intensity, target_phase, signal_mask)
+
+    matching = target_intensity.sqrt() * torch.exp(1j * target_phase) * signal_mask
+
+    assert float(loss(matching)) == pytest.approx(0.0, abs=1e-12)
+
+
+def test_the_fidelity_cost_ignores_brightness() -> None:
+    """Scaling the field must not change the cost.
+
+    The normalisation is over the power inside the signal region, which is what lets
+    the cost be used with a model that images only a window of the plane and never
+    computes the light outside it.
+    """
+    target_intensity, target_phase, signal_mask, field = _fixture()
+    loss = LossFidelity(target_intensity, target_phase, signal_mask)
+
+    assert float(loss(field * 7.0)) == pytest.approx(float(loss(field)), rel=1e-12)
 
 
 @pytest.mark.parametrize("name", sorted(BASELINES))
@@ -349,3 +381,90 @@ def test_the_floor_does_not_block_gradients() -> None:
     normalize_single_to_unit_sum(image).sum().backward()
     assert image.grad is not None
     assert not torch.isnan(image.grad).any()
+
+
+def _shaped(target, mask):
+    """A field that produces exactly ``target``, with an arbitrary phase."""
+    generator = torch.Generator().manual_seed(3)
+    phase = torch.rand(target.shape, generator=generator, dtype=torch.float64)
+    return (target * mask).sqrt() * torch.exp(1j * phase)
+
+
+def test_the_absolute_cost_matches_the_normalised_one_at_the_matching_level() -> None:
+    """Where the default scale comes from.
+
+    A field carrying exactly the target's total must give the same value from the two
+    costs. That is what lets the weight tuned into LossIntensityMSE carry over instead
+    of being found again by hand, which matters because the optimizer stops on an
+    absolute gradient tolerance.
+    """
+    target_intensity, _, signal_mask, field = _fixture()
+
+    produced = (field.abs() ** 2 * signal_mask).sum()
+    wanted = target_intensity * signal_mask
+    levelled = wanted * (produced / wanted.sum())
+
+    absolute = float(LossAbsoluteIntensityMSE(levelled, signal_mask)(field))
+    normalised = float(LossIntensityMSE(target_intensity, signal_mask)(field))
+
+    assert absolute == pytest.approx(normalised, rel=1e-9)
+
+
+def test_losing_light_is_free_under_the_normalised_cost_but_not_this_one() -> None:
+    """The whole reason this cost exists.
+
+    A chirp-z model computes only a window of the focal plane. Dimming stands in for
+    the search pushing power out of that window: the normalised cost cannot see it,
+    because it scales whatever it is given back to unit sum.
+    """
+    target_intensity, _, signal_mask, _ = _fixture()
+    target = target_intensity * signal_mask
+    field = _shaped(target_intensity, signal_mask)
+
+    absolute = LossAbsoluteIntensityMSE(target, signal_mask)
+    normalised = LossIntensityMSE(target_intensity, signal_mask)
+
+    assert float(absolute(field)) == pytest.approx(0.0, abs=1e-12)
+    assert float(absolute(field * 0.5)) > 1.0
+    # Half the light thrown away, and the normalised cost does not move.
+    assert float(normalised(field * 0.5)) == pytest.approx(
+        float(normalised(field)), abs=1e-12
+    )
+
+
+def test_overshooting_the_requested_level_costs_something_too() -> None:
+    """The penalty is symmetric, so a target set below what is reachable is not free.
+
+    Worth pinning: it is the difference between this cost and one that only ever asks
+    for more light.
+    """
+    target_intensity, _, signal_mask, _ = _fixture()
+    target = target_intensity * signal_mask
+    absolute = LossAbsoluteIntensityMSE(target, signal_mask)
+    field = _shaped(target_intensity, signal_mask)
+
+    assert float(absolute(field * 1.5)) > 1.0
+
+
+def test_the_default_scale_follows_the_target_total() -> None:
+    """The scale goes as one over the total squared, which is what keeps the cost's
+    magnitude fixed while the target's absolute units are free to change.
+    """
+    target_intensity, _, signal_mask, _ = _fixture()
+    target = target_intensity * signal_mask
+
+    one = LossAbsoluteIntensityMSE(target, signal_mask).scale
+    three = LossAbsoluteIntensityMSE(target * 3, signal_mask).scale
+
+    assert one / three == pytest.approx(9.0, rel=1e-9)
+
+
+def test_an_explicit_scale_wins_over_the_derived_one() -> None:
+    """The derived default is a convenience, not a lock."""
+    target_intensity, _, signal_mask, _ = _fixture()
+
+    loss = LossAbsoluteIntensityMSE(
+        target_intensity * signal_mask, signal_mask, scale=7.0
+    )
+
+    assert loss.scale == 7.0

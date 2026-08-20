@@ -11,6 +11,12 @@ from pathlib import Path
 from typing import Literal
 
 import matplotlib.pyplot as plt
+from hologradpy.visualizer import (
+    INTENSITY_CMAP,
+    GridCell,
+    PlotBuilder,
+    PlotLayout,
+)
 import torch
 
 from hologradpy.hardware import (
@@ -109,10 +115,14 @@ camera = open_camera(
 # %% Test image capture
 camera.set_exposure(1e-4)
 test_image = camera.get_image()
-plt.figure()
-plt.imshow(test_image, cmap="turbo")
-plt.colorbar()
-plt.title("Simulated camera image")
+image = test_image
+layout = PlotLayout(column_width=4.5, margins=(1.0, 0.15, 0.5, 0.5))
+layout.add_row(
+    [GridCell("camera", aspect=image.shape[0] / image.shape[1], colorbar=True)]
+)
+PlotBuilder(layout).draw_image(
+    "camera", image, cmap=INTENSITY_CMAP, title="simulated camera image"
+).build()
 
 # %% Setting up the learnable model
 # The crosstalk fit holds the SLM-plane beam fixed, so the wavefront has to be

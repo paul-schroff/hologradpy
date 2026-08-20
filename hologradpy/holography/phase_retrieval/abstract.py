@@ -18,11 +18,19 @@ from ...analysis.error_metrics import (
 from .recorder import RETRIEVAL_STEPS_NAME, RetrievalRun, RetrievalStepWriter
 
 from ...datasets import RetrievalStepStore
-from ...loss_functions import INTENSITY_MSE_SCALE, LossIntensityMSE
+from ...loss_functions import (
+    INTENSITY_MSE_SCALE,
+    LossFunction,
+    LossIntensityMSE,
+)
 from ...optics.systems import SLMFourierLensModel, load_optical_system
 from ...serialization import SaveableRecord, record_type
 from ...utils import ProgressBar, Timer, gpu_to_numpy
 from ...visualizer import VisualizationData
+from .visualizer import (
+    PhaseRetrievalVisualizationData,
+    PhaseRetrievalVisualizer,
+)
 
 
 @record_type("phase_retrieval")
@@ -40,6 +48,10 @@ class PhaseRetrievalData(SaveableRecord):
     step_iterations: list[int] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
     visualization_data: VisualizationData | None = None
+
+    def visualizer(self) -> PhaseRetrievalVisualizer:
+        """The visualizer that draws this retrieval."""
+        return PhaseRetrievalVisualizer(self)
 
     def lean(self) -> PhaseRetrievalData:
         """A copy dropping the target and the signal region to avoid storing them
@@ -177,6 +189,10 @@ class PhaseRetrieverBase:
         self.iteration: int = 0
 
         self.loss_scale: float = loss_scale
+
+        self.loss_factory: (
+            Callable[[torch.Tensor, torch.Tensor], LossFunction] | None
+        ) = None
         if target is not None:
             self.set_target(target, signal_region)
 
@@ -220,8 +236,9 @@ class PhaseRetrieverBase:
     def closure(self) -> torch.Tensor:
         """The objective, evaluated once per optimizer call."""
         self.optimizer.zero_grad()
-        loss = self.loss_function(self.slm_camera_model())
-        self.run.record_loss(loss.item())
+        field = self.slm_camera_model()
+        loss = self.loss_function(field)
+        self.run.record_loss(loss.item(), field)
         return loss
 
     def set_gradient_requirements(
@@ -253,8 +270,8 @@ class PhaseRetrieverBase:
 
         Args:
             target: Target intensity, on the model's output grid.
-            signal_region: Region the target is scored over. Defaults to the one already
-                held, so a retarget need only pass the target.
+            signal_region: Region the target is compared over. Defaults to the one
+                already held, so a retarget need only pass the target.
         """
         self.target = target.detach()
         if signal_region is not None:
@@ -262,21 +279,51 @@ class PhaseRetrieverBase:
 
         if self.signal_region is None:
             raise ValueError(
-                f"{type(self).__name__} has no signal region to score the target over. "
+                f"{type(self).__name__} has no signal region to compare the target "
+                "over. "
                 "Pass one to set_target, or to the constructor."
             )
 
-        self.loss_function = LossIntensityMSE(
+        self.loss_function = self.default_loss_function()
+
+    def default_loss_function(self) -> LossFunction:
+        """The cost for a newly set target.
+
+        Returns:
+            LossFunction: The cost for the current target and signal region.
+        """
+        if self.loss_factory is not None:
+            return self.loss_factory(self.target, self.signal_region)
+        return LossIntensityMSE(
             target_intensity=self.target,
             signal_mask=self.signal_region,
             scale=self.loss_scale,
         )
 
-    def set_loss_function(self, loss_function: Callable) -> None:
-        pass
+    def set_loss_factory(
+        self,
+        loss_factory: Callable[[torch.Tensor, torch.Tensor], LossFunction] | None,
+    ) -> None:
+        """Evaluates the target with a custom cost function.
 
-    # What this search optimizes, and with which method. Named per subclass, so
-    # retrieve_phase below is the one implementation.
+        Args:
+            loss_factory: Takes ``(target, signal_region)`` and returns the cost, or
+                None to go back to the default intensity cost.
+        """
+        self.loss_factory = loss_factory
+        if self.target is not None and self.signal_region is not None:
+            self.loss_function = self.default_loss_function()
+
+    def set_loss_function(self, loss_function: LossFunction) -> None:
+        """Update the cost function.
+
+        Args:
+            loss_function: The cost, taking ``(predicted_field, target)``. For example
+                a :class:`~hologradpy.loss_functions.LossFidelity` to constrain the
+                image-plane phase as well as the intensity.
+        """
+        self.loss_function = loss_function
+
     PARAMETER_NAME: str = "virtual_slm.levels"
     METHOD: str = "cg"
 
@@ -339,6 +386,16 @@ class PhaseRetrieverBase:
         with torch.no_grad():
             return gpu_to_numpy(self.slm_camera_model().intensity)
 
+    def predicted_field(self) -> tuple[NDArray, NDArray]:
+        """The intensity and the phase the current SLM phase produces.
+
+        Returns:
+            tuple[NDArray, NDArray]: The intensity, and the phase in radians.
+        """
+        with torch.no_grad():
+            field = self.slm_camera_model()
+            return gpu_to_numpy(field.intensity), gpu_to_numpy(field.phase)
+
     def retrieve(
         self,
         number_of_iterations: int = 10,
@@ -356,7 +413,7 @@ class PhaseRetrieverBase:
         Args:
             number_of_iterations: Passed to :meth:`retrieve_phase`.
             name: Label stored on the record.
-            metrics: How the predicted potential is scored against the target, once at
+            metrics: How the predicted potential is compared against the target, once at
                 the end. Defaults to rmse and psnr.
             step_stride: Record the retrieval's parameter every nth optimizer
                 iteration. Defaults to None, which records nothing.
@@ -377,7 +434,14 @@ class PhaseRetrieverBase:
                 step_stride, step_directory, self.slm_camera_model
             )
         )
-        run = RetrievalRun(steps=steps)
+        initial_intensity = self.predicted_intensity()
+
+        run = RetrievalRun(
+            steps=steps,
+            metrics=metrics,
+            signal_region=self.signal_region,
+            target=self.target,
+        )
         try:
             phase = self.retrieve_phase(
                 number_of_iterations, run=run, **options
@@ -393,8 +457,10 @@ class PhaseRetrieverBase:
 
         target = gpu_to_numpy(self.target)
         signal_region = gpu_to_numpy(self.signal_region)
-        scores = evaluate_metrics(
-            metrics, signal_region, target, self.predicted_intensity()
+        retrieved_intensity, retrieved_phase = self.predicted_field()
+        constrained_phase = getattr(self.loss_function, "target_phase", None)
+        metric_values = evaluate_metrics(
+            metrics, signal_region, target, retrieved_intensity
         )
 
         return PhaseRetrievalData(
@@ -404,11 +470,25 @@ class PhaseRetrieverBase:
             target=target,
             signal_region=signal_region,
             loss_history=list(run.loss_history),
-            metrics=scores,
+            metrics=metric_values,
             model_checkpoint=checkpoint_name,
             step_stride=step_stride,
             step_iterations=run.step_iterations,
             metadata=metadata or {},
+            visualization_data=PhaseRetrievalVisualizationData(
+                retrieved_intensity=retrieved_intensity,
+                retrieved_phase=retrieved_phase,
+                target_phase=(
+                    None
+                    if constrained_phase is None
+                    else gpu_to_numpy(constrained_phase)
+                ),
+                metric_history={
+                    name: list(values)
+                    for name, values in run.metric_history.items()
+                },
+                initial_intensity=initial_intensity,
+            ),
         )
 
     def save_results(self) -> None:

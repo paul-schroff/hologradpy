@@ -1,16 +1,16 @@
 """
-Conjugate-gradient phase retrieval
-==================================
+Gradient-based phase retrieval
+==============================
 
 Finds the SLM phase that forms a target light potential, by minimising a cost function
-based on the output of a model that simluates the propagation of light from the SLM to 
+based on the output of a model that simulates the propagation of light from the SLM to
 the camera.
 """
 
 # %% Imports
 import matplotlib.pyplot as plt
 
-from hologradpy.holography.phase_retrieval import CGPhaseRetriever
+from hologradpy.holography.phase_retrieval import GradientPhaseRetriever
 from hologradpy.profiles.phase import lens_phase
 from hologradpy.profiles.amplitude import (
     gaussian_beam_intensity,
@@ -30,9 +30,13 @@ from hologradpy.optics.systems import SLMFFT
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.virtual_slms import VirtualSLM
 
-from hologradpy.holography.vortices import VortexAnnihilator
-
 from hologradpy.hardware import SimulatedSLMTorch, open_slm
+from hologradpy.visualizer import (
+    INTENSITY_CMAP,
+    GridCell,
+    PlotBuilder,
+    PlotLayout,
+)
 
 import torch
 
@@ -58,12 +62,6 @@ slm_field = ComplexAmplitude.from_geometry(
     slm_geometry, data=slm_intensity.sqrt() + 0j
 )
 
-plt.figure()
-plt.imshow(gpu_to_numpy(slm_intensity), cmap="turbo")
-plt.title("SLM Intensity Pattern")
-plt.colorbar(label="Intensity [a.u.]")
-
-# TODO: Adapt the previous initial phase guess function.
 init_slm_phase = lens_phase(
     *slm_grid,
     focal_length=1.5,
@@ -81,11 +79,6 @@ slm_camera_model = SLMFFT(
 # %% Plot initial simulated output
 init_electric_field = slm_camera_model()
 init_intensity = init_electric_field.intensity
-
-plt.figure()
-plt.imshow(gpu_to_numpy(init_intensity), cmap="turbo")
-plt.title("Initial Simulated Camera Image")
-plt.colorbar(label="Intensity (a.u.)")
 
 slm_power = slm_camera_model.slm_field.amplitude**2
 image_power = init_intensity.sum()
@@ -116,14 +109,34 @@ signal_region = rectangular_mask(
     shift_y=0,
 )
 
-plt.figure()
-plt.imshow(gpu_to_numpy(target_top_hat), cmap="turbo")
-plt.title("Target Top Hat Pattern")
-plt.colorbar(label="Intensity (a.u.)")
 
+# %% Initialization plots
+def _aspect(image) -> float:
+    """Height over width, which is what GridCell wants."""
+    return image.shape[0] / image.shape[1]
+
+
+setup_layout = PlotLayout(column_width=3.6, margins=(1.0, 0.15, 0.5, 0.5))
+setup_layout.add_row(
+    [
+        GridCell("slm", aspect=_aspect(slm_intensity), colorbar=True),
+        GridCell("initial", aspect=_aspect(init_intensity), colorbar=True),
+        GridCell("target", aspect=_aspect(target_top_hat), colorbar=True),
+    ]
+)
+(
+    PlotBuilder(setup_layout)
+    .draw_image("slm", gpu_to_numpy(slm_intensity), cmap=INTENSITY_CMAP,
+                title="SLM illumination")
+    .draw_image("initial", gpu_to_numpy(init_intensity), cmap=INTENSITY_CMAP,
+                title="initial camera image")
+    .draw_image("target", gpu_to_numpy(target_top_hat), cmap=INTENSITY_CMAP,
+                title="target")
+    .build()
+)
 
 # %% Setting up the phase retrieval module
-phase_retriever = CGPhaseRetriever(
+phase_retriever = GradientPhaseRetriever(
     slm_camera_model=slm_camera_model,
     target=target_top_hat,
     signal_region=signal_region,
@@ -131,44 +144,8 @@ phase_retriever = CGPhaseRetriever(
 )
 
 # %% Phase retrieval
-phase = phase_retriever.retrieve_phase(20, method="cg")
+retrieval = phase_retriever.retrieve(20, method="cg", name="conjugate gradient")
 
 # %% Plotting the results
-complex_amplitude = phase_retriever.slm_camera_model()
-intensity_out = complex_amplitude.intensity
-phase_out = complex_amplitude.phase
-
-plt.figure()
-plt.imshow(gpu_to_numpy(phase_out % (2 * torch.pi)), cmap="magma")
-plt.title("Final Retrieved Phase")
-plt.colorbar(label="Phase [radians]")
-
-plt.figure()
-plt.imshow(gpu_to_numpy(intensity_out), cmap="turbo")
-plt.title("Final Retrieved Intensity")
-plt.colorbar(label="Intensity [a.u.]")
-
-# %% Vortex detection
-vortex_annihilator = VortexAnnihilator(phase_retriever)
-vortex_annihilator.annihilate_vortices(
-    target_intensity_threshold=0.1, max_iterations=5, cg_iterations=20
-)
-
-# %% Refine SLM phase after vortex annihilation
-phase = phase_retriever.retrieve_phase(100, method="l-bfgs")
-
-# %% Plotting the results
-complex_amplitude = phase_retriever.slm_camera_model()
-intensity_out = complex_amplitude.intensity
-phase_out = complex_amplitude.phase
-
-plt.figure()
-plt.imshow(gpu_to_numpy(phase) % (2 * torch.pi), cmap="magma")
-plt.title("Final Retrieved Phase")
-plt.colorbar(label="Phase [radians]")
-
-plt.figure()
-plt.imshow(gpu_to_numpy(intensity_out)[700:-700, 700:-700], cmap="turbo")
-plt.title("Final Retrieved Intensity")
-plt.colorbar(label="Intensity [a.u.]")
-# %%
+figure = retrieval.visualizer().render()
+print({name: f"{values[-1]:.4g}" for name, values in retrieval.metrics.items()})

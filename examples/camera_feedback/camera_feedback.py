@@ -7,7 +7,12 @@ target passed to the phase retrieval algorithm.
 """
 
 # %% Imports
-import matplotlib.pyplot as plt
+from hologradpy.visualizer import (
+    PHASE_CMAP,
+    GridCell,
+    PlotBuilder,
+    PlotLayout,
+)
 import torch
 
 from hologradpy.hardware import (
@@ -103,10 +108,17 @@ camera = as_camera(
     )
 )
 
-plt.figure()
-plt.imshow(gpu_to_numpy(injected_phase), cmap="magma")
-plt.colorbar(label="Phase [rad]")
-plt.title("Injected aberration (unknown to the model)")
+image = gpu_to_numpy(injected_phase)
+layout = PlotLayout(column_width=4.5, margins=(1.0, 0.15, 0.5, 0.5))
+layout.add_row(
+    [GridCell("aberration", aspect=image.shape[0] / image.shape[1], colorbar=True)]
+)
+PlotBuilder(layout).draw_image(
+    "aberration",
+    image,
+    cmap=PHASE_CMAP,
+    title="injected aberration, unknown to the model",
+).build()
 
 # %% The model the retriever optimizes against, aberration free
 clean_beam = ComplexAmplitude(

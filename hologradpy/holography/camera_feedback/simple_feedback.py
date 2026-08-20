@@ -70,7 +70,8 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
             blur: Gaussian blur applied to the corrected target, in pixels. Smooths the
                 correction so the retriever is not asked to reproduce measurement noise
                 smaller than the diffraction limit.
-            metrics: How the measured potential is scored each iteration. Each one gets
+            metrics: How the measured potential is compared against the target each
+                iteration. Each one gets
                 its own series in the result and its own convergence panel. Defaults to
                 rmse and psnr.
             step_stride: Save the SLM phase every nth optimizer iteration of

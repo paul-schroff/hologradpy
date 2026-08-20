@@ -419,3 +419,54 @@ def wavefront_residual(
         wavefront_rms(target_phase - sign * recovered_phase, mask) for sign in signs
     )
     return corrected / wavefront_rms(target_phase, mask)
+
+
+def captured_power(
+    measured_intensity: ArrayLike,
+    pixel_area: float,
+    region: ArrayLike | None = None,
+) -> ArrayLike:
+    """Optical power in a frame, or in a region of it: ``sum(I) * pixel_area``.
+
+    Args:
+        measured_intensity: Intensity on the output grid.
+        pixel_area: Area of one output pixel in square metres.
+        region: Restrict to this mask. The whole frame when None.
+
+    Returns:
+        The power, in the units ``measured_intensity * pixel_area`` carries.
+    """
+    xp = array_namespace(measured_intensity)
+    if region is not None:
+        measured_intensity = measured_intensity * region
+    return xp.sum(measured_intensity) * pixel_area
+
+
+def efficiency_metric(
+    incident_power: float,
+    pixel_area: float,
+    in_signal_region: bool = True,
+    name: str | None = None,
+) -> IntensityMetric:
+    """A metric reporting diffraction efficiency against a fixed reference.
+
+    Args:
+        incident_power: Power entering the lens, from
+            :meth:`~hologradpy.optics.systems.SLMFourierLensModel.incident_power`.
+        pixel_area: Area of one output pixel, from ``output_pixel_area()``.
+        in_signal_region: Measure over the signal region only, rather than the whole
+            frame.
+        name: Label.
+
+    Returns:
+        IntensityMetric: The metric, higher being better.
+    """
+    reference = float(incident_power)
+    area = float(pixel_area)
+    label = name or ("signal efficiency" if in_signal_region else "window efficiency")
+
+    def measure(signal_region, target_intensity, measured_intensity):
+        region = signal_region if in_signal_region else None
+        return captured_power(measured_intensity, area, region) / reference
+
+    return IntensityMetric(label, measure, lower_is_better=False)

@@ -28,6 +28,31 @@ def fourier_lens_pixel_size(
     return wavelength * focal_length / (pixel_size_in * resolution_in)
 
 
+def intensity_nyquist_pixel_size(
+    wavelength: Tensor | float,
+    focal_length: float,
+    pixel_size_in: Tensor | float,
+    resolution_in: Tensor | int,
+) -> Tensor | float:
+    """Coarsest focal-plane sampling at which the focal intensity is still resolved.
+
+    ``resolution_in`` is the number of *illuminated* samples, not a padded transform
+    length.
+
+    Args:
+        wavelength: Wavelength in metres.
+        focal_length: Focal length in metres.
+        pixel_size_in: Input plane sample spacing in metres.
+        resolution_in: Number of input samples along the same axis.
+
+    Returns:
+        The coarsest focal-plane spacing that still resolves the intensity, in metres.
+    """
+    return fourier_lens_pixel_size(
+        wavelength, focal_length, pixel_size_in, 2 * resolution_in
+    )
+
+
 def fourier_lens_resolution(
     wavelength: Tensor | float,
     focal_length: float,

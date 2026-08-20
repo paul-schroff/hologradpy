@@ -71,7 +71,7 @@ def masked_intensity_mse(
 
 
 class LossFunction:
-    """A term scoring a predicted field, addable to other terms.
+    """A term measuring a predicted field, addable to other terms.
 
     Terms compose with ``+``, which is how a data term and a prior are combined, or how
     several hologram-search costs are weighted against one another. Each term carries
@@ -159,7 +159,7 @@ def _unused_label(labels: dict[str, torch.Tensor], label: str) -> str:
 class MaskedIntensityMSE(LossFunction):
     """Error between the predicted intensity and the measured frame, over a region.
 
-    :class:`LossIntensityMSE` scores the same quantity against a fixed target held from
+    :class:`LossIntensityMSE` measures the same quantity against a fixed target held
     construction rather than a measured frame per batch, and without the region scaling
     (see :func:`masked_intensity_mse`), so the two are not interchangeable weights.
     """
@@ -340,8 +340,11 @@ class LossIntensityMSE(LossFunction):
 class LossFidelity(LossFunction):
     """Overlap of the produced field with a target amplitude and phase.
 
-    Scores amplitude and phase together, so unlike :class:`LossIntensityMSE` it
+    Measures amplitude and phase together, so unlike :class:`LossIntensityMSE` it
     constrains the image-plane phase as well.
+
+    Equation (5) of https://doi.org/10.1364/OE.25.011692, where the intensity and the
+    target are each normalised over the signal region before being overlapped.
     """
 
     def __init__(
@@ -357,7 +360,7 @@ class LossFidelity(LossFunction):
             target_intensity: Target intensity pattern.
             target_phase: Target phase pattern.
             signal_mask: Binary mask containing signal region.
-            scale: Weight of this term, by default 1e12.
+            scale: Weight of this term, the paper's ``10**d``.
         """
         self.scale: float = scale
         self.signal_mask = signal_mask
@@ -386,10 +389,9 @@ class LossFidelity(LossFunction):
             * self.target_amplitude
             * (phase_out - self.target_phase).cos()
         ).sum()
-        overlap /= (
-            (self.target_intensity.sum() * (amplitude_out * self.signal_mask) ** 2)
-            .sqrt()
-            .sum()
+        power_out = ((amplitude_out * self.signal_mask) ** 2).sum()
+        overlap = overlap / (self.target_intensity.sum() * power_out).sqrt().clamp_min(
+            torch.finfo(amplitude_out.dtype).tiny
         )
 
         return (1 - overlap) ** 2
@@ -456,3 +458,71 @@ class LossVorticity(LossFunction):
         return (vorticity**2).sum()
 
 
+
+
+def field_intensity(field: torch.Tensor) -> torch.Tensor:
+    """``|E|**2``, taken from the field's own intensity when it has one.
+
+    A :class:`~hologradpy.optics.complex_amplitude.ComplexAmplitude` computes it as
+    ``real**2 + imag**2``, which stays differentiable at a zero pixel where ``abs()``
+    does not.
+
+    Args:
+        field: The image-plane field.
+
+    Returns:
+        torch.Tensor: The intensity, as a plain tensor.
+    """
+    intensity = getattr(field, "intensity", None)
+    return field.abs() ** 2 if intensity is None else intensity
+
+
+class LossAbsoluteIntensityMSE(LossFunction):
+    """Squared error against a target read in absolute units.
+
+    Neither the target nor the produced intensity is renormalised, so the cost keeps an
+    absolute reference and light that leaves the simulated window is penalized.
+
+    The target is used as given. Its absolute level is the statement of how much power
+    should land in the shape, so scale it before passing it in.
+    """
+
+    def __init__(
+        self,
+        target_intensity: torch.Tensor,
+        signal_mask: torch.Tensor,
+        scale: float | None = None,
+    ) -> None:
+        """
+        Args:
+            target_intensity: Target intensity in the same units the model produces.
+            signal_mask: Binary mask containing the signal region.
+            scale: Weight of this term. Derived from the target when None, so the cost
+                carries the same magnitude as :class:`LossIntensityMSE` at the point
+                where the produced power matches the target's.
+        """
+        self.mse = nn.MSELoss(reduction="sum")
+        self.signal_mask = signal_mask
+        self.target_intensity = target_intensity * signal_mask
+
+        total = self.target_intensity.sum()
+        self.scale: float = (
+            float(INTENSITY_MSE_SCALE / total.clamp_min(smallest_divisor(total)) ** 2)
+            if scale is None
+            else scale
+        )
+
+    def evaluate(
+        self, field: torch.Tensor | None = None, target: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        """Calculate the loss based on the electric field.
+
+        Args:
+            field: Electric field at the image plane.
+            target: Ignored. The target was fixed at construction.
+
+        Returns:
+            torch.Tensor: Cost.
+        """
+        intensity_out = field_intensity(field) * self.signal_mask
+        return self.mse(intensity_out, self.target_intensity)

@@ -170,7 +170,7 @@ class CameraFeedbackVisualizer(BaseVisualizer):
         )
 
     def best_iteration(self) -> int:
-        """The iteration that scored best on the run's first metric, indexed from zero.
+        """The iteration that came out best on the run's first metric, from zero.
 
         The loop need not end on its best result: too high a gain for the last few
         corrections makes it overshoot, so the final frame can be worse than an earlier
@@ -178,7 +178,7 @@ class CameraFeedbackVisualizer(BaseVisualizer):
 
         Keyed on the run's first metric, in the direction it recorded, so a figure of
         merit works as well as an error. Falls back to the iteration being shown when
-        the run scored nothing.
+        the run recorded nothing.
         """
         primary = self._primary_metric()
         if primary is None:
@@ -188,7 +188,7 @@ class CameraFeedbackVisualizer(BaseVisualizer):
     def _primary_metric_name(self) -> str:
         """The primary metric's name for a title, or a generic word if there is none."""
         primary = self._primary_metric()
-        return primary[0] if primary is not None else "score"
+        return primary[0] if primary is not None else "metric"
 
     def _primary_metric(self) -> tuple[str, list[float]] | None:
         """The first metric the run recorded any values for, name and history."""

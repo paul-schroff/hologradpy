@@ -28,7 +28,7 @@ def region_of_interest(
     slm_camera_model: SLMFourierLensModel,
     roi_mask: NDArray[np.bool_] | None = None,
 ) -> tuple[ROI, torch.Tensor]:
-    """The region the fit scores over, as a crop and a mask. Shared by
+    """The region the fit is evaluated over, as a crop and a mask. Shared by
     :class:`SpeckleFitter`, which crops its predictions to the ``ROI``.
 
     Args:

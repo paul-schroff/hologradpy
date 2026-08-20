@@ -18,6 +18,7 @@ from hologradpy.visualizer import (  # noqa: E402
     PlotBuilder,
     PlotLayout,
     VisualizationData,
+    region_bounding_box,
 )
 from hologradpy.calibration import RasterCalibratorVisualizer  # noqa: E402
 from hologradpy.calibration.wavefront.abstract import (  # noqa: E402
@@ -585,3 +586,48 @@ def test_the_dataset_figure_draws_before_anything_is_fitted():
     titles = [axs.get_title() for axs in figure.axes if axs.get_title()]
     assert titles == ["SLM pattern [levels]", "camera + ROI"]
     plt.close(figure)
+
+
+def test_the_bounding_box_is_tight_around_the_region():
+    """The crop shows the region and nothing else, so no padding by default."""
+    region = np.zeros((100, 80), dtype=bool)
+    region[20:61, 10:51] = True
+
+    rows, columns = region_bounding_box(region)
+
+    assert (rows.start, rows.stop) == (20, 61)
+    assert (columns.start, columns.stop) == (10, 51)
+    # Every edge of the crop lands on the region rather than outside it.
+    cropped = region[rows, columns]
+    assert cropped.all()
+
+
+def test_the_bounding_box_pads_when_asked():
+    """The margin is still available, just not the default."""
+    region = np.zeros((100, 80), dtype=bool)
+    region[20:61, 10:51] = True
+
+    rows, columns = region_bounding_box(region, margin_fraction=0.1)
+
+    assert (rows.start, rows.stop) == (16, 65)
+    assert (columns.start, columns.stop) == (6, 55)
+
+
+def test_the_bounding_box_stays_inside_the_frame():
+    """A region against the edge cannot be padded off the end of the array."""
+    region = np.zeros((10, 10), dtype=bool)
+    region[0:3, 7:10] = True
+
+    rows, columns = region_bounding_box(region, margin_fraction=0.5)
+
+    assert rows.start == 0
+    assert columns.stop == 10
+    assert region[rows, columns].shape[0] <= 10
+
+
+def test_an_empty_region_falls_back_to_the_whole_frame():
+    """Cropping to nothing would leave an empty panel, so nothing is cropped."""
+    rows, columns = region_bounding_box(np.zeros((5, 5), dtype=bool))
+
+    assert rows == slice(None)
+    assert columns == slice(None)

@@ -1,11 +1,12 @@
 from .abstract import PhaseRetrievalData, PhaseRetrieverBase
+from .visualizer import PhaseRetrievalVisualizationData, PhaseRetrievalVisualizer
 from .recorder import (
     MODEL_CHECKPOINT_NAME,
     RETRIEVAL_STEPS_NAME,
     RetrievalRun,
     RetrievalStepWriter,
 )
-from .conjugate_gradient import CGPhaseRetriever
+from .gradient import GradientPhaseRetriever
 from .zernike import ZernikePhaseRetriever
 from .linear_superposition import LinearSuperpositionPhaseRetriever
 
@@ -14,9 +15,11 @@ __all__ = [
     "RETRIEVAL_STEPS_NAME",
     "PhaseRetrievalData",
     "PhaseRetrieverBase",
+    "PhaseRetrievalVisualizer",
+    "PhaseRetrievalVisualizationData",
     "RetrievalRun",
     "RetrievalStepWriter",
-    "CGPhaseRetriever",
+    "GradientPhaseRetriever",
     "ZernikePhaseRetriever",
     "LinearSuperpositionPhaseRetriever",
 ]

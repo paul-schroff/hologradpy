@@ -1,11 +1,17 @@
 from __future__ import annotations
+
+import copy
+import os
+from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
 import torch
 from numpy.typing import NDArray
 
+from ...optics.modules.abstract import capture_init
 from ...optics.systems import SLMFourierLensModel, with_pixel_crosstalk
+from ...optics.systems.abstract import OpticalSystem
 from ...optics.modules.hardware_models import (
     CameraSensor,
     BackgroundScatter,
@@ -21,6 +27,19 @@ from ...roi import ROI
 from .abstract import Camera, CameraOrientation
 
 
+@dataclass
+class SimulatedCameraCheckpoint:
+    """What a saved simulated camera holds."""
+
+    class_name: str
+    spec: dict[str, object]
+    model_class_name: str
+    model_spec: dict[str, object]
+    state_dict: dict[str, object]
+    exposure_s: float
+    roi: ROI | None
+
+
 class SimulatedCameraTorch(Camera):
     """A native HoloGradPy camera backed by a differentiable optical model.
 
@@ -33,6 +52,7 @@ class SimulatedCameraTorch(Camera):
     reoriented frame.
     """
 
+    @capture_init
     def __init__(
         self,
         slm_camera_model: SLMFourierLensModel,
@@ -86,6 +106,14 @@ class SimulatedCameraTorch(Camera):
         ``orientation`` mounts the sensor the way a real camera would be, matching the
         slmsuite orientation convention. :meth:`set_orientation` remounts it later.
         """
+        self._model_class_name = type(slm_camera_model).__name__
+        try:
+            self._model_spec: dict[str, object] | None = copy.deepcopy(
+                slm_camera_model.get_checkpoint_spec()
+            )
+        except NotImplementedError:
+            self._model_spec = None
+
         if crosstalk_upscale_factor is not None:
             slm_camera_model = with_pixel_crosstalk(
                 slm_camera_model,
@@ -169,6 +197,125 @@ class SimulatedCameraTorch(Camera):
                 slm_camera_model.add("background", self.background_scatter)
             self.sensor = CameraSensor(**sensor_kwargs)
             slm_camera_model.add("sensor", self.sensor)
+
+    # Saving and reopening
+
+    def get_checkpoint_spec(self) -> dict[str, object]:
+        """The keyword arguments this camera was built from, without the model.
+
+        Raises:
+            NotImplementedError: The constructor arguments were not recorded.
+        """
+        spec = getattr(self, "_init_kwargs", None)
+        if spec is None:
+            raise NotImplementedError(
+                f"{type(self).__name__} must decorate __init__ with @capture_init "
+                "(or override get_checkpoint_spec) to support checkpointing."
+            )
+        spec = dict(spec)
+        spec.pop("slm_camera_model", None)
+        return spec
+
+    @classmethod
+    def from_checkpoint_spec(
+        cls,
+        spec: dict[str, object],
+        slm_camera_model: SLMFourierLensModel,
+    ) -> SimulatedCameraTorch:
+        """Rebuild a camera from its spec and a model to drive.
+
+        Args:
+            spec: What :meth:`get_checkpoint_spec` returned.
+            slm_camera_model: A model built from the same arguments as the original,
+                with nothing mounted on it yet.
+        """
+        return cls(slm_camera_model=slm_camera_model, **spec)
+
+    def save(self, filename: str | os.PathLike) -> None:
+        """Write the camera, its noise sources and the model it drives to one file.
+
+        Raises:
+            NotImplementedError: The model cannot describe how it was built, so it
+                cannot be rebuilt on the other side.
+        """
+        if self._model_spec is None:
+            raise NotImplementedError(
+                f"The {self._model_class_name} this camera drives holds no constructor "
+                "arguments, so it cannot be rebuilt. Decorate its __init__ with "
+                "@capture_init."
+            )
+
+        # Mount the lazy modules, so their weights are in the state dict to be saved.
+        _ = self.slm_camera_model()
+
+        checkpoint = SimulatedCameraCheckpoint(
+            class_name=type(self).__name__,
+            spec=self.get_checkpoint_spec(),
+            model_class_name=self._model_class_name,
+            model_spec=self._model_spec,
+            state_dict=self.slm_camera_model.state_dict(),
+            exposure_s=self.exposure_s,
+            roi=self._roi,
+        )
+        torch.save(checkpoint, str(filename))
+
+    @classmethod
+    def load(
+        cls,
+        filename: str | os.PathLike,
+        map_location: str | torch.device | None = None,
+        **kwargs,
+    ) -> SimulatedCameraTorch:
+        """Reopen a camera written by :meth:`save`.
+
+        The model is rebuilt from its own arguments and handed to the camera
+        constructor.
+
+        Args:
+            filename: The checkpoint to read.
+            map_location: Where to put the tensors, as :func:`torch.load` takes it.
+            **kwargs: Overrides for the saved camera arguments.
+
+        Returns:
+            SimulatedCameraTorch: The camera, at the exposure and ROI it was saved with.
+
+        Raises:
+            ValueError: The file was written by a different camera class.
+            KeyError: The file names an optical system this build does not have.
+        """
+        checkpoint = torch.load(
+            str(filename), map_location=map_location, weights_only=False
+        )
+        if checkpoint.class_name != cls.__name__:
+            raise ValueError(
+                f"{filename} was saved from a {checkpoint.class_name}, not a "
+                f"{cls.__name__}."
+            )
+
+        system = OpticalSystem._subclasses.get(checkpoint.model_class_name)
+        if system is None:
+            known = ", ".join(sorted(OpticalSystem._subclasses)) or "none"
+            raise KeyError(
+                f"{filename} drives a '{checkpoint.model_class_name}', which is not a "
+                f"known optical system. Known systems are: {known}."
+            )
+
+        model = system.from_checkpoint_spec(dict(checkpoint.model_spec))
+
+        spec = dict(checkpoint.spec)
+        spec.update(kwargs)
+
+        if spec.get("crosstalk_upscale_factor") is None:
+            _ = model()
+
+        camera = cls.from_checkpoint_spec(spec, model)
+
+        _ = camera.slm_camera_model()
+        camera.slm_camera_model.load_state_dict(checkpoint.state_dict)
+
+        camera.set_exposure(checkpoint.exposure_s)
+        camera.set_roi(checkpoint.roi)
+        return camera
 
     # Native geometry / exposure surface
 

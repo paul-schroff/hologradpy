@@ -914,15 +914,15 @@ def _quadratic_phase(number_of_pixels: int) -> torch.Tensor:
 
 
 def test_smoothness_penalty_is_resolution_agnostic() -> None:
-    """One physical wavefront must score the same at any SLM sampling.
+    """One physical wavefront must give the same value at any SLM sampling.
 
     The raw per-pixel difference scales with the pitch, so the unscaled penalty
     falls by 4x per doubling of the resolution and a fixed weight would mean
     something different on every device.
     """
-    scores = [gradient_loss(_quadratic_phase(n)) for n in (256, 512, 1024)]
-    for score in scores[1:]:
-        assert abs(score - scores[0]) / scores[0] < 0.02
+    values = [gradient_loss(_quadratic_phase(n)) for n in (256, 512, 1024)]
+    for value in values[1:]:
+        assert abs(value - values[0]) / values[0] < 0.02
 
     unscaled = [
         gradient_loss(_quadratic_phase(n), aperture_relative=False)

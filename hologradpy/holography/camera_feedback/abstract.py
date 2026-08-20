@@ -12,7 +12,7 @@ from numpy.typing import NDArray
 from .visualizer import CameraFeedbackVisualizer, TargetPlacementData
 
 from ..phase_retrieval import (
-    CGPhaseRetriever,
+    GradientPhaseRetriever,
     PhaseRetrievalData,
     PhaseRetrieverBase,
 )
@@ -78,7 +78,7 @@ class FeedbackCorrectorBase(ABC):
 
     Works with any :class:`~hologradpy.holography.phase_retrieval.PhaseRetrieverBase`
     that implements set_target() and run(). Uses 
-    :class:`~hologradpy.holography.phase_retrieval.CGPhaseRetriever` by default.
+    :class:`~hologradpy.holography.phase_retrieval.GradientPhaseRetriever` by default.
     """
 
     def __init__(
@@ -159,7 +159,7 @@ class FeedbackCorrectorBase(ABC):
         slm_camera_model: SLMFourierLensModel | None,
         init_slm_phase: torch.Tensor | None,
         loss_scale: float | None,
-    ) -> CGPhaseRetriever:
+    ) -> GradientPhaseRetriever:
         """The default search, so the usual case needs no retriever built by hand."""
         if slm_camera_model is None:
             raise ValueError(
@@ -168,7 +168,7 @@ class FeedbackCorrectorBase(ABC):
             )
 
         options = {} if loss_scale is None else {"loss_scale": loss_scale}
-        return CGPhaseRetriever(
+        return GradientPhaseRetriever(
             slm_camera_model=slm_camera_model,
             init_slm_phase=init_slm_phase,
             **options,

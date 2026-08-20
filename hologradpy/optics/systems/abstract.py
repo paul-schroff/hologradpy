@@ -13,8 +13,11 @@ from ..modules.virtual_slms.abstract import VirtualSLM
 from ..modules.pixel_crosstalk import PixelCrosstalk
 
 from ..modules.abstract import OpticsModule
-from ...fourier_optics import addressable_half_extent
-from ..complex_amplitude import ComplexAmplitude, FieldGeometry
+from ...fourier_optics import (
+    addressable_half_extent,
+    intensity_nyquist_pixel_size,
+)
+from ..complex_amplitude import ComplexAmplitude, FieldGeometry, pixel_area
 from ..modules.grid_adapter import GridAdapter
 from ..modules.slm_fields import SLMField
 from ..modules.hardware_models import PointingInstability
@@ -258,6 +261,48 @@ class OpticalSystem(nn.Module):
             previous_power = current_power
 
         return {"input_power": input_power, "modules": modules}
+
+    def power_entering(
+        self,
+        module: str | OpticsModule,
+        input_field: ComplexAmplitude | None = None,
+    ) -> Tensor:
+        """The power of the field arriving at ``module``.
+
+        Args:
+            module: A layer name, or the layer itself.
+            input_field: Defaults to the system's own input field.
+
+        Returns:
+            Tensor: The power arriving at the module, per wavelength.
+
+        Raises:
+            KeyError: The module is not a layer of this system.
+        """
+        name = module if isinstance(module, str) else None
+        if name is None:
+            name = next(
+                (
+                    layer
+                    for layer in self._order
+                    if getattr(self, layer) is module
+                ),
+                None,
+            )
+        if name not in self._order:
+            known = ", ".join(self._order) or "none"
+            raise KeyError(
+                f"{module} is not a layer of this {type(self).__name__}. Its layers "
+                f"are: {known}."
+            )
+
+        field = self.init_field if input_field is None else input_field
+        with torch.no_grad():
+            for layer in self._order:
+                if layer == name:
+                    break
+                field = getattr(self, layer)(field)
+        return field.power().detach()
 
     def get_checkpoint_spec(self) -> dict[str, object]:
         """Return reconstructible keyword arguments for this system.
@@ -587,4 +632,40 @@ class SLMFourierLensModel(OpticalSystem):
             float(self.input_geometry.wavelength),
             self.focal_length,
             self.input_geometry.pixel_size,
+        )
+
+    def incident_power(self) -> float:
+        """Power entering the Fourier lens, the reference an efficiency divides by.
+
+        Returns:
+            float: The power arriving at the lens.
+        """
+        return float(self.power_entering(self.fourier_lens).sum())
+
+    def output_pixel_area(self) -> float:
+        """Area of one output-plane pixel, in square metres."""
+        return float(pixel_area(self.fourier_lens.pixel_size_out).flatten()[0])
+
+    def focal_plane_sampling_margin(self) -> tuple[float, float]:
+        """How finely the output grid samples the focal intensity, per axis.
+
+        Returns:
+            tuple[float, float]: The margin along ``(y, x)``.
+        """
+        wavelength = float(self.input_geometry.wavelength.min())
+        pixel_size_in = self.fourier_lens.pixel_size_in.flatten()[:2]
+        resolution_in = self.fourier_lens.resolution_in
+        pixel_size_out = self.fourier_lens.pixel_size_out.flatten()[:2]
+
+        return tuple(
+            float(
+                intensity_nyquist_pixel_size(
+                    wavelength,
+                    self.focal_length,
+                    float(pixel_size_in[axis]),
+                    int(resolution_in[axis]),
+                )
+                / float(pixel_size_out[axis])
+            )
+            for axis in (0, 1)
         )

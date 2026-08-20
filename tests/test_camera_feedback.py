@@ -46,7 +46,7 @@ from hologradpy.holography.camera_feedback import (  # noqa: E402
 from hologradpy.holography.phase_retrieval import (  # noqa: E402
     MODEL_CHECKPOINT_NAME,
     RETRIEVAL_STEPS_NAME,
-    CGPhaseRetriever,
+    GradientPhaseRetriever,
     PhaseRetrievalData,
     LinearSuperpositionPhaseRetriever,
     RetrievalStepWriter,
@@ -230,7 +230,7 @@ def _bench() -> tuple:
     # Targeted on the full frame so the retriever can be exercised on its own. The
     # corrector replaces this with the placed patch in place_target().
     placed_target, placed_region = _placed(target, signal_region)
-    retriever = CGPhaseRetriever(
+    retriever = GradientPhaseRetriever(
         slm_camera_model=model,
         target=placed_target,
         signal_region=placed_region,
@@ -349,7 +349,7 @@ def test_records_every_iteration(feedback_run: CameraFeedbackData) -> None:
 def test_per_iteration_frames_are_cropped_to_the_region(
     feedback_run: CameraFeedbackData,
 ) -> None:
-    """Only the region is kept per iteration, since that is all the loop scores.
+    """Only the region is kept per iteration, since that is all the loop measures.
 
     One whole-sensor frame is kept, and putting a cropped one back is exact for the
     corrected targets because the update is gated by the region.
@@ -539,7 +539,7 @@ def test_a_written_dataset_describes_itself(tmp_path) -> None:
 
 
 def test_zeroth_order_is_outside_the_signal_region() -> None:
-    """The undiffracted spot must not be scored.
+    """The undiffracted spot must not be measured.
 
     It sits wherever the optics put it and no hologram can move or remove it, so a
     signal region containing it has the loop chasing light it has no say over, and every
@@ -725,7 +725,7 @@ def test_builds_its_own_retriever() -> None:
         camera_mapping=_identity_mapping(),
     )
 
-    assert isinstance(feedback.phase_retriever, CGPhaseRetriever)
+    assert isinstance(feedback.phase_retriever, GradientPhaseRetriever)
     assert feedback.slm_camera_model is model
 
     data = feedback.run(
@@ -821,7 +821,7 @@ def test_target_without_signal_region_raises() -> None:
     model = _model(geometry, VirtualSLM.from_slm(slm), _beam(geometry))
     target, _ = _placed(*_target(model))
 
-    retriever = CGPhaseRetriever(
+    retriever = GradientPhaseRetriever(
         slm_camera_model=model,
         target=target,
         signal_region=torch.ones(CAMERA_RESOLUTION, dtype=torch.bool),
@@ -842,7 +842,7 @@ def test_retrieve_returns_a_record() -> None:
 
     assert record.phase.shape == SLM_RESOLUTION
     assert record.target.shape == CAMERA_RESOLUTION
-    assert record.name == "CGPhaseRetriever"
+    assert record.name == "GradientPhaseRetriever"
     assert set(record.metrics) == {"rmse", "psnr [dB]"}
     # One entry per objective evaluation, which the line search makes several of per
     # iteration, so this is at least as long as the iteration count.
@@ -1205,7 +1205,7 @@ def test_mismatched_grids_raise() -> None:
 
 
 def test_signal_region_defaults_to_the_whole_patch() -> None:
-    """A caller who sized the patch themselves gets the whole of it scored."""
+    """A caller who sized the patch themselves gets the whole of it measured."""
     slm, camera, retriever, target, _ = _bench()
     retriever.signal_region = None
     feedback = SimpleFeedbackCorrector(
@@ -1355,7 +1355,7 @@ def test_best_iteration_does_not_depend_on_the_metric_being_called_rms() -> None
 
 
 def test_best_iteration_honours_a_figure_of_merit_first_metric() -> None:
-    """A run whose first metric is better when higher is scored that way."""
+    """A run whose first metric is better when higher is ranked that way."""
     data = _synthetic_data(iterations=4, metric_names=("psnr [dB]",))
     data.metrics = {"psnr [dB]": [25.0, 31.0, 33.0, 30.0]}
     data.lower_is_better = {"psnr [dB]": False}
@@ -1375,7 +1375,7 @@ def test_best_index_follows_each_metric_own_direction() -> None:
 
 def test_best_index_defaults_to_lower_is_better() -> None:
     """A record written before the flag existed, or a metric the run did not describe,
-    is scored as an error rather than a figure of merit.
+    is treated as an error rather than a figure of merit.
     """
     data = _synthetic_data()
     data.lower_is_better = {}
@@ -1443,7 +1443,7 @@ def test_visualizer_grows_a_panel_per_metric(metric_names: Sequence[str]) -> Non
 
 
 def test_visualizer_renders_without_metrics() -> None:
-    """A run told to score nothing still draws its images."""
+    """A run told to measure nothing still draws its images."""
     data = _synthetic_data(metric_names=())
     figure = data.visualizer().render()
     assert figure is not None

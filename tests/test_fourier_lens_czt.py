@@ -229,3 +229,81 @@ def test_padding_smaller_than_the_field_is_refused() -> None:
 
     with pytest.raises(ValueError, match="smaller than the input"):
         lens(field)
+
+
+def _centred_crop(image: torch.Tensor, window: tuple[int, int]) -> torch.Tensor:
+    """The part of a full focal plane a centred chirp-z window covers.
+
+    The lens centres its window with the ``resolution // 2`` convention it uses
+    throughout, so the crop starts half a window short of the full plane's centre.
+    """
+    starts = [full // 2 - side // 2 for full, side in zip(image.shape[-2:], window)]
+    return image[
+        starts[0] : starts[0] + window[0], starts[1] : starts[1] + window[1]
+    ]
+
+
+def test_a_partial_window_reports_the_power_that_falls_in_it() -> None:
+    """The claim the absolute-reference costs rest on.
+
+    The ``(du*dv)/(lambda*f)`` prefactor is built from the input grid alone, so a
+    window covering part of the focal plane returns the power in *that part* rather
+    than a renormalised copy of the whole plane. Without this, a retrieval measured on a
+    chirp-z window could not tell that it had thrown light outside the window.
+    """
+    field = make_field(RESOLUTION, 1, seed=0)
+    window = (6, 8)
+    settings = dict(learnable=False, power_normalized=True)
+
+    full = FourierLensCZT(FOCAL_LENGTH, RESOLUTION, _identity_pixel_out(), **settings)(
+        field
+    )
+    partial = FourierLensCZT(FOCAL_LENGTH, window, _identity_pixel_out(), **settings)(
+        field
+    )
+
+    # The fields first: this pins where the window landed, which is what turns the
+    # power assertion below into a statement about the prefactor rather than about
+    # window placement.
+    cropped = _centred_crop(full._data.squeeze(), window)
+    assert float((cropped - partial._data.squeeze()).abs().max()) < 1e-5
+
+    pixel_area = _identity_pixel_out()[0] * _identity_pixel_out()[1]
+    assert float(partial.power()) == pytest.approx(
+        float((cropped.abs() ** 2).sum()) * pixel_area, rel=1e-5
+    )
+
+    # The window really is partial, and the full plane still satisfies Parseval, so
+    # the chain input -> full -> window is closed here in one place.
+    assert float(partial.power()) < float(full.power())
+    assert float(full.power()) == pytest.approx(float(field.power()), rel=1e-3)
+
+
+def test_the_reported_power_does_not_scale_with_the_sample_count() -> None:
+    """Refining the grid over one extent must not change the power reported for it.
+
+    If the prefactor secretly carried ``resolution_out`` or ``pixel_size_out``, halving
+    the pitch and doubling the count would move the answer by a factor rather than by a
+    rounding error. It converges instead, since the sum is approaching a fixed integral.
+
+    Note the identity pitch is *not* fine enough to compare against directly: it samples
+    the focal field at its Nyquist rate, and ``|E|**2`` has twice that bandwidth. The
+    comparison is therefore between two already-resolved grids.
+    """
+    field = make_field(RESOLUTION, 1, seed=0)
+    pixel_out = _identity_pixel_out()
+    settings = dict(learnable=False, power_normalized=True)
+
+    def window_power(divisor: int) -> float:
+        lens = FourierLensCZT(
+            FOCAL_LENGTH,
+            (6 * divisor, 8 * divisor),
+            (pixel_out[0] / divisor, pixel_out[1] / divisor),
+            **settings,
+        )
+        return float(lens(field).power())
+
+    fine = window_power(2)
+    finer = window_power(4)
+
+    assert finer == pytest.approx(fine, rel=5e-3)

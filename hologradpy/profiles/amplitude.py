@@ -1,7 +1,9 @@
 """Analytic amplitude/intensity profiles, apertures and blurring on a 2D grid."""
 
 from __future__ import annotations
-from typing import TypeVar
+
+import math
+from typing import Literal, TypeVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -37,6 +39,29 @@ def get_focal_spot_radius(
 
 
 # Intensity profiles
+def gaussian_beam_intensity_1D(
+    x: ArrayLike,
+    beam_radius: float,
+    shift: float = 0.0,
+    intensity: float = 1.0,
+    offset: float = 0.0,
+) -> ArrayLike:
+    """Gaussian beam intensity along one axis.
+
+    Args:
+        x: Coordinates along the axis.
+        beam_radius: 1/e^2 intensity radius of the beam.
+        shift: Shift of the beam center. Defaults to 0.0.
+        intensity: Peak intensity of the beam. Defaults to 1.0.
+        offset: Offset added to the intensity. Defaults to 0.0.
+
+    Returns:
+        ArrayLike: Gaussian beam intensity.
+    """
+    xp = array_namespace(x)
+    return intensity * xp.exp(-2 * (x - shift) ** 2 / beam_radius**2) + offset
+
+
 def gaussian_beam_intensity(
     x: ArrayLike,
     y: ArrayLike,
@@ -60,10 +85,10 @@ def gaussian_beam_intensity(
     Returns:
         ArrayLike: Gaussian beam intensity.
     """
-    xp = array_namespace(x, y)
     return (
         intensity
-        * xp.exp(-2 * ((x - shift_x) ** 2 + (y - shift_y) ** 2) / (beam_radius**2))
+        * gaussian_beam_intensity_1D(x, beam_radius, shift_x)
+        * gaussian_beam_intensity_1D(y, beam_radius, shift_y)
         + offset
     )
 
@@ -212,7 +237,7 @@ def top_hat_gaussian_shoulders(
         raise ValueError(f"Unsupported array namespace: {xp}")
 
     width = plateau_width + 2 * shoulder_radius
-    a = amplitude * xp.sqrt(2) * shoulder_radius
+    a = amplitude * math.sqrt(2) * shoulder_radius
     x = x - shift
     return 0.5 * (erf((width - 2 * x) / a) + erf((width + 2 * x) / a))
 
@@ -252,6 +277,56 @@ def top_hat_2D(
         y, shift_y, plateau_width_y, shoulder_radius_y, 1.0
     )
     return x_term * y_term
+
+
+def top_hat_1D(
+    x: ArrayLike,
+    y: ArrayLike,
+    plateau_width: float,
+    shoulder_radius: float,
+    beam_radius: float,
+    axis: Literal["x", "y"] = "y",
+    shift_x: float = 0.0,
+    shift_y: float = 0.0,
+    intensity: float = 1.0,
+) -> ArrayLike:
+    """A top hat with Gaussian shoulders along one axis and a Gaussian beam profile
+    across the other.
+
+    Args:
+        x: X meshgrid.
+        y: Y meshgrid.
+        plateau_width: Length of the flat plateau along the line
+            (1 - 1/e^4 intensity threshold).
+        shoulder_radius: Radius of the Gaussian shoulders capping the ends.
+        beam_radius: 1/e^2 intensity radius across the line.
+        axis: The axis the flat direction runs along, `"x"` or `"y"`. Defaults to
+            `"y"`, a line standing upright with the Gaussian across it in x.
+        shift_x: X-offset of the line. Defaults to 0.0.
+        shift_y: Y-offset of the line. Defaults to 0.0.
+        intensity: Peak intensity. Defaults to 1.0.
+
+    Returns:
+        ArrayLike: The line profile, peaking at `intensity`.
+
+    Raises:
+        ValueError: when `axis` is neither `"x"` nor `"y"`.
+    """
+    match axis:
+        case "y":
+            along, along_shift = y, shift_y
+            across, across_shift = x, shift_x
+        case "x":
+            along, along_shift = x, shift_x
+            across, across_shift = y, shift_y
+        case _:
+            raise ValueError(f"axis must be 'x' or 'y', not {axis!r}.")
+
+    plateau = top_hat_gaussian_shoulders(
+        along, along_shift, plateau_width, shoulder_radius, 1.0
+    )
+    profile = gaussian_beam_intensity_1D(across, beam_radius, across_shift)
+    return intensity * plateau * profile
 
 
 # Binary masks
