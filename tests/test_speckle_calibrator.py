@@ -10,61 +10,56 @@ recovery bar): the calibrator uses its default ``SLMNUFFTAffine`` model against 
 
 from __future__ import annotations
 
-import os
 import shutil
 from datetime import datetime
 
-import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pytest
+import torch
 
-matplotlib.use("Agg")
-
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pytest  # noqa: E402
-import torch  # noqa: E402
-
-from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch  # noqa: E402
-from hologradpy.optics.complex_amplitude import (  # noqa: E402
+from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch
+from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
     FieldGeometry,
 )
-from hologradpy.optics.systems import (  # noqa: E402
+from hologradpy.optics.systems import (
     SLMCZT,
     SLMFFTAffine,
     SLMNUFFTAffine,
 )
-from hologradpy.optics.modules.slm_fields import (  # noqa: E402
+from hologradpy.optics.modules.slm_fields import (
     PSFSLMField,
     PixelwiseSLMField,
     kernel_size_from_waist,
     waist_from_camera_mapping,
 )
-from hologradpy.optics.modules.virtual_slms import VirtualSLM  # noqa: E402
-from hologradpy.profiles.amplitude import gaussian_beam_intensity  # noqa: E402
-from hologradpy.analysis.fitting import remove_tilt  # noqa: E402
-from hologradpy.geometry import PartialAffineTransform  # noqa: E402
-from hologradpy.calibration.camera_mapping import (  # noqa: E402
+from hologradpy.optics.modules.virtual_slms import VirtualSLM
+from hologradpy.profiles.amplitude import gaussian_beam_intensity
+from hologradpy.analysis.fitting import remove_tilt
+from hologradpy.geometry import PartialAffineTransform
+from hologradpy.calibration.camera_mapping import (
     CameraMapping,
     FocalSpotFit,
 )
-from hologradpy.calibration.wavefront.speckle_calibration import (  # noqa: E402
+from hologradpy.calibration.wavefront.speckle_calibration import (
     PSFSpeckleCalibrator,
     PixelwiseSpeckleCalibrator,
     SpeckleCalibratorVisualizer,
     SpeckleVisualizationData,
 )
-from hologradpy.calibration.speckle.records import (  # noqa: E402
+from hologradpy.calibration.speckle.records import (
     SpeckleCaptureData,
 )
-from hologradpy.datasets import CaptureStore  # noqa: E402
-from hologradpy.calibration.speckle.dataset_generator import (  # noqa: E402
+from hologradpy.datasets import CaptureStore
+from hologradpy.calibration.speckle.dataset_generator import (
     DatasetGenerator,
 )
-from hologradpy.loss_functions import (  # noqa: E402
+from hologradpy.loss_functions import (
     gradient_loss,
     normalize_to_unit_sum,
 )
-from hologradpy.calibration.wavefront.abstract import (  # noqa: E402
+from hologradpy.calibration.wavefront.abstract import (
     WavefrontCalibrationData,
 )
 
@@ -521,10 +516,7 @@ def test_a_coarse_mapping_is_run_when_none_is_supplied(tmp_path) -> None:
     Uses the coarse mapper's own setup: this repo's speckle fixtures are a 64x64 SLM
     onto a 48x48 sensor, which is too small for the probe spots to be found.
     """
-    import sys
-
-    sys.path.insert(0, os.path.dirname(__file__))
-    from test_coarse_mapper import _build_setup  # noqa: E402
+    from .test_coarse_mapper import _build_setup
 
     slm, camera, _ = _build_setup(camera_angle=4.0, camera_shift=(-12, 7))
 
@@ -575,10 +567,7 @@ def test_the_calibrator_builds_the_field_it_fits_from_its_own_mapping(tmp_path) 
     mapping rather than before breaks that loop: the caller hands over a plain model and
     the calibrator installs a kernel that is both sized and seeded from the measurement.
     """
-    import sys
-
-    sys.path.insert(0, os.path.dirname(__file__))
-    from test_coarse_mapper import _build_setup  # noqa: E402
+    from .test_coarse_mapper import _build_setup
 
     slm, camera, _ = _build_setup()
     model = _plain_model(slm, camera)
@@ -615,10 +604,7 @@ def test_the_swap_leaves_no_ghost_of_the_replaced_field(tmp_path) -> None:
     """The old field must leave the model entirely, or the optimizer would carry
     parameters that no longer affect the forward pass.
     """
-    import sys
-
-    sys.path.insert(0, os.path.dirname(__file__))
-    from test_coarse_mapper import _build_setup  # noqa: E402
+    from .test_coarse_mapper import _build_setup
 
     slm, camera, _ = _build_setup()
     calibrator = PSFSpeckleCalibrator(
@@ -644,10 +630,7 @@ def test_a_supplied_field_of_the_right_type_is_kept(tmp_path) -> None:
     """Supplying one is how a fit is warm-started from an earlier calibration, so it
     must be used exactly as given rather than rebuilt from a fresh measurement.
     """
-    import sys
-
-    sys.path.insert(0, os.path.dirname(__file__))
-    from test_coarse_mapper import _build_setup  # noqa: E402
+    from .test_coarse_mapper import _build_setup
 
     slm, camera, _ = _build_setup()
     psf_field = PSFSLMField(

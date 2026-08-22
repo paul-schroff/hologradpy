@@ -12,40 +12,36 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import matplotlib
+import numpy as np
+import pytest
+import torch
 
-matplotlib.use("Agg")
-
-import numpy as np  # noqa: E402
-import pytest  # noqa: E402
-import torch  # noqa: E402
-
-from hologradpy.hardware import (  # noqa: E402
+from hologradpy.hardware import (
     CameraOrientation,
     SimulatedCameraTorch,
     SimulatedSLMTorch,
 )
-from hologradpy.optics.complex_amplitude import (  # noqa: E402
+from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
     FieldGeometry,
 )
-from hologradpy.optics.systems import (  # noqa: E402
+from hologradpy.optics.systems import (
     SLMCZT,
     SLMFFT,
     SLMFFTAffine,
 )
-from hologradpy.optics.modules.slm_fields import PixelwiseSLMField  # noqa: E402
-from hologradpy.optics.modules.virtual_slms import VirtualSLM  # noqa: E402
-from hologradpy.profiles.amplitude import (  # noqa: E402
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
+from hologradpy.optics.modules.virtual_slms import VirtualSLM
+from hologradpy.profiles.amplitude import (
     gaussian_beam_intensity,
 )
-from hologradpy.geometry import recalibrated_partial_affine  # noqa: E402
-from hologradpy.calibration.camera_mapping import (  # noqa: E402
+from hologradpy.geometry import recalibrated_partial_affine
+from hologradpy.calibration.camera_mapping import (
     CameraMapping,
     CoarseMapper,
     FocalSpotFit,
 )
-from hologradpy.geometry import PartialAffineTransform  # noqa: E402
+from hologradpy.geometry import PartialAffineTransform
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 

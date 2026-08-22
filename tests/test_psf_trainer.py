@@ -10,32 +10,27 @@ grid, and :class:`WavefrontFitter` fits it against captured speckle.
 from __future__ import annotations
 
 import math
-import os
 import tempfile
 from pathlib import Path
 
-import matplotlib
+import numpy as np
+import pytest
+import torch
 
-matplotlib.use("Agg")
-
-import numpy as np  # noqa: E402
-import pytest  # noqa: E402
-import torch  # noqa: E402
-
-from hologradpy.optics.complex_amplitude import (  # noqa: E402
+from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
     FieldGeometry,
 )
-from hologradpy.optics.modules.slm_fields import (  # noqa: E402
+from hologradpy.optics.modules.slm_fields import (
     PSFSLMField,
     kernel_size_from_waist,
 )
-from hologradpy.calibration.wavefront.speckle_calibration import (  # noqa: E402
+from hologradpy.calibration.wavefront.speckle_calibration import (
     PSFSpeckleCalibrator,
     PixelwiseSpeckleCalibrator,
 )
-from hologradpy.loss_functions import SumOfLosses  # noqa: E402
-from hologradpy.calibration.wavefront.abstract import (  # noqa: E402
+from hologradpy.loss_functions import SumOfLosses
+from hologradpy.calibration.wavefront.abstract import (
     WavefrontCalibrationData,
 )
 
@@ -59,7 +54,6 @@ def _uniform_field(resolution=SLM_RESOLUTION) -> ComplexAmplitude:
         wavelength=geometry.wavelength,
         pixel_size=geometry.pixel_size,
     )
-
 
 
 @pytest.mark.parametrize("psf_waist", [40e-6, 60e-6, 90e-6])
@@ -175,10 +169,7 @@ def test_a_static_field_model_is_not_treated_as_a_psf_one(tmp_path) -> None:
     """A PixelwiseSLMField model must not pick up the PSF parameterization's
     settings.
     """
-    import sys
-
-    sys.path.insert(0, os.path.dirname(__file__))
-    from test_speckle_calibrator import (  # noqa: E402
+    from .test_speckle_calibrator import (
         FOCAL_LENGTH as SMALL_FOCAL_LENGTH,
         _build_hardware,
         _build_model,
@@ -211,10 +202,7 @@ def test_a_static_field_model_is_not_treated_as_a_psf_one(tmp_path) -> None:
 
 def test_psf_calibration_runs_end_to_end() -> None:
     """The PSF path returns a valid calibration and fits far fewer parameters."""
-    import sys
-
-    sys.path.insert(0, os.path.dirname(__file__))
-    from test_speckle_calibrator import (  # noqa: E402
+    from .test_speckle_calibrator import (
         FOCAL_LENGTH as SMALL_FOCAL_LENGTH,
         SLM_RESOLUTION as SMALL_SLM_RESOLUTION,
         _build_hardware,

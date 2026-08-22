@@ -9,35 +9,31 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import matplotlib
+import numpy as np
+import pytest
+import torch
 
-matplotlib.use("Agg")
-
-import numpy as np  # noqa: E402
-import pytest  # noqa: E402
-import torch  # noqa: E402
-
-from hologradpy.hardware import (  # noqa: E402
+from hologradpy.hardware import (
     CameraOrientation,
     SimulatedCameraTorch,
     SimulatedSLMTorch,
 )
-from hologradpy.hardware import as_slm  # noqa: E402
-from hologradpy.optics.complex_amplitude import (  # noqa: E402
+from hologradpy.hardware import as_slm
+from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
     FieldGeometry,
 )
-from hologradpy.optics.systems import SLMFFT, SLMCZT  # noqa: E402
-from hologradpy.optics.modules.slm_fields import PixelwiseSLMField  # noqa: E402
-from hologradpy.optics.modules.virtual_slms import VirtualSLM  # noqa: E402
-from hologradpy.profiles.phase import (  # noqa: E402
+from hologradpy.optics.systems import SLMFFT, SLMCZT
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
+from hologradpy.optics.modules.virtual_slms import VirtualSLM
+from hologradpy.profiles.phase import (
     binary_phase_grating,
 )
-from hologradpy.profiles.amplitude import (  # noqa: E402
+from hologradpy.profiles.amplitude import (
     gaussian_beam_intensity,
     get_focal_spot_radius,
 )
-from hologradpy.calibration.camera_mapping import (  # noqa: E402
+from hologradpy.calibration.camera_mapping import (
     CameraMapping,
     FocalSpotFit,
     CoarseMapper,
@@ -45,10 +41,10 @@ from hologradpy.calibration.camera_mapping import (  # noqa: E402
     CoarseVisualizationData,
     SpotArrayMapper,
 )
-from hologradpy.calibration.camera_mapping.coarse_mapping.coarse_mapper import (  # noqa: E402
+from hologradpy.calibration.camera_mapping.coarse_mapping.coarse_mapper import (
     _PROBE_SPACING_FRACTION,
 )
-from hologradpy.calibration.spot_detection import (  # noqa: E402
+from hologradpy.calibration.spot_detection import (
     _WINDOW_SPOT_RADII,
     background_noise,
     detect_spot,

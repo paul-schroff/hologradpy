@@ -10,30 +10,26 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pytest
+import torch
 
-matplotlib.use("Agg")
-
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pytest  # noqa: E402
-import torch  # noqa: E402
-
-from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch  # noqa: E402
-from hologradpy.optics.complex_amplitude import (  # noqa: E402
+from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch
+from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
     FieldGeometry,
 )
-from hologradpy.optics.systems import SLMFFT, SLMFFTAffine  # noqa: E402
-from hologradpy.optics.modules.slm_fields import PixelwiseSLMField  # noqa: E402
-from hologradpy.optics.modules.virtual_slms import VirtualSLM  # noqa: E402
-from hologradpy.profiles.amplitude import (  # noqa: E402
+from hologradpy.optics.systems import SLMFFT, SLMFFTAffine
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
+from hologradpy.optics.modules.virtual_slms import VirtualSLM
+from hologradpy.profiles.amplitude import (
     gaussian_beam_intensity,
 )
-from hologradpy.holography.phase_retrieval import (  # noqa: E402
+from hologradpy.holography.phase_retrieval import (
     LinearSuperpositionPhaseRetriever,
 )
-from hologradpy.calibration.camera_mapping import (  # noqa: E402
+from hologradpy.calibration.camera_mapping import (
     CameraMapperVisualizer,
     CameraMapping,
     CameraMappingVisualizationData,
@@ -42,7 +38,7 @@ from hologradpy.calibration.camera_mapping import (  # noqa: E402
     MappingFit,
     SpotArrayMapper,
 )
-from hologradpy.calibration.spot_detection import disc_mask  # noqa: E402
+from hologradpy.calibration.spot_detection import disc_mask
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 

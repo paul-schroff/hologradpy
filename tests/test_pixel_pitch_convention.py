@@ -8,26 +8,22 @@ catch an axis swap. These tests use deliberately non-square camera pixels.
 
 from __future__ import annotations
 
-import matplotlib
+import numpy as np
+import pytest
+import torch
 
-matplotlib.use("Agg")
-
-import numpy as np  # noqa: E402
-import pytest  # noqa: E402
-import torch  # noqa: E402
-
-from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch  # noqa: E402
-from hologradpy.optics.complex_amplitude import (  # noqa: E402
+from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch
+from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
     FieldGeometry,
 )
-from hologradpy.optics.systems import SLMCZT, SLMFFT  # noqa: E402
-from hologradpy.optics.modules.slm_fields import PixelwiseSLMField  # noqa: E402
-from hologradpy.optics.modules.virtual_slms import VirtualSLM  # noqa: E402
-from hologradpy.profiles.amplitude import (  # noqa: E402
+from hologradpy.optics.systems import SLMCZT, SLMFFT
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
+from hologradpy.optics.modules.virtual_slms import VirtualSLM
+from hologradpy.profiles.amplitude import (
     gaussian_beam_intensity,
 )
-from hologradpy.calibration.camera_mapping import CoarseMapper  # noqa: E402
+from hologradpy.calibration.camera_mapping import CoarseMapper
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 

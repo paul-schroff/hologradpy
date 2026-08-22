@@ -8,22 +8,17 @@ only through a full calibration, where a wrong cost still produces a plausible r
 
 from __future__ import annotations
 
-import os
 
-import matplotlib
+import numpy as np
+import pytest
+import torch
 
-matplotlib.use("Agg")
-
-import numpy as np  # noqa: E402
-import pytest  # noqa: E402
-import torch  # noqa: E402
-
-from hologradpy.optics.modules.slm_fields import (  # noqa: E402
+from hologradpy.optics.modules.slm_fields import (
     PSFSLMField,
     PixelwiseSLMField,
 )
-from hologradpy.loss_functions import MaskedIntensityMSE, SumOfLosses  # noqa: E402
-from hologradpy.calibration.wavefront.speckle_calibration import (  # noqa: E402
+from hologradpy.loss_functions import MaskedIntensityMSE, SumOfLosses
+from hologradpy.calibration.wavefront.speckle_calibration import (
     PSFCalibratorVisualizer,
     PSFSpeckleCalibrator,
     PSFSpeckleVisualizationData,
@@ -39,10 +34,7 @@ MASK = torch.ones((4, 4))
 
 
 def _setup():
-    import sys
-
-    sys.path.insert(0, os.path.dirname(__file__))
-    from test_speckle_calibrator import (  # noqa: E402
+    from .test_speckle_calibrator import (
         FOCAL_LENGTH,
         _build_hardware,
         _synthetic_mapping,
@@ -53,10 +45,7 @@ def _setup():
 
 
 def _build_model(*args, **kwargs):
-    import sys
-
-    sys.path.insert(0, os.path.dirname(__file__))
-    from test_speckle_calibrator import _build_model as build  # noqa: E402
+    from .test_speckle_calibrator import _build_model as build
 
     return build(*args, **kwargs)
 

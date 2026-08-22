@@ -8,17 +8,13 @@ an axis swap in any conversion would show.
 
 from __future__ import annotations
 
-import matplotlib
+import numpy as np
+import pytest
+import torch
 
-matplotlib.use("Agg")
-
-import numpy as np  # noqa: E402
-import pytest  # noqa: E402
-import torch  # noqa: E402
-
-from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch  # noqa: E402
-from hologradpy.hardware import Camera, CameraOrientation, SLM  # noqa: E402
-from hologradpy.hardware.slmsuite.conversions import (  # noqa: E402
+from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch
+from hologradpy.hardware import Camera, CameraOrientation, SLM
+from hologradpy.hardware.slmsuite.conversions import (
     pixel_size_from_pitch_um,
     pitch_um_from_pixel_size,
     wavelength_from_wav_um,
@@ -26,12 +22,12 @@ from hologradpy.hardware.slmsuite.conversions import (  # noqa: E402
     roi_from_woi,
     roi_to_woi,
 )
-from hologradpy.phase_levels import (  # noqa: E402
+from hologradpy.phase_levels import (
     LookupResponse,
     PhaseResponseModule,
 )
-from hologradpy.roi import ROI  # noqa: E402
-from hologradpy.hardware import (  # noqa: E402
+from hologradpy.roi import ROI
+from hologradpy.hardware import (
     SLMSuiteCameraAdapter,
     SLMSuiteSLMAdapter,
     as_camera,
@@ -41,15 +37,15 @@ from hologradpy.hardware import (  # noqa: E402
     register_camera_backend,
     register_slm_backend,
 )
-from slmsuite.hardware.cameras.camera import Camera as SLMSuiteCamera  # noqa: E402
-from slmsuite.hardware.slms.slm import SLM as SLMSuiteSLM  # noqa: E402
-from hologradpy.optics.complex_amplitude import (  # noqa: E402
+from slmsuite.hardware.cameras.camera import Camera as SLMSuiteCamera
+from slmsuite.hardware.slms.slm import SLM as SLMSuiteSLM
+from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
     FieldGeometry,
 )
-from hologradpy.optics.systems import SLMCZT  # noqa: E402
-from hologradpy.optics.modules.slm_fields import PixelwiseSLMField  # noqa: E402
-from hologradpy.profiles.amplitude import (  # noqa: E402
+from hologradpy.optics.systems import SLMCZT
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
+from hologradpy.profiles.amplitude import (
     gaussian_beam_intensity,
 )
 

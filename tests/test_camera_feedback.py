@@ -12,38 +12,34 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Sequence
 
-import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pytest
+import torch
 
-matplotlib.use("Agg")
-
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pytest  # noqa: E402
-import torch  # noqa: E402
-
-from hologradpy.calibration.camera_mapping import (  # noqa: E402
+from hologradpy.calibration.camera_mapping import (
     CameraMapping,
     FocalSpotFit,
 )
-from hologradpy.datasets import CaptureStore, RetrievalStepStore  # noqa: E402
-from hologradpy.grids import get_spatial_grid  # noqa: E402
-from hologradpy.analysis.error_metrics import (  # noqa: E402
+from hologradpy.datasets import CaptureStore, RetrievalStepStore
+from hologradpy.grids import get_spatial_grid
+from hologradpy.analysis.error_metrics import (
     DEFAULT_INTENSITY_METRICS,
     IntensityMetric,
     efficiency,
     normalize,
 )
-from hologradpy.hardware import (  # noqa: E402
+from hologradpy.hardware import (
     SimulatedCameraTorch,
     SimulatedSLMTorch,
     open_slm,
 )
-from hologradpy.holography.camera_feedback import (  # noqa: E402
+from hologradpy.holography.camera_feedback import (
     CameraFeedbackData,
     CameraFeedbackVisualizer,
     SimpleFeedbackCorrector,
 )
-from hologradpy.holography.phase_retrieval import (  # noqa: E402
+from hologradpy.holography.phase_retrieval import (
     MODEL_CHECKPOINT_NAME,
     RETRIEVAL_STEPS_NAME,
     GradientPhaseRetriever,
@@ -52,23 +48,23 @@ from hologradpy.holography.phase_retrieval import (  # noqa: E402
     RetrievalStepWriter,
     ZernikePhaseRetriever,
 )
-from hologradpy.optics.complex_amplitude import (  # noqa: E402
+from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
     FieldGeometry,
 )
-from hologradpy.optics.modules.hardware_models import (  # noqa: E402
+from hologradpy.optics.modules.hardware_models import (
     BackgroundScatter,
     PointingInstability,
 )
-from hologradpy.optics.modules.slm_fields import PixelwiseSLMField  # noqa: E402
-from hologradpy.optics.modules.virtual_slms import VirtualSLM  # noqa: E402
-from hologradpy.optics.systems import SLMCZT  # noqa: E402
-from hologradpy.profiles.amplitude import gaussian_beam_intensity  # noqa: E402
-from hologradpy.profiles.amplitude import super_gaussian  # noqa: E402
-from hologradpy.profiles.masks import rectangular_mask  # noqa: E402
-from hologradpy.profiles.phase import linear_phase  # noqa: E402
-from hologradpy.roi import ROI  # noqa: E402
-from hologradpy.utils import gpu_to_numpy  # noqa: E402
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
+from hologradpy.optics.modules.virtual_slms import VirtualSLM
+from hologradpy.optics.systems import SLMCZT
+from hologradpy.profiles.amplitude import gaussian_beam_intensity
+from hologradpy.profiles.amplitude import super_gaussian
+from hologradpy.profiles.masks import rectangular_mask
+from hologradpy.profiles.phase import linear_phase
+from hologradpy.roi import ROI
+from hologradpy.utils import gpu_to_numpy
 
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")

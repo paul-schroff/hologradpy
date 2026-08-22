@@ -2,17 +2,13 @@
 
 import dataclasses
 
-import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.colors import to_hex
+import pytest
+from PIL import Image
 
-matplotlib.use("Agg")
-
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from matplotlib.colors import to_hex  # noqa: E402
-import pytest  # noqa: E402
-from PIL import Image  # noqa: E402
-
-from hologradpy.visualizer import (  # noqa: E402
+from hologradpy.visualizer import (
     BaseVisualizer,
     GridCell,
     PlotBuilder,
@@ -20,14 +16,14 @@ from hologradpy.visualizer import (  # noqa: E402
     VisualizationData,
     region_bounding_box,
 )
-from hologradpy.calibration import RasterCalibratorVisualizer  # noqa: E402
-from hologradpy.calibration.wavefront.abstract import (  # noqa: E402
+from hologradpy.calibration import RasterCalibratorVisualizer
+from hologradpy.calibration.wavefront.abstract import (
     WavefrontCalibrationData,
 )
-from hologradpy.calibration.wavefront.raster_calibration.visualizer import (  # noqa: E402
+from hologradpy.calibration.wavefront.raster_calibration.visualizer import (
     RasterVisualizationData,
 )
-from hologradpy.calibration.wavefront.speckle_calibration.visualizer import (  # noqa: E402
+from hologradpy.calibration.wavefront.speckle_calibration.visualizer import (
     SpeckleVisualizationData,
 )
 
@@ -631,3 +627,93 @@ def test_an_empty_region_falls_back_to_the_whole_frame():
 
     assert rows == slice(None)
     assert columns == slice(None)
+
+
+def test_image_grid_shapes_each_cell_like_its_own_image():
+    """The reason the helper exists.
+
+    An image is drawn with square pixels, so one placed in a cell of a different shape
+    is shrunk to fit while the colorbar stays pinned to the cell, and the two come
+    apart. Deriving the aspect from the array is what makes that impossible.
+    """
+    from hologradpy.visualizer import image_grid
+
+    images = [
+        np.zeros((400, 640)),
+        np.zeros((256, 256)),
+        np.zeros((500, 375)),
+    ]
+
+    builder = image_grid(images)
+    cells = [cell for row in builder.layout._rows for cell in row]
+
+    assert [cell.aspect for cell in cells] == [
+        image.shape[0] / image.shape[1] for image in images
+    ]
+
+
+def test_image_grid_takes_rows_of_differing_length():
+    """Rows are given as nested sequences, and need not match in length."""
+    from hologradpy.visualizer import image_grid
+
+    builder = image_grid([[np.zeros((8, 8)), np.zeros((8, 8))], [np.zeros((8, 8))]])
+
+    assert [len(row) for row in builder.layout._rows] == [2, 1]
+
+
+def test_image_grid_puts_every_panel_on_one_scale_when_asked():
+    """A shared scale is what makes two panels comparable by eye."""
+    from hologradpy.visualizer import image_grid
+
+    dim = np.full((4, 4), 1.0)
+    bright = np.full((4, 4), 5.0)
+
+    figure = image_grid([dim, bright], shared_scale=True).build()
+    limits = [image.get_clim() for image in
+              [axs.images[0] for axs in figure.axes if axs.images]]
+
+    assert limits[0] == limits[1] == (1.0, 5.0)
+
+
+def test_image_grid_centres_a_symmetric_scale_on_zero():
+    """So the neutral colour of a diverging map means agreement, not the midpoint."""
+    from hologradpy.visualizer import image_grid
+
+    difference = np.array([[-1.0, 3.0], [0.0, 2.0]])
+
+    figure = image_grid([difference], symmetric=True).build()
+    image = next(axs.images[0] for axs in figure.axes if axs.images)
+
+    assert image.get_clim() == (-3.0, 3.0)
+
+
+def test_a_cell_shaped_unlike_its_image_warns():
+    """The guard for layouts still built by hand.
+
+    Nothing else reports this: the figure renders, and the misalignment is only
+    visible by looking at it.
+    """
+    import warnings
+
+    layout = PlotLayout(column_width=3.0)
+    layout.add_row([GridCell("panel", aspect=1.0, colorbar=True)])
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        PlotBuilder(layout).draw_image("panel", np.zeros((400, 640))).build()
+
+    assert any("no longer line up" in str(entry.message) for entry in caught)
+
+
+def test_a_cell_matching_its_image_does_not_warn():
+    """The warning must stay quiet for correct layouts, or it becomes noise."""
+    import warnings
+
+    layout = PlotLayout(column_width=3.0)
+    layout.add_row([GridCell("panel", aspect=400 / 640, colorbar=True)])
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        PlotBuilder(layout).draw_image("panel", np.zeros((400, 640))).build()
+
+    assert not any("no longer line up" in str(entry.message) for entry in caught)

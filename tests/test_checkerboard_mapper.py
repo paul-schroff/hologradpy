@@ -11,27 +11,23 @@ aberrations/noise), which is the mapper's working regime.
 
 from __future__ import annotations
 
-import matplotlib
+import numpy as np
+import pytest
+import torch
 
-matplotlib.use("Agg")
-
-import numpy as np  # noqa: E402
-import pytest  # noqa: E402
-import torch  # noqa: E402
-
-from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch  # noqa: E402
-from hologradpy.optics.complex_amplitude import (  # noqa: E402
+from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch
+from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
     FieldGeometry,
 )
-from hologradpy.optics.systems import SLMFFT, SLMFFTAffine  # noqa: E402
-from hologradpy.optics.modules.slm_fields import PixelwiseSLMField  # noqa: E402
-from hologradpy.optics.modules.virtual_slms import VirtualSLM  # noqa: E402
-from hologradpy.profiles.amplitude import (  # noqa: E402
+from hologradpy.optics.systems import SLMFFT, SLMFFTAffine
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
+from hologradpy.optics.modules.virtual_slms import VirtualSLM
+from hologradpy.profiles.amplitude import (
     gaussian_beam_intensity,
 )
-from hologradpy.profiles.zernike import Zernike  # noqa: E402
-from hologradpy.calibration.camera_mapping import (  # noqa: E402
+from hologradpy.profiles.zernike import Zernike
+from hologradpy.calibration.camera_mapping import (
     CheckerboardMapper,
     CoarseMapper,
 )
