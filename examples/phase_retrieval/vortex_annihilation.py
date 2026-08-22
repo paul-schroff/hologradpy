@@ -28,6 +28,7 @@ import numpy as np
 import torch
 from PIL import Image
 
+import hologradpy
 from hologradpy.analysis.error_metrics import (
     DEFAULT_INTENSITY_METRICS,
     efficiency_metric,
@@ -90,7 +91,8 @@ slm_camera_model = SLMFFT(
 slm_camera_model()
 output_resolution = tuple(int(size) for size in slm_camera_model[-1].resolution_out)
 
-duke = Image.open(Path(__file__).parents[2] / "targets" / "duke_v2.jpg").convert("L")
+targets = Path(hologradpy.__file__).parents[1] / "targets"
+duke = Image.open(targets / "duke_v2.jpg").convert("L")
 duke_array = np.asarray(duke, dtype=np.float64)
 duke_array /= duke_array.max()
 

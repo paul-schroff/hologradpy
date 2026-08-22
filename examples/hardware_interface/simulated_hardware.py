@@ -40,7 +40,6 @@ beam itself, since they are drawn afresh for every frame it captures.
 # %% Imports
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 

@@ -69,7 +69,7 @@ SIGNAL_HALF_WIDTH = 2 * FOCAL_SPOT_WAIST
 NUMBER_OF_ITERATIONS = 100
 
 # The share of the incident power the absolute cost is asked to put in the shape.
-WANTED_EFFICIENCY = 0.95
+WANTED_EFFICIENCY = 1.0
 
 # %% The SLM and the beam on it
 slm_geometry = FieldGeometry(

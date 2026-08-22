@@ -8,7 +8,6 @@ the camera.
 """
 
 # %% Imports
-import matplotlib.pyplot as plt
 
 from hologradpy.holography.phase_retrieval import GradientPhaseRetriever
 from hologradpy.profiles.phase import lens_phase

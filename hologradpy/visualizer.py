@@ -23,6 +23,8 @@ visualizers can be mixed and matched into one :class:`PlotLayout` and rendered t
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import warnings
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
@@ -158,6 +160,12 @@ class PlotLayout:
         """Append a row of cells (left to right). Returns self for chaining."""
         self._rows.append(list(cells))
         return self
+
+    def cell(self, name: str) -> GridCell | None:
+        """The cell of that name, or None when the layout has no such cell."""
+        return next(
+            (cell for row in self._rows for cell in row if cell.name == name), None
+        )
 
     def copy(self) -> PlotLayout:
         """Return an independent clone (same style + cells) for reuse.
@@ -524,6 +532,7 @@ class BaseVisualizer:
             mappable = panel(layout.axes[name])
             colorbar_axs = layout.colorbar_axes.get(name)
             if mappable is not None and colorbar_axs is not None:
+                _warn_on_aspect_mismatch(layout, name, mappable)
                 figure.colorbar(mappable, cax=colorbar_axs)
         return figure
 
@@ -766,3 +775,148 @@ class PlotBuilder:
             return mappable
 
         return panel
+
+
+def _is_image(value: Any) -> bool:
+    """Whether ``value`` is a single 2D image rather than a collection of them."""
+    return getattr(value, "ndim", None) == 2
+
+
+def _as_rows(images: Any) -> list[list[Any]]:
+    """Normalise the many shapes ``image_grid`` accepts into rows of images."""
+    if _is_image(images):
+        return [[images]]
+    rows = list(images)
+    if all(_is_image(item) for item in rows):
+        return [rows]
+    return [list(row) for row in rows]
+
+
+def _per_panel(value: Any, count: int, label: str) -> list[Any]:
+    """``value`` as one entry per panel, broadcasting a single value to all of them."""
+    if value is None or isinstance(value, str) or np.isscalar(value):
+        return [value] * count
+    values = list(value)
+    if len(values) != count:
+        raise ValueError(
+            f"Got {len(values)} values for {label} but {count} images. Pass one per "
+            "image, or a single value for all of them."
+        )
+    return values
+
+
+def image_grid(
+    images: Any,
+    titles: Any = None,
+    cmap: Any = INTENSITY_CMAP,
+    vmin: Any = None,
+    vmax: Any = None,
+    shared_scale: bool = False,
+    symmetric: bool = False,
+    colorbar: bool = True,
+    column_width: float = 3.6,
+    names: Sequence[str] | None = None,
+    **layout_kwargs: Any,
+) -> PlotBuilder:
+    """Lay out images with their colorbars, and hand back the builder.
+
+    Nothing is drawn until :meth:`PlotBuilder.build` is called, so markers and
+    curves can still be layered on by name::
+
+        image_grid([intensity, phase]).draw_points("0", x, y, color="red").build()
+
+    Args:
+        images: One 2D array, a sequence of them for a single row, or a sequence of such
+            sequences for a row each.
+        titles: One title, or one per image. None leaves them untitled.
+        cmap: One colormap, or one per image.
+        vmin: Lower limit of the colour scale, or one per image.
+        vmax: Upper limit, or one per image.
+        shared_scale: Put every panel on one scale, spanning all of them.
+        symmetric: Centre the scale on zero, using the largest magnitude present.
+        colorbar: Whether to give each panel a colorbar.
+        column_width: Width of one grid column in inches.
+        names: Cell names to address panels by. Defaults to ``"0"``, ``"1"``, and so on.
+        **layout_kwargs: Passed to :class:`PlotLayout`, for example ``margins``.
+
+    Returns:
+        PlotBuilder: The builder, with every image queued and nothing drawn yet.
+
+    Raises:
+        ValueError: A per-image argument has the wrong length, or no images were given.
+    """
+    rows = _as_rows(images)
+    flat = [image for row in rows for image in row]
+    if not flat:
+        raise ValueError("image_grid needs at least one image to draw.")
+
+    if symmetric or shared_scale:
+        finite = [np.asarray(image, dtype=float) for image in flat]
+        if symmetric and vmin is None and vmax is None:
+            limit = max(float(np.nanmax(np.abs(image))) for image in finite)
+            vmin, vmax = -limit, limit
+        elif shared_scale:
+            if vmin is None:
+                vmin = min(float(np.nanmin(image)) for image in finite)
+            if vmax is None:
+                vmax = max(float(np.nanmax(image)) for image in finite)
+
+    count = len(flat)
+    cell_names = list(names) if names is not None else [str(i) for i in range(count)]
+    if len(cell_names) != count:
+        raise ValueError(
+            f"Got {len(cell_names)} names for {count} images."
+        )
+    per_title = _per_panel(titles, count, "titles")
+    per_cmap = _per_panel(cmap, count, "cmap")
+    per_vmin = _per_panel(vmin, count, "vmin")
+    per_vmax = _per_panel(vmax, count, "vmax")
+    per_colorbar = _per_panel(colorbar, count, "colorbar")
+
+    layout = PlotLayout(column_width=column_width, **layout_kwargs)
+    index = 0
+    for row in rows:
+        layout.add_row(
+            [
+                GridCell(
+                    cell_names[index + offset],
+                    # The whole point: the cell is shaped like the array going into it.
+                    aspect=image.shape[0] / image.shape[1],
+                    colorbar=per_colorbar[index + offset],
+                )
+                for offset, image in enumerate(row)
+            ]
+        )
+        index += len(row)
+
+    builder = PlotBuilder(layout)
+    for position, image in enumerate(flat):
+        builder.draw_image(
+            cell_names[position],
+            image,
+            cmap=per_cmap[position],
+            vmin=per_vmin[position],
+            vmax=per_vmax[position],
+            title=per_title[position],
+        )
+    return builder
+
+
+def _warn_on_aspect_mismatch(
+    layout: PlotLayout, name: str, mappable: Any, tolerance: float = 0.02
+) -> None:
+    """Warn when a cell is shaped unlike the image drawn into it."""
+    cell = layout.cell(name)
+    if cell is None or not isinstance(cell.aspect, (int, float)):
+        return
+    data = getattr(mappable, "get_array", lambda: None)()
+    if data is None or getattr(data, "ndim", 0) != 2 or data.shape[1] == 0:
+        return
+
+    drawn = data.shape[0] / data.shape[1]
+    if abs(drawn - float(cell.aspect)) > tolerance * max(drawn, float(cell.aspect)):
+        warnings.warn(
+            f"Cell {name!r} has aspect {float(cell.aspect):.3f} but the image drawn "
+            f"into it is {data.shape[0]}x{data.shape[1]}, an aspect of {drawn:.3f}. ",
+            stacklevel=3,
+        )

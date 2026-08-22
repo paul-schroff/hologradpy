@@ -40,7 +40,7 @@ Many thanks to Daniel Walker, who turned some of my PhD spaghetti code into some
 modular and easy to use for our atom array experiments. 
 Much of what I learned from him has fed back into this package.
 
-For questions or suggestions, email paul.schroff@strath.ac.uk.
+For questions or suggestions, email [paul.schroff@strath.ac.uk](mailto:paul.schroff@strath.ac.uk).
 
 ## Publications
 

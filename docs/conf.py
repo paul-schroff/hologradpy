@@ -6,6 +6,8 @@
 import os
 import sys
 
+from sphinx_gallery.sorting import ExplicitOrder
+
 # ---- Project information -------------------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
@@ -41,6 +43,7 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.intersphinx",
     "myst_parser",
+    "sphinx_design",
 ]
 if not SKIP_EXAMPLES:
     extensions.append("sphinx_gallery.gen_gallery")
@@ -110,6 +113,16 @@ sphinx_gallery_conf = {
     "ignore_pattern": r"(__init__|.*[\\/]dev_scripts[\\/].*)\.py",
     "plot_gallery": RUN_EXAMPLES,
     "only_warn_on_example_error": True,
+    "subsection_order": ExplicitOrder(
+        [
+            "../examples/hardware_interface",
+            "../examples/phase_retrieval",
+            "../examples/camera_mapping",
+            "../examples/wavefront_calibration",
+            "../examples/pixel_crosstalk_calibration",
+            "../examples/camera_feedback",
+        ]
+    ),
 }
 
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]

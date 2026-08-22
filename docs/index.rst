@@ -15,12 +15,35 @@ SLM calibration methods using random speckle intensity patterns based on
    This documentation is work in progress. Refer to the
    :ref:`example scripts <Examples>` to get started.
 
+.. grid:: 1 2 3 3
+   :gutter: 3
+   :class-container: sd-mt-4
+
+   .. grid-item-card:: :octicon:`download` Installation
+      :link: install
+      :link-type: doc
+
+      What to install, and how to get CUDA acceleration working.
+
+   .. grid-item-card:: :octicon:`beaker` Example scripts
+      :link: auto_examples/index
+      :link-type: doc
+
+      Worked examples, from phase retrieval and vortex annihilation to SLM
+      calibration against a camera.
+
+   .. grid-item-card:: :octicon:`book` API reference
+      :link: autoapi/hologradpy/index
+      :link-type: doc
+
+      Every module, class and function, generated from the source.
+
 .. include:: ../README.md
    :parser: myst_parser.sphinx_
    :start-after: <!-- docs-start -->
 
 .. toctree::
-   :maxdepth: 1
+   :hidden:
    :caption: User Guide
 
    install
