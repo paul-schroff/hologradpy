@@ -1,19 +1,30 @@
 HoloGradPy Documentation
 ########################
 
-HoloGradPy provides functionality for generating light potentials using a 
-phase-modulating SLM (see
-`our publication <https://doi.org/10.1038/s41598-023-30296-6>`_).
-SLM calibration methods using random speckle intensity patterns based on
-`more recent work <https://doi.org/10.1364/OE.539548>`_ are included as well.
+.. div:: sd-d-flex-row sd-align-major-start sd-gap-2 sd-mb-4
 
-.. note::
-   The algorithms in this package work best with CUDA acceleration, especially the
-   speckle calibration algorithms.
+   .. button-link:: https://github.com/paul-schroff/hologradpy
+      :color: primary
+      :outline:
 
-.. warning::
-   This documentation is work in progress. Refer to the
-   :ref:`example scripts <Examples>` to get started.
+      :octicon:`mark-github` Source code
+
+   .. button-link:: https://www.gnu.org/licenses/lgpl-3.0.en.html
+      :color: primary
+      :outline:
+
+      :octicon:`law` LGPL-3.0
+
+   .. button-link:: #citing-hologradpy
+      :color: primary
+      :outline:
+
+      :octicon:`book` Publications
+
+.. include:: ../README.md
+   :parser: myst_parser.sphinx_
+   :start-after: <!-- intro-start -->
+   :end-before: <!-- intro-end -->
 
 .. grid:: 1 2 3 3
    :gutter: 3
@@ -26,7 +37,7 @@ SLM calibration methods using random speckle intensity patterns based on
       What to install, and how to get CUDA acceleration working.
 
    .. grid-item-card:: :octicon:`beaker` Example scripts
-      :link: auto_examples/index
+      :link: examples
       :link-type: doc
 
       Worked examples, from phase retrieval and vortex annihilation to SLM
@@ -38,6 +49,14 @@ SLM calibration methods using random speckle intensity patterns based on
 
       Every module, class and function, generated from the source.
 
+.. important::
+   The algorithms in this package work best with CUDA acceleration, especially when
+   modelling pixel crosstalk on the SLM.
+
+.. warning::
+   This package and its documentation are work in progress and might change without
+   notice. Refer to the :ref:`example scripts <Examples>` to get started.
+
 .. include:: ../README.md
    :parser: myst_parser.sphinx_
    :start-after: <!-- docs-start -->
@@ -47,7 +66,7 @@ SLM calibration methods using random speckle intensity patterns based on
    :caption: User Guide
 
    install
-   auto_examples/index
+   examples
    API Reference <autoapi/hologradpy/index>
 
 .. toctree::

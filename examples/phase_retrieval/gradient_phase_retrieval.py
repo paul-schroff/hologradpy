@@ -39,7 +39,9 @@ from hologradpy.visualizer import (
 
 import torch
 
-# %% Set up the SLM and camera devices
+# %%
+# .. rubric:: Setting up the the SLM and camera devices
+#
 device = get_device(verbose=True)
 
 slm_geometry = FieldGeometry(

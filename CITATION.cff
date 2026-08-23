@@ -1,0 +1,61 @@
+cff-version: 1.2.0
+title: HoloGradPy
+message: >-
+  If you use this software, please cite the article below. HoloGradPy implements the
+  algorithms of two papers, so cite whichever is relevant to what you used according to
+  the README.
+type: software
+authors:
+  - family-names: Schroff
+    given-names: Paul
+    email: paul.schroff@strath.ac.uk
+    affiliation: University of Strathclyde
+repository-code: "https://github.com/paul-schroff/hologradpy"
+url: "https://hologradpy.readthedocs.io/en/latest/"
+abstract: >-
+  HoloGradPy optimises SLM phase patterns for a target intensity profile in the Fourier
+  plane using gradient-based algorithms.
+keywords:
+  - holography
+  - spatial light modulator
+  - phase retrieval
+  - ultracold atoms
+license: LGPL-3.0-only
+
+preferred-citation:
+  type: article
+  title: "Accurate holographic light potentials using pixel crosstalk modelling"
+  authors:
+    - family-names: Schroff
+      given-names: Paul
+    - family-names: La Rooij
+      given-names: Arthur
+    - family-names: Haller
+      given-names: Elmar
+    - family-names: Kuhr
+      given-names: Stefan
+  journal: "Scientific Reports"
+  volume: 13
+  start: 3252
+  year: 2023
+  doi: 10.1038/s41598-023-30296-6
+
+references:
+  - type: article
+    title: >-
+      Rapid stochastic spatial light modulator calibration and pixel crosstalk
+      optimization
+    authors:
+      - family-names: Schroff
+        given-names: Paul
+      - family-names: Haller
+        given-names: Elmar
+      - family-names: Kuhr
+        given-names: Stefan
+      - family-names: La Rooij
+        given-names: Arthur
+    journal: "Optics Express"
+    volume: 32
+    start: 48957
+    year: 2024
+    doi: 10.1364/OE.539548

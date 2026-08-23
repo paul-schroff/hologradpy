@@ -106,8 +106,18 @@ intersphinx_mapping = {
 RUN_EXAMPLES = os.environ.get("HOLOGRADPY_RUN_EXAMPLES") == "1"
 
 sphinx_gallery_conf = {
-    "examples_dirs": "../examples",  # path to your example scripts
-    "gallery_dirs": "auto_examples",  # path to where to save gallery generated output
+    "examples_dirs": [
+        "../examples/hardware_interface",
+        "../examples/phase_retrieval",
+        "../examples/camera_feedback",
+        "../calibration_examples",
+    ],
+    "gallery_dirs": [
+        "auto_examples/hardware_interface",
+        "auto_examples/phase_retrieval",
+        "auto_examples/camera_feedback",
+        "auto_examples/calibration",
+    ],
     "reference_url": {"hologradpy": None},
     "filename_pattern": r".*" if RUN_EXAMPLES else "(?!.*)",
     "ignore_pattern": r"(__init__|.*[\\/]dev_scripts[\\/].*)\.py",
@@ -115,12 +125,9 @@ sphinx_gallery_conf = {
     "only_warn_on_example_error": True,
     "subsection_order": ExplicitOrder(
         [
-            "../examples/hardware_interface",
-            "../examples/phase_retrieval",
-            "../examples/camera_mapping",
-            "../examples/wavefront_calibration",
-            "../examples/pixel_crosstalk_calibration",
-            "../examples/camera_feedback",
+            "../calibration_examples/camera_mapping",
+            "../calibration_examples/wavefront_calibration",
+            "../calibration_examples/pixel_crosstalk_calibration",
         ]
     ),
 }

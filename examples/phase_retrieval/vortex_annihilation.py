@@ -4,7 +4,7 @@ Vortex detection and annihilation
 
 Optical vortices can form when optimising more intricate target patterns, or when the
 initial phase guess is chosen poorly. They appear as dark "holes" in the intensity, and
-cause the optimisation to stagnate since a global phase winding is needed to remove
+cause the optimisation to stagnate since a global phase windings are needed to remove
 them.
 
 This example demonstrates the vortex detection and annihilation scheme used in
@@ -13,11 +13,12 @@ This example demonstrates the vortex detection and annihilation scheme used in
     potentials using pixel crosstalk modelling*, Sci. Rep. **13**, 3252 (2023),
     `doi:10.1038/s41598-023-30296-6 <https://doi.org/10.1038/s41598-023-30296-6>`_.
 
-While making the simulated potential more accurate, this vortex annihilation scheme
-reduces the efficiency of the potential and introduces high spatial frequency to the SLM
-phase pattern which degrades the accuracy when displayed on a real SLM due to pixel
-crosstalk. This should be the last resort, finding a better initial phase guess will
-typically generate better results.
+.. hint::
+   While making the simulated potential more accurate, this vortex annihilation scheme
+   reduces the efficiency of the potential and introduces high spatial frequency to
+   the SLM phase pattern. This can degrade the accuracy when displayed on a real SLM due
+   to pixel crosstalk. Finding a better initial phase guess instead of removing vortices
+   will typically generate better results.
 """
 
 # %% Imports
@@ -53,7 +54,8 @@ from hologradpy.visualizer import (
 
 device = get_device(verbose=True)
 
-# %% The SLM and the beam on it
+# %%
+# .. rubric:: Generating the virtual SLM
 slm_geometry = FieldGeometry(
     resolution=(1024, 1280),
     pixel_size=torch.tensor([12.5e-6, 12.5e-6], device=device),
@@ -62,9 +64,12 @@ slm_geometry = FieldGeometry(
 
 slm = open_slm(SimulatedSLMTorch, input_geometry=slm_geometry, bitdepth=8)
 
+# %%
+# .. rubric:: Defining the field incident on the SLM
+# 
+# We're using a Gaussian beam with `beam_radius` and a uniform phase (no aberrations).
+
 beam_radius = 4e-3
-focal_length = 250e-3
-padded_resolution = (2048, 2048)
 
 slm_grid = slm_geometry.get_spatial_grid()
 slm_intensity = gaussian_beam_intensity(*slm_grid, beam_radius=beam_radius)
@@ -72,22 +77,31 @@ slm_field = ComplexAmplitude.from_geometry(
     slm_geometry, data=slm_intensity.sqrt() + 0j
 )
 
-# Quadratic initial phase guess.
-init_slm_phase = lens_phase(
-    *slm_grid,
-    focal_length=0.35,
-    wavenumber=2 * torch.pi / slm.wavelength,
-).to(torch.float32)
+# %%
+# .. rubric:: Defining the SLM camera model
+#
+# This model predicts the complex amplitude in the Fourier plane, given a certain SLM
+# phase pattern. Here, we use an FFT to model the Fourier lens, zero-padded to
+# `padded_resolution`. `focal_length` is needed to calculate the physical size of the
+# pixel pitch in the Fourier plane.
+
+focal_length = 250e-3  # 250 mm focal length Fourier lens
 
 slm_camera_model = SLMFFT(
     input_geometry=slm_field.geometry,
-    virtual_slm=VirtualSLM(phase_scaling=1.0, init_phase=init_slm_phase),
+    virtual_slm=VirtualSLM(phase_scaling=1.0),
     slm_field=PixelwiseSLMField(slm_field),
     focal_length=focal_length,
-    padded_resolution=padded_resolution,
+    padded_resolution=(2048, 2048),
 )
 
-# %% Natural image target
+# %%
+# .. rubric:: Setting up the target image and signal region
+#
+# For the purposes of this demonstration, a complicated target potential that will 
+# generate many vortices is used.
+# The signal region leaves a dark margin around the image.
+
 slm_camera_model()
 output_resolution = tuple(int(size) for size in slm_camera_model[-1].resolution_out)
 
@@ -100,7 +114,6 @@ target_intensity = torch.as_tensor(
     to_canvas(duke_array, output_resolution), dtype=torch.float32, device=device
 )
 
-# The dark margin left around the image, in pixels.
 SIGNAL_MARGIN = 40
 lit = np.ones(np.array(duke_array.shape) + 2 * SIGNAL_MARGIN, dtype=bool)
 signal_region = torch.as_tensor(
@@ -108,6 +121,12 @@ signal_region = torch.as_tensor(
 )
 
 # %% Retrieve, with no vortex handling at all
+init_slm_phase = lens_phase(
+    *slm_grid,
+    focal_length=0.35,
+    wavenumber=2 * torch.pi / slm.wavelength,
+).to(torch.float32)
+
 phase_retriever = GradientPhaseRetriever(
     slm_camera_model=slm_camera_model,
     target=target_intensity,
