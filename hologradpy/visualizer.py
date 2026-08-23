@@ -783,7 +783,7 @@ def _is_image(value: Any) -> bool:
 
 
 def _as_rows(images: Any) -> list[list[Any]]:
-    """Normalise the many shapes ``image_grid`` accepts into rows of images."""
+    """Normalize the many shapes ``image_grid`` accepts into rows of images."""
     if _is_image(images):
         return [[images]]
     rows = list(images)

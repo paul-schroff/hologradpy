@@ -19,7 +19,7 @@ The laser beam illuminating the SLM models:
 
 A simulated SLM models:
 
-- Quantisation of the phase to the SLM's bit depth.
+- Quantization of the phase to the SLM's bit depth.
 - Pixel crosstalk, the fringing field between neighbouring liquid-crystal pixels, which
   blurs the phase pattern and reduces efficiency.
 
@@ -29,7 +29,7 @@ A simulated camera models:
   ``noise_level ** 2``. It does not depend on how much light arrived.
 - Saturation, the clamp at the full-well capacity. How quickly it is reached depends on
   the quantum efficiency and the gain.
-- Quantisation of the counts to the camera's bit depth.
+- Quantization of the counts to the camera's bit depth.
 - Attenuation by a neutral-density filter, applied to the signal before the read noise.
 - Stray light, a static laser-speckle background scattered across the sensor.
 

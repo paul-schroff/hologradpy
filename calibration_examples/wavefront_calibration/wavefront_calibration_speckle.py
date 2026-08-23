@@ -2,7 +2,7 @@
 Wavefront calibration from speckle
 ==================================
 
-Fitting a parametrised model of the complex field illuminating the SLM by minimising the
+Fitting a parametrized model of the complex field illuminating the SLM by minimizing the
 difference between camera images of speckle intensity patterns and their simulated
 counterparts. The phase patterns displayed on the SLM are smooth to reduce effects of
 pixel crosstalk, which are not included in the model.

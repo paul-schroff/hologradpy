@@ -2,7 +2,7 @@
 Gradient-based phase retrieval
 ==============================
 
-Finds the SLM phase that forms a target light potential, by minimising a cost function
+Finds the SLM phase that forms a target light potential, by minimizing a cost function
 based on the output of a model that simulates the propagation of light from the SLM to
 the camera.
 """

@@ -53,7 +53,6 @@ if not SKIP_EXAMPLES:
 # here.
 suppress_warnings = ["myst.header"]
 
-# Single backticks mean code, so `like_this` in a docstring is not italicised.
 default_role = "literal"
 
 # ---- Docstrings ----------------------------------------------------------------------

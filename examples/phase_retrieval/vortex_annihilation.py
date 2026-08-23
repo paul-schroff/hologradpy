@@ -2,9 +2,9 @@
 Vortex detection and annihilation
 =================================
 
-Optical vortices can form when optimising more intricate target patterns, or when the
+Optical vortices can form when optimizing more intricate target patterns, or when the
 initial phase guess is chosen poorly. They appear as dark "holes" in the intensity, and
-cause the optimisation to stagnate since a global phase windings are needed to remove
+cause the optimization to stagnate since a global phase windings are needed to remove
 them.
 
 This example demonstrates the vortex detection and annihilation scheme used in
@@ -106,7 +106,7 @@ slm_camera_model()
 output_resolution = tuple(int(size) for size in slm_camera_model[-1].resolution_out)
 
 targets = Path(hologradpy.__file__).parents[1] / "targets"
-duke = Image.open(targets / "duke_v2.jpg").convert("L")
+duke = Image.open(targets / "duke.jpg").convert("L")
 duke_array = np.asarray(duke, dtype=np.float64)
 duke_array /= duke_array.max()
 

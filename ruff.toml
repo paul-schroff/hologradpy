@@ -13,6 +13,7 @@ ignore = [
 # An example's module docstring is a sphinx-gallery header
 "examples/*.py" = ["D415"]
 "examples/**/*.py" = ["D415"]
+"calibration_examples/**/*.py" = ["D415"]
 
 [lint.pydocstyle]
 convention = "google"

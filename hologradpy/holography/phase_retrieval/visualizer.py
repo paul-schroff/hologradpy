@@ -167,7 +167,7 @@ class PhaseRetrievalVisualizer(BaseVisualizer):
             ]
         )
         layout.add_row([GridCell("loss", colspan=6, aspect="auto", height=2.2)])
-        # The same run in the units it is judged in. The cost is what was minimised,
+        # The same run in the units it is judged in. The cost is what was minimized,
         # which is not always what the result is measured by.
         tracked = self._tracked_metrics()
         if tracked:

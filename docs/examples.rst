@@ -20,7 +20,7 @@ optical setup, and running camera feedback.
       :link: auto_examples/phase_retrieval/index
       :link-type: doc
 
-      Optimising the SLM phase pattern for a target intensity profile in the Fourier
+      Optimizing the SLM phase pattern for a target intensity profile in the Fourier
       plane.
 
    .. grid-item-card:: :octicon:`sync` Camera feedback

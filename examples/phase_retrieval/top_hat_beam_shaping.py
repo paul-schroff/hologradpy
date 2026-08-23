@@ -5,7 +5,7 @@ Top-hat beam shaping for Rydberg addressing
 Shaping a Gaussian Rydberg addressing beam into a 1D top-hat profile to achieve uniform
 Rabi frequencies across our neutral atom array.
 
-Optimising for the intensity only results in a high conversion efficiency, however, the
+Optimizing for the intensity only results in a high conversion efficiency, however, the
 phase across the resulting top hat is curved, making it sensitive to aberrations
 caused by for example the vacuum window. Another effect of the curved phase is that
 intensity of the top hat will become less uniform as it propagates, making it less
@@ -19,9 +19,14 @@ cost function that constrains both intensity and phase,
 """
 
 # %% Imports
+import tempfile
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from matplotlib import font_manager
+from PIL import Image, ImageDraw, ImageFont
 
 from hologradpy.hardware import SimulatedSLMTorch, open_slm
 from hologradpy.holography.phase_retrieval import GradientPhaseRetriever
@@ -45,6 +50,7 @@ from hologradpy.visualizer import (
     GridCell,
     PlotBuilder,
     PlotLayout,
+    region_bounding_box,
 )
 
 device = get_device(verbose=True)
@@ -63,13 +69,20 @@ FOCAL_SPOT_WAIST = get_focal_spot_radius(
 )
 
 # The region the cost is evaluated over
-SIGNAL_HALF_HEIGHT = TOPHAT_HEIGHT / 2 + 2 * FOCAL_SPOT_WAIST
-SIGNAL_HALF_WIDTH = 2 * FOCAL_SPOT_WAIST
+SIGNAL_HALF_HEIGHT = TOPHAT_HEIGHT / 2 + 3 * FOCAL_SPOT_WAIST
+SIGNAL_HALF_WIDTH = 3 * FOCAL_SPOT_WAIST
 
 NUMBER_OF_ITERATIONS = 100
 
 # The share of the incident power the absolute cost is asked to put in the shape.
 WANTED_EFFICIENCY = 1.0
+
+# The animation on the documentation's front page.
+GIF_STEP_STRIDE = 1
+GIF_LAST_ITERATION = 30
+GIF_FPS = 4
+GIF_SCALE = 6
+GIF_SCALE_BAR = 50e-6
 
 # %% The SLM and the beam on it
 slm_geometry = FieldGeometry(
@@ -188,8 +201,15 @@ phase_retriever.set_loss_factory(
     lambda target, mask: LossAbsoluteIntensityMSE(target, mask)
 )
 
+# Create a temporary directory to store frames for the animation below.
+step_directory = tempfile.mkdtemp()
+
 absolute = phase_retriever.retrieve(
-    NUMBER_OF_ITERATIONS, method="l-bfgs", name="absolute intensity"
+    NUMBER_OF_ITERATIONS,
+    method="l-bfgs",
+    name="absolute intensity",
+    step_stride=GIF_STEP_STRIDE,
+    step_directory=step_directory,
 )
 
 print(
@@ -281,6 +301,84 @@ for cell, label in (("absolute", "absolute"), ("fidelity", "fidelity")):
         title=f"phase, {label} (std {spread:.2f} rad)",
     )
 builder.build()
+
+# %%
+# Generating the animation for the documentation's front page
+# -----------------------------------------------------------
+GIF_PATH = Path(__file__).parents[2] / "docs" / "_static" / "top_hat_beam_shaping.gif"
+
+frames = [np.asarray(absolute.visualization_data.initial_intensity)]
+frames += [
+    absolute.replay(iteration, step_directory, model=slm_camera_model)[1]
+    for iteration in absolute.step_iterations
+    if 0 < iteration <= GIF_LAST_ITERATION
+]
+
+crop = region_bounding_box(gpu_to_numpy(signal_region))
+frames = [frame[crop] for frame in frames]
+
+peak = max(float(np.max(frame)) for frame in frames)
+print(
+    f"frame peaks: first {np.max(frames[0]):.3g}, last {np.max(frames[-1]):.3g}, "
+    f"scaling to {peak:.3g}"
+)
+scale = 255.0 / peak
+images = [
+    Image.fromarray(np.clip(frame * scale, 0, 255).astype(np.uint8), mode="L")
+    for frame in frames
+]
+
+target_crop = gpu_to_numpy(target_intensity)[crop]
+lit_crop = lit[crop]
+frame_rmse = [
+    float(np.sqrt(np.mean(((frame / frame.max()) - target_crop)[lit_crop] ** 2)))
+    for frame in frames
+]
+
+images = [
+    image.resize(
+        (image.size[0] * GIF_SCALE, image.size[1] * GIF_SCALE),
+        Image.Resampling.NEAREST,
+    )
+    for image in images
+]
+
+font = ImageFont.truetype(
+    font_manager.findfont(font_manager.FontProperties(family="DejaVu Sans")),
+    5 * GIF_SCALE,
+)
+bar_length = round(GIF_SCALE_BAR / CAMERA_PIXEL_SIZE[0] * GIF_SCALE)
+margin, bar_thickness = 2 * GIF_SCALE, GIF_SCALE
+width, height = images[0].size
+
+
+scale_label = f"{GIF_SCALE_BAR * 1e6:.0f} µm"
+label_height = font.getbbox(scale_label)[3]
+
+for image, rmse in zip(images, frame_rmse):
+    draw = ImageDraw.Draw(image)
+    draw.text((margin, margin), f"RMSE: {rmse * 100:.1f} %", fill=255, font=font)
+    # The bar rests on top of the length it stands for.
+    label_top = height - margin - label_height
+    bar_top = label_top - bar_thickness - GIF_SCALE // 2
+    draw.rectangle(
+        [margin, bar_top, margin + bar_length, bar_top + bar_thickness - 1], fill=255
+    )
+    draw.text((margin, label_top), scale_label, fill=255, font=font)
+
+
+GIF_PATH.parent.mkdir(parents=True, exist_ok=True)
+images[0].save(
+    GIF_PATH,
+    save_all=True,
+    append_images=images[1:],
+    duration=int(round(1000 / GIF_FPS)),
+    loop=0,
+)
+print(
+    f"wrote {GIF_PATH.name}: {len(images)} frames, {images[0].size[0]}x"
+    f"{images[0].size[1]}, {GIF_PATH.stat().st_size / 1e3:.0f} kB"
+)
 
 plt.show()
 

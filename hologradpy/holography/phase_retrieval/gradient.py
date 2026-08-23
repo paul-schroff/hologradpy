@@ -15,7 +15,7 @@ class GradientPhaseRetriever(PhaseRetrieverBase):
     """Search the SLM phase pixel by pixel, following the gradient of a cost.
 
     The phase of every pixel is a free parameter, and the model is differentiable end
-    to end, so the search is a local minimisation over all pixels. Which minimiser runs
+    to end, so the search is a local minimization over all pixels. Which minimizer runs
     is an argument to :meth:`~PhaseRetrieverBase.retrieve`. Options are ``"cg"`` for 
     conjugate gradient, ``"l-bfgs"``, and ``"adam"``.
     """

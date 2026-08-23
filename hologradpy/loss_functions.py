@@ -344,7 +344,7 @@ class LossFidelity(LossFunction):
     constrains the image-plane phase as well.
 
     Equation (5) of https://doi.org/10.1364/OE.25.011692, where the intensity and the
-    target are each normalised over the signal region before being overlapped.
+    target are each normalized over the signal region before being overlapped.
     """
 
     def __init__(
@@ -480,7 +480,7 @@ def field_intensity(field: torch.Tensor) -> torch.Tensor:
 class LossAbsoluteIntensityMSE(LossFunction):
     """Squared error against a target read in absolute units.
 
-    Neither the target nor the produced intensity is renormalised, so the cost keeps an
+    Neither the target nor the produced intensity is renormalized, so the cost keeps an
     absolute reference and light that leaves the simulated window is penalized.
 
     The target is used as given. Its absolute level is the statement of how much power
