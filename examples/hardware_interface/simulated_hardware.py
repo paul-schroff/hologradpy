@@ -10,10 +10,9 @@ The laser beam illuminating the SLM models:
 - Its intensity profile across the SLM, a Gaussian here.
 - Its absolute optical power, in watts. That is what makes the camera counts and any
   efficiency below physical numbers rather than relative ones.
-- Aberrations, carried as the phase of the field. Any wavefront can be put there, a
-  :class:`~hologradpy.profiles.zernike.Zernike` expansion being the usual choice. The
-  beam below carries astigmatism, coma and spherical aberration.
-- Intensity fluctuations, which scale the power of every frame.
+- Aberrations, carried as the phase of the field. Any wavefront can be put there, for
+  example a :class:`~hologradpy.profiles.zernike.Zernike` expansion.
+- Intensity fluctuations, randomly drawing the power of every frame.
 - Pointing instability, which shifts the focal plane frame to frame. Available on the
   model, though not switched on below.
 
@@ -33,8 +32,9 @@ A simulated camera models:
 - Attenuation by a neutral-density filter, applied to the signal before the read noise.
 - Stray light, a static laser-speckle background scattered across the sensor.
 
-The beam's fluctuations and pointing are configured on the camera rather than on the
-beam itself, since they are drawn afresh for every frame it captures.
+Power fluctuations are configured on the camera, since they are drawn afresh for
+every frame it captures. Beam pointing is configured on the optical model instead: the
+jitter is a phase tilt in the SLM plane.
 """
 
 # %% Imports
@@ -67,6 +67,9 @@ device = get_device(verbose=True)
 
 FOCAL_LENGTH = 0.1
 SEED = 0
+# Beam pointing jitter, as the resulting wander of the focal spot. Roughly half a
+# camera pixel, which is enough to see between frames without smearing the image.
+POINTING_FOCAL_SHIFT = 2e-6
 CAMERA_RESOLUTION = (400, 640)
 CAMERA_PIXEL_SIZE = (3.45e-6, 3.45e-6)
 
@@ -78,9 +81,12 @@ def aspect(image) -> float:
     return image.shape[0] / image.shape[1]
 
 
-# %% The SLM
+# %% 
+# The SLM
+# -------
+#
 # A simulated SLM needs only its geometry and bit depth. It quantizes a desired phase
-# to gray levels exactly as a real device would.
+# to gray levels as a real device would.
 input_geometry = FieldGeometry(
     resolution=(256, 320),
     pixel_size=torch.tensor([12.5e-6, 12.5e-6], device=device),
@@ -92,17 +98,17 @@ print(
     f"SLM: {slm.resolution} pixels, {slm.bitdepth}-bit, {slm.wavelength * 1e9:.0f} nm"
 )
 
-# %% The beam illuminating it
+# %% 
+# The beam illuminating it
+# ------------------------
+#
 # Whatever field you put here is the ground truth a wavefront calibration would try to
 # recover, so it carries a wavefront as well as an intensity profile.
 beam_amplitude = gaussian_beam_intensity(
     *slm.get_spatial_grid(device=device), beam_radius=1.2e-3
 ).sqrt()
 
-# Astigmatism, coma and spherical: the low-order aberrations a real beam path is left
-# with once tilt and defocus have been aligned out. Piston and tilt are left off on
-# purpose, since they move the pattern rather than degrade it. The indices are ANSI and
-# the coefficients are in radians of wavefront error.
+# Selecting astigmatism, coma and spherical Zernike polynomials.
 ABERRATIONS = {5: 1.5, 8: -0.8, 12: 0.6}
 
 zernike = Zernike(
@@ -123,16 +129,22 @@ beam = ComplexAmplitude(
 )
 
 
-# %% An ideal camera
+# %% 
+# An ideal camera
+# ---------------
+#
 # The optical model carries the SLM, the beam and a Fourier lens. ``camera_angle`` and
 # ``camera_shift`` mount the sensor off axis, the way a real one never sits perfectly
 # square to the optical axis.
-def build_model(virtual_slm=None) -> SLMCZT:
+def build_model(virtual_slm=None, pointing_focal_shift_std=None) -> SLMCZT:
     """A fresh model of the setup, since a camera takes ownership of the one it gets.
 
     Args:
         virtual_slm: The SLM stage to build on. Defaults to the one the simulated SLM
             owns, so displaying a phase on the SLM shows up on the camera.
+        pointing_focal_shift_std: Beam pointing jitter, as the standard deviation of
+            the focal spot's wander in metres. Defaults to none, so the model is
+            deterministic and repeats exactly.
     """
     return SLMCZT(
         input_geometry=input_geometry,
@@ -144,6 +156,8 @@ def build_model(virtual_slm=None) -> SLMCZT:
         camera_angle=5.0,
         camera_shift=(-300e-6, 100e-6),
         padded_resolution=(480, 768),
+        pointing_focal_shift_std=pointing_focal_shift_std,
+        pointing_seed=SEED,
     )
 
 
@@ -156,12 +170,15 @@ ideal_camera = open_camera(
     quantize=False,
 )
 
-# %% A realistic camera
-# The same model, with the imperfections a real sensor and a real laser bring. Every
-# one of these is optional and off by default.
+# %% 
+# A realistic camera
+# ------------------
+#
+# The same model, with experimental effects as seen in the lab. Every one of these
+# is optional and off by default.
 realistic_camera = open_camera(
     SimulatedCameraTorch,
-    slm_camera_model=build_model(),
+    slm_camera_model=build_model(pointing_focal_shift_std=POINTING_FOCAL_SHIFT),
     bitdepth=12,
     nd_filter_optical_density=6,
     # Sensor: shot and read noise, a finite well, and quantization to whole counts.
@@ -176,7 +193,10 @@ realistic_camera = open_camera(
     background_scatter_seed=SEED,
 )
 
-# %% Capture from both
+# %% 
+# Capture from both
+# -----------------
+#
 # autoexpose finds an exposure that fills the well without saturating, exactly as it
 # would on a real camera.
 for camera in (ideal_camera, realistic_camera):
@@ -206,9 +226,11 @@ layout.add_row([
     .build()
 )
 
-# %% Frame to frame variation
-# The ideal camera repeats exactly. The realistic one does not, which is what a
-# feedback loop or a calibration fit has to cope with.
+# %% 
+# Frame to frame variation
+# ------------------------
+# The ideal camera repeats exactly. The realistic one does not, which is what a feedback
+# loop or a calibration fit has to deal with.
 ideal_repeat = ideal_camera.get_image()
 realistic_repeat = realistic_camera.get_image()
 
@@ -220,10 +242,16 @@ print(
     f"{abs(realistic_repeat.astype(float) - realistic_image).max():.0f} counts"
 )
 
-# %% Pixel crosstalk
+# %% 
+# Pixel crosstalk
+# ---------------
+#
 # Fringing fields between neighbouring liquid-crystal pixels, modelled on a sub-pixel
-# grid on the SLM. This is memory intensive, since every plane after the SLM grows by 
-# an upscale factor, and runs best on a GPU.
+# grid on the SLM.
+#
+# .. tip::
+#    This is memory intensive, since every plane after the SLM grows by an upscale
+#    factor, and runs best on a GPU.
 crosstalk_camera = open_camera(
     SimulatedCameraTorch,
     slm_camera_model=build_model(VirtualSLM.from_slm(slm)),
@@ -262,7 +290,9 @@ kernel_layout.add_row([
     .build()
 )
 
-# %% Saving just the optical model
+# %% 
+# Saving just the optical model
+# -----------------------------
 data_directory = Path("../data")
 data_directory.mkdir(parents=True, exist_ok=True)
 
@@ -290,7 +320,9 @@ same_beam = np.allclose(
 )
 print(f"beam preserved: {same_beam}")
 
-# %% Saving the whole simulated camera
+# %% 
+# Saving the whole simulated camera
+# ---------------------------------
 camera_path = data_directory / "realistic_camera.pt"
 realistic_camera.save(camera_path)
 print(f"saved the camera: {camera_path.stat().st_size / 1e6:.1f} MB")
@@ -308,7 +340,3 @@ print(f"stray light preserved: {same_speckle}")
 # A frame off the restored camera is the same kind of frame, noise and all.
 restored_image = restored_camera.get_image()
 print(f"peak counts: {restored_image.max():.0f} vs {realistic_image.max():.0f}")
-
-# %% The ground truth a calibration would recover
-print("static_slm_field       :", ideal_camera.static_slm_field.shape)
-print("static_crosstalk_kernel:", kernel.shape)

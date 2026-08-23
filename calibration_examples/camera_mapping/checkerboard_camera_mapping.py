@@ -7,6 +7,8 @@ between the image plane and the sensor.
 """
 
 # %% Imports
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import torch
 
@@ -29,6 +31,7 @@ from hologradpy.utils import get_device, gpu_to_numpy
 
 device = get_device(verbose=True)
 data_path = "../data/"
+Path(data_path).mkdir(exist_ok=True)
 # %matplotlib qt5
 
 # %% Initializing simulated SLM and camera

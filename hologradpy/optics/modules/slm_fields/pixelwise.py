@@ -56,19 +56,15 @@ class PixelwiseSLMField(SLMField):
             )
 
         self.phase = Parameter(
-            torch.tensor(
-                self.init_field.phase,
-                dtype=complex_amplitude.dtype_r,
-                device=complex_amplitude.device,
+            self.init_field.phase.detach().clone().to(
+                dtype=complex_amplitude.dtype_r, device=complex_amplitude.device
             ),
             requires_grad=False,
         )
 
         self.amplitude = Parameter(
-            torch.tensor(
-                self.init_field.amplitude,
-                dtype=complex_amplitude.dtype_r,
-                device=complex_amplitude.device,
+            self.init_field.amplitude.detach().clone().to(
+                dtype=complex_amplitude.dtype_r, device=complex_amplitude.device
             ),
             requires_grad=False,
         )

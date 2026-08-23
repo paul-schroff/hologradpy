@@ -20,11 +20,10 @@ There are three entry points, all re-exported from ``hologradpy.hardware``.
         Give a driver class a short name, so open_camera / open_slm can build it by
         name, for example ``open_camera("thorcam", serial=...)``.
 
-Two conventions hold for every native device, whatever the underlying driver.
+Two conventions hold for every native device.
 
     Geometry is (y, x) = (height, width). A per axis quantity such as pixel_size is
-    ordered (y, x), and regions of interest are (row, col). This matches array indexing
-    and is the reverse of slmsuite, which uses (x, y).
+    ordered (y, x), and regions of interest are (row, col).
 
     Units are SI. pixel_size and wavelength are in metres, exposure is in seconds.
 """
@@ -54,10 +53,13 @@ from hologradpy.utils import get_device
 
 device = get_device(verbose=True)
 
-# %% 1. Open a device with the factory
-# The simulated devices need an optical model. Most code in this section is setting up
-# the optical model. On real hardware you would go straight to 
-# open_camera(YourDriver, ...) without any of it.
+# %% 
+# Open a device with the factory
+# ------------------------------
+#
+# Most code in this section is setting up the optical model needed for simulated 
+# hardware. On real hardware you would go straight to ``open_camera(YourDriver, ...)`` 
+# without any of this.
 slm_geometry = FieldGeometry(
     resolution=(1024, 1280),
     pixel_size=torch.tensor([12.5e-6, 12.5e-6], device=device),
@@ -96,7 +98,10 @@ camera = open_camera(
     quantum_efficiency=0.01,
 )
 
-# %% 2. Read geometry and units through the native interface
+# %% 
+# Reading geometry and units through the interface
+# ------------------------------------------------
+#
 # These properties read the same way for a simulated device and for real hardware,
 # always in (y, x) order and SI units.
 print("SLM")
@@ -108,17 +113,19 @@ print("Camera")
 print("resolution (h, w):", camera.resolution)
 print("pixel_size (y, x):", camera.pixel_size, "m")
 print("adu_levels:", camera.adu_levels)
-print("max pixel value:", camera.adu_levels - 1)
+print("max pixel value:", camera.max_pixel_value)
 print("exposure_bounds:", camera.exposure_bounds, "s")
 
-# Both subclass the native Camera / SLM base classes, which is how the library accepts
-# any conforming device.
+# Both subclass the native Camera / SLM base classes.
 print("camera is a native Camera:", isinstance(camera, Camera))
 print("slm is a native SLM:", isinstance(slm, SLM))
 
-# %% 3. Set the exposure and capture a frame
-# camera.autoexpose(set_fraction=0.5) is also available. It picks an exposure that
-# fills the sensor to a target fraction. Here we set the exposure by hand.
+# %% 
+# Set the exposure and capture a frame
+# ------------------------------------
+#
+# camera.autoexpose(set_fraction=0.5) is also available. It exposes the sensor to a
+# target fraction. Here we set the exposure by hand.
 camera.set_exposure(100e-6)
 print("exposure now:", camera.get_exposure(), "s")
 
@@ -130,7 +137,10 @@ plt.imshow(frame, cmap="turbo")
 plt.title("Full frame")
 plt.colorbar()
 
-# %% 4. Regions of interest with ROI
+# %% 
+# Regions of interest with ROI
+# ----------------------------
+#
 # ROI is a frozen (top_row, left_column, height, width) value object in native (row,
 # col) pixels. Build one centered on a point and hand it to set_roi. get_image then
 # returns only that window.
@@ -156,7 +166,10 @@ plt.colorbar()
 camera.set_roi(None)
 print("roi after reset:", camera.roi)
 
-# %% 5. Normalize a device you already built
+# %% 
+# Normalize a device you already built
+# ------------------------------------
+#
 # If you construct a device yourself, as_slm / as_camera return it ready to use. This is
 # exactly what open_slm / open_camera call internally. The simulated devices implement
 # the native interface directly, so they are passed through unchanged. A real slmsuite
@@ -171,14 +184,19 @@ print("as_slm passes a native device through:", native is raw_slm)
 # either form.
 print("camera as is:", as_camera(camera) is camera)
 
-# %% 6. Register a backend and open it by name
+# %%
+# Register a backend and open it by name
+# --------------------------------------
+#
 # Name a driver once, then open it by that name anywhere. The symmetric
 # register_camera_backend lets open_camera("mycam", ...) build a camera.
 register_slm_backend("simulated", SimulatedSLMTorch)
 named_slm = open_slm("simulated", input_geometry=slm_geometry, bitdepth=8)
 print("opened by name is a native SLM:", isinstance(named_slm, SLM))
 
-# %% 7. The same code with real hardware
+# %% 
+# The same code with real hardware
+# --------------------------------
 # Nothing above is specific to simulation. With a real slmsuite driver you would
 # write one of the following, and every native call shown here works the same.
 #

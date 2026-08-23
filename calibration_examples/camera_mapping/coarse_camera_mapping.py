@@ -10,6 +10,8 @@ Figures out any flips or rotations of the camera relative to the SLM.
 """
 
 # %% Imports
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -38,6 +40,7 @@ from hologradpy.utils import get_device
 
 device = get_device(verbose=True)
 data_path = "../data/"
+Path(data_path).mkdir(exist_ok=True)
 # %matplotlib qt5
 
 # %% Setting up SLM and Camera

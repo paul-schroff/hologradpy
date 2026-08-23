@@ -4,7 +4,9 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
 import os
+import pathlib
 import sys
+import warnings
 
 from sphinx_gallery.sorting import ExplicitOrder
 
@@ -52,6 +54,21 @@ if not SKIP_EXAMPLES:
 # H2 by design. MyST flags that on any fragment it parses, which is a false positive
 # here.
 suppress_warnings = ["myst.header"]
+
+# Configuring relative paths for warning messages
+_REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+
+def _relative_warning(message, category, filename, lineno, line=None):
+    path = pathlib.Path(filename)
+    try:
+        shown = path.resolve().relative_to(_REPOSITORY_ROOT).as_posix()
+    except ValueError:
+        shown = path.name
+    return f"{shown}:{lineno}: {category.__name__}: {message}\n"
+
+
+warnings.formatwarning = _relative_warning
 
 default_role = "literal"
 

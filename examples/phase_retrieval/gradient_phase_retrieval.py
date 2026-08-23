@@ -40,8 +40,8 @@ from hologradpy.visualizer import (
 import torch
 
 # %%
-# .. rubric:: Setting up the the SLM and camera devices
-#
+# Setting up the the SLM and camera devices
+# -----------------------------------------
 device = get_device(verbose=True)
 
 slm_geometry = FieldGeometry(
@@ -52,7 +52,9 @@ slm_geometry = FieldGeometry(
 
 slm = open_slm(SimulatedSLMTorch, input_geometry=slm_geometry, bitdepth=8)
 
-# %% Set up the SLM and camera modules
+# %% 
+# Setting up models of the SLM and the camera
+# -------------------------------------------
 beam_radius = 4e-3  # beam radius in mm
 focal_length = 500e-3  # focal length in mm
 padded_resolution = (2048, 2048)  # padded resolution for the FFT
@@ -63,6 +65,7 @@ slm_field = ComplexAmplitude.from_geometry(
     slm_geometry, data=slm_intensity.sqrt() + 0j
 )
 
+# Defining the SLM phase guess
 init_slm_phase = lens_phase(
     *slm_grid,
     focal_length=1.5,
@@ -77,7 +80,9 @@ slm_camera_model = SLMFFT(
     padded_resolution=padded_resolution,
 )
 
-# %% Plot initial simulated output
+# %% 
+# Initial simulated output
+# ------------------------
 init_electric_field = slm_camera_model()
 init_intensity = init_electric_field.intensity
 
@@ -87,7 +92,9 @@ image_power = init_intensity.sum()
 print(f"SLM Power: {slm_power.sum().item()}")
 print(f"Image Power: {image_power.item()}")
 
-# %% Setting up the target potential and signal region
+# %% 
+# Setting up the target potential and signal region
+# -------------------------------------------------
 camera_grid = slm_camera_model[-1].get_spatial_grid_output()
 
 top_hat_width = 1500e-6
@@ -111,7 +118,9 @@ signal_region = rectangular_mask(
 )
 
 
-# %% Initialization plots
+# %% 
+# Sanity checking the target geometry and the output of the initial guess
+# -----------------------------------------------------------------------
 def _aspect(image) -> float:
     """Height over width, which is what GridCell wants."""
     return image.shape[0] / image.shape[1]
@@ -136,7 +145,9 @@ setup_layout.add_row(
     .build()
 )
 
-# %% Setting up the phase retrieval module
+# %% 
+# Setting up the phase retrieval module
+# -------------------------------------
 phase_retriever = GradientPhaseRetriever(
     slm_camera_model=slm_camera_model,
     target=target_top_hat,
@@ -144,9 +155,13 @@ phase_retriever = GradientPhaseRetriever(
     init_slm_phase=init_slm_phase,
 )
 
-# %% Phase retrieval
+# %% 
+# Running phase retrieval
+# -----------------------
 retrieval = phase_retriever.retrieve(20, method="cg", name="conjugate gradient")
 
-# %% Plotting the results
+# %% 
+# Plotting the results
+# --------------------
 figure = retrieval.visualizer().render()
 print({name: f"{values[-1]:.4g}" for name, values in retrieval.metrics.items()})

@@ -25,6 +25,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+
+import hologradpy
 from matplotlib import font_manager
 from PIL import Image, ImageDraw, ImageFont
 
@@ -305,7 +307,12 @@ builder.build()
 # %%
 # Generating the animation for the documentation's front page
 # -----------------------------------------------------------
-GIF_PATH = Path(__file__).parents[2] / "docs" / "_static" / "top_hat_beam_shaping.gif"
+# Anchored on the package rather than __file__, which the gallery runner does not
+# define when it executes this script.
+GIF_PATH = (
+    Path(hologradpy.__file__).parents[1] / "docs" / "_static"
+    / "top_hat_beam_shaping.gif"
+)
 
 frames = [np.asarray(absolute.visualization_data.initial_intensity)]
 frames += [
