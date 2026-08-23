@@ -1,6 +1,6 @@
 .. _PhaseRetrieval:
 
-Computational Holography
+Computational holography
 ========================
 
-Optimising the SLM phase pattern for a target light potential in the Fourier plane.
+Optimising the SLM phase pattern for a target intensity profile in the Fourier plane.

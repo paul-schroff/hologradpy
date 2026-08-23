@@ -100,7 +100,7 @@ intersphinx_mapping = {
 }
 
 # ---- Example gallery -----------------------------------------------------------------
-# Examples run only when asked. Several take minutes and want a GPU, so a Read the
+# Examples run only when asked. Several take minutes and need a GPU, so a Read the
 # Docs build leaves them unexecuted and shows the source alone. Set
 # HOLOGRADPY_RUN_EXAMPLES=1 to run them and capture their figures.
 RUN_EXAMPLES = os.environ.get("HOLOGRADPY_RUN_EXAMPLES") == "1"
