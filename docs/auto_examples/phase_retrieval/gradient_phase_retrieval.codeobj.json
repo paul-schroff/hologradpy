@@ -1,0 +1,191 @@
+{
+ "ComplexAmplitude.from_geometry": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.complex_amplitude.ComplexAmplitude",
+   "module_short": "hologradpy.optics.complex_amplitude.ComplexAmplitude",
+   "name": "from_geometry"
+  }
+ ],
+ "FieldGeometry": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.complex_amplitude",
+   "module_short": "hologradpy.optics.complex_amplitude",
+   "name": "FieldGeometry"
+  }
+ ],
+ "GradientPhaseRetriever": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "GradientPhaseRetriever"
+  }
+ ],
+ "GridCell": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "GridCell"
+  }
+ ],
+ "INTENSITY_CMAP": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "INTENSITY_CMAP"
+  }
+ ],
+ "PixelwiseSLMField": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.slm_fields",
+   "module_short": "hologradpy.optics.modules.slm_fields",
+   "name": "PixelwiseSLMField"
+  }
+ ],
+ "PlotBuilder": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "PlotBuilder"
+  }
+ ],
+ "PlotLayout": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "PlotLayout"
+  }
+ ],
+ "SLMFFT": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems",
+   "module_short": "hologradpy.optics.systems",
+   "name": "SLMFFT"
+  }
+ ],
+ "SimulatedSLMTorch": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch"
+  }
+ ],
+ "VirtualSLM": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.virtual_slms",
+   "module_short": "hologradpy.optics.modules.virtual_slms",
+   "name": "VirtualSLM"
+  }
+ ],
+ "gaussian_beam_intensity": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.profiles.amplitude",
+   "module_short": "hologradpy.profiles.amplitude",
+   "name": "gaussian_beam_intensity"
+  }
+ ],
+ "gaussian_blur": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.profiles.amplitude",
+   "module_short": "hologradpy.profiles.amplitude",
+   "name": "gaussian_blur"
+  }
+ ],
+ "get_device": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.utils",
+   "module_short": "hologradpy.utils",
+   "name": "get_device"
+  }
+ ],
+ "gpu_to_numpy": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.utils",
+   "module_short": "hologradpy.utils",
+   "name": "gpu_to_numpy"
+  }
+ ],
+ "lens_phase": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.profiles.phase",
+   "module_short": "hologradpy.profiles.phase",
+   "name": "lens_phase"
+  }
+ ],
+ "open_slm": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "open_slm"
+  }
+ ],
+ "rectangular_mask": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.profiles.masks",
+   "module_short": "hologradpy.profiles.masks",
+   "name": "rectangular_mask"
+  }
+ ],
+ "torch.float32": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "float32"
+  }
+ ],
+ "torch.pi": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "pi"
+  }
+ ],
+ "torch.tensor": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "tensor"
+  }
+ ]
+}

@@ -1,0 +1,3338 @@
+{
+ "ABERRATIONS": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "dict"
+  }
+ ],
+ "ABERRATIONS.values": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "CAMERA_PIXEL_SIZE": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "tuple"
+  }
+ ],
+ "CAMERA_RESOLUTION": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "tuple"
+  }
+ ],
+ "ComplexAmplitude": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.complex_amplitude",
+   "module_short": "hologradpy.optics.complex_amplitude",
+   "name": "ComplexAmplitude"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "ComplexAmplitude"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "ComplexAmplitude"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "Tensor"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "torch._C",
+   "module_short": "torch._C",
+   "name": "TensorBase"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "TensorBase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.complex_amplitude",
+   "module_short": "hologradpy.optics.complex_amplitude",
+   "name": "ComplexAmplitude"
+  }
+ ],
+ "FOCAL_LENGTH": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "FieldGeometry": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.complex_amplitude",
+   "module_short": "hologradpy.optics.complex_amplitude",
+   "name": "FieldGeometry"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "FieldGeometry"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "FieldGeometry"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.complex_amplitude",
+   "module_short": "hologradpy.optics.complex_amplitude",
+   "name": "FieldGeometry"
+  }
+ ],
+ "GridCell": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "GridCell"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "GridCell"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "GridCell"
+  }
+ ],
+ "INTENSITY_CMAP": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "INTENSITY_CMAP"
+  }
+ ],
+ "POINTING_FOCAL_SHIFT": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "Path": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "pathlib",
+   "module_short": "pathlib",
+   "name": "Path"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "pathlib",
+   "module_short": "pathlib",
+   "name": "PurePath"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pathlib",
+   "module_short": "pathlib",
+   "name": "Path"
+  }
+ ],
+ "PixelwiseSLMField": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.slm_fields.pixelwise",
+   "module_short": "hologradpy.optics.modules",
+   "name": "PixelwiseSLMField"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.slm_fields",
+   "module_short": "hologradpy.optics.modules",
+   "name": "PixelwiseSLMField"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules",
+   "module_short": "hologradpy.optics.modules",
+   "name": "PixelwiseSLMField"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "PixelwiseSLMField"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "PixelwiseSLMField"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.slm_fields.abstract",
+   "module_short": "hologradpy.optics.modules",
+   "name": "SLMField"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.slm_fields",
+   "module_short": "hologradpy.optics.modules",
+   "name": "SLMField"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules",
+   "module_short": "hologradpy.optics.modules",
+   "name": "SLMField"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "SLMField"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SLMField"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.diagonal_elements",
+   "module_short": "hologradpy.optics.modules",
+   "name": "DiagonalElement"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules",
+   "module_short": "hologradpy.optics.modules",
+   "name": "DiagonalElement"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "DiagonalElement"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "DiagonalElement"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.abstract",
+   "module_short": "hologradpy.optics.modules",
+   "name": "OpticsModule"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules",
+   "module_short": "hologradpy.optics.modules",
+   "name": "OpticsModule"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "OpticsModule"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "OpticsModule"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.recording",
+   "module_short": "hologradpy.optics.modules",
+   "name": "RecordingMixin"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules",
+   "module_short": "hologradpy.optics.modules",
+   "name": "RecordingMixin"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "RecordingMixin"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "RecordingMixin"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "torch.nn.modules.module",
+   "module_short": "torch.nn",
+   "name": "Module"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "torch.nn.modules",
+   "module_short": "torch.nn",
+   "name": "Module"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "torch.nn",
+   "module_short": "torch.nn",
+   "name": "Module"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "Module"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.slm_fields",
+   "module_short": "hologradpy.optics.modules",
+   "name": "PixelwiseSLMField"
+  }
+ ],
+ "PlotBuilder": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "PlotBuilder"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "PlotBuilder"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "PlotBuilder"
+  }
+ ],
+ "PlotLayout": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "PlotLayout"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "PlotLayout"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "PlotLayout"
+  }
+ ],
+ "SEED": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "int"
+  }
+ ],
+ "SLMCZT": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems.slm_czt",
+   "module_short": "hologradpy.optics.systems",
+   "name": "SLMCZT"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems",
+   "module_short": "hologradpy.optics.systems",
+   "name": "SLMCZT"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "SLMCZT"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SLMCZT"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems.abstract",
+   "module_short": "hologradpy.optics",
+   "name": "SLMFourierLensModel"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems",
+   "module_short": "hologradpy.optics",
+   "name": "SLMFourierLensModel"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "SLMFourierLensModel"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SLMFourierLensModel"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems.abstract",
+   "module_short": "hologradpy.optics.systems.abstract",
+   "name": "OpticalSystem"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems",
+   "module_short": "hologradpy.optics.systems",
+   "name": "OpticalSystem"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "OpticalSystem"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "OpticalSystem"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "torch.nn.modules.module",
+   "module_short": "torch.nn",
+   "name": "Module"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "torch.nn.modules",
+   "module_short": "torch.nn",
+   "name": "Module"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "torch.nn",
+   "module_short": "torch.nn",
+   "name": "Module"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "Module"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems",
+   "module_short": "hologradpy.optics.systems",
+   "name": "SLMCZT"
+  }
+ ],
+ "SimulatedCameraTorch": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  }
+ ],
+ "SimulatedCameraTorch.load": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.load"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.load"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.load"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.load"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware.camera.abstract",
+   "name": "Camera.load"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware.camera",
+   "name": "Camera.load"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.load"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.load"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.load"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.SimulatedCameraTorch",
+   "module_short": "hologradpy.hardware.SimulatedCameraTorch",
+   "name": "load"
+  }
+ ],
+ "SimulatedSLMTorch": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedSLMTorch"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "SLM"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm",
+   "module_short": "hologradpy.hardware",
+   "name": "SLM"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SLM"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SLM"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch"
+  }
+ ],
+ "VirtualSLM.from_slm": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.virtual_slms.abstract",
+   "module_short": "hologradpy.optics",
+   "name": "VirtualSLM.from_slm"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.virtual_slms",
+   "module_short": "hologradpy.optics",
+   "name": "VirtualSLM.from_slm"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules",
+   "module_short": "hologradpy.optics",
+   "name": "VirtualSLM.from_slm"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "VirtualSLM.from_slm"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "VirtualSLM.from_slm"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.abstract",
+   "module_short": "hologradpy.optics.modules.abstract",
+   "name": "OpticsModule.from_slm"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules",
+   "module_short": "hologradpy.optics.modules",
+   "name": "OpticsModule.from_slm"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "OpticsModule.from_slm"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "OpticsModule.from_slm"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.recording",
+   "module_short": "hologradpy.optics.modules.recording",
+   "name": "RecordingMixin.from_slm"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules",
+   "module_short": "hologradpy.optics.modules",
+   "name": "RecordingMixin.from_slm"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "RecordingMixin.from_slm"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "RecordingMixin.from_slm"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "torch.nn.modules.module",
+   "module_short": "torch.nn.modules.module",
+   "name": "Module.from_slm"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "torch.nn.modules",
+   "module_short": "torch.nn.modules",
+   "name": "Module.from_slm"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "torch.nn",
+   "module_short": "torch.nn",
+   "name": "Module.from_slm"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "Module.from_slm"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.virtual_slms.VirtualSLM",
+   "module_short": "hologradpy.optics.modules.virtual_slms.VirtualSLM",
+   "name": "from_slm"
+  }
+ ],
+ "Zernike": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.profiles.zernike",
+   "module_short": "hologradpy.profiles",
+   "name": "Zernike"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.profiles",
+   "module_short": "hologradpy.profiles",
+   "name": "Zernike"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Zernike"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.profiles.zernike",
+   "module_short": "hologradpy.profiles",
+   "name": "Zernike"
+  }
+ ],
+ "aspect": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  }
+ ],
+ "beam": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.complex_amplitude",
+   "module_short": "hologradpy.optics.complex_amplitude",
+   "name": "ComplexAmplitude"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "ComplexAmplitude"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "ComplexAmplitude"
+  }
+ ],
+ "beam_amplitude": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "Tensor"
+  }
+ ],
+ "beam_amplitude.dtype": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "dtype"
+  }
+ ],
+ "beam_phase": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "Tensor"
+  }
+ ],
+ "beam_phase.std": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "bench_path": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pathlib",
+   "module_short": "pathlib",
+   "name": "WindowsPath"
+  }
+ ],
+ "bench_path.stat": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pathlib",
+   "module_short": "pathlib",
+   "name": "WindowsPath.stat"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pathlib",
+   "module_short": "pathlib",
+   "name": "Path.stat"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pathlib",
+   "module_short": "pathlib",
+   "name": "PureWindowsPath.stat"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pathlib",
+   "module_short": "pathlib",
+   "name": "PurePath.stat"
+  }
+ ],
+ "build_model": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  }
+ ],
+ "camera": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch"
+  }
+ ],
+ "camera.autoexpose": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.autoexpose"
+  }
+ ],
+ "camera_path": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pathlib",
+   "module_short": "pathlib",
+   "name": "WindowsPath"
+  }
+ ],
+ "camera_path.stat": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pathlib",
+   "module_short": "pathlib",
+   "name": "WindowsPath.stat"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pathlib",
+   "module_short": "pathlib",
+   "name": "Path.stat"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pathlib",
+   "module_short": "pathlib",
+   "name": "PureWindowsPath.stat"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pathlib",
+   "module_short": "pathlib",
+   "name": "PurePath.stat"
+  }
+ ],
+ "crosstalk_camera": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch"
+  }
+ ],
+ "crosstalk_camera.get_image": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.get_image"
+  }
+ ],
+ "crosstalk_camera.set_exposure": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.set_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.set_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.set_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.set_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.set_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.set_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.set_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.set_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.set_exposure"
+  }
+ ],
+ "crosstalk_camera.static_crosstalk_kernel": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.static_crosstalk_kernel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.static_crosstalk_kernel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.static_crosstalk_kernel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.static_crosstalk_kernel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware.camera.abstract",
+   "name": "Camera.static_crosstalk_kernel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware.camera",
+   "name": "Camera.static_crosstalk_kernel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.static_crosstalk_kernel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.static_crosstalk_kernel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.static_crosstalk_kernel"
+  }
+ ],
+ "crosstalk_image": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "data_directory": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pathlib",
+   "module_short": "pathlib",
+   "name": "WindowsPath"
+  }
+ ],
+ "data_directory.mkdir": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pathlib",
+   "module_short": "pathlib",
+   "name": "WindowsPath.mkdir"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pathlib",
+   "module_short": "pathlib",
+   "name": "Path.mkdir"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pathlib",
+   "module_short": "pathlib",
+   "name": "PureWindowsPath.mkdir"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pathlib",
+   "module_short": "pathlib",
+   "name": "PurePath.mkdir"
+  }
+ ],
+ "device": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "device"
+  }
+ ],
+ "gaussian_beam_intensity": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.profiles.amplitude",
+   "module_short": "hologradpy.profiles",
+   "name": "gaussian_beam_intensity"
+  }
+ ],
+ "get_device": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.utils",
+   "module_short": "hologradpy.utils",
+   "name": "get_device"
+  }
+ ],
+ "hologradpy.profiles.zernike.Zernike": [
+  {
+   "is_class": false,
+   "is_explicit": true,
+   "module": "hologradpy.profiles.zernike",
+   "module_short": "hologradpy.profiles",
+   "name": "Zernike"
+  }
+ ],
+ "ideal_camera": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch"
+  }
+ ],
+ "ideal_camera.get_exposure": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.get_exposure"
+  }
+ ],
+ "ideal_camera.get_image": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.get_image"
+  }
+ ],
+ "ideal_image": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "ideal_image.max": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "ideal_repeat": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "input_geometry": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.complex_amplitude",
+   "module_short": "hologradpy.optics.complex_amplitude",
+   "name": "FieldGeometry"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "FieldGeometry"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "FieldGeometry"
+  }
+ ],
+ "input_geometry.pixel_size": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "Tensor"
+  }
+ ],
+ "input_geometry.resolution": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "tuple"
+  }
+ ],
+ "input_geometry.wavelength": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "Tensor"
+  }
+ ],
+ "kernel": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "kernel_layout": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "PlotLayout"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "PlotLayout"
+  }
+ ],
+ "kernel_layout.add_row": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "PlotLayout.add_row"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "PlotLayout.add_row"
+  }
+ ],
+ "layout": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "PlotLayout"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "PlotLayout"
+  }
+ ],
+ "layout.add_row": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "PlotLayout.add_row"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "PlotLayout.add_row"
+  }
+ ],
+ "load_optical_system": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems",
+   "module_short": "hologradpy.optics.systems",
+   "name": "load_optical_system"
+  }
+ ],
+ "np.allclose": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "allclose"
+  }
+ ],
+ "open_camera": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "open_camera"
+  }
+ ],
+ "open_slm": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "open_slm"
+  }
+ ],
+ "realistic_camera": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch"
+  }
+ ],
+ "realistic_camera.get_exposure": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.get_exposure"
+  }
+ ],
+ "realistic_camera.get_image": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.get_image"
+  }
+ ],
+ "realistic_camera.save": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.save"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.save"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.save"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.save"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware.camera.abstract",
+   "name": "Camera.save"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware.camera",
+   "name": "Camera.save"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.save"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.save"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.save"
+  }
+ ],
+ "realistic_camera.slm_camera_model.state_dict": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems.slm_czt",
+   "module_short": "hologradpy.optics.systems",
+   "name": "SLMCZT.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems",
+   "module_short": "hologradpy.optics.systems",
+   "name": "SLMCZT.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "SLMCZT.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SLMCZT.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems.abstract",
+   "module_short": "hologradpy.optics",
+   "name": "SLMFourierLensModel.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems",
+   "module_short": "hologradpy.optics",
+   "name": "SLMFourierLensModel.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "SLMFourierLensModel.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SLMFourierLensModel.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems.abstract",
+   "module_short": "hologradpy.optics.systems.abstract",
+   "name": "OpticalSystem.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems",
+   "module_short": "hologradpy.optics.systems",
+   "name": "OpticalSystem.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "OpticalSystem.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "OpticalSystem.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch.nn.modules.module",
+   "module_short": "torch.nn",
+   "name": "Module.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch.nn.modules",
+   "module_short": "torch.nn",
+   "name": "Module.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch.nn",
+   "module_short": "torch.nn",
+   "name": "Module.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "Module.state_dict"
+  }
+ ],
+ "realistic_camera.static_slm_field": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.static_slm_field"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.static_slm_field"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.static_slm_field"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.static_slm_field"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware.camera.abstract",
+   "name": "Camera.static_slm_field"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware.camera",
+   "name": "Camera.static_slm_field"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.static_slm_field"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.static_slm_field"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.static_slm_field"
+  }
+ ],
+ "realistic_image": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "realistic_image.max": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "realistic_repeat": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "realistic_repeat.astype": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "reloaded_camera": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch"
+  }
+ ],
+ "reloaded_camera.resolution": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.resolution"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.resolution"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.resolution"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.resolution"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.resolution"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.resolution"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.resolution"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.resolution"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.resolution"
+  }
+ ],
+ "reloaded_camera.set_exposure": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.set_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.set_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.set_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.set_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.set_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.set_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.set_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.set_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.set_exposure"
+  }
+ ],
+ "reloaded_camera.static_slm_field": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.static_slm_field"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.static_slm_field"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.static_slm_field"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.static_slm_field"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware.camera.abstract",
+   "name": "Camera.static_slm_field"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware.camera",
+   "name": "Camera.static_slm_field"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.static_slm_field"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.static_slm_field"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.static_slm_field"
+  }
+ ],
+ "reloaded_model": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems.slm_czt",
+   "module_short": "hologradpy.optics.systems",
+   "name": "SLMCZT"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems",
+   "module_short": "hologradpy.optics.systems",
+   "name": "SLMCZT"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "SLMCZT"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SLMCZT"
+  }
+ ],
+ "restored_camera": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch"
+  }
+ ],
+ "restored_camera.get_exposure": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.get_exposure"
+  }
+ ],
+ "restored_camera.get_image": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.get_image"
+  }
+ ],
+ "restored_camera.slm_camera_model.state_dict": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems.slm_czt",
+   "module_short": "hologradpy.optics.systems",
+   "name": "SLMCZT.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems",
+   "module_short": "hologradpy.optics.systems",
+   "name": "SLMCZT.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "SLMCZT.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SLMCZT.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems.abstract",
+   "module_short": "hologradpy.optics",
+   "name": "SLMFourierLensModel.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems",
+   "module_short": "hologradpy.optics",
+   "name": "SLMFourierLensModel.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "SLMFourierLensModel.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SLMFourierLensModel.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems.abstract",
+   "module_short": "hologradpy.optics.systems.abstract",
+   "name": "OpticalSystem.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.systems",
+   "module_short": "hologradpy.optics.systems",
+   "name": "OpticalSystem.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "OpticalSystem.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "OpticalSystem.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch.nn.modules.module",
+   "module_short": "torch.nn",
+   "name": "Module.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch.nn.modules",
+   "module_short": "torch.nn",
+   "name": "Module.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch.nn",
+   "module_short": "torch.nn",
+   "name": "Module.state_dict"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "Module.state_dict"
+  }
+ ],
+ "restored_image": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "restored_image.max": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "same_beam": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "bool"
+  }
+ ],
+ "same_speckle": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "bool"
+  }
+ ],
+ "slm": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedSLMTorch"
+  }
+ ],
+ "slm.bitdepth": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch.bitdepth"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch.bitdepth"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch.bitdepth"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedSLMTorch.bitdepth"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "SLM.bitdepth"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm",
+   "module_short": "hologradpy.hardware",
+   "name": "SLM.bitdepth"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SLM.bitdepth"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SLM.bitdepth"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.bitdepth"
+  }
+ ],
+ "slm.get_spatial_grid": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch.get_spatial_grid"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch.get_spatial_grid"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch.get_spatial_grid"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedSLMTorch.get_spatial_grid"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "SLM.get_spatial_grid"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm",
+   "module_short": "hologradpy.hardware",
+   "name": "SLM.get_spatial_grid"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SLM.get_spatial_grid"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SLM.get_spatial_grid"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.get_spatial_grid"
+  }
+ ],
+ "slm.resolution": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch.resolution"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch.resolution"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch.resolution"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedSLMTorch.resolution"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "SLM.resolution"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm",
+   "module_short": "hologradpy.hardware",
+   "name": "SLM.resolution"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SLM.resolution"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SLM.resolution"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.resolution"
+  }
+ ],
+ "slm.virtual_slm": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.virtual_slms.abstract",
+   "module_short": "hologradpy.optics",
+   "name": "VirtualSLM"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.virtual_slms",
+   "module_short": "hologradpy.optics",
+   "name": "VirtualSLM"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules",
+   "module_short": "hologradpy.optics",
+   "name": "VirtualSLM"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "VirtualSLM"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "VirtualSLM"
+  }
+ ],
+ "slm.wavelength": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch.wavelength"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch.wavelength"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedSLMTorch.wavelength"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedSLMTorch.wavelength"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "SLM.wavelength"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.slm",
+   "module_short": "hologradpy.hardware",
+   "name": "SLM.wavelength"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SLM.wavelength"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SLM.wavelength"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.wavelength"
+  }
+ ],
+ "speckle": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  }
+ ],
+ "torch.equal": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "equal"
+  }
+ ],
+ "torch.exp": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "exp"
+  }
+ ],
+ "torch.manual_seed": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "manual_seed"
+  }
+ ],
+ "torch.tensor": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "tensor"
+  }
+ ],
+ "zernike": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.profiles.zernike",
+   "module_short": "hologradpy.profiles",
+   "name": "Zernike"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.profiles",
+   "module_short": "hologradpy.profiles",
+   "name": "Zernike"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Zernike"
+  }
+ ],
+ "zernike.get_phase": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.profiles.zernike",
+   "module_short": "hologradpy.profiles",
+   "name": "Zernike.get_phase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.profiles",
+   "module_short": "hologradpy.profiles",
+   "name": "Zernike.get_phase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Zernike.get_phase"
+  }
+ ]
+}
