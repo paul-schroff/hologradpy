@@ -10,10 +10,7 @@ hologradpy.egg-info/
 
 examples/dev_scripts/
 examples/data/
-calibration_examples/data/
-
-.vscode/
-.claude/
+examples/calibration/data/
 
 # Coverage and pytest artefacts
 .coverage
@@ -21,3 +18,4 @@ calibration_examples/data/
 htmlcov/
 .pytest_cache/
 docs/auto_examples/*/searchindex.*
+examples/**/*.gif

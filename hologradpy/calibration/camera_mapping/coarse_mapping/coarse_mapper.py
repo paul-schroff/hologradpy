@@ -778,7 +778,6 @@ class CoarseMapper(CameraMapper):
             "mm. Check the camera images the focal plane."
         )
     
-    # TODO: Revisit this once SLM discretization is implemented
     def _prefer_main_order(
         self, tilt: tuple[float, float], focal_length: float
     ) -> tuple[float, float]:

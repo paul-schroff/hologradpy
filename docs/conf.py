@@ -126,7 +126,7 @@ sphinx_gallery_conf = {
         "../examples/hardware_interface",
         "../examples/phase_retrieval",
         "../examples/camera_feedback",
-        "../calibration_examples",
+        "../examples/calibration",
     ],
     "gallery_dirs": [
         "auto_examples/hardware_interface",
@@ -141,9 +141,9 @@ sphinx_gallery_conf = {
     "only_warn_on_example_error": True,
     "subsection_order": ExplicitOrder(
         [
-            "../calibration_examples/camera_mapping",
-            "../calibration_examples/wavefront_calibration",
-            "../calibration_examples/pixel_crosstalk_calibration",
+            "../examples/calibration/camera_mapping",
+            "../examples/calibration/wavefront_calibration",
+            "../examples/calibration/pixel_crosstalk_calibration",
         ]
     ),
 }

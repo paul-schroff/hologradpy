@@ -236,7 +236,7 @@ target fraction. Here we set the exposure by hand.
     exposure now: 0.0001 s
     frame shape (h, w): (960, 1440) dtype: float32
 
-    <matplotlib.colorbar.Colorbar object at 0x000001C424A8E9B0>
+    <matplotlib.colorbar.Colorbar object at 0x000001FF25A36AD0>
 
 
 
@@ -364,36 +364,44 @@ register_camera_backend lets open_camera("mycam", ...) build a camera.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 198-224
+.. GENERATED FROM PYTHON SOURCE LINES 198-232
 
 The same code with real hardware
 --------------------------------
 Nothing above is specific to simulation. With a real slmsuite driver you would
 write one of the following, and every native call shown here works the same.
 
-    from slmsuite.hardware.cameras.thorlabs import ThorCam
+.. code-block:: python
 
-    camera = open_camera(ThorCam, serial="12345")
+      from slmsuite.hardware.cameras.thorlabs import ThorCam
 
-or, if you already hold a driver instance,
+      camera = open_camera(ThorCam, serial="12345")
 
-    camera = as_camera(ThorCam(serial="12345"))
+or, if you already hold a driver instance:
 
-or register it once and open it by name,
+.. code-block:: python
 
-    register_camera_backend("thorcam", ThorCam)
-    camera = open_camera("thorcam", serial="12345")
+      camera = as_camera(ThorCam(serial="12345"))
+
+or register it once and open it by name:
+
+.. code-block:: python
+
+      register_camera_backend("thorcam", ThorCam)
+      camera = open_camera("thorcam", serial="12345")
 
 Every slmsuite driver already has a short name (thorlabs, basler, hamamatsu, ...).
 Enable them all in one opt-in call, then open by name without importing the driver
-yourself. Each vendor SDK is imported lazily, only when its backend is opened.
+yourself. Each vendor SDK is imported lazily, only when its backend is opened:
 
-    from hologradpy.hardware import register_slmsuite_backends
+.. code-block:: python
 
-    register_slmsuite_backends()
-    camera = open_camera("thorlabs", serial="12345")
+      from hologradpy.hardware import register_slmsuite_backends
 
-.. GENERATED FROM PYTHON SOURCE LINES 224-226
+      register_slmsuite_backends()
+      camera = open_camera("thorlabs", serial="12345")
+
+.. GENERATED FROM PYTHON SOURCE LINES 232-234
 
 .. code-block:: Python
 
@@ -409,7 +417,7 @@ yourself. Each vendor SDK is imported lazily, only when its backend is opened.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 16.840 seconds)
+   **Total running time of the script:** (0 minutes 14.713 seconds)
 
 
 .. _sphx_glr_download_auto_examples_hardware_interface_hardware_interface.py:

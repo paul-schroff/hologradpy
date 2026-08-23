@@ -61,6 +61,12 @@ the camera.
     import torch
 
 
+
+
+
+
+
+
 .. GENERATED FROM PYTHON SOURCE LINES 43-45
 
 Setting up the the SLM and camera devices
@@ -79,6 +85,18 @@ Setting up the the SLM and camera devices
     )
 
     slm = open_slm(SimulatedSLMTorch, input_geometry=slm_geometry, bitdepth=8)
+
+
+
+
+
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+    Using device: cuda
+
+
 
 
 .. GENERATED FROM PYTHON SOURCE LINES 56-58
@@ -116,6 +134,12 @@ Setting up models of the SLM and the camera
     )
 
 
+
+
+
+
+
+
 .. GENERATED FROM PYTHON SOURCE LINES 84-86
 
 Initial simulated output
@@ -133,6 +157,19 @@ Initial simulated output
 
     print(f"SLM Power: {slm_power.sum().item()}")
     print(f"Image Power: {image_power.item()}")
+
+
+
+
+
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+    SLM Power: 160618.328125
+    Image Power: 146556.53125
+
+
 
 
 .. GENERATED FROM PYTHON SOURCE LINES 96-98
@@ -165,6 +202,12 @@ Setting up the target potential and signal region
         shift_x=0,
         shift_y=0,
     )
+
+
+
+
+
+
 
 
 
@@ -202,6 +245,23 @@ Sanity checking the target geometry and the output of the initial guess
     )
 
 
+
+
+.. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_001.png
+   :alt: SLM illumination, initial camera image, target
+   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_001.png
+   :class: sphx-glr-single-img
+
+
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+
+    <Figure size 1459x432.308 with 6 Axes>
+
+
+
 .. GENERATED FROM PYTHON SOURCE LINES 149-151
 
 Setting up the phase retrieval module
@@ -219,6 +279,12 @@ Setting up the phase retrieval module
     )
 
 
+
+
+
+
+
+
 .. GENERATED FROM PYTHON SOURCE LINES 159-161
 
 Running phase retrieval
@@ -229,6 +295,12 @@ Running phase retrieval
 .. code-block:: Python
 
     retrieval = phase_retriever.retrieve(20, method="cg", name="conjugate gradient")
+
+
+
+
+
+
 
 
 .. GENERATED FROM PYTHON SOURCE LINES 164-166
@@ -242,6 +314,28 @@ Plotting the results
 
     figure = retrieval.visualizer().render()
     print({name: f"{values[-1]:.4g}" for name, values in retrieval.metrics.items()})
+
+
+
+.. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_002.png
+   :alt: target, retrieved, retrieved - target (rms 4.85e-06), retrieved SLM phase [rad], full output plane, convergence, rmse: 0.1935 to 0.0202, psnr [dB]: 9.746 to 30.58
+   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_002.png
+   :class: sphx-glr-single-img
+
+
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+    {'rmse': '0.0202', 'psnr [dB]': '30.58'}
+
+
+
+
+
+.. rst-class:: sphx-glr-timing
+
+   **Total running time of the script:** (0 minutes 15.687 seconds)
 
 
 .. _sphx_glr_download_auto_examples_phase_retrieval_gradient_phase_retrieval.py:

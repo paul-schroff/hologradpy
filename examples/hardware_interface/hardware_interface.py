@@ -200,26 +200,34 @@ print("opened by name is a native SLM:", isinstance(named_slm, SLM))
 # Nothing above is specific to simulation. With a real slmsuite driver you would
 # write one of the following, and every native call shown here works the same.
 #
-#     from slmsuite.hardware.cameras.thorlabs import ThorCam
+# .. code-block:: python
 #
-#     camera = open_camera(ThorCam, serial="12345")
+#       from slmsuite.hardware.cameras.thorlabs import ThorCam
 #
-# or, if you already hold a driver instance,
+#       camera = open_camera(ThorCam, serial="12345")
 #
-#     camera = as_camera(ThorCam(serial="12345"))
+# or, if you already hold a driver instance:
 #
-# or register it once and open it by name,
+# .. code-block:: python
 #
-#     register_camera_backend("thorcam", ThorCam)
-#     camera = open_camera("thorcam", serial="12345")
+#       camera = as_camera(ThorCam(serial="12345"))
+#
+# or register it once and open it by name:
+#
+# .. code-block:: python
+#
+#       register_camera_backend("thorcam", ThorCam)
+#       camera = open_camera("thorcam", serial="12345")
 #
 # Every slmsuite driver already has a short name (thorlabs, basler, hamamatsu, ...).
 # Enable them all in one opt-in call, then open by name without importing the driver
-# yourself. Each vendor SDK is imported lazily, only when its backend is opened.
+# yourself. Each vendor SDK is imported lazily, only when its backend is opened:
 #
-#     from hologradpy.hardware import register_slmsuite_backends
+# .. code-block:: python
 #
-#     register_slmsuite_backends()
-#     camera = open_camera("thorlabs", serial="12345")
+#       from hologradpy.hardware import register_slmsuite_backends
+#
+#       register_slmsuite_backends()
+#       camera = open_camera("thorlabs", serial="12345")
 
 plt.show()

@@ -383,7 +383,7 @@ cancel their winding, propagates that back to the SLM, and retrieves again.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (1 minutes 40.975 seconds)
+   **Total running time of the script:** (2 minutes 47.490 seconds)
 
 
 .. _sphx_glr_download_auto_examples_phase_retrieval_vortex_annihilation.py:

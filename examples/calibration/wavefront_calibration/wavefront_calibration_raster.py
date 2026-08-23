@@ -10,9 +10,13 @@ fringes recovers the phase.
 """
 
 # %% Imports
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+
+import hologradpy
 
 from hologradpy.hardware import (
     SimulatedSLMTorch,
@@ -203,7 +207,28 @@ with pointing_instability.record_samples():
 data = calibrator.visualization_data
 visualizer = RasterCalibratorVisualizer(data)
 
-visualizer.save_gif("wavefront_calibration_raster.gif", max_frames=128, dpi=50, fps=4)
+# %%
+# The scan, as an animation
+# -------------------------
+#
+# Written into the documentation's static assets and committed, because an ordinary docs
+# build never runs this script. Re-run the example when the result should change.
+#
+# Every frame is a full figure, so this is kept short and coarse deliberately: at the
+# original 128 frames it was a 17 MB file, several times larger than the rest of the
+# repository put together.
+GIF_PATH = (
+    Path(hologradpy.__file__).parents[1] / "docs" / "_static"
+    / "wavefront_calibration_raster.gif"
+)
+GIF_PATH.parent.mkdir(parents=True, exist_ok=True)
+visualizer.save_gif(str(GIF_PATH), max_frames=40, dpi=36, fps=5)
+print(f"wrote {GIF_PATH.name}: {GIF_PATH.stat().st_size / 1e6:.1f} MB")
+
+# %%
+# .. image:: /_static/wavefront_calibration_raster.gif
+#    :alt: Superpixels being rastered across the SLM, one interference pattern per step
+#    :align: center
 
 number_of_superpixels = len(data.lattice_shift_x)
 angles = pointing_instability.angle_history.cpu().numpy()  # (n, 2): [angle_x, angle_y]
