@@ -16,7 +16,7 @@ from sphinx_gallery.sorting import ExplicitOrder
 project = "HoloGradPy"
 copyright = "2026, Paul Schroff, Department of Physics, University of Strathclyde"
 author = "Paul Schroff"
-release = "1.0"
+release = "0.2.0.dev0"
 
 
 paths = [".."]

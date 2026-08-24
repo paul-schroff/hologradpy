@@ -1,7 +1,7 @@
 from setuptools import find_packages, setup
 
 name = "hologradpy"
-version = "1.0"
+version = "0.2.0.dev0"
 author = "Paul Schroff"
 author_email = "paul.schroff@strath.ac.uk"
 description = (
