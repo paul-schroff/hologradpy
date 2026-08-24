@@ -917,6 +917,8 @@ def _warn_on_aspect_mismatch(
     if abs(drawn - float(cell.aspect)) > tolerance * max(drawn, float(cell.aspect)):
         warnings.warn(
             f"Cell {name!r} has aspect {float(cell.aspect):.3f} but the image drawn "
-            f"into it is {data.shape[0]}x{data.shape[1]}, an aspect of {drawn:.3f}. ",
+            f"into it is {data.shape[0]}x{data.shape[1]}, an aspect of {drawn:.3f}. "
+            f"The image is drawn undistorted, so it no longer fills the cell and the "
+            f"rows around it no longer line up. Set the cell aspect to {drawn:.3f}.",
             stacklevel=3,
         )

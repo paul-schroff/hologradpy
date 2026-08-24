@@ -560,7 +560,7 @@ define when it executes this script.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (4 minutes 46.689 seconds)
+   **Total running time of the script:** (1 minutes 18.960 seconds)
 
 
 .. _sphx_glr_download_auto_examples_phase_retrieval_top_hat_beam_shaping.py:

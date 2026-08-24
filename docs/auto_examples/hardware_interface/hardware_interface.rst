@@ -236,7 +236,7 @@ target fraction. Here we set the exposure by hand.
     exposure now: 0.0001 s
     frame shape (h, w): (960, 1440) dtype: float32
 
-    <matplotlib.colorbar.Colorbar object at 0x000001FF25A36AD0>
+    <matplotlib.colorbar.Colorbar object at 0x00000204A592AB30>
 
 
 
@@ -417,7 +417,7 @@ yourself. Each vendor SDK is imported lazily, only when its backend is opened:
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 14.713 seconds)
+   **Total running time of the script:** (0 minutes 16.105 seconds)
 
 
 .. _sphx_glr_download_auto_examples_hardware_interface_hardware_interface.py:

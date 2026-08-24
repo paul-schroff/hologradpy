@@ -29,10 +29,13 @@ for path in paths:
 # Skip regenerating the example gallery, for faster iteration on everything else.
 # The rst that sphinx-gallery wrote on the last normal build persists in
 # auto_examples/, so those pages still build as ordinary sources and every link into
-# the gallery keeps resolving. Needs one normal build first to exist.
+# the gallery keeps resolving. Needs one normal build first to exist, which the check
+# below tests for using the first of the four galleries.
 SKIP_EXAMPLES = os.environ.get("HOLOGRADPY_SKIP_EXAMPLES") == "1"
 if SKIP_EXAMPLES and not os.path.exists(
-    os.path.join(os.path.dirname(__file__), "auto_examples", "index.rst")
+    os.path.join(
+        os.path.dirname(__file__), "auto_examples", "hardware_interface", "index.rst"
+    )
 ):
     raise RuntimeError(
         "HOLOGRADPY_SKIP_EXAMPLES=1 needs a previously generated gallery. Run one "
