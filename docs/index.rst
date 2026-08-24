@@ -15,6 +15,12 @@ HoloGradPy Documentation
 
       :octicon:`law` LGPL-3.0
 
+   .. button-link:: #about
+      :color: primary
+      :outline:
+
+      :octicon:`info` About
+
    .. button-link:: #citing-hologradpy
       :color: primary
       :outline:
