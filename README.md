@@ -11,7 +11,7 @@ HoloGradPy optimizes SLM phase patterns for target intensity and phase profiles 
 Fourier plane using gradient-based algorithms.
 
 The speckle-free intensity profiles it generates are used as, for example, top-hat
-Rydberg addressing beams in neutral atom array experiments.
+beams for uniform Rydberg excitation in neutral atom array experiments.
 
 HoloGradPy implements calibration and camera feedback techniques so that the calculated
 SLM phase patterns produce accurate **experimental** results.
