@@ -11,14 +11,14 @@ description = (
 license = "LGPL-3.0-only"
 url = "https://github.com/paul-schroff/hologradpy"
 requirements = [
-    "numpy",
+    "numpy >= 1.26",
     "scipy",
     "matplotlib",
     "torch",
-    "torchkbnufft",
     "pytorch-minimize",
     "opencv-python",
     "checkerboard",
+    "pillow",
     "slmsuite",
     "tqdm",
     "asdf",
@@ -27,6 +27,10 @@ requirements = [
     "jaxtyping",
     "kornia", # TODO: We can probably do without kornia.
 ]
+
+extras = {
+    "nufft": ["torchkbnufft"],
+}
 
 setup(
     name=name,
@@ -39,4 +43,5 @@ setup(
     packages=find_packages(include=["hologradpy", "hologradpy.*"]),
     python_requires=">=3.10",
     install_requires=requirements,
+    extras_require=extras,
 )

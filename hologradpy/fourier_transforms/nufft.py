@@ -5,9 +5,20 @@ from typing import Any
 
 import torch
 from torch import Tensor
-import torchkbnufft as tkbn
 
 from .abstract import FourierBase
+
+try:
+    import torchkbnufft as tkbn
+except ImportError:
+    # Only this transform needs it, so the rest of the package imports without it and
+    # the constructor below raises with an instruction instead.
+    tkbn = None
+
+NUFFT_INSTALL_HINT = (
+    "KbNufftPartialAffine needs torchkbnufft, which is an optional dependency. "
+    "Install it with: pip install hologradpy[nufft]"
+)
 
 
 def _as_per_wavelength(
@@ -107,6 +118,9 @@ class KbNufftPartialAffine(FourierBase):
         norm: str | None = None,
         **nufft_kwargs: Any,
     ) -> None:
+        if tkbn is None:
+            raise ImportError(NUFFT_INSTALL_HINT)
+
         if grid_size is None:
             grid_size = resolution
 

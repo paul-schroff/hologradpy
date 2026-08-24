@@ -1,4 +1,4 @@
-﻿"""Tests for the PSF-parameterized SLM-plane field and its trainer.
+"""Tests for the PSF-parameterized SLM-plane field and its trainer.
 
 The camera field for a phase pattern is ``FT(A * exp(i * phase))``, which by the
 convolution theorem is ``FT(A)`` convolved with ``FT(exp(i * phase))``, so the

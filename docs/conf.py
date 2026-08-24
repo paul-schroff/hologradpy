@@ -26,22 +26,6 @@ for path in paths:
 # ---- General configuration -----------------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-# Skip regenerating the example gallery, for faster iteration on everything else.
-# The rst that sphinx-gallery wrote on the last normal build persists in
-# auto_examples/, so those pages still build as ordinary sources and every link into
-# the gallery keeps resolving. Needs one normal build first to exist, which the check
-# below tests for using the first of the four galleries.
-SKIP_EXAMPLES = os.environ.get("HOLOGRADPY_SKIP_EXAMPLES") == "1"
-if SKIP_EXAMPLES and not os.path.exists(
-    os.path.join(
-        os.path.dirname(__file__), "auto_examples", "hardware_interface", "index.rst"
-    )
-):
-    raise RuntimeError(
-        "HOLOGRADPY_SKIP_EXAMPLES=1 needs a previously generated gallery. Run one "
-        "build without it first."
-    )
-
 extensions = [
     "autoapi.extension",
     "sphinx.ext.autodoc",
@@ -49,9 +33,8 @@ extensions = [
     "sphinx.ext.intersphinx",
     "myst_parser",
     "sphinx_design",
+    "sphinx_gallery.gen_gallery",
 ]
-if not SKIP_EXAMPLES:
-    extensions.append("sphinx_gallery.gen_gallery")
 
 # The README is included into index.rst below an RST title, so its headings start at
 # H2 by design. MyST flags that on any fragment it parses, which is a false positive

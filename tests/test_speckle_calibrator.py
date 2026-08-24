@@ -1,4 +1,4 @@
-﻿"""Smoke test for the speckle wavefront calibrator on a simulated setup.
+"""Smoke test for the speckle wavefront calibrator on a simulated setup.
 
 Runs the full pipeline (generate band-limited phase patterns -> capture simulated
 camera speckle -> fit the learnable SLM-plane field) end-to-end on a small

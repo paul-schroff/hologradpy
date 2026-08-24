@@ -25,18 +25,21 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import warnings
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any, Callable
 
+import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib import rcParams
+from matplotlib.animation import FuncAnimation
+from matplotlib.axes import Axes
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.cm import ScalarMappable
+from matplotlib.figure import Figure
+from mpl_toolkits.axes_grid1 import Divider, Size
 from numpy.typing import ArrayLike
+from PIL import Image
 
 from .serialization import record_type
-
-if TYPE_CHECKING:
-    from matplotlib.animation import FuncAnimation
-    from matplotlib.axes import Axes
-    from matplotlib.cm import ScalarMappable
-    from matplotlib.figure import Figure
 
 
 # One colormap per kind of quantity, package wide.
@@ -78,16 +81,10 @@ def region_bounding_box(
 
 
 def foreground_color() -> str:
-    # TODO: Move imports to top of file
-    from matplotlib import rcParams
-
     return rcParams["text.color"]
 
 
-if TYPE_CHECKING:
-    Panel = Callable[[Axes], ScalarMappable | None]
-else:
-    Panel = Callable
+Panel = Callable[[Axes], ScalarMappable | None]
 
 
 @record_type("visualization_data")
@@ -258,10 +255,6 @@ class PlotLayout:
 
     def build(self, suptitle: str | None = None) -> Figure:
         """Creates the figure and all cell axes.  Returns the figure."""
-        # TODO: Move imports to top of the file
-        import matplotlib.pyplot as plt
-        from mpl_toolkits.axes_grid1 import Divider, Size
-
         left, right, top, bottom = self.margins
         # A colorbar at the end of a row puts its ticks in the right margin, so widen
         # it or they are clipped.
@@ -598,8 +591,6 @@ class AnimatedVisualizer(BaseVisualizer):
         max_frames: int | None = None,
     ) -> FuncAnimation:
         """Build a :class:`~matplotlib.animation.FuncAnimation` of the frames."""
-        from matplotlib.animation import FuncAnimation
-
         layout = layout if layout is not None else self.default_layout()
         layout.build()
         frame_indices = self._frame_indices(max_frames)
@@ -628,10 +619,6 @@ class AnimatedVisualizer(BaseVisualizer):
         dithered palette keeps them smooth. The dithering happens in a second pass,
         because only the ``palette=`` form of ``quantize`` dithers.
         """
-        import matplotlib.pyplot as plt
-        from matplotlib.backends.backend_agg import FigureCanvasAgg
-        from PIL import Image
-
         layout = layout if layout is not None else self.default_layout()
         figure = layout.build()
         figure.set_dpi(dpi)

@@ -1,4 +1,4 @@
-﻿"""Tests for what each speckle-calibrator subclass changes about the fit.
+"""Tests for what each speckle-calibrator subclass changes about the fit.
 
 How the SLM-plane field is parameterized decides three things: what starting point it
 wants measured, what it costs to fit, and what is worth plotting afterwards. Each is a
