@@ -308,7 +308,7 @@ cost function that constrains both intensity and phase,
 
 .. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_001.png
    :alt: target, retrieved, retrieved - target (rms 3.66e-06), retrieved SLM phase [rad], full output plane, convergence, rmse: 0.5999 to 0.003874, psnr [dB]: 14.24 to 51.04
-   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_001.png
+   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_001.png, /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_001_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -355,7 +355,7 @@ cost function that constrains both intensity and phase,
 
 .. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_002.png
    :alt: target, retrieved, retrieved - target (rms 5.61e-06), target phase [rad], image-plane phase [rad], phase error [rad] (max 0.05), retrieved SLM phase [rad], full output plane, convergence, rmse: 0.5999 to 0.01049, psnr [dB]: 14.24 to 47.34
-   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_002.png
+   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_002.png, /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_002_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -437,7 +437,7 @@ cost function that constrains both intensity and phase,
 
 .. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_003.png
    :alt: target, absolute (rmse 0.003), fidelity (rmse 0.012), target phase (flat), phase, absolute (std 1.30 rad), phase, fidelity (std 0.01 rad)
-   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_003.png
+   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_003.png, /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_003_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -560,7 +560,7 @@ define when it executes this script.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (1 minutes 18.960 seconds)
+   **Total running time of the script:** (1 minutes 2.023 seconds)
 
 
 .. _sphx_glr_download_auto_examples_phase_retrieval_top_hat_beam_shaping.py:

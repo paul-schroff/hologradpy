@@ -175,21 +175,21 @@ fringes recovers the phase.
 
       .. image-sg:: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_001.png
          :alt: wavefront calibration raster
-         :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_001.png
+         :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_001.png, /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_001_2_00x.png 2.00x
          :class: sphx-glr-multi-img
 
     *
 
       .. image-sg:: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_002.png
          :alt: wavefront calibration raster
-         :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_002.png
+         :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_002.png, /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_002_2_00x.png 2.00x
          :class: sphx-glr-multi-img
 
     *
 
       .. image-sg:: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_003.png
          :alt: Initial Simulated Camera Image
-         :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_003.png
+         :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_003.png, /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_003_2_00x.png 2.00x
          :class: sphx-glr-multi-img
 
 
@@ -198,7 +198,7 @@ fringes recovers the phase.
  .. code-block:: none
 
 
-    <matplotlib.colorbar.Colorbar object at 0x00000204929E5840>
+    <matplotlib.colorbar.Colorbar object at 0x0000019E90C2CA90>
 
 
 
@@ -243,14 +243,14 @@ fringes recovers the phase.
 
       .. image-sg:: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_004.png
          :alt: wavefront calibration raster
-         :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_004.png
+         :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_004.png, /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_004_2_00x.png 2.00x
          :class: sphx-glr-multi-img
 
     *
 
       .. image-sg:: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_005.png
          :alt: wavefront calibration raster
-         :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_005.png
+         :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_005.png, /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_005_2_00x.png 2.00x
          :class: sphx-glr-multi-img
 
 
@@ -264,7 +264,7 @@ fringes recovers the phase.
     Gaussian fit complete.
     Diffraction spot position (x, y): (886, 627) px.
 
-    <matplotlib.colorbar.Colorbar object at 0x0000020491C30F40>
+    <matplotlib.colorbar.Colorbar object at 0x0000019E91E39750>
 
 
 
@@ -302,7 +302,7 @@ fringes recovers the phase.
 
  .. code-block:: none
 
-    Calculation start: 24-08-26__01-22-14
+    Calculation start: 25-08-26__10-23-48
 
     Auto camera ROI size (height, width): (228, 228) px.
     Auto linear_phase_tilt (m): (-0.0009019059231612584, 0.0012885658268601634)
@@ -632,7 +632,7 @@ fringes recovers the phase.
     Superpixel 318/320 (99.38%)
     Superpixel 319/320 (99.69%)
     Superpixel 320/320 (100.00%)
-    Calculation took 35.2 s.
+    Calculation took 30.8 s.
 
 
 
@@ -671,28 +671,28 @@ fringes recovers the phase.
 
       .. image-sg:: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_006.png
          :alt: wavefront calibration raster
-         :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_006.png
+         :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_006.png, /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_006_2_00x.png 2.00x
          :class: sphx-glr-multi-img
 
     *
 
       .. image-sg:: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_007.png
          :alt: wavefront calibration raster
-         :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_007.png
+         :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_007.png, /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_007_2_00x.png 2.00x
          :class: sphx-glr-multi-img
 
     *
 
       .. image-sg:: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_008.png
          :alt: wavefront calibration raster
-         :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_008.png
+         :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_008.png, /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_008_2_00x.png 2.00x
          :class: sphx-glr-multi-img
 
     *
 
       .. image-sg:: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_009.png
          :alt: Injected laser-power drift tracked by the reference spot
-         :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_009.png
+         :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_009.png, /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_009_2_00x.png 2.00x
          :class: sphx-glr-multi-img
 
 
@@ -736,7 +736,7 @@ Record the displayed SLM phase per superpixel so the scan can be visualized.
 
  .. code-block:: none
 
-    Calculation start: 24-08-26__01-22-50
+    Calculation start: 25-08-26__10-24-20
 
     Auto camera ROI size (height, width): (57, 57) px.
     Auto linear_phase_tilt (m): (-0.0002254764807903145, 0.00032214145671504075)
@@ -983,7 +983,7 @@ Record the displayed SLM phase per superpixel so the scan can be visualized.
     Superpixel 234/236 (99.15%)
     Superpixel 235/236 (99.58%)
     Superpixel 236/236 (100.00%)
-    Calculation took 47.5 s.
+    Calculation took 34.7 s.
 
 
 
@@ -1053,7 +1053,7 @@ repository put together.
 
 .. image-sg:: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_010.png
    :alt: Optical lattice tracks pointing drift
-   :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_010.png
+   :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_010.png, /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_010_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -1133,7 +1133,7 @@ remove piston and tilt from each phase first.
 
 .. image-sg:: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_011.png
    :alt: Ground truth phase (piston/tilt removed), Detected phase (piston/tilt removed), Difference (RMSE = 0.028 rad)
-   :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_011.png
+   :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_011.png, /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_raster_011_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -1150,7 +1150,7 @@ remove piston and tilt from each phase first.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (1 minutes 43.073 seconds)
+   **Total running time of the script:** (1 minutes 23.420 seconds)
 
 
 .. _sphx_glr_download_auto_examples_calibration_wavefront_calibration_wavefront_calibration_raster.py:

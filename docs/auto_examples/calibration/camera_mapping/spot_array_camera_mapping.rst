@@ -159,14 +159,14 @@ place the spots on the camera.
 
       .. image-sg:: /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_001.png
          :alt: Injected Zernike Aberrations
-         :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_001.png
+         :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_001.png, /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_001_2_00x.png 2.00x
          :class: sphx-glr-multi-img
 
     *
 
       .. image-sg:: /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_002.png
          :alt: Initial Simulated Camera Image
-         :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_002.png
+         :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_002.png, /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_002_2_00x.png 2.00x
          :class: sphx-glr-multi-img
 
 
@@ -312,7 +312,7 @@ place the spots on the camera.
 
 .. image-sg:: /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_003.png
    :alt: CameraMapping: spot_array, Camera image + detected spots, Simulated image + calculated spots, Reprojection residuals (RMS = 0.26 px, arrows x85), Per-spot waist (weighted mean = 47.48 um)
-   :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_003.png
+   :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_003.png, /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_003_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -334,7 +334,7 @@ place the spots on the camera.
 
 .. image-sg:: /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_004.png
    :alt: SLM Phase (spot-array hologram)
-   :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_004.png
+   :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_004.png, /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_004_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -369,7 +369,7 @@ place the spots on the camera.
 
 .. image-sg:: /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_005.png
    :alt: Camera Image with Detected Spots
-   :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_005.png
+   :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_005.png, /auto_examples/calibration/camera_mapping/images/sphx_glr_spot_array_camera_mapping_005_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -379,7 +379,7 @@ place the spots on the camera.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 11.394 seconds)
+   **Total running time of the script:** (0 minutes 10.907 seconds)
 
 
 .. _sphx_glr_download_auto_examples_calibration_camera_mapping_spot_array_camera_mapping.py:

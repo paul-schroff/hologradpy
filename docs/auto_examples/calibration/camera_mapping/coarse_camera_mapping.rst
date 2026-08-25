@@ -164,14 +164,14 @@ Figures out any flips or rotations of the camera relative to the SLM.
 
       .. image-sg:: /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_001.png
          :alt: Injected Zernike Aberrations
-         :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_001.png
+         :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_001.png, /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_001_2_00x.png 2.00x
          :class: sphx-glr-multi-img
 
     *
 
       .. image-sg:: /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_002.png
          :alt: Initial Camera Image
-         :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_002.png
+         :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_002.png, /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_002_2_00x.png 2.00x
          :class: sphx-glr-multi-img
 
 
@@ -180,7 +180,7 @@ Figures out any flips or rotations of the camera relative to the SLM.
  .. code-block:: none
 
 
-    <matplotlib.colorbar.Colorbar object at 0x0000020490B16080>
+    <matplotlib.colorbar.Colorbar object at 0x0000019E90133790>
 
 
 
@@ -279,21 +279,21 @@ Figures out any flips or rotations of the camera relative to the SLM.
 
       .. image-sg:: /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_003.png
          :alt: Coarse camera mapping: search stages, Nyquist output plane, spots and camera sensor, Full spot array, Spot-walking (max-projection), Final 4 affine probes
-         :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_003.png
+         :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_003.png, /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_003_2_00x.png 2.00x
          :class: sphx-glr-multi-img
 
     *
 
       .. image-sg:: /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_004.png
          :alt: CameraMapping: coarse, Camera image + detected spots, Simulated image + calculated spots, Reprojection residuals (RMS = 0.00 px, arrows x60403)
-         :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_004.png
+         :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_004.png, /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_004_2_00x.png 2.00x
          :class: sphx-glr-multi-img
 
     *
 
       .. image-sg:: /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_005.png
          :alt: Probe Spots on the Camera
-         :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_005.png
+         :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_005.png, /auto_examples/calibration/camera_mapping/images/sphx_glr_coarse_camera_mapping_005_2_00x.png 2.00x
          :class: sphx-glr-multi-img
 
 
@@ -309,7 +309,7 @@ Figures out any flips or rotations of the camera relative to the SLM.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 9.269 seconds)
+   **Total running time of the script:** (0 minutes 8.853 seconds)
 
 
 .. _sphx_glr_download_auto_examples_calibration_camera_mapping_coarse_camera_mapping.py:

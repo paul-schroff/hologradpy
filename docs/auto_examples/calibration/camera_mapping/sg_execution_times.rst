@@ -6,7 +6,7 @@
 
 Computation times
 =================
-**00:33.235** total execution time for 3 files **from auto_examples\calibration\camera_mapping**:
+**00:31.277** total execution time for 3 files **from auto_examples\calibration\camera_mapping**:
 
 .. container::
 
@@ -33,11 +33,11 @@ Computation times
      - Time
      - Mem (MB)
    * - :ref:`sphx_glr_auto_examples_calibration_camera_mapping_checkerboard_camera_mapping.py` (``checkerboard_camera_mapping.py``)
-     - 00:12.572
+     - 00:11.516
      - 0.0
    * - :ref:`sphx_glr_auto_examples_calibration_camera_mapping_spot_array_camera_mapping.py` (``spot_array_camera_mapping.py``)
-     - 00:11.394
+     - 00:10.907
      - 0.0
    * - :ref:`sphx_glr_auto_examples_calibration_camera_mapping_coarse_camera_mapping.py` (``coarse_camera_mapping.py``)
-     - 00:09.269
+     - 00:08.853
      - 0.0

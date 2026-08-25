@@ -81,7 +81,7 @@ pixel crosstalk, which are not included in the model.
 
     Using device: cuda
 
-    <torch._C.Generator object at 0x0000020425CFEBB0>
+    <torch._C.Generator object at 0x0000019E55522250>
 
 
 
@@ -183,7 +183,7 @@ pixel crosstalk, which are not included in the model.
 
 .. image-sg:: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_speckle_001.png
    :alt: simulated camera image
-   :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_speckle_001.png
+   :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_speckle_001.png, /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_speckle_001_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -270,12 +270,12 @@ pixel crosstalk, which are not included in the model.
 
     No camera mapping supplied. Running a coarse mapping.
     PSFSpeckleCalibrator fits a PSFSLMField. Replacing the model's PixelwiseSLMField.
-    Wavefront calibration start: 24-08-26__01-21-27
+    Wavefront calibration start: 25-08-26__10-23-12
 
     Running 50 epochs of 2 batches (batch size 5), 100 iterations total.
-    Wavefront calibration took 36.6 s.
+    Wavefront calibration took 23.3 s.
 
-    cuda: 36.6 s total
+    cuda: 23.3 s total
 
 
 
@@ -291,7 +291,7 @@ pixel crosstalk, which are not included in the model.
 
 .. image-sg:: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_speckle_002.png
    :alt: SLM pattern [levels], camera + ROI, measured speckle (ROI), predicted speckle (ROI), measured - predicted (rms 0.000), recovered amplitude, recovered phase, convergence, fitted PSF amplitude, fitted PSF phase [rad]
-   :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_speckle_002.png
+   :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_speckle_002.png, /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_speckle_002_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -322,7 +322,7 @@ pixel crosstalk, which are not included in the model.
 
 .. image-sg:: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_speckle_003.png
    :alt: injected phase [rad], recovered phase [rad], phase difference (rms 0.007 rad), injected amplitude, recovered amplitude, amplitude difference (rms 0.002)
-   :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_speckle_003.png
+   :srcset: /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_speckle_003.png, /auto_examples/calibration/wavefront_calibration/images/sphx_glr_wavefront_calibration_speckle_003_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -339,7 +339,7 @@ pixel crosstalk, which are not included in the model.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 49.354 seconds)
+   **Total running time of the script:** (0 minutes 35.965 seconds)
 
 
 .. _sphx_glr_download_auto_examples_calibration_wavefront_calibration_wavefront_calibration_speckle.py:

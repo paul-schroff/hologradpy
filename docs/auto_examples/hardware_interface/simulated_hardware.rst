@@ -335,7 +335,7 @@ would on a real camera.
 
 .. image-sg:: /auto_examples/hardware_interface/images/sphx_glr_simulated_hardware_001.png
    :alt: noiseless, noise, drift and stray light
-   :srcset: /auto_examples/hardware_interface/images/sphx_glr_simulated_hardware_001.png
+   :srcset: /auto_examples/hardware_interface/images/sphx_glr_simulated_hardware_001.png, /auto_examples/hardware_interface/images/sphx_glr_simulated_hardware_001_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -446,7 +446,7 @@ grid on the SLM.
 
 .. image-sg:: /auto_examples/hardware_interface/images/sphx_glr_simulated_hardware_002.png
    :alt: no crosstalk, with crosstalk, fringing-field kernel
-   :srcset: /auto_examples/hardware_interface/images/sphx_glr_simulated_hardware_002.png
+   :srcset: /auto_examples/hardware_interface/images/sphx_glr_simulated_hardware_002.png, /auto_examples/hardware_interface/images/sphx_glr_simulated_hardware_002_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -556,7 +556,7 @@ Saving the whole simulated camera
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 7.635 seconds)
+   **Total running time of the script:** (0 minutes 4.816 seconds)
 
 
 .. _sphx_glr_download_auto_examples_hardware_interface_simulated_hardware.py:

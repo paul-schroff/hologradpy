@@ -126,7 +126,7 @@ between the image plane and the sensor.
 
 .. image-sg:: /auto_examples/calibration/camera_mapping/images/sphx_glr_checkerboard_camera_mapping_001.png
    :alt: Initial Simulated Camera Image
-   :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_checkerboard_camera_mapping_001.png
+   :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_checkerboard_camera_mapping_001.png, /auto_examples/calibration/camera_mapping/images/sphx_glr_checkerboard_camera_mapping_001_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -135,7 +135,7 @@ between the image plane and the sensor.
  .. code-block:: none
 
 
-    <matplotlib.colorbar.Colorbar object at 0x0000020492F5AEC0>
+    <matplotlib.colorbar.Colorbar object at 0x0000019E9166E8F0>
 
 
 
@@ -250,7 +250,7 @@ between the image plane and the sensor.
 
 .. image-sg:: /auto_examples/calibration/camera_mapping/images/sphx_glr_checkerboard_camera_mapping_002.png
    :alt: Camera Image with Detected Corners
-   :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_checkerboard_camera_mapping_002.png
+   :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_checkerboard_camera_mapping_002.png, /auto_examples/calibration/camera_mapping/images/sphx_glr_checkerboard_camera_mapping_002_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -285,7 +285,7 @@ between the image plane and the sensor.
 
 .. image-sg:: /auto_examples/calibration/camera_mapping/images/sphx_glr_checkerboard_camera_mapping_003.png
    :alt: Simulated Camera Image with Detected Corners
-   :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_checkerboard_camera_mapping_003.png
+   :srcset: /auto_examples/calibration/camera_mapping/images/sphx_glr_checkerboard_camera_mapping_003.png, /auto_examples/calibration/camera_mapping/images/sphx_glr_checkerboard_camera_mapping_003_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -301,7 +301,7 @@ between the image plane and the sensor.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 12.572 seconds)
+   **Total running time of the script:** (0 minutes 11.516 seconds)
 
 
 .. _sphx_glr_download_auto_examples_calibration_camera_mapping_checkerboard_camera_mapping.py:

@@ -243,7 +243,7 @@ The signal region leaves a dark margin around the image.
 
 .. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_001.png
    :alt: target, retrieved, retrieved - target (rms 2.35e-07), retrieved SLM phase [rad], full output plane, convergence, rmse: 0.3426 to 0.04384, psnr [dB]: 15.11 to 34.3, signal efficiency: 0.7465 to 0.5924
-   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_001.png
+   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_001.png, /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_001_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -280,7 +280,7 @@ cancel their winding, propagates that back to the SLM, and retrieves again.
 
 .. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_002.png
    :alt: intensity, 315 vortices, phase [rad], intensity, 6 left, phase [rad], stopped at the iteration limit
-   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_002.png
+   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_002.png, /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_002_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -322,7 +322,7 @@ cancel their winding, propagates that back to the SLM, and retrieves again.
 
 .. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_003.png
    :alt: target, retrieved, retrieved - target (rms 1.21e-07), retrieved SLM phase [rad], full output plane, convergence, rmse: 0.0396 to 0.02361, psnr [dB]: 35.92 to 40.1, signal efficiency: 0.2361 to 0.2099
-   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_003.png
+   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_003.png, /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_003_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -373,7 +373,7 @@ cancel their winding, propagates that back to the SLM, and retrieves again.
 
 .. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_004.png
    :alt: target, before, 315 vortices, after, 6 vortices
-   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_004.png
+   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_004.png, /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_004_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -383,7 +383,7 @@ cancel their winding, propagates that back to the SLM, and retrieves again.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (1 minutes 59.975 seconds)
+   **Total running time of the script:** (1 minutes 13.256 seconds)
 
 
 .. _sphx_glr_download_auto_examples_phase_retrieval_vortex_annihilation.py:

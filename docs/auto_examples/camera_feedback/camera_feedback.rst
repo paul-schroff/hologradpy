@@ -172,7 +172,7 @@ target passed to the phase retrieval algorithm.
 
 .. image-sg:: /auto_examples/camera_feedback/images/sphx_glr_camera_feedback_001.png
    :alt: injected aberration, unknown to the model
-   :srcset: /auto_examples/camera_feedback/images/sphx_glr_camera_feedback_001.png
+   :srcset: /auto_examples/camera_feedback/images/sphx_glr_camera_feedback_001.png, /auto_examples/camera_feedback/images/sphx_glr_camera_feedback_001_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -293,7 +293,7 @@ target passed to the phase retrieval algorithm.
 
 .. image-sg:: /auto_examples/camera_feedback/images/sphx_glr_camera_feedback_002.png
    :alt: target at (-1200, -800) um from the zeroth order center (row 389, column 595), within the addressable region
-   :srcset: /auto_examples/camera_feedback/images/sphx_glr_camera_feedback_002.png
+   :srcset: /auto_examples/camera_feedback/images/sphx_glr_camera_feedback_002.png, /auto_examples/camera_feedback/images/sphx_glr_camera_feedback_002_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -331,7 +331,7 @@ target passed to the phase retrieval algorithm.
 
 .. image-sg:: /auto_examples/camera_feedback/images/sphx_glr_camera_feedback_003.png
    :alt: target on the camera grid, initial guess (fraction inside the region 0.727), SLM phase [rad], iteration 7, camera image [counts], iteration 1, iteration 4, best rmse, measured - target (rms 0.028), rmse, psnr [dB]
-   :srcset: /auto_examples/camera_feedback/images/sphx_glr_camera_feedback_003.png
+   :srcset: /auto_examples/camera_feedback/images/sphx_glr_camera_feedback_003.png, /auto_examples/camera_feedback/images/sphx_glr_camera_feedback_003_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -341,7 +341,7 @@ target passed to the phase retrieval algorithm.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 33.999 seconds)
+   **Total running time of the script:** (0 minutes 31.495 seconds)
 
 
 .. _sphx_glr_download_auto_examples_camera_feedback_camera_feedback.py:

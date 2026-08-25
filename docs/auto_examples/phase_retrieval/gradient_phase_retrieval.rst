@@ -249,7 +249,7 @@ Sanity checking the target geometry and the output of the initial guess
 
 .. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_001.png
    :alt: SLM illumination, initial camera image, target
-   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_001.png
+   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_001.png, /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_001_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -319,7 +319,7 @@ Plotting the results
 
 .. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_002.png
    :alt: target, retrieved, retrieved - target (rms 4.85e-06), retrieved SLM phase [rad], full output plane, convergence, rmse: 0.1935 to 0.0202, psnr [dB]: 9.746 to 30.58
-   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_002.png
+   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_002.png, /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_002_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -335,7 +335,7 @@ Plotting the results
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 6.504 seconds)
+   **Total running time of the script:** (0 minutes 6.211 seconds)
 
 
 .. _sphx_glr_download_auto_examples_phase_retrieval_gradient_phase_retrieval.py:

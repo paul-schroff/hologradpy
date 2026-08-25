@@ -21,7 +21,7 @@ Talking to cameras and SLMs, real or simulated, through the native device interf
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="HoloGradPy talks to cameras and SLMs through a small native interface, so the rest of the library never has to know which physical device is attached. This script walks through the whole surface on a simulated device.">
+    <div class="sphx-glr-thumbcontainer" tooltip="HoloGradPy uses a small native interface for cameras and SLMs. This script walks through using the interface on simulated devices and provides an example with real hardware at the end.">
 
 .. only:: html
 

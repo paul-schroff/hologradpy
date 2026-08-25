@@ -89,7 +89,7 @@ fitting a crosstalk model to the speckle that random SLM patterns produce.
 
     Using device: cuda
 
-    <torch._C.Generator object at 0x0000020425CFEBB0>
+    <torch._C.Generator object at 0x0000019E55522250>
 
 
 
@@ -187,7 +187,7 @@ fitting a crosstalk model to the speckle that random SLM patterns produce.
 
 .. image-sg:: /auto_examples/calibration/pixel_crosstalk_calibration/images/sphx_glr_pixel_crosstalk_calibration_speckle_001.png
    :alt: simulated camera image
-   :srcset: /auto_examples/calibration/pixel_crosstalk_calibration/images/sphx_glr_pixel_crosstalk_calibration_speckle_001.png
+   :srcset: /auto_examples/calibration/pixel_crosstalk_calibration/images/sphx_glr_pixel_crosstalk_calibration_speckle_001.png, /auto_examples/calibration/pixel_crosstalk_calibration/images/sphx_glr_pixel_crosstalk_calibration_speckle_001_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -282,12 +282,12 @@ wavefront to recover and the model can be given the same flat one.
  .. code-block:: none
 
     No camera mapping supplied. Running a coarse mapping.
-    Pixel crosstalk calibration start: 24-08-26__01-23-59
+    Pixel crosstalk calibration start: 25-08-26__10-25-12
 
     Running 100 epochs of 2 batches (batch size 5), 200 iterations total.
-    Pixel crosstalk calibration took 1 min 27.0 s.
+    Pixel crosstalk calibration took 1 min 25.4 s.
 
-    cuda: 87.0 s total
+    cuda: 85.4 s total
 
 
 
@@ -303,7 +303,7 @@ wavefront to recover and the model can be given the same flat one.
 
 .. image-sg:: /auto_examples/calibration/pixel_crosstalk_calibration/images/sphx_glr_pixel_crosstalk_calibration_speckle_002.png
    :alt: SLM pattern [levels], camera + ROI, measured speckle (ROI), predicted speckle (ROI), measured - predicted (rms 0.000), recovered kernel (101.5% in pixel), kernel profile, convergence
-   :srcset: /auto_examples/calibration/pixel_crosstalk_calibration/images/sphx_glr_pixel_crosstalk_calibration_speckle_002.png
+   :srcset: /auto_examples/calibration/pixel_crosstalk_calibration/images/sphx_glr_pixel_crosstalk_calibration_speckle_002.png, /auto_examples/calibration/pixel_crosstalk_calibration/images/sphx_glr_pixel_crosstalk_calibration_speckle_002_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -339,7 +339,7 @@ wavefront to recover and the model can be given the same flat one.
 
 .. image-sg:: /auto_examples/calibration/pixel_crosstalk_calibration/images/sphx_glr_pixel_crosstalk_calibration_speckle_003.png
    :alt: injected kernel, recovered kernel, recovered - injected (rms 0.009), kernel profile
-   :srcset: /auto_examples/calibration/pixel_crosstalk_calibration/images/sphx_glr_pixel_crosstalk_calibration_speckle_003.png
+   :srcset: /auto_examples/calibration/pixel_crosstalk_calibration/images/sphx_glr_pixel_crosstalk_calibration_speckle_003.png, /auto_examples/calibration/pixel_crosstalk_calibration/images/sphx_glr_pixel_crosstalk_calibration_speckle_003_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -357,7 +357,7 @@ wavefront to recover and the model can be given the same flat one.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (1 minutes 31.244 seconds)
+   **Total running time of the script:** (1 minutes 30.431 seconds)
 
 
 .. _sphx_glr_download_auto_examples_calibration_pixel_crosstalk_calibration_pixel_crosstalk_calibration_speckle.py:

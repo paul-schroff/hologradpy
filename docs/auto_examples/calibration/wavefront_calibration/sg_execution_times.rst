@@ -6,7 +6,7 @@
 
 Computation times
 =================
-**02:32.427** total execution time for 2 files **from auto_examples\calibration\wavefront_calibration**:
+**01:59.385** total execution time for 2 files **from auto_examples\calibration\wavefront_calibration**:
 
 .. container::
 
@@ -33,8 +33,8 @@ Computation times
      - Time
      - Mem (MB)
    * - :ref:`sphx_glr_auto_examples_calibration_wavefront_calibration_wavefront_calibration_raster.py` (``wavefront_calibration_raster.py``)
-     - 01:43.073
+     - 01:23.420
      - 0.0
    * - :ref:`sphx_glr_auto_examples_calibration_wavefront_calibration_wavefront_calibration_speckle.py` (``wavefront_calibration_speckle.py``)
-     - 00:49.354
+     - 00:35.965
      - 0.0

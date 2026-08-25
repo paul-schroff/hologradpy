@@ -6,7 +6,7 @@
 
 Computation times
 =================
-**01:31.244** total execution time for 1 file **from auto_examples\calibration\pixel_crosstalk_calibration**:
+**01:30.431** total execution time for 1 file **from auto_examples\calibration\pixel_crosstalk_calibration**:
 
 .. container::
 
@@ -33,5 +33,5 @@ Computation times
      - Time
      - Mem (MB)
    * - :ref:`sphx_glr_auto_examples_calibration_pixel_crosstalk_calibration_pixel_crosstalk_calibration_speckle.py` (``pixel_crosstalk_calibration_speckle.py``)
-     - 01:31.244
+     - 01:30.431
      - 0.0

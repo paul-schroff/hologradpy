@@ -21,9 +21,9 @@
 Using the HoloGradPy hardware interface
 =======================================
 
-HoloGradPy talks to cameras and SLMs through a small native interface, so the rest of
-the library never has to know which physical device is attached. This script walks
-through the whole surface on a simulated device.
+HoloGradPy uses a small native interface for cameras and SLMs.
+This script walks through using the interface on simulated devices and provides an
+example with real hardware at the end.
 
 There are three entry points, all re-exported from ``hologradpy.hardware``.
 
@@ -33,8 +33,7 @@ There are three entry points, all re-exported from ``hologradpy.hardware``.
 
 - :func:`~hologradpy.hardware.as_native.as_camera` and
   :func:`~hologradpy.hardware.as_native.as_slm` adapt a device you have already
-  constructed. Both are idempotent, so they are safe to call on a device that is
-  already native.
+  constructed. They are safe to call on a device that is already native.
 
 - :func:`~hologradpy.hardware.factory.register_camera_backend` and
   :func:`~hologradpy.hardware.factory.register_slm_backend` give a driver class a short
@@ -42,13 +41,13 @@ There are three entry points, all re-exported from ``hologradpy.hardware``.
   ``open_camera("thorcam", serial=...)``.
 
 .. important::
-   Geometry is ``(y, x) = (height, width)``. A per axis quantity such as ``pixel_size``
+   Geometry is ``(y, x) = (height, width)``. A per-axis quantity such as ``pixel_size``
    is ordered ``(y, x)``, and regions of interest are ``(row, col)``.
 
    Units are SI. ``pixel_size`` and ``wavelength`` are in metres, ``exposure`` is in
    seconds.
 
-.. GENERATED FROM PYTHON SOURCE LINES 34-59
+.. GENERATED FROM PYTHON SOURCE LINES 33-58
 
 .. code-block:: Python
 
@@ -90,16 +89,16 @@ There are three entry points, all re-exported from ``hologradpy.hardware``.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 60-66
+.. GENERATED FROM PYTHON SOURCE LINES 59-65
 
 Open a device with the factory
 ------------------------------
 
-Most code in this section is setting up the optical model needed for simulated 
-hardware. On real hardware you would go straight to ``open_camera(YourDriver, ...)`` 
-without any of this.
+For the purpose of this example, we use simulated hardware. Most code below is setting
+up the optical model needed for simulated hardware. On real hardware you would go
+straight to ``open_camera(YourDriver, ...)`` without any of this.
 
-.. GENERATED FROM PYTHON SOURCE LINES 66-104
+.. GENERATED FROM PYTHON SOURCE LINES 65-103
 
 .. code-block:: Python
 
@@ -148,7 +147,7 @@ without any of this.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 105-110
+.. GENERATED FROM PYTHON SOURCE LINES 104-109
 
 Reading geometry and units through the interface
 ------------------------------------------------
@@ -156,7 +155,7 @@ Reading geometry and units through the interface
 These properties read the same way for a simulated device and for real hardware,
 always in (y, x) order and SI units.
 
-.. GENERATED FROM PYTHON SOURCE LINES 110-126
+.. GENERATED FROM PYTHON SOURCE LINES 109-125
 
 .. code-block:: Python
 
@@ -200,7 +199,7 @@ always in (y, x) order and SI units.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 127-132
+.. GENERATED FROM PYTHON SOURCE LINES 126-131
 
 Set the exposure and capture a frame
 ------------------------------------
@@ -208,7 +207,7 @@ Set the exposure and capture a frame
 camera.autoexpose(set_fraction=0.5) is also available. It exposes the sensor to a
 target fraction. Here we set the exposure by hand.
 
-.. GENERATED FROM PYTHON SOURCE LINES 132-140
+.. GENERATED FROM PYTHON SOURCE LINES 131-139
 
 .. code-block:: Python
 
@@ -218,14 +217,14 @@ target fraction. Here we set the exposure by hand.
     frame = camera.get_image()
     print("frame shape (h, w):", frame.shape, "dtype:", frame.dtype)
 
-    image_grid(frame, "Full frame", cmap="turbo").build()
+    image_grid(frame, "Full frame", cmap="turbo", colorbar_label="ADU").build()
 
 
 
 
 .. image-sg:: /auto_examples/hardware_interface/images/sphx_glr_hardware_interface_001.png
    :alt: Full frame
-   :srcset: /auto_examples/hardware_interface/images/sphx_glr_hardware_interface_001.png
+   :srcset: /auto_examples/hardware_interface/images/sphx_glr_hardware_interface_001.png, /auto_examples/hardware_interface/images/sphx_glr_hardware_interface_001_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -236,11 +235,11 @@ target fraction. Here we set the exposure by hand.
     exposure now: 0.0001 s
     frame shape (h, w): (960, 1440) dtype: float32
 
-    <Figure size 452x318 with 2 Axes>
+    <Figure size 453.903x284 with 2 Axes>
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 141-147
+.. GENERATED FROM PYTHON SOURCE LINES 140-146
 
 Regions of interest with ROI
 ----------------------------
@@ -249,7 +248,7 @@ ROI is a frozen (top_row, left_column, height, width) value object in native (ro
 col) pixels. Build one centered on a point and hand it to set_roi. get_image then
 returns only that window.
 
-.. GENERATED FROM PYTHON SOURCE LINES 147-166
+.. GENERATED FROM PYTHON SOURCE LINES 146-165
 
 .. code-block:: Python
 
@@ -266,7 +265,7 @@ returns only that window.
     patch = frame[window.rows, window.columns]
     print("patch from the stored full frame:", patch.shape)
 
-    image_grid(cropped, "Region of interest", cmap="turbo").build()
+    image_grid(cropped, "Region of interest", cmap="turbo", colorbar_label="ADU").build()
 
     # Passing None resets the camera to the full sensor.
     camera.set_roi(None)
@@ -277,7 +276,7 @@ returns only that window.
 
 .. image-sg:: /auto_examples/hardware_interface/images/sphx_glr_hardware_interface_002.png
    :alt: Region of interest
-   :srcset: /auto_examples/hardware_interface/images/sphx_glr_hardware_interface_002.png
+   :srcset: /auto_examples/hardware_interface/images/sphx_glr_hardware_interface_002.png, /auto_examples/hardware_interface/images/sphx_glr_hardware_interface_002_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
@@ -293,7 +292,7 @@ returns only that window.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 167-174
+.. GENERATED FROM PYTHON SOURCE LINES 166-173
 
 Normalize a device you already built
 ------------------------------------
@@ -303,7 +302,7 @@ exactly what open_slm / open_camera call internally. The simulated devices imple
 the native interface directly, so they are passed through unchanged. A real slmsuite
 driver is wrapped in an adapter here instead (see section 7).
 
-.. GENERATED FROM PYTHON SOURCE LINES 174-184
+.. GENERATED FROM PYTHON SOURCE LINES 173-183
 
 .. code-block:: Python
 
@@ -332,7 +331,7 @@ driver is wrapped in an adapter here instead (see section 7).
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 185-190
+.. GENERATED FROM PYTHON SOURCE LINES 184-189
 
 Register a backend and open it by name
 --------------------------------------
@@ -340,7 +339,7 @@ Register a backend and open it by name
 Name a driver once, then open it by that name anywhere. The symmetric
 register_camera_backend lets open_camera("mycam", ...) build a camera.
 
-.. GENERATED FROM PYTHON SOURCE LINES 190-194
+.. GENERATED FROM PYTHON SOURCE LINES 189-193
 
 .. code-block:: Python
 
@@ -361,7 +360,7 @@ register_camera_backend lets open_camera("mycam", ...) build a camera.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 195-229
+.. GENERATED FROM PYTHON SOURCE LINES 194-228
 
 The same code with real hardware
 --------------------------------
@@ -398,7 +397,7 @@ yourself. Each vendor SDK is imported lazily, only when its backend is opened:
       register_slmsuite_backends()
       camera = open_camera("thorlabs", serial="12345")
 
-.. GENERATED FROM PYTHON SOURCE LINES 229-231
+.. GENERATED FROM PYTHON SOURCE LINES 228-230
 
 .. code-block:: Python
 
@@ -414,7 +413,7 @@ yourself. Each vendor SDK is imported lazily, only when its backend is opened:
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 9.559 seconds)
+   **Total running time of the script:** (0 minutes 8.613 seconds)
 
 
 .. _sphx_glr_download_auto_examples_hardware_interface_hardware_interface.py:
