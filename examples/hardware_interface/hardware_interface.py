@@ -2,9 +2,9 @@
 Using the HoloGradPy hardware interface
 =======================================
 
-HoloGradPy talks to cameras and SLMs through a small native interface, so the rest of
-the library never has to know which physical device is attached. This script walks
-through the whole surface on a simulated device.
+HoloGradPy uses a small native interface for cameras and SLMs.
+This script walks through using the interface on simulated devices and provides an
+example with real hardware at the end.
 
 There are three entry points, all re-exported from ``hologradpy.hardware``.
 
@@ -22,7 +22,7 @@ There are three entry points, all re-exported from ``hologradpy.hardware``.
   ``open_camera("thorcam", serial=...)``.
 
 .. important::
-   Geometry is ``(y, x) = (height, width)``. A per axis quantity such as ``pixel_size``
+   Geometry is ``(y, x) = (height, width)``. A per-axis quantity such as ``pixel_size``
    is ordered ``(y, x)``, and regions of interest are ``(row, col)``.
 
    Units are SI. ``pixel_size`` and ``wavelength`` are in metres, ``exposure`` is in
@@ -56,12 +56,12 @@ from hologradpy.visualizer import image_grid
 device = get_device(verbose=True)
 
 # %% 
-# Open a device with the factory
-# ------------------------------
+# Opening a device
+# ----------------
 #
-# Most code in this section is setting up the optical model needed for simulated 
-# hardware. On real hardware you would go straight to ``open_camera(YourDriver, ...)`` 
-# without any of this.
+# For the purpose of this example, we use simulated hardware. Most code below is setting
+# up the optical model needed for simulated hardware. On real hardware you would go
+# straight to ``open_camera(YourDriver, ...)`` without any of this.
 slm_geometry = FieldGeometry(
     resolution=(1024, 1280),
     pixel_size=torch.tensor([12.5e-6, 12.5e-6], device=device),
@@ -134,7 +134,7 @@ print("exposure now:", camera.get_exposure(), "s")
 frame = camera.get_image()
 print("frame shape (h, w):", frame.shape, "dtype:", frame.dtype)
 
-image_grid(frame, "Full frame", cmap="turbo").build()
+image_grid(frame, "Full frame", cmap="turbo", colorbar_label="ADU").build()
 
 # %% 
 # Regions of interest with ROI
@@ -156,7 +156,7 @@ print("cropped frame shape (h, w):", cropped.shape)
 patch = frame[window.rows, window.columns]
 print("patch from the stored full frame:", patch.shape)
 
-image_grid(cropped, "Region of interest", cmap="turbo").build()
+image_grid(cropped, "Region of interest", cmap="turbo", colorbar_label="ADU").build()
 
 # Passing None resets the camera to the full sensor.
 camera.set_roi(None)

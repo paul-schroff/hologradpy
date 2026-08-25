@@ -106,6 +106,8 @@ class GridCell:
             suits line plots.
         colorbar: If True, a matched-height colorbar axes is appended on the
             right and exposed as ``layout.colorbar_axes[name]``.
+        colorbar_label: Text written alongside the colorbar, naming what the
+            values are. Needs ``colorbar``.
         height: Explicit cell height [inches], overriding ``aspect`` for the row
             height. Mainly for ``aspect="auto"`` line rows.
         sharex: Name of another cell whose x-axis this cell should share.
@@ -115,6 +117,7 @@ class GridCell:
     colspan: int = 1
     aspect: float | str = "equal"
     colorbar: bool = False
+    colorbar_label: str | None = None
     height: float | None = None
     sharex: str | None = None
 
@@ -138,6 +141,8 @@ class PlotLayout:
         colorbar_width: float = 0.15,
         colorbar_pad: float = 0.08,
         colorbar_label_width: float = 0.45,
+        colorbar_label_pad: float = 0.3,
+        fit_right: bool = False,
     ) -> None:
         # margins: (left, right, top, bottom) in inches.
         self.column_width = column_width
@@ -147,6 +152,8 @@ class PlotLayout:
         self.colorbar_width = colorbar_width
         self.colorbar_pad = colorbar_pad
         self.colorbar_label_width = colorbar_label_width
+        self.colorbar_label_pad = colorbar_label_pad
+        self.fit_right = fit_right
 
         self._rows: list[list[GridCell]] = []
         self.figure: Figure | None = None
@@ -178,6 +185,8 @@ class PlotLayout:
             colorbar_width=self.colorbar_width,
             colorbar_pad=self.colorbar_pad,
             colorbar_label_width=self.colorbar_label_width,
+            colorbar_label_pad=self.colorbar_label_pad,
+            fit_right=self.fit_right,
         )
         clone._rows = [[replace(cell) for cell in row] for row in self._rows]
         return clone
@@ -260,6 +269,9 @@ class PlotLayout:
         # it or they are clipped.
         if any(row and row[-1].colorbar for row in self._rows):
             right += self.colorbar_label_width
+
+        if any(row and row[-1].colorbar_label for row in self._rows):
+            right += self.colorbar_label_pad
 
         def natural_width(row: list[GridCell]) -> float:
             columns = self._row_columns(row)
@@ -526,7 +538,12 @@ class BaseVisualizer:
             colorbar_axs = layout.colorbar_axes.get(name)
             if mappable is not None and colorbar_axs is not None:
                 _warn_on_aspect_mismatch(layout, name, mappable)
-                figure.colorbar(mappable, cax=colorbar_axs)
+                bar = figure.colorbar(mappable, cax=colorbar_axs)
+                cell = layout.cell(name)
+                if cell is not None and cell.colorbar_label:
+                    bar.set_label(cell.colorbar_label)
+        if layout.fit_right:
+            _fit_right_margin(figure, layout.margins[1])
         return figure
 
     def render(
@@ -801,6 +818,7 @@ def image_grid(
     shared_scale: bool = False,
     symmetric: bool = False,
     colorbar: bool = True,
+    colorbar_label: Any = None,
     column_width: float = 3.6,
     names: Sequence[str] | None = None,
     **layout_kwargs: Any,
@@ -822,9 +840,11 @@ def image_grid(
         shared_scale: Put every panel on one scale, spanning all of them.
         symmetric: Centre the scale on zero, using the largest magnitude present.
         colorbar: Whether to give each panel a colorbar.
+        colorbar_label: One label naming what the values are, or one per image.
         column_width: Width of one grid column in inches.
         names: Cell names to address panels by. Defaults to ``"0"``, ``"1"``, and so on.
-        **layout_kwargs: Passed to :class:`PlotLayout`, for example ``margins``.
+        **layout_kwargs: Passed to :class:`PlotLayout`, for example ``margins``. The
+            margins default to a tight border.
 
     Returns:
         PlotBuilder: The builder, with every image queued and nothing drawn yet.
@@ -859,6 +879,12 @@ def image_grid(
     per_vmin = _per_panel(vmin, count, "vmin")
     per_vmax = _per_panel(vmax, count, "vmax")
     per_colorbar = _per_panel(colorbar, count, "colorbar")
+    per_colorbar_label = _per_panel(colorbar_label, count, "colorbar_label")
+
+    if "margins" not in layout_kwargs:
+        titled = any(title is not None for title in per_title)
+        layout_kwargs["margins"] = (0.12, 0.12, 0.32 if titled else 0.12, 0.12)
+    layout_kwargs.setdefault("fit_right", True)
 
     layout = PlotLayout(column_width=column_width, **layout_kwargs)
     index = 0
@@ -870,6 +896,7 @@ def image_grid(
                     # The whole point: the cell is shaped like the array going into it.
                     aspect=image.shape[0] / image.shape[1],
                     colorbar=per_colorbar[index + offset],
+                    colorbar_label=per_colorbar_label[index + offset],
                 )
                 for offset, image in enumerate(row)
             ]
@@ -887,6 +914,16 @@ def image_grid(
             title=per_title[position],
         )
     return builder
+
+
+def _fit_right_margin(figure: Figure, margin: float) -> None:
+    """Match the figure width to the content."""
+    figure.canvas.draw()
+    bounds = figure.get_tightbbox(figure.canvas.get_renderer())
+    width, height = figure.get_size_inches()
+    wanted = float(bounds.x1) + margin
+    if abs(wanted - width) > 0.01:
+        figure.set_size_inches(wanted, height)
 
 
 def _warn_on_aspect_mismatch(

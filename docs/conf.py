@@ -5,6 +5,7 @@
 
 import os
 import pathlib
+import re
 import sys
 import warnings
 
@@ -107,6 +108,19 @@ intersphinx_mapping = {
 # HOLOGRADPY_RUN_EXAMPLES=1 to run them and capture their figures.
 RUN_EXAMPLES = os.environ.get("HOLOGRADPY_RUN_EXAMPLES") == "1"
 
+# Re-run only selected examples for faster iteration.
+#
+#   HOLOGRADPY_RUN_EXAMPLES=1 HOLOGRADPY_EXAMPLES=hardware_interface
+#   HOLOGRADPY_RUN_EXAMPLES=1 HOLOGRADPY_EXAMPLES='camera_mapping|top_hat'
+EXAMPLE_FILTER = os.environ.get("HOLOGRADPY_EXAMPLES", "")
+
+if RUN_EXAMPLES and EXAMPLE_FILTER:
+    # Editing library code leaves every example's md5 untouched.
+    _gallery_root = pathlib.Path(__file__).parent / "auto_examples"
+    for _stamp in _gallery_root.glob("**/*.py.md5"):
+        if re.search(EXAMPLE_FILTER, _stamp.as_posix()):
+            _stamp.unlink()
+
 sphinx_gallery_conf = {
     "examples_dirs": [
         "../examples/hardware_interface",
@@ -121,10 +135,11 @@ sphinx_gallery_conf = {
         "auto_examples/calibration",
     ],
     "reference_url": {"hologradpy": None},
-    "filename_pattern": r".*" if RUN_EXAMPLES else "(?!.*)",
+    "filename_pattern": (EXAMPLE_FILTER or r".*") if RUN_EXAMPLES else "(?!.*)",
     "ignore_pattern": r"(__init__|.*[\\/]dev_scripts[\\/].*)\.py",
     "plot_gallery": RUN_EXAMPLES,
     "only_warn_on_example_error": True,
+    "image_srcset": ["2x"],
     "subsection_order": ExplicitOrder(
         [
             "../examples/calibration/camera_mapping",
