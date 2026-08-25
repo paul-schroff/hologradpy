@@ -27,13 +27,12 @@ HoloGradPy Documentation
 
       :octicon:`book` Publications
 
-.. figure:: /_static/top_hat_beam_shaping.gif
-   :alt: A Gaussian focal spot being shaped into a top hat
-   :align: right
-   :width: 160px
-   :target: auto_examples/phase_retrieval/top_hat_beam_shaping.html
+.. sidebar:: Top-hat beam
+   :class: animation
 
-   Top-hat beam shaping
+   .. image:: /_static/top_hat_beam_shaping.gif
+      :alt: A Gaussian focal spot being shaped into a top hat
+      :target: auto_examples/phase_retrieval/top_hat_beam_shaping.html
 
 .. include:: ../README.md
    :parser: myst_parser.sphinx_

@@ -47,3 +47,16 @@ div.sphx-glr-download a {
     padding: 0.5rem 1rem;
     transition: background-color 120ms ease-in-out;
 }
+
+article .sidebar.animation {
+    width: 21.5%;
+}
+
+article .sidebar.animation ~ .sd-container-fluid {
+    clear: right;
+}
+
+article .sidebar.animation > a {
+    display: block;
+    padding-bottom: 1rem;
+}
