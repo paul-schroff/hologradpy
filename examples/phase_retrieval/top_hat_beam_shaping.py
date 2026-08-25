@@ -87,7 +87,10 @@ GIF_SCALE = 6
 GIF_SCALE_BAR = 50e-6
 GIF_ANNOTATION_INDEX = 255
 
-# %% The SLM and the beam on it
+# %% 
+# The SLM and the incident Gaussian beam
+# --------------------------------------
+#
 slm_geometry = FieldGeometry(
     resolution=(1024, 1280),
     pixel_size=torch.tensor([12.5e-6, 12.5e-6], device=device),
@@ -125,7 +128,10 @@ slm_camera_model = SLMCZT(
 slm_camera_model()
 camera_x, camera_y = slm_camera_model[-1].get_spatial_grid_output()
 
-# %% 1D top hat target with diffraction-limited shoulders and width
+# %% 
+# 1D top hat target with diffraction-limited shoulders and width
+# --------------------------------------------------------------
+#
 target_intensity = top_hat_1D(
     camera_x,
     camera_y,
@@ -160,7 +166,10 @@ print(
     f"{FOCAL_SPOT_WAIST / CAMERA_PIXEL_SIZE[0]:.1f} pixels"
 )
 
-# %% How much light there is to lose
+# %% 
+# How much light there is to lose
+# -------------------------------
+#
 incident_power = slm_camera_model.incident_power()
 pixel_area = slm_camera_model.output_pixel_area()
 
@@ -184,7 +193,9 @@ def efficiency_of(record) -> float:
     return float(intensity.sum()) * pixel_area / incident_power
 
 
-# %% Top hat optimized with an intensity-only cost
+# %% 
+# Top hat optimized with an intensity-only cost
+# ---------------------------------------------
 absolute_target = (
     target_intensity
     / target_intensity.sum()
@@ -222,7 +233,10 @@ print(
 
 absolute.visualizer().render()
 
-# %% Optimize again, this time constraining the phase as well
+# %% 
+# Optimize again, this time constraining the phase as well
+# --------------------------------------------------------
+#
 slm_camera_model.virtual_slm.set_phase(init_slm_phase)
 phase_retriever.set_loss_factory(None)
 phase_retriever.set_target(target_intensity)
@@ -245,7 +259,10 @@ print(
 
 fidelity.visualizer().render()
 
-# %% Compare the two
+# %% 
+# Compare the two
+# ---------------
+#
 target = gpu_to_numpy(target_intensity)
 results = {}
 for label, record in (("absolute", absolute), ("fidelity", fidelity)):
