@@ -56,8 +56,8 @@ from hologradpy.visualizer import image_grid
 device = get_device(verbose=True)
 
 # %% 
-# Open a device with the factory
-# ------------------------------
+# Opening a device
+# ----------------
 #
 # For the purpose of this example, we use simulated hardware. Most code below is setting
 # up the optical model needed for simulated hardware. On real hardware you would go
@@ -123,42 +123,50 @@ print("camera is a native Camera:", isinstance(camera, Camera))
 print("slm is a native SLM:", isinstance(slm, SLM))
 
 # %% 
-# Set the exposure and capture a frame
-# ------------------------------------
+# Exposing the camera and capturing an image
+# ------------------------------------------
 #
-# camera.autoexpose(set_fraction=0.5) is also available. It exposes the sensor to a
-# target fraction. Here we set the exposure by hand.
+# Here, we set the exposure by hand.
 camera.set_exposure(100e-6)
-print("exposure now:", camera.get_exposure(), "s")
+print(f"exposure now: {camera.get_exposure():.6f} s")
 
 frame = camera.get_image()
 print("frame shape (h, w):", frame.shape, "dtype:", frame.dtype)
 
-image_grid(frame, "Full frame", cmap="turbo", colorbar_label="ADU").build()
+image_grid(frame, "Camera image", cmap="turbo", colorbar_label="ADU").build()
+
+# %%
+# The camera is underexposed. Autoexposing to a ``set_fraction`` of the full range.
+# Since the SLM currently displays a flat phase, only a focal spot is visible on the 
+# camera.
+camera.autoexpose(set_fraction=0.9)
+print(f"exposure after autoexposure: {camera.get_exposure():.6f} s")
+
+frame = camera.get_image()
+image_grid(
+    frame, "Camera image, autoexposed", cmap="turbo", colorbar_label="ADU"
+).build()
 
 # %% 
 # Regions of interest with ROI
 # ----------------------------
 #
-# ROI is a frozen (top_row, left_column, height, width) value object in native (row,
-# col) pixels. Build one centered on a point and hand it to set_roi. get_image then
+# ``ROI`` is specified as ``(top_row, left_column, height, width)`` in camera pixels
+# ``(row, col)``. We can zoom in on the focal spot by defining an ``ROI`` centered on
+# central camera pixel. By handing it to ``camera.set_roi``, ``camera.get_image`` then
 # returns only that window.
 center = (camera.resolution[0] // 2, camera.resolution[1] // 2)  # (row, col)
-window = ROI.centered(center=center, size=(256, 256))
+window = ROI.centered(center=center, size=(64, 64))
 camera.set_roi(window)
 print("current roi:", camera.roi)
 
 cropped = camera.get_image()
 print("cropped frame shape (h, w):", cropped.shape)
 
-# The same ROI slices a full frame directly, so you can crop an array you already hold
-# without touching the camera.
-patch = frame[window.rows, window.columns]
-print("patch from the stored full frame:", patch.shape)
-
 image_grid(cropped, "Region of interest", cmap="turbo", colorbar_label="ADU").build()
 
-# Passing None resets the camera to the full sensor.
+# %%
+# Passing ``None`` to ``camera.set_roi`` resets the camera to the full sensor.
 camera.set_roi(None)
 print("roi after reset:", camera.roi)
 
@@ -166,10 +174,10 @@ print("roi after reset:", camera.roi)
 # Normalize a device you already built
 # ------------------------------------
 #
-# If you construct a device yourself, as_slm / as_camera return it ready to use. This is
-# exactly what open_slm / open_camera call internally. The simulated devices implement
-# the native interface directly, so they are passed through unchanged. A real slmsuite
-# driver is wrapped in an adapter here instead (see section 7).
+# If you construct a device yourself, ``as_slm`` / ``as_camera`` return it ready to use.
+# This is exactly what ``open_slm`` / ``open_camera`` call internally. The simulated
+# devices implement the native interface directly, so they are passed through unchanged.
+# A real slmsuite driver is wrapped in an adapter here instead.
 raw_slm = SimulatedSLMTorch(input_geometry=slm_geometry, bitdepth=8)
 print("raw device is a native SLM:", isinstance(raw_slm, SLM))
 
@@ -185,14 +193,14 @@ print("camera as is:", as_camera(camera) is camera)
 # --------------------------------------
 #
 # Name a driver once, then open it by that name anywhere. The symmetric
-# register_camera_backend lets open_camera("mycam", ...) build a camera.
+# ``register_camera_backend`` lets ``open_camera("mycam", ...)`` build a camera.
 register_slm_backend("simulated", SimulatedSLMTorch)
 named_slm = open_slm("simulated", input_geometry=slm_geometry, bitdepth=8)
 print("opened by name is a native SLM:", isinstance(named_slm, SLM))
 
 # %% 
-# The same code with real hardware
-# --------------------------------
+# Connecting to real hardware
+# ---------------------------
 # Nothing above is specific to simulation. With a real slmsuite driver you would
 # write one of the following, and every native call shown here works the same.
 #

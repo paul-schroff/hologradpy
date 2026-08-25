@@ -6,7 +6,7 @@
 
 Computation times
 =================
-**00:13.429** total execution time for 2 files **from auto_examples\hardware_interface**:
+**00:21.799** total execution time for 2 files **from auto_examples\hardware_interface**:
 
 .. container::
 
@@ -33,8 +33,8 @@ Computation times
      - Time
      - Mem (MB)
    * - :ref:`sphx_glr_auto_examples_hardware_interface_hardware_interface.py` (``hardware_interface.py``)
-     - 00:08.613
+     - 00:15.819
      - 0.0
    * - :ref:`sphx_glr_auto_examples_hardware_interface_simulated_hardware.py` (``simulated_hardware.py``)
-     - 00:04.816
+     - 00:05.980
      - 0.0

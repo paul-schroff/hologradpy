@@ -797,6 +797,71 @@
    "name": "ABC.adu_levels"
   }
  ],
+ "camera.autoexpose": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.autoexpose"
+  }
+ ],
  "camera.exposure_bounds": [
   {
    "is_class": false,
@@ -1694,24 +1759,6 @@
    "name": "open_slm"
   }
  ],
- "patch": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "numpy",
-   "module_short": "numpy",
-   "name": "ndarray"
-  }
- ],
- "patch.shape": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "tuple"
-  }
- ],
  "plt.show": [
   {
    "is_class": false,
@@ -2172,38 +2219,6 @@
    "module": "hologradpy",
    "module_short": "hologradpy",
    "name": "ROI"
-  }
- ],
- "window.columns": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy.roi",
-   "module_short": "hologradpy.roi",
-   "name": "ROI.columns"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy",
-   "module_short": "hologradpy",
-   "name": "ROI.columns"
-  }
- ],
- "window.rows": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy.roi",
-   "module_short": "hologradpy.roi",
-   "name": "ROI.rows"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy",
-   "module_short": "hologradpy",
-   "name": "ROI.rows"
   }
  ]
 }
