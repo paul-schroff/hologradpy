@@ -85,6 +85,7 @@ GIF_LAST_ITERATION = 30
 GIF_FPS = 4
 GIF_SCALE = 6
 GIF_SCALE_BAR = 50e-6
+GIF_ANNOTATION_INDEX = 255
 
 # %% The SLM and the beam on it
 slm_geometry = FieldGeometry(
@@ -324,16 +325,24 @@ frames += [
 crop = region_bounding_box(gpu_to_numpy(signal_region))
 frames = [frame[crop] for frame in frames]
 
-peak = max(float(np.max(frame)) for frame in frames)
 print(
     f"frame peaks: first {np.max(frames[0]):.3g}, last {np.max(frames[-1]):.3g}, "
-    f"scaling to {peak:.3g}"
+    "each frame normalized to its own peak"
 )
-scale = 255.0 / peak
-images = [
-    Image.fromarray(np.clip(frame * scale, 0, 255).astype(np.uint8), mode="L")
-    for frame in frames
-]
+
+colours = plt.get_cmap(INTENSITY_CMAP)(np.linspace(0.0, 1.0, GIF_ANNOTATION_INDEX))
+gif_palette = (
+    (np.vstack([colours[:, :3], [1.0, 1.0, 1.0]]) * 255).round().astype(np.uint8)
+)
+
+top = GIF_ANNOTATION_INDEX - 1
+images = []
+for frame in frames:
+    image = Image.fromarray(
+        np.clip(frame / frame.max() * top, 0, top).astype(np.uint8), mode="P"
+    )
+    image.putpalette(gif_palette.tobytes())
+    images.append(image)
 
 target_crop = gpu_to_numpy(target_intensity)[crop]
 lit_crop = lit[crop]
@@ -364,14 +373,20 @@ label_height = font.getbbox(scale_label)[3]
 
 for image, rmse in zip(images, frame_rmse):
     draw = ImageDraw.Draw(image)
-    draw.text((margin, margin), f"RMSE: {rmse * 100:.1f} %", fill=255, font=font)
-    # The bar rests on top of the length it stands for.
+    draw.text(
+        (margin, margin),
+        f"RMSE: {rmse * 100:.1f} %",
+        fill=GIF_ANNOTATION_INDEX,
+        font=font,
+    )
+
     label_top = height - margin - label_height
     bar_top = label_top - bar_thickness - GIF_SCALE // 2
     draw.rectangle(
-        [margin, bar_top, margin + bar_length, bar_top + bar_thickness - 1], fill=255
+        [margin, bar_top, margin + bar_length, bar_top + bar_thickness - 1],
+        fill=GIF_ANNOTATION_INDEX,
     )
-    draw.text((margin, label_top), scale_label, fill=255, font=font)
+    draw.text((margin, label_top), scale_label, fill=GIF_ANNOTATION_INDEX, font=font)
 
 
 GIF_PATH.parent.mkdir(parents=True, exist_ok=True)
