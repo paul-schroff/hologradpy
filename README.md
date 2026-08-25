@@ -1,6 +1,10 @@
 # HoloGradPy
 <a href="https://www.gnu.org/licenses/lgpl-3.0.en.html"><img alt="License: LGPL v3" 
 src="https://img.shields.io/badge/License-LGPL_v3-blue.svg"></a>
+<a href="https://hologradpy.readthedocs.io/en/latest/"><img alt="Documentation Status"
+src="https://readthedocs.org/projects/hologradpy/badge/?version=latest"></a>
+<a href="https://hologradpy.readthedocs.io/en/latest/install.html"><img alt="Python 3.10+"
+src="https://img.shields.io/badge/python-3.10%2B-blue"></a>
 
 <a href="https://hologradpy.readthedocs.io/en/latest/auto_examples/phase_retrieval/top_hat_beam_shaping.html"><picture><img
 src="docs/_static/top_hat_beam_shaping.gif"
