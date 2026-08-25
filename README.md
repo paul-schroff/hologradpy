@@ -2,9 +2,9 @@
 <a href="https://www.gnu.org/licenses/lgpl-3.0.en.html"><img alt="License: LGPL v3" 
 src="https://img.shields.io/badge/License-LGPL_v3-blue.svg"></a>
 
-<a href="https://hologradpy.readthedocs.io/en/latest/auto_examples/phase_retrieval/top_hat_beam_shaping.html"><img
+<a href="https://hologradpy.readthedocs.io/en/latest/auto_examples/phase_retrieval/top_hat_beam_shaping.html"><picture><img
 src="docs/_static/top_hat_beam_shaping.gif"
-alt="A Gaussian focal spot being shaped into a top hat" align="right" width="160"></a>
+alt="A Gaussian focal spot being shaped into a top hat" align="right" width="160"></picture></a>
 
 <!-- intro-start -->
 HoloGradPy optimizes SLM phase patterns for target intensity and phase profiles in the
