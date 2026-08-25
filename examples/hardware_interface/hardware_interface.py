@@ -8,24 +8,25 @@ through the whole surface on a simulated device.
 
 There are three entry points, all re-exported from ``hologradpy.hardware``.
 
-    open_camera / open_slm
-        Construct a device and return it ready to use, in one call. This is the
-        recommended way to obtain a device.
+- :func:`~hologradpy.hardware.factory.open_camera` and
+  :func:`~hologradpy.hardware.factory.open_slm` construct a device and return it ready
+  to use, in one call. This is the recommended way to obtain a device.
 
-    as_camera / as_slm
-        Adapt a device you have already constructed. Idempotent, so it is safe to call
-        on a device that is already native.
+- :func:`~hologradpy.hardware.as_native.as_camera` and
+  :func:`~hologradpy.hardware.as_native.as_slm` adapt a device you have already
+  constructed. They are safe to call on a device that is already native.
 
-    register_camera_backend / register_slm_backend
-        Give a driver class a short name, so open_camera / open_slm can build it by
-        name, for example ``open_camera("thorcam", serial=...)``.
+- :func:`~hologradpy.hardware.factory.register_camera_backend` and
+  :func:`~hologradpy.hardware.factory.register_slm_backend` give a driver class a short
+  name, so ``open_camera`` and ``open_slm`` can build it by name, for example
+  ``open_camera("thorcam", serial=...)``.
 
-Two conventions hold for every native device.
+.. important::
+   Geometry is ``(y, x) = (height, width)``. A per axis quantity such as ``pixel_size``
+   is ordered ``(y, x)``, and regions of interest are ``(row, col)``.
 
-    Geometry is (y, x) = (height, width). A per axis quantity such as pixel_size is
-    ordered (y, x), and regions of interest are (row, col).
-
-    Units are SI. pixel_size and wavelength are in metres, exposure is in seconds.
+   Units are SI. ``pixel_size`` and ``wavelength`` are in metres, ``exposure`` is in
+   seconds.
 """
 
 # %% Imports
@@ -50,6 +51,7 @@ from hologradpy.optics.systems import SLMFFTAffine
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
 from hologradpy.utils import get_device
+from hologradpy.visualizer import image_grid
 
 device = get_device(verbose=True)
 
@@ -132,10 +134,7 @@ print("exposure now:", camera.get_exposure(), "s")
 frame = camera.get_image()
 print("frame shape (h, w):", frame.shape, "dtype:", frame.dtype)
 
-plt.figure()
-plt.imshow(frame, cmap="turbo")
-plt.title("Full frame")
-plt.colorbar()
+image_grid(frame, "Full frame", cmap="turbo").build()
 
 # %% 
 # Regions of interest with ROI
@@ -157,10 +156,7 @@ print("cropped frame shape (h, w):", cropped.shape)
 patch = frame[window.rows, window.columns]
 print("patch from the stored full frame:", patch.shape)
 
-plt.figure()
-plt.imshow(cropped, cmap="turbo")
-plt.title("Region of interest")
-plt.colorbar()
+image_grid(cropped, "Region of interest", cmap="turbo").build()
 
 # Passing None resets the camera to the full sensor.
 camera.set_roi(None)

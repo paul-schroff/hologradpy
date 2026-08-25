@@ -1532,6 +1532,76 @@
    "name": "get_device"
   }
  ],
+ "hologradpy.hardware.as_native.as_camera": [
+  {
+   "is_class": false,
+   "is_explicit": true,
+   "module": "hologradpy.hardware.as_native",
+   "module_short": "hologradpy.hardware",
+   "name": "as_camera"
+  }
+ ],
+ "hologradpy.hardware.as_native.as_slm": [
+  {
+   "is_class": false,
+   "is_explicit": true,
+   "module": "hologradpy.hardware.as_native",
+   "module_short": "hologradpy.hardware",
+   "name": "as_slm"
+  }
+ ],
+ "hologradpy.hardware.factory.open_camera": [
+  {
+   "is_class": false,
+   "is_explicit": true,
+   "module": "hologradpy.hardware.factory",
+   "module_short": "hologradpy.hardware",
+   "name": "open_camera"
+  }
+ ],
+ "hologradpy.hardware.factory.open_slm": [
+  {
+   "is_class": false,
+   "is_explicit": true,
+   "module": "hologradpy.hardware.factory",
+   "module_short": "hologradpy.hardware",
+   "name": "open_slm"
+  }
+ ],
+ "hologradpy.hardware.factory.register_camera_backend": [
+  {
+   "is_class": false,
+   "is_explicit": true,
+   "module": "hologradpy.hardware.factory",
+   "module_short": "hologradpy.hardware",
+   "name": "register_camera_backend"
+  }
+ ],
+ "hologradpy.hardware.factory.register_slm_backend": [
+  {
+   "is_class": false,
+   "is_explicit": true,
+   "module": "hologradpy.hardware.factory",
+   "module_short": "hologradpy.hardware",
+   "name": "register_slm_backend"
+  }
+ ],
+ "image_grid": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "image_grid"
+  }
+ ],
  "named_slm": [
   {
    "is_class": false,
@@ -1642,54 +1712,6 @@
    "name": "tuple"
   }
  ],
- "plt.colorbar": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "function"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "matplotlib.pyplot",
-   "module_short": "matplotlib.pyplot",
-   "name": "colorbar"
-  }
- ],
- "plt.figure": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "function"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "matplotlib.pyplot",
-   "module_short": "matplotlib.pyplot",
-   "name": "figure"
-  }
- ],
- "plt.imshow": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "function"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "matplotlib.pyplot",
-   "module_short": "matplotlib.pyplot",
-   "name": "imshow"
-  }
- ],
  "plt.show": [
   {
    "is_class": false,
@@ -1704,22 +1726,6 @@
    "module": "matplotlib.pyplot",
    "module_short": "matplotlib.pyplot",
    "name": "show"
-  }
- ],
- "plt.title": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "function"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "matplotlib.pyplot",
-   "module_short": "matplotlib.pyplot",
-   "name": "title"
   }
  ],
  "raw_slm": [
