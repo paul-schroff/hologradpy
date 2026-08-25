@@ -36,7 +36,7 @@ cost function that constrains both intensity and phase,
 :class:`~hologradpy.loss_functions.LossFidelity`, is equation 5 of Bowman et al.,
 `Opt. Express 25, 11692 (2017) <https://doi.org/10.1364/OE.25.011692>`_.
 
-.. GENERATED FROM PYTHON SOURCE LINES 22-89
+.. GENERATED FROM PYTHON SOURCE LINES 22-90
 
 .. code-block:: Python
 
@@ -106,6 +106,7 @@ cost function that constrains both intensity and phase,
     GIF_FPS = 4
     GIF_SCALE = 6
     GIF_SCALE_BAR = 50e-6
+    GIF_ANNOTATION_INDEX = 255
 
 
 
@@ -120,7 +121,13 @@ cost function that constrains both intensity and phase,
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 90-127
+.. GENERATED FROM PYTHON SOURCE LINES 91-94
+
+The SLM and the incident Gaussian beam
+--------------------------------------
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 94-131
 
 .. code-block:: Python
 
@@ -168,7 +175,13 @@ cost function that constrains both intensity and phase,
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 128-162
+.. GENERATED FROM PYTHON SOURCE LINES 132-135
+
+1D top hat target with diffraction-limited shoulders and width
+--------------------------------------------------------------
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 135-169
 
 .. code-block:: Python
 
@@ -221,7 +234,13 @@ cost function that constrains both intensity and phase,
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 163-186
+.. GENERATED FROM PYTHON SOURCE LINES 170-173
+
+How much light there is to lose
+-------------------------------
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 173-196
 
 .. code-block:: Python
 
@@ -262,7 +281,12 @@ cost function that constrains both intensity and phase,
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 187-224
+.. GENERATED FROM PYTHON SOURCE LINES 197-199
+
+Top hat optimized with an intensity-only cost
+---------------------------------------------
+
+.. GENERATED FROM PYTHON SOURCE LINES 199-236
 
 .. code-block:: Python
 
@@ -324,7 +348,13 @@ cost function that constrains both intensity and phase,
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 225-247
+.. GENERATED FROM PYTHON SOURCE LINES 237-240
+
+Optimize again, this time constraining the phase as well
+--------------------------------------------------------
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 240-262
 
 .. code-block:: Python
 
@@ -369,7 +399,13 @@ cost function that constrains both intensity and phase,
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 248-307
+.. GENERATED FROM PYTHON SOURCE LINES 263-266
+
+Compare the two
+---------------
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 266-325
 
 .. code-block:: Python
 
@@ -452,14 +488,14 @@ cost function that constrains both intensity and phase,
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 308-312
+.. GENERATED FROM PYTHON SOURCE LINES 326-330
 
 Generating the animation for the documentation's front page
 -----------------------------------------------------------
 Anchored on the package rather than __file__, which the gallery runner does not
 define when it executes this script.
 
-.. GENERATED FROM PYTHON SOURCE LINES 312-392
+.. GENERATED FROM PYTHON SOURCE LINES 330-424
 
 .. code-block:: Python
 
@@ -478,16 +514,24 @@ define when it executes this script.
     crop = region_bounding_box(gpu_to_numpy(signal_region))
     frames = [frame[crop] for frame in frames]
 
-    peak = max(float(np.max(frame)) for frame in frames)
     print(
         f"frame peaks: first {np.max(frames[0]):.3g}, last {np.max(frames[-1]):.3g}, "
-        f"scaling to {peak:.3g}"
+        "each frame normalized to its own peak"
     )
-    scale = 255.0 / peak
-    images = [
-        Image.fromarray(np.clip(frame * scale, 0, 255).astype(np.uint8), mode="L")
-        for frame in frames
-    ]
+
+    colours = plt.get_cmap(INTENSITY_CMAP)(np.linspace(0.0, 1.0, GIF_ANNOTATION_INDEX))
+    gif_palette = (
+        (np.vstack([colours[:, :3], [1.0, 1.0, 1.0]]) * 255).round().astype(np.uint8)
+    )
+
+    top = GIF_ANNOTATION_INDEX - 1
+    images = []
+    for frame in frames:
+        image = Image.fromarray(
+            np.clip(frame / frame.max() * top, 0, top).astype(np.uint8), mode="P"
+        )
+        image.putpalette(gif_palette.tobytes())
+        images.append(image)
 
     target_crop = gpu_to_numpy(target_intensity)[crop]
     lit_crop = lit[crop]
@@ -518,14 +562,20 @@ define when it executes this script.
 
     for image, rmse in zip(images, frame_rmse):
         draw = ImageDraw.Draw(image)
-        draw.text((margin, margin), f"RMSE: {rmse * 100:.1f} %", fill=255, font=font)
-        # The bar rests on top of the length it stands for.
+        draw.text(
+            (margin, margin),
+            f"RMSE: {rmse * 100:.1f} %",
+            fill=GIF_ANNOTATION_INDEX,
+            font=font,
+        )
+
         label_top = height - margin - label_height
         bar_top = label_top - bar_thickness - GIF_SCALE // 2
         draw.rectangle(
-            [margin, bar_top, margin + bar_length, bar_top + bar_thickness - 1], fill=255
+            [margin, bar_top, margin + bar_length, bar_top + bar_thickness - 1],
+            fill=GIF_ANNOTATION_INDEX,
         )
-        draw.text((margin, label_top), scale_label, fill=255, font=font)
+        draw.text((margin, label_top), scale_label, fill=GIF_ANNOTATION_INDEX, font=font)
 
 
     GIF_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -551,8 +601,8 @@ define when it executes this script.
 
  .. code-block:: none
 
-    frame peaks: first 4.1e+03, last 2.09e+03, scaling to 4.1e+03
-    wrote top_hat_beam_shaping.gif: 31 frames, 294x642, 454 kB
+    frame peaks: first 4.1e+03, last 2.09e+03, each frame normalized to its own peak
+    wrote top_hat_beam_shaping.gif: 31 frames, 294x642, 597 kB
 
 
 
@@ -560,7 +610,7 @@ define when it executes this script.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (1 minutes 2.023 seconds)
+   **Total running time of the script:** (0 minutes 54.884 seconds)
 
 
 .. _sphx_glr_download_auto_examples_phase_retrieval_top_hat_beam_shaping.py:

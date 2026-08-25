@@ -125,6 +125,15 @@
    "name": "FieldGeometry"
   }
  ],
+ "GIF_ANNOTATION_INDEX": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "int"
+  }
+ ],
  "GIF_FPS": [
   {
    "is_class": false,
@@ -1452,6 +1461,15 @@
    "name": "str"
   }
  ],
+ "colours": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
  "crop": [
   {
    "is_class": false,
@@ -1690,6 +1708,24 @@
    "name": "findfont"
   }
  ],
+ "frame": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "frame.max": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
  "frame_rmse": [
   {
    "is_class": false,
@@ -1754,6 +1790,24 @@
    "module": "hologradpy.profiles.amplitude",
    "module_short": "hologradpy.profiles",
    "name": "get_focal_spot_radius"
+  }
+ ],
+ "gif_palette": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "gif_palette.tobytes": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
   }
  ],
  "gpu_to_numpy": [
@@ -1822,6 +1876,22 @@
    "name": "Image"
   }
  ],
+ "image.putpalette": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "PIL.Image",
+   "module_short": "PIL.Image",
+   "name": "Image.putpalette"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "PIL",
+   "module_short": "PIL",
+   "name": "Image.putpalette"
+  }
+ ],
  "image.resize": [
   {
    "is_class": false,
@@ -1861,6 +1931,15 @@
    "module": "builtins",
    "module_short": "builtins",
    "name": "list"
+  }
+ ],
+ "images.append": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
   }
  ],
  "incident_power": [
@@ -2067,6 +2146,22 @@
    "name": "exp"
   }
  ],
+ "np.linspace": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "linspace"
+  }
+ ],
  "np.log": [
   {
    "is_class": false,
@@ -2207,6 +2302,22 @@
    "name": "uint8"
   }
  ],
+ "np.vstack": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "vstack"
+  }
+ ],
  "open_slm": [
   {
    "is_class": false,
@@ -2224,15 +2335,6 @@
   }
  ],
  "order_half_extent": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "float"
-  }
- ],
- "peak": [
   {
    "is_class": false,
    "is_explicit": false,
@@ -2539,6 +2641,22 @@
    "name": "float"
   }
  ],
+ "plt.get_cmap": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.pyplot",
+   "module_short": "matplotlib.pyplot",
+   "name": "get_cmap"
+  }
+ ],
  "plt.show": [
   {
    "is_class": false,
@@ -2653,15 +2771,6 @@
    "module": "builtins",
    "module_short": "builtins",
    "name": "str"
-  }
- ],
- "scale": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "float"
   }
  ],
  "scale_label": [
@@ -3520,6 +3629,15 @@
    "module": "tempfile",
    "module_short": "tempfile",
    "name": "mkdtemp"
+  }
+ ],
+ "top": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "int"
   }
  ],
  "top_hat_1D": [
