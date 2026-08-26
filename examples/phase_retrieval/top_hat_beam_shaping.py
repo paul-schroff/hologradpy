@@ -49,9 +49,7 @@ from hologradpy.utils import get_device, gpu_to_numpy
 from hologradpy.visualizer import (
     INTENSITY_CMAP,
     PHASE_CMAP,
-    GridCell,
-    PlotBuilder,
-    PlotLayout,
+    image_grid,
     region_bounding_box,
 )
 
@@ -290,37 +288,37 @@ phase_limit = float(
     np.nanmax(np.abs(np.stack([results[label][1] for label in results])))
 )
 
-aspect = target.shape[0] / target.shape[1]
-layout = PlotLayout(column_width=3.6, margins=(1.0, 0.15, 0.5, 0.5))
-for row in ("intensity", "phase"):
-    layout.add_row(
-        [
-            GridCell(f"target_{row}", aspect=aspect, colorbar=True),
-            GridCell(f"absolute_{row}", aspect=aspect, colorbar=True),
-            GridCell(f"fidelity_{row}", aspect=aspect, colorbar=True),
-        ]
+# The camera grid is in metres and the features here are tens of microns across.
+camera_extent = tuple(
+    float(value) * 1e6
+    for value in (
+        camera_x.min(), camera_x.max(), camera_y.max(), camera_y.min()
     )
+)
 
-builder = PlotBuilder(layout)
-builder.draw_image(
-    "target_intensity", target, cmap=INTENSITY_CMAP, vmin=0.0, vmax=1.0, title="target"
-)
-builder.draw_image(
-    "target_phase", target_phase_over_trap, cmap=PHASE_CMAP,
-    vmin=-phase_limit, vmax=phase_limit, title="target phase (flat)",
-)
-for cell, label in (("absolute", "absolute"), ("fidelity", "fidelity")):
-    intensity, masked_phase, rmse, spread = results[label]
-    builder.draw_image(
-        f"{cell}_intensity", intensity, cmap=INTENSITY_CMAP, vmin=0.0, vmax=1.0,
-        title=f"{label} (rmse {rmse:.3f})",
-    )
-    builder.draw_image(
-        f"{cell}_phase", masked_phase, cmap=PHASE_CMAP,
-        vmin=-phase_limit, vmax=phase_limit,
-        title=f"phase, {label} (std {spread:.2f} rad)",
-    )
-builder.build()
+labels = ("absolute", "fidelity")
+intensities = [target] + [results[label][0] for label in labels]
+phases = [target_phase_over_trap] + [results[label][1] for label in labels]
+
+image_grid(
+    [intensities, phases],
+    titles=(
+        ["target"]
+        + [f"{label} (rmse {results[label][2]:.3f})" for label in labels]
+        + ["target phase (flat)"]
+        + [f"phase, {label} (std {results[label][3]:.2f} rad)" for label in labels]
+    ),
+    cmap=[INTENSITY_CMAP] * 3 + [PHASE_CMAP] * 3,
+    vmin=[0.0] * 3 + [-phase_limit] * 3,
+    vmax=[1.0] * 3 + [phase_limit] * 3,
+    # Every panel in a row shares its scale, so one bar at the end of each says it all.
+    merge_colorbars=True,
+    colorbar_label=["normalized intensity [a. u.]"] * 3 + ["phase [rad]"] * 3,
+    extent=camera_extent,
+    xlabel=r"x [$\mu$m]",
+    ylabel=r"y [$\mu$m]",
+    column_width=2.2,
+).build()
 
 # %%
 # Generating the animation for the documentation's front page
@@ -385,7 +383,7 @@ margin, bar_thickness = 2 * GIF_SCALE, GIF_SCALE
 width, height = images[0].size
 
 
-scale_label = f"{GIF_SCALE_BAR * 1e6:.0f} µm"
+scale_label = f"{GIF_SCALE_BAR * 1e6:.0f} \u00b5m"
 label_height = font.getbbox(scale_label)[3]
 
 for image, rmse in zip(images, frame_rmse):

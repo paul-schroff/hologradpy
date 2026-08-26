@@ -675,6 +675,108 @@ def test_image_grid_puts_every_panel_on_one_scale_when_asked():
     assert limits[0] == limits[1] == (1.0, 5.0)
 
 
+def test_image_grid_merges_the_colorbars_of_panels_sharing_a_scale():
+    """Three panels on one scale need one bar, not three saying the same thing."""
+    from hologradpy.visualizer import image_grid
+
+    row = [np.zeros((8, 8)) for _ in range(3)]
+
+    builder = image_grid([row, row], vmin=0.0, vmax=1.0, merge_colorbars=True)
+    cells = [cell for layout_row in builder.layout._rows for cell in layout_row]
+
+    assert [cell.colorbar for cell in cells] == [False, False, True] * 2
+
+
+def test_merging_colorbars_takes_their_width_out_of_the_figure():
+    """Dropping a bar has to reclaim its column, or the row just grows a gap where it
+    used to be. The panels keep their size and the figure loses the width instead.
+    """
+    from hologradpy.visualizer import image_grid
+
+    row = [np.zeros((8, 8)) for _ in range(3)]
+    kwargs = dict(vmin=0.0, vmax=1.0, column_width=3.0)
+
+    merged = image_grid([row], merge_colorbars=True, **kwargs).build()
+    separate = image_grid([row], **kwargs).build()
+    layout = image_grid([row], **kwargs).layout
+    dropped = 2 * (
+        layout.colorbar_pad + layout.colorbar_width + layout.colorbar_label_width
+    )
+
+    assert merged.get_size_inches()[0] == pytest.approx(
+        separate.get_size_inches()[0] - dropped, abs=0.05
+    )
+    assert (
+        merged.axes[0].get_position().width * merged.get_size_inches()[0]
+    ) == pytest.approx(
+        separate.axes[0].get_position().width * separate.get_size_inches()[0], rel=0.02
+    )
+    plt.close(merged)
+    plt.close(separate)
+
+
+def test_panels_left_to_scale_themselves_keep_their_own_colorbars():
+    """Without limits each panel scales to its own data, so equal bars would lie."""
+    from hologradpy.visualizer import image_grid
+
+    builder = image_grid(
+        [[np.zeros((8, 8)), np.ones((8, 8))]], merge_colorbars=True
+    )
+    cells = [cell for row in builder.layout._rows for cell in row]
+
+    assert [cell.colorbar for cell in cells] == [True, True]
+
+
+def test_image_grid_labels_the_outer_panels_only():
+    """Interior panels repeat their neighbours' numbers, which only crowds the grid."""
+    from hologradpy.visualizer import image_grid
+
+    row = [np.zeros((8, 8)) for _ in range(2)]
+    figure = image_grid(
+        [row, row], extent=(-5.0, 5.0, 5.0, -5.0), xlabel="x [um]", ylabel="y [um]"
+    ).build()
+    panels = [axs for axs in figure.axes if axs.images]
+
+    def numbered(axis) -> bool:
+        return any(label.get_visible() for label in axis.get_ticklabels())
+
+    top_left, top_right, bottom_left, bottom_right = panels
+    assert [axs.get_xlabel() for axs in panels] == ["", "", "x [um]", "x [um]"]
+    assert [axs.get_ylabel() for axs in panels] == ["y [um]", "", "y [um]", ""]
+    assert [numbered(axs.xaxis) for axs in panels] == [False, False, True, True]
+    assert [numbered(axs.yaxis) for axs in panels] == [True, False, True, False]
+    plt.close(figure)
+
+
+def test_an_extent_puts_the_image_on_its_own_coordinates():
+    """The point of the extent: pixels are addressed in microns, not indices."""
+    from hologradpy.visualizer import image_grid
+
+    extent = (-110.0, 110.0, 165.0, -165.0)
+    figure = image_grid([np.zeros((8, 8))], extent=extent).build()
+    image = next(axs.images[0] for axs in figure.axes if axs.images)
+
+    assert tuple(image.get_extent()) == extent
+    plt.close(figure)
+
+
+def test_both_axes_of_a_panel_get_the_same_tick_spacing():
+    """Matplotlib budgets ticks from a label's width on x but its height on y, so a
+    square panel over one range comes out with twice as many ticks on y. One budget for
+    both is what makes the grid read as a map.
+    """
+    from hologradpy.visualizer import image_grid
+
+    figure = image_grid(
+        [np.zeros((128, 128))], extent=(-220.0, 220.0, 220.0, -220.0), max_ticks=5
+    ).build()
+    figure.canvas.draw()
+    panel = next(axs for axs in figure.axes if axs.images)
+
+    assert list(panel.get_xticks()) == list(panel.get_yticks())
+    plt.close(figure)
+
+
 def test_image_grid_centres_a_symmetric_scale_on_zero():
     """So the neutral colour of a diverging map means agreement, not the midpoint."""
     from hologradpy.visualizer import image_grid

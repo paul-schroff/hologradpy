@@ -27,6 +27,10 @@ HoloGradPy Documentation
 
       :octicon:`book` Publications
 
+.. warning::
+   This package and its documentation are work in progress and might change without
+   notice.
+
 .. sidebar:: Top-hat beam
    :class: animation
 
@@ -65,10 +69,6 @@ HoloGradPy Documentation
 .. hint::
    The algorithms in this package work best with CUDA acceleration, especially when
    modelling pixel crosstalk on the SLM.
-
-.. warning::
-   This package and its documentation are work in progress and might change without
-   notice.
 
 .. include:: ../README.md
    :parser: myst_parser.sphinx_

@@ -35,6 +35,7 @@ from matplotlib.axes import Axes
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.cm import ScalarMappable
 from matplotlib.figure import Figure
+from matplotlib.ticker import MaxNLocator
 from mpl_toolkits.axes_grid1 import Divider, Size
 from numpy.typing import ArrayLike
 from PIL import Image
@@ -382,17 +383,39 @@ class BaseVisualizer:
         vmax: float | None = None,
         title: str | None = None,
         interpolation: str | None = None,
+        extent: tuple[float, float, float, float] | None = None,
+        xlabel: str | None = None,
+        ylabel: str | None = None,
+        xticklabels: bool = True,
+        yticklabels: bool = True,
+        max_ticks: int | None = None,
     ) -> ScalarMappable:
-        """Show ``data`` as an image and return the mappable (for a colorbar)."""
-        axs.set_xticks([])
-        axs.set_yticks([])
+        """Show ``data`` as an image and return the mappable (for a colorbar).
+
+        Without ``extent``, the axes carry no ticks. Supply one as ``(left, right,
+        bottom, top)``, and the image is placed on those coordinates and keeps its
+        ticks.
+        """
+        if extent is None:
+            axs.set_xticks([])
+            axs.set_yticks([])
         mappable = axs.imshow(
             np.asarray(data),
             cmap=cmap,
             vmin=vmin,
             vmax=vmax,
             interpolation=interpolation,
+            extent=extent,
         )
+        if extent is not None:
+            axs.tick_params(labelbottom=xticklabels, labelleft=yticklabels)
+            if max_ticks is not None:
+                axs.xaxis.set_major_locator(MaxNLocator(nbins=max_ticks))
+                axs.yaxis.set_major_locator(MaxNLocator(nbins=max_ticks))
+        if xlabel is not None:
+            axs.set_xlabel(xlabel)
+        if ylabel is not None:
+            axs.set_ylabel(ylabel)
         if title is not None:
             axs.set_title(title)
         return mappable
@@ -809,6 +832,38 @@ def _per_panel(value: Any, count: int, label: str) -> list[Any]:
     return values
 
 
+def _is_extent(value: Any) -> bool:
+    """Whether ``value`` is a single extent rather than one per panel."""
+    return (
+        value is not None
+        and not isinstance(value, str)
+        and len(list(value)) == 4
+        and all(np.isscalar(item) for item in value)
+    )
+
+
+def _drop_repeated_colorbars(
+    rows: list[list[Any]],
+    colorbars: list[Any],
+    cmaps: list[Any],
+    vmins: list[Any],
+    vmaxs: list[Any],
+) -> list[Any]:
+    """Keep last colorbar per run of panels sharing a colour scale."""
+    kept = list(colorbars)
+    index = 0
+    for row in rows:
+        for offset in range(len(row) - 1):
+            here = index + offset
+            if vmins[here] is None or vmaxs[here] is None:
+                continue
+            scale = (cmaps[here], vmins[here], vmaxs[here])
+            if scale == (cmaps[here + 1], vmins[here + 1], vmaxs[here + 1]):
+                kept[here] = False
+        index += len(row)
+    return kept
+
+
 def image_grid(
     images: Any,
     titles: Any = None,
@@ -818,7 +873,12 @@ def image_grid(
     shared_scale: bool = False,
     symmetric: bool = False,
     colorbar: bool = True,
+    merge_colorbars: bool = False,
     colorbar_label: Any = None,
+    extent: Any = None,
+    xlabel: Any = None,
+    ylabel: Any = None,
+    max_ticks: int = 5,
     column_width: float = 3.6,
     names: Sequence[str] | None = None,
     **layout_kwargs: Any,
@@ -840,7 +900,17 @@ def image_grid(
         shared_scale: Put every panel on one scale, spanning all of them.
         symmetric: Centre the scale on zero, using the largest magnitude present.
         colorbar: Whether to give each panel a colorbar.
-        colorbar_label: One label naming what the values are, or one per image.
+        merge_colorbars: Drop the colorbar of any panel whose right-hand neighbour
+            repeats its colour scale, keeping the last bar of each run and handing the
+            space back to the images. Panels that auto scale keep their own bars.
+        colorbar_label: Single label naming what the values are, or one per image.
+        extent: ``(left, right, bottom, top)`` in data coordinates, or one per image.
+        xlabel: Axis label for the bottom row, naming the horizontal coordinate.
+            Needs ``extent``.
+        ylabel: Axis label for the leftmost column. Needs ``extent``.
+        max_ticks: Most ticks either axis of a panel may carry. Both axes get
+            the same budget, so ones over the same range come out on the same
+            spacing instead of matplotlib fitting about twice as many on y.
         column_width: Width of one grid column in inches.
         names: Cell names to address panels by. Defaults to ``"0"``, ``"1"``, and so on.
         **layout_kwargs: Passed to :class:`PlotLayout`, for example ``margins``. The
@@ -880,10 +950,33 @@ def image_grid(
     per_vmax = _per_panel(vmax, count, "vmax")
     per_colorbar = _per_panel(colorbar, count, "colorbar")
     per_colorbar_label = _per_panel(colorbar_label, count, "colorbar_label")
+    per_extent = (
+        [tuple(extent)] * count
+        if _is_extent(extent)
+        else _per_panel(extent, count, "extent")
+    )
+    per_xlabel = _per_panel(xlabel, count, "xlabel")
+    per_ylabel = _per_panel(ylabel, count, "ylabel")
+    if merge_colorbars:
+        per_colorbar = _drop_repeated_colorbars(
+            rows, per_colorbar, per_cmap, per_vmin, per_vmax
+        )
+
+    # Tick labels go on the outer panels only: the bottom row for x, the leftmost
+    # column for y.
+    on_bottom_row, in_first_column = [], []
+    for row_index, row in enumerate(rows):
+        for offset in range(len(row)):
+            on_bottom_row.append(row_index == len(rows) - 1)
+            in_first_column.append(offset == 0)
 
     if "margins" not in layout_kwargs:
         titled = any(title is not None for title in per_title)
-        layout_kwargs["margins"] = (0.12, 0.12, 0.32 if titled else 0.12, 0.12)
+        # Ticks and their labels need a border to live in.
+        scaled = any(item is not None for item in per_extent)
+        left = 0.12 + (0.42 if scaled else 0.0) + (0.22 if any(per_ylabel) else 0.0)
+        bottom = 0.12 + (0.34 if scaled else 0.0) + (0.22 if any(per_xlabel) else 0.0)
+        layout_kwargs["margins"] = (left, 0.12, 0.32 if titled else 0.12, bottom)
     layout_kwargs.setdefault("fit_right", True)
 
     layout = PlotLayout(column_width=column_width, **layout_kwargs)
@@ -912,6 +1005,12 @@ def image_grid(
             vmin=per_vmin[position],
             vmax=per_vmax[position],
             title=per_title[position],
+            extent=per_extent[position],
+            xlabel=per_xlabel[position] if on_bottom_row[position] else None,
+            ylabel=per_ylabel[position] if in_first_column[position] else None,
+            xticklabels=on_bottom_row[position],
+            yticklabels=in_first_column[position],
+            max_ticks=max_ticks,
         )
     return builder
 
