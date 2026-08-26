@@ -6,7 +6,7 @@
 
 Computation times
 =================
-**00:54.884** total execution time for 3 files **from auto_examples\phase_retrieval**:
+**00:51.398** total execution time for 3 files **from auto_examples\phase_retrieval**:
 
 .. container::
 
@@ -33,7 +33,7 @@ Computation times
      - Time
      - Mem (MB)
    * - :ref:`sphx_glr_auto_examples_phase_retrieval_top_hat_beam_shaping.py` (``top_hat_beam_shaping.py``)
-     - 00:54.884
+     - 00:51.398
      - 0.0
    * - :ref:`sphx_glr_auto_examples_phase_retrieval_gradient_phase_retrieval.py` (``gradient_phase_retrieval.py``)
      - 00:00.000

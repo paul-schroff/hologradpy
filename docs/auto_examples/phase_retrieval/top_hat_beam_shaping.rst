@@ -36,7 +36,7 @@ cost function that constrains both intensity and phase,
 :class:`~hologradpy.loss_functions.LossFidelity`, is equation 5 of Bowman et al.,
 `Opt. Express 25, 11692 (2017) <https://doi.org/10.1364/OE.25.011692>`_.
 
-.. GENERATED FROM PYTHON SOURCE LINES 22-90
+.. GENERATED FROM PYTHON SOURCE LINES 22-88
 
 .. code-block:: Python
 
@@ -70,9 +70,7 @@ cost function that constrains both intensity and phase,
     from hologradpy.visualizer import (
         INTENSITY_CMAP,
         PHASE_CMAP,
-        GridCell,
-        PlotBuilder,
-        PlotLayout,
+        image_grid,
         region_bounding_box,
     )
 
@@ -121,13 +119,13 @@ cost function that constrains both intensity and phase,
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 91-94
+.. GENERATED FROM PYTHON SOURCE LINES 89-92
 
 The SLM and the incident Gaussian beam
 --------------------------------------
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 94-131
+.. GENERATED FROM PYTHON SOURCE LINES 92-129
 
 .. code-block:: Python
 
@@ -175,13 +173,13 @@ The SLM and the incident Gaussian beam
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 132-135
+.. GENERATED FROM PYTHON SOURCE LINES 130-133
 
 1D top hat target with diffraction-limited shoulders and width
 --------------------------------------------------------------
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 135-169
+.. GENERATED FROM PYTHON SOURCE LINES 133-167
 
 .. code-block:: Python
 
@@ -234,13 +232,13 @@ The SLM and the incident Gaussian beam
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 170-173
+.. GENERATED FROM PYTHON SOURCE LINES 168-171
 
 How much light there is to lose
 -------------------------------
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 173-196
+.. GENERATED FROM PYTHON SOURCE LINES 171-194
 
 .. code-block:: Python
 
@@ -281,12 +279,12 @@ How much light there is to lose
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 197-199
+.. GENERATED FROM PYTHON SOURCE LINES 195-197
 
 Top hat optimized with an intensity-only cost
 ---------------------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 199-236
+.. GENERATED FROM PYTHON SOURCE LINES 197-234
 
 .. code-block:: Python
 
@@ -348,13 +346,13 @@ Top hat optimized with an intensity-only cost
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 237-240
+.. GENERATED FROM PYTHON SOURCE LINES 235-238
 
 Optimize again, this time constraining the phase as well
 --------------------------------------------------------
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 240-262
+.. GENERATED FROM PYTHON SOURCE LINES 238-260
 
 .. code-block:: Python
 
@@ -399,13 +397,13 @@ Optimize again, this time constraining the phase as well
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 263-266
+.. GENERATED FROM PYTHON SOURCE LINES 261-264
 
 Compare the two
 ---------------
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 266-325
+.. GENERATED FROM PYTHON SOURCE LINES 264-323
 
 .. code-block:: Python
 
@@ -436,37 +434,37 @@ Compare the two
         np.nanmax(np.abs(np.stack([results[label][1] for label in results])))
     )
 
-    aspect = target.shape[0] / target.shape[1]
-    layout = PlotLayout(column_width=3.6, margins=(1.0, 0.15, 0.5, 0.5))
-    for row in ("intensity", "phase"):
-        layout.add_row(
-            [
-                GridCell(f"target_{row}", aspect=aspect, colorbar=True),
-                GridCell(f"absolute_{row}", aspect=aspect, colorbar=True),
-                GridCell(f"fidelity_{row}", aspect=aspect, colorbar=True),
-            ]
+    # The camera grid is in metres and the features here are tens of microns across.
+    camera_extent = tuple(
+        float(value) * 1e6
+        for value in (
+            camera_x.min(), camera_x.max(), camera_y.max(), camera_y.min()
         )
+    )
 
-    builder = PlotBuilder(layout)
-    builder.draw_image(
-        "target_intensity", target, cmap=INTENSITY_CMAP, vmin=0.0, vmax=1.0, title="target"
-    )
-    builder.draw_image(
-        "target_phase", target_phase_over_trap, cmap=PHASE_CMAP,
-        vmin=-phase_limit, vmax=phase_limit, title="target phase (flat)",
-    )
-    for cell, label in (("absolute", "absolute"), ("fidelity", "fidelity")):
-        intensity, masked_phase, rmse, spread = results[label]
-        builder.draw_image(
-            f"{cell}_intensity", intensity, cmap=INTENSITY_CMAP, vmin=0.0, vmax=1.0,
-            title=f"{label} (rmse {rmse:.3f})",
-        )
-        builder.draw_image(
-            f"{cell}_phase", masked_phase, cmap=PHASE_CMAP,
-            vmin=-phase_limit, vmax=phase_limit,
-            title=f"phase, {label} (std {spread:.2f} rad)",
-        )
-    builder.build()
+    labels = ("absolute", "fidelity")
+    intensities = [target] + [results[label][0] for label in labels]
+    phases = [target_phase_over_trap] + [results[label][1] for label in labels]
+
+    image_grid(
+        [intensities, phases],
+        titles=(
+            ["target"]
+            + [f"{label} (rmse {results[label][2]:.3f})" for label in labels]
+            + ["target phase (flat)"]
+            + [f"phase, {label} (std {results[label][3]:.2f} rad)" for label in labels]
+        ),
+        cmap=[INTENSITY_CMAP] * 3 + [PHASE_CMAP] * 3,
+        vmin=[0.0] * 3 + [-phase_limit] * 3,
+        vmax=[1.0] * 3 + [phase_limit] * 3,
+        # Every panel in a row shares its scale, so one bar at the end of each says it all.
+        merge_colorbars=True,
+        colorbar_label=["normalized intensity [a. u.]"] * 3 + ["phase [rad]"] * 3,
+        extent=camera_extent,
+        xlabel=r"x [$\mu$m]",
+        ylabel=r"y [$\mu$m]",
+        column_width=2.2,
+    ).build()
 
 
 
@@ -484,18 +482,18 @@ Compare the two
     absolute : phase spread 1.299 rad, rmse 0.0031, 99.5% of the light kept
     fidelity : phase spread 0.013 rad, rmse 0.0120, 46.9% of the light kept
 
-    <Figure size 1459x870 with 12 Axes>
+    <Figure size 882.278x590 with 8 Axes>
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 326-330
+.. GENERATED FROM PYTHON SOURCE LINES 324-328
 
 Generating the animation for the documentation's front page
 -----------------------------------------------------------
 Anchored on the package rather than __file__, which the gallery runner does not
 define when it executes this script.
 
-.. GENERATED FROM PYTHON SOURCE LINES 330-424
+.. GENERATED FROM PYTHON SOURCE LINES 328-422
 
 .. code-block:: Python
 
@@ -557,7 +555,7 @@ define when it executes this script.
     width, height = images[0].size
 
 
-    scale_label = f"{GIF_SCALE_BAR * 1e6:.0f} µm"
+    scale_label = f"{GIF_SCALE_BAR * 1e6:.0f} \u00b5m"
     label_height = font.getbbox(scale_label)[3]
 
     for image, rmse in zip(images, frame_rmse):
@@ -610,7 +608,7 @@ define when it executes this script.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 54.884 seconds)
+   **Total running time of the script:** (0 minutes 51.398 seconds)
 
 
 .. _sphx_glr_download_auto_examples_phase_retrieval_top_hat_beam_shaping.py:

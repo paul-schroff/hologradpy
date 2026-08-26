@@ -343,29 +343,6 @@
    "name": "GradientPhaseRetriever"
   }
  ],
- "GridCell": [
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "hologradpy.visualizer",
-   "module_short": "hologradpy.visualizer",
-   "name": "GridCell"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "hologradpy",
-   "module_short": "hologradpy",
-   "name": "GridCell"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy.visualizer",
-   "module_short": "hologradpy.visualizer",
-   "name": "GridCell"
-  }
- ],
  "INTENSITY_CMAP": [
   {
    "is_class": false,
@@ -764,52 +741,6 @@
    "module": "hologradpy.optics.modules.slm_fields",
    "module_short": "hologradpy.optics.modules",
    "name": "PixelwiseSLMField"
-  }
- ],
- "PlotBuilder": [
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "hologradpy.visualizer",
-   "module_short": "hologradpy.visualizer",
-   "name": "PlotBuilder"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "hologradpy",
-   "module_short": "hologradpy",
-   "name": "PlotBuilder"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy.visualizer",
-   "module_short": "hologradpy.visualizer",
-   "name": "PlotBuilder"
-  }
- ],
- "PlotLayout": [
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "hologradpy.visualizer",
-   "module_short": "hologradpy.visualizer",
-   "name": "PlotLayout"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "hologradpy",
-   "module_short": "hologradpy",
-   "name": "PlotLayout"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy.visualizer",
-   "module_short": "hologradpy.visualizer",
-   "name": "PlotLayout"
   }
  ],
  "SIGNAL_HALF_HEIGHT": [
@@ -1332,15 +1263,6 @@
    "name": "Tensor"
   }
  ],
- "aspect": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "float"
-  }
- ],
  "bar_length": [
   {
    "is_class": false,
@@ -1368,52 +1290,13 @@
    "name": "int"
   }
  ],
- "builder": [
+ "camera_extent": [
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "hologradpy.visualizer",
-   "module_short": "hologradpy.visualizer",
-   "name": "PlotBuilder"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy",
-   "module_short": "hologradpy",
-   "name": "PlotBuilder"
-  }
- ],
- "builder.build": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy.visualizer",
-   "module_short": "hologradpy.visualizer",
-   "name": "PlotBuilder.build"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy",
-   "module_short": "hologradpy",
-   "name": "PlotBuilder.build"
-  }
- ],
- "builder.draw_image": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy.visualizer",
-   "module_short": "hologradpy.visualizer",
-   "name": "PlotBuilder.draw_image"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy",
-   "module_short": "hologradpy",
-   "name": "PlotBuilder.draw_image"
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "tuple"
   }
  ],
  "camera_x": [
@@ -1426,6 +1309,24 @@
   }
  ],
  "camera_x.abs": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "camera_x.max": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "camera_x.min": [
   {
    "is_class": false,
    "is_explicit": false,
@@ -1452,13 +1353,22 @@
    "name": "builtin_function_or_method"
   }
  ],
- "cell": [
+ "camera_y.max": [
   {
    "is_class": false,
    "is_explicit": false,
    "module": "builtins",
    "module_short": "builtins",
-   "name": "str"
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "camera_y.min": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
   }
  ],
  "colours": [
@@ -1924,6 +1834,22 @@
    "name": "Image.size"
   }
  ],
+ "image_grid": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "image_grid"
+  }
+ ],
  "images": [
   {
    "is_class": false,
@@ -1958,6 +1884,15 @@
    "module": "torch",
    "module_short": "torch",
    "name": "Tensor"
+  }
+ ],
+ "intensities": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "list"
   }
  ],
  "intensity": [
@@ -2014,36 +1949,13 @@
    "name": "int"
   }
  ],
- "layout": [
+ "labels": [
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "hologradpy.visualizer",
-   "module_short": "hologradpy.visualizer",
-   "name": "PlotLayout"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy",
-   "module_short": "hologradpy",
-   "name": "PlotLayout"
-  }
- ],
- "layout.add_row": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy.visualizer",
-   "module_short": "hologradpy.visualizer",
-   "name": "PlotLayout.add_row"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy",
-   "module_short": "hologradpy",
-   "name": "PlotLayout.add_row"
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "tuple"
   }
  ],
  "lit": [
@@ -2632,6 +2544,15 @@
    "name": "PhaseRetrieverBase.set_target"
   }
  ],
+ "phases": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "list"
+  }
+ ],
  "pixel_area": [
   {
    "is_class": false,
@@ -2762,15 +2683,6 @@
    "module": "builtins",
    "module_short": "builtins",
    "name": "float"
-  }
- ],
- "row": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "str"
   }
  ],
  "scale_label": [
@@ -3550,15 +3462,6 @@
    "module": "numpy",
    "module_short": "numpy",
    "name": "ndarray"
-  }
- ],
- "target.shape": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "tuple"
   }
  ],
  "target_crop": [
