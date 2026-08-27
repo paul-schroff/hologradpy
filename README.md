@@ -77,6 +77,8 @@ this package.
   [slmsuite](https://slmsuite.readthedocs.io/en/latest/), which covers most commercially
   available SLMs and many camera models.
 
+<!-- about-start -->
+
 ## About
 
 I wrote this package during my PhD in Prof. Stefan Kuhr's lab at the

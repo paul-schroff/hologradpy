@@ -73,6 +73,15 @@ HoloGradPy Documentation
 .. include:: ../README.md
    :parser: myst_parser.sphinx_
    :start-after: <!-- docs-start -->
+   :end-before: <!-- about-start -->
+
+.. seealso::
+   For spot array specific algorithms, have a look at
+   `slmsuite <https://slmsuite.readthedocs.io/en/latest/>`_.
+
+.. include:: ../README.md
+   :parser: myst_parser.sphinx_
+   :start-after: <!-- about-start -->
    :end-before: <!-- contact-start -->
 
 .. card:: :octicon:`mail` Contact
