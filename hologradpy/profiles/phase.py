@@ -276,9 +276,11 @@ def gaussian_phase_guess(
     output_beam_radius: tuple[float | None, float | None],
     focal_length: float,
     wavenumber: float,
+    output_beam_shift: tuple[float, float] = (0.0, 0.0),
 ) -> ArrayLike:
     """A lens that shapes a Gaussian beam with ``input_beam_radius`` into a Gaussian
-    spot in the Fourier plane with the specified ``output_beam_radius``.
+    spot in the Fourier plane with the specified ``output_beam_radius``, placed at
+    ``output_beam_shift``.
 
     Args:
         x: X coordinates in the SLM plane, in metres.
@@ -289,6 +291,8 @@ def gaussian_phase_guess(
             ``None`` leaves that axis unshaped.
         focal_length: Focal length of the Fourier lens in metres.
         wavenumber: Wavenumber ``2 * pi / wavelength``.
+        output_beam_shift: Where to place the spot in the Fourier plane, as an
+            ``(x, y)`` displacement from the optical axis in metres.
 
     Returns:
         ArrayLike: The phase in radians, on the grid of ``x`` and ``y``.
@@ -321,6 +325,18 @@ def gaussian_phase_guess(
         lens = beam_shaping_focal_length(radius, focal_length, output, wavelength)
         # TODO: Make lens_phase() accept different focal lengths for x and y.
         phase = phase + lens_phase(coordinate, 0.0, lens, wavenumber)
+
+    shift_x, shift_y = output_beam_shift
+    if shift_x or shift_y:
+        phase = phase + linear_phase(
+            x,
+            y,
+            shift_x,
+            shift_y,
+            tilt_units="metres",
+            wavenumber=wavenumber,
+            focal_length=focal_length,
+        )
     return phase
 
 
