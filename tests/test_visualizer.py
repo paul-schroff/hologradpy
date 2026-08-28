@@ -819,3 +819,31 @@ def test_a_cell_matching_its_image_does_not_warn():
         PlotBuilder(layout).draw_image("panel", np.zeros((400, 640))).build()
 
     assert not any("no longer line up" in str(entry.message) for entry in caught)
+
+
+def test_image_grid_dpi_scales_pixels_but_not_inches():
+    """A denser render, from a layout that is sized in inches and does not move."""
+    from hologradpy.visualizer import image_grid
+
+    images = [np.zeros((16, 24)), np.zeros((16, 24))]
+
+    default = image_grid(images).build().figure
+    inches = default.get_size_inches().copy()
+    plt.close(default)
+
+    dense = image_grid(images, dpi=2 * default.dpi).build().figure
+    assert dense.dpi == pytest.approx(2 * default.dpi)
+    # Not exact: fit_right measures rendered text, which depends on the dpi. The
+    # layout stays put to well under a percent, and the pixels double.
+    np.testing.assert_allclose(dense.get_size_inches(), inches, rtol=1e-2)
+    assert dense.get_size_inches()[0] * dense.dpi > 1.9 * inches[0] * default.dpi
+    plt.close(dense)
+
+
+def test_plot_layout_takes_a_dpi():
+    layout = PlotLayout(column_width=2.0, dpi=150)
+    layout.add_row([GridCell("only", aspect=1.0)])
+    figure = layout.build()
+    assert figure.dpi == pytest.approx(150)
+    plt.close(figure)
+

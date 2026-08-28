@@ -322,13 +322,12 @@ no_crosstalk_image = no_crosstalk_camera.get_image()
 kernel = crosstalk_camera.static_crosstalk_kernel
 
 figure = image_grid(
-    [gpu_to_numpy(slm_phase) % (2 * np.pi), kernel],
-    titles=["SLM phase", "Pixel crosstalk kernel"],
-    cmap=["magma", INTENSITY_CMAP],
-    vmin=[0.0, None],
-    vmax=[2 * np.pi, None],
-    colorbar_label=["phase [rad]", "weight"],
+    kernel,
+    titles="Pixel crosstalk kernel",
+    cmap=INTENSITY_CMAP,
+    colorbar_label="weight",
     column_width=3.2,
+    dpi=200,
 ).build()
 
 # %% 

@@ -144,6 +144,7 @@ class PlotLayout:
         colorbar_label_width: float = 0.45,
         colorbar_label_pad: float = 0.3,
         fit_right: bool = False,
+        dpi: float | None = None,
     ) -> None:
         # margins: (left, right, top, bottom) in inches.
         self.column_width = column_width
@@ -155,6 +156,7 @@ class PlotLayout:
         self.colorbar_label_width = colorbar_label_width
         self.colorbar_label_pad = colorbar_label_pad
         self.fit_right = fit_right
+        self.dpi = dpi
 
         self._rows: list[list[GridCell]] = []
         self.figure: Figure | None = None
@@ -298,7 +300,9 @@ class PlotLayout:
             + (len(self._rows) - 1) * self.row_gap
         )
 
-        figure = plt.figure(figsize=(figure_width, figure_height))
+        figure = plt.figure(
+            figsize=(figure_width, figure_height), dpi=self.dpi
+        )
 
         # Vertical sizes are bottom-to-top: bottom margin, rows in reverse order
         # interleaved with gaps, then top margin. Shared by every row's divider, which
@@ -880,6 +884,7 @@ def image_grid(
     ylabel: Any = None,
     max_ticks: int = 5,
     column_width: float = 3.6,
+    dpi: float | None = None,
     names: Sequence[str] | None = None,
     **layout_kwargs: Any,
 ) -> PlotBuilder:
@@ -912,6 +917,7 @@ def image_grid(
             the same budget, so ones over the same range come out on the same
             spacing instead of matplotlib fitting about twice as many on y.
         column_width: Width of one grid column in inches.
+        dpi: Dots per inch of the figure. None keeps matplotlib's default.
         names: Cell names to address panels by. Defaults to ``"0"``, ``"1"``, and so on.
         **layout_kwargs: Passed to :class:`PlotLayout`, for example ``margins``. The
             margins default to a tight border.
@@ -979,7 +985,7 @@ def image_grid(
         layout_kwargs["margins"] = (left, 0.12, 0.32 if titled else 0.12, bottom)
     layout_kwargs.setdefault("fit_right", True)
 
-    layout = PlotLayout(column_width=column_width, **layout_kwargs)
+    layout = PlotLayout(column_width=column_width, dpi=dpi, **layout_kwargs)
     index = 0
     for row in rows:
         layout.add_row(
