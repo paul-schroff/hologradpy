@@ -327,7 +327,6 @@ figure = image_grid(
     cmap=INTENSITY_CMAP,
     colorbar_label="weight",
     column_width=3.2,
-    dpi=200,
 ).build()
 
 # %% 
