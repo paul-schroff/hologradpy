@@ -262,3 +262,52 @@ def test_gaussian_phase_guess_requires_pairs():
     x, y = _grid()
     with pytest.raises(TypeError):
         gaussian_phase_guess(x, y, 2e-3, (None, 100e-6), FOCAL_LENGTH, WAVENUMBER)
+
+
+def test_gaussian_phase_guess_shift_adds_a_linear_phase():
+    """The shift is a tilt on top, so it separates cleanly from the shaping lens."""
+    x, y = _grid()
+    radii, outputs = (2e-3, 2e-3), (200e-6, 100e-6)
+    shift = (300e-6, -150e-6)
+    shaped = gaussian_phase_guess(x, y, radii, outputs, FOCAL_LENGTH, WAVENUMBER)
+    steered = gaussian_phase_guess(
+        x, y, radii, outputs, FOCAL_LENGTH, WAVENUMBER, output_beam_shift=shift
+    )
+    tilt = linear_phase(
+        x,
+        y,
+        *shift,
+        tilt_units="metres",
+        wavenumber=WAVENUMBER,
+        focal_length=FOCAL_LENGTH,
+    )
+    np.testing.assert_allclose(steered - shaped, tilt)
+
+
+def test_gaussian_phase_guess_defaults_to_the_optical_axis():
+    x, y = _grid()
+    radii, outputs = (2e-3, 2e-3), (200e-6, 100e-6)
+    np.testing.assert_array_equal(
+        gaussian_phase_guess(x, y, radii, outputs, FOCAL_LENGTH, WAVENUMBER),
+        gaussian_phase_guess(
+            x, y, radii, outputs, FOCAL_LENGTH, WAVENUMBER, output_beam_shift=(0.0, 0.0)
+        ),
+    )
+
+
+def test_gaussian_phase_guess_steers_an_unshaped_axis():
+    """A tilt does not need a lens on the same axis."""
+    x, y = _grid()
+    steered = gaussian_phase_guess(
+        x,
+        y,
+        (2e-3, 2e-3),
+        (None, 100e-6),
+        FOCAL_LENGTH,
+        WAVENUMBER,
+        output_beam_shift=(300e-6, 0.0),
+    )
+    # x carries only the tilt, so its phase is linear along that axis.
+    along_x = steered[steered.shape[0] // 2, :]
+    np.testing.assert_allclose(np.diff(along_x, 2), 0.0, atol=1e-6)
+
