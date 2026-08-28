@@ -18,6 +18,7 @@ cost function that constrains both intensity and phase,
 `Opt. Express 25, 11692 (2017) <https://doi.org/10.1364/OE.25.011692>`_.
 """
 
+
 # %% Imports
 import tempfile
 from pathlib import Path
