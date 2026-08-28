@@ -9,6 +9,7 @@ import torch
 
 from array_api_compat import array_namespace
 
+from ..fourier_optics import beam_shaping_focal_length, get_focal_spot_radius
 from ..fourier_transforms import fft_2d, ifft_2d
 
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
@@ -266,6 +267,61 @@ def analytic_phase_guess(
         x, y, curvature, aspect_ratio, curvature_units
     )
     return linear_phase_term + quadratic_phase_term
+
+
+def gaussian_phase_guess(
+    x: ArrayLike,
+    y: ArrayLike,
+    input_beam_radius: tuple[float, float],
+    output_beam_radius: tuple[float | None, float | None],
+    focal_length: float,
+    wavenumber: float,
+) -> ArrayLike:
+    """A lens that shapes a Gaussian beam with ``input_beam_radius`` into a Gaussian
+    spot in the Fourier plane with the specified ``output_beam_radius``.
+
+    Args:
+        x: X coordinates in the SLM plane, in metres.
+        y: Y coordinates in the SLM plane, in metres.
+        input_beam_radius: Radius of the incident Gaussian beam in metres, as an
+            ``(x, y)`` pair.
+        output_beam_radius: Wanted radius in the Fourier plane in metres, as ``(x, y)``.
+            ``None`` leaves that axis unshaped.
+        focal_length: Focal length of the Fourier lens in metres.
+        wavenumber: Wavenumber ``2 * pi / wavelength``.
+
+    Returns:
+        ArrayLike: The phase in radians, on the grid of ``x`` and ``y``.
+
+    Raises:
+        ValueError: An output radius is not above the diffraction-limited focal
+            spot, or both axes are left unshaped.
+    """
+    radius_x, radius_y = input_beam_radius
+    output_x, output_y = output_beam_radius
+
+    if output_x is None and output_y is None:
+        raise ValueError("At least one axis needs an output radius to shape.")
+
+    wavelength = 2 * np.pi / wavenumber
+
+    xp = array_namespace(x)
+    phase = xp.zeros_like(x)
+
+    axes = ((x, radius_x, output_x), (y, radius_y, output_y))
+    for coordinate, radius, output in axes:
+        if output is None:
+            continue
+        focal_spot = get_focal_spot_radius(radius, wavelength, focal_length)
+        if output <= focal_spot:
+            raise ValueError(
+                f"An output radius of {output} m is at or below the diffraction "
+                f"limit of {focal_spot} m, which no lens can reach."
+            )
+        lens = beam_shaping_focal_length(radius, focal_length, output, wavelength)
+        # TODO: Make lens_phase() accept different focal lengths for x and y.
+        phase = phase + lens_phase(coordinate, 0.0, lens, wavenumber)
+    return phase
 
 
 def binary_phase_grating(

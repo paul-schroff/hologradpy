@@ -29,10 +29,8 @@ from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.profiles.phase import (
     binary_phase_grating,
 )
-from hologradpy.profiles.amplitude import (
-    gaussian_beam_intensity,
-    get_focal_spot_radius,
-)
+from hologradpy.fourier_optics import get_focal_spot_radius
+from hologradpy.profiles.amplitude import gaussian_beam_intensity
 from hologradpy.calibration.camera_mapping import (
     CameraMapping,
     FocalSpotFit,

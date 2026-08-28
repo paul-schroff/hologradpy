@@ -19,25 +19,6 @@ from ..utils import unsqueeze_to
 
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 
-def get_focal_spot_radius(
-    beam_radius: float,
-    wavelength: float,
-    focal_length: float,
-) -> float:
-    """Calculates the radius of the focal spot for a Gaussian beam with a given
-    `beam_radius`, focused by a lens with a given `focal_length`.
-
-    Args:
-        beam_radius: The radius of the Gaussian beam at the lens in metres.
-        wavelength: The wavelength of the light in metres.
-        focal_length: The focal length of the lens in metres.
-
-    Returns:
-        float: The radius of the focal spot in metres.
-    """
-    return (wavelength * focal_length) / (torch.pi * beam_radius)
-
-
 # Intensity profiles
 def gaussian_beam_intensity_1D(
     x: ArrayLike,

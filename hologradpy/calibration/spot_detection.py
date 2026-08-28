@@ -20,9 +20,7 @@ if TYPE_CHECKING:
 from ..hardware import Camera, SLM, as_camera, as_slm
 
 from ..profiles.phase import linear_phase
-from ..profiles.amplitude import (
-    get_focal_spot_radius,
-)
+from ..fourier_optics import get_focal_spot_radius
 from ..profiles.masks import circular_mask
 
 from ..analysis.fitting import fit_gaussian_beam_intensity

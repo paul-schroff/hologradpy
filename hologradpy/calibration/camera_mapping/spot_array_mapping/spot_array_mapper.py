@@ -13,7 +13,7 @@ from ....hardware import Camera, SLM
 
 from ....optics.systems import SLMFourierLensModel
 from ....grids import get_spatial_grid, metres_to_pixel, pixel_to_metres, plane_center
-from ....profiles.amplitude import get_focal_spot_radius
+from ....fourier_optics import get_focal_spot_radius
 from ....analysis.fitting import fit_gaussian_beam_intensity
 from ....utils import gpu_to_numpy
 from ....roi import ROI

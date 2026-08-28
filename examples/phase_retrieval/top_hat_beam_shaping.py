@@ -40,11 +40,12 @@ from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.optics.systems import SLMCZT
+from hologradpy.fourier_optics import get_focal_spot_radius
 from hologradpy.profiles.amplitude import (
     gaussian_beam_intensity,
-    get_focal_spot_radius,
     top_hat_1D,
 )
+from hologradpy.profiles.phase import gaussian_phase_guess
 from hologradpy.utils import get_device, gpu_to_numpy
 from hologradpy.visualizer import (
     INTENSITY_CMAP,
@@ -103,11 +104,15 @@ slm_field = ComplexAmplitude.from_geometry(
     slm_geometry, data=slm_intensity.sqrt() + 0j
 )
 
-# A cylindrical lens as the starting guess
-wavenumber = 2 * torch.pi / slm.wavelength
-cylinder_focal_length = BEAM_RADIUS * FOCAL_LENGTH / (TOPHAT_HEIGHT / 2)
-init_slm_phase = (
-    -wavenumber * slm_y**2 / (2 * cylinder_focal_length)
+# A cylindrical lens as the starting guess, spreading the beam along y only. Passing
+# a single extent, or a pair, would shape both axes instead.
+init_slm_phase = gaussian_phase_guess(
+    slm_x,
+    slm_y,
+    input_beam_radius=(BEAM_RADIUS, BEAM_RADIUS),
+    output_beam_radius=(None, TOPHAT_HEIGHT / 2),
+    focal_length=FOCAL_LENGTH,
+    wavenumber=2 * torch.pi / slm.wavelength,
 ).to(torch.float32)
 
 # A chirp-z lens sets the camera pitch directly, so the top hat can be sampled at the

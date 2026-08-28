@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from numpy.typing import NDArray
 from torch import Tensor
 
@@ -165,3 +167,51 @@ def fourier_lens_magnification(
         )
         / pixel_size_out
     )
+
+
+def beam_shaping_focal_length(
+    beam_radius: Tensor | float,
+    focal_length: float,
+    target_beam_radius: Tensor | float,
+    wavelength: Tensor | float,
+) -> Tensor | float:
+    """Focal length of the lens that sets a Gaussian beam's radius in the focal plane.
+
+    Args:
+        beam_radius: Radius of the incident beam in metres.
+        focal_length: Focal length of the Fourier lens in metres.
+        target_beam_radius: Wanted radius in the focal plane, in metres.
+        wavelength: Wavelength in metres.
+
+    Returns:
+        The shaping lens's focal length in metres. Broadcasts, so it accepts per-axis
+        tensors.
+    """
+    focal_spot = get_focal_spot_radius(beam_radius, wavelength, focal_length)
+    return (
+        beam_radius
+        * focal_length
+        / (target_beam_radius**2 - focal_spot**2) ** 0.5
+    )
+
+
+def get_focal_spot_radius(
+    beam_radius: Tensor | float,
+    wavelength: Tensor | float,
+    focal_length: float,
+) -> Tensor | float:
+    """Calculates the radius of the focal spot for a Gaussian beam with a given
+    `beam_radius`, focused by a lens with a given `focal_length`.
+
+    The 1/e^2 intensity radius, and the smallest radius any shaping lens can reach.
+
+    Args:
+        beam_radius: The radius of the Gaussian beam at the lens in metres.
+        wavelength: The wavelength of the light in metres.
+        focal_length: The focal length of the lens in metres.
+
+    Returns:
+        The radius of the focal spot in metres. Broadcasts, so it accepts per-axis
+        tensors.
+    """
+    return (wavelength * focal_length) / (math.pi * beam_radius)

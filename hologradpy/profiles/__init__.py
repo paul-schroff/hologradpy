@@ -8,7 +8,6 @@ rather than inside :mod:`hologradpy.optics`. Coordinate grids come from the
 """
 
 from .amplitude import (
-    get_focal_spot_radius,
     gaussian_beam_intensity,
     gaussian_beam_intensity_1D,
     super_gaussian,
@@ -33,6 +32,7 @@ from .phase import (
     linear_phase,
     quadratic_phase,
     analytic_phase_guess,
+    gaussian_phase_guess,
     binary_phase_grating,
 )
 from .zernike import (
@@ -43,7 +43,6 @@ from .zernike import (
 )
 
 __all__ = [
-    "get_focal_spot_radius",
     "gaussian_beam_intensity",
     "gaussian_beam_intensity_1D",
     "super_gaussian",
@@ -64,6 +63,7 @@ __all__ = [
     "linear_phase",
     "quadratic_phase",
     "analytic_phase_guess",
+    "gaussian_phase_guess",
     "binary_phase_grating",
     "ZernikeConventionHandler",
     "Zernike",

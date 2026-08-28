@@ -31,7 +31,7 @@ from ....optics.modules.slm_fields import PixelwiseSLMField
 from ....optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 from ....fourier_optics import addressable_half_extent
 from ....grids import get_spatial_grid, plane_center
-from ....profiles.amplitude import get_focal_spot_radius
+from ....fourier_optics import get_focal_spot_radius
 from ....profiles.phase import linear_phase, binary_phase_grating
 
 from ....utils import gpu_to_numpy, progress, Timer

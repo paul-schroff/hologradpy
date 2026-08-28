@@ -15,10 +15,15 @@ import numpy as np
 import pytest
 import torch
 
+from hologradpy.fourier_optics import (
+    beam_shaping_focal_length,
+    get_focal_spot_radius,
+)
 from hologradpy.profiles.phase import (
     linear_phase,
     tilt_to_angle,
     binary_phase_grating,
+    gaussian_phase_guess,
 )
 
 WAVELENGTH = 0.63e-6
@@ -167,3 +172,93 @@ def test_binary_phase_grating_custom_levels():
 def test_binary_phase_grating_invalid_axis():
     with pytest.raises(ValueError):
         binary_phase_grating((2, 2), axis=2)
+
+
+# --- gaussian_phase_guess -----------------------------------------------------
+
+
+@pytest.mark.parametrize("output_radius", [1e-3, 200e-6, 100e-6, 40e-6])
+def test_beam_shaping_focal_length_hits_the_target_radius(output_radius):
+    """Ray optics and diffraction add in quadrature, and the lens accounts for both."""
+    input_radius = 2e-3
+    lens = beam_shaping_focal_length(
+        input_radius, FOCAL_LENGTH, output_radius, WAVELENGTH
+    )
+    focal_spot = get_focal_spot_radius(input_radius, WAVELENGTH, FOCAL_LENGTH)
+    arrived = math.hypot(FOCAL_LENGTH * input_radius / lens, focal_spot)
+    assert arrived == pytest.approx(output_radius)
+
+
+def test_beam_shaping_focal_length_overshoots_without_the_diffraction_term():
+    """The ray-optics-only lens lands the beam wide, which is what the fix removes."""
+    input_radius, output_radius = 2e-3, 40e-6
+    ray_optics_lens = input_radius * FOCAL_LENGTH / output_radius
+    focal_spot = get_focal_spot_radius(input_radius, WAVELENGTH, FOCAL_LENGTH)
+    arrived = math.hypot(FOCAL_LENGTH * input_radius / ray_optics_lens, focal_spot)
+    assert arrived > 1.15 * output_radius
+
+
+def test_gaussian_phase_guess_matches_an_explicit_cylindrical_lens():
+    x, y = _grid()
+    input_radius, output_radius = 2e-3, 100e-6
+    focal_spot = get_focal_spot_radius(input_radius, WAVELENGTH, FOCAL_LENGTH)
+    lens = input_radius * FOCAL_LENGTH / math.sqrt(output_radius**2 - focal_spot**2)
+    expected = -WAVENUMBER * y**2 / (2 * lens)
+    guess = gaussian_phase_guess(
+        x,
+        y,
+        (input_radius, input_radius),
+        (None, output_radius),
+        FOCAL_LENGTH,
+        WAVENUMBER,
+    )
+    np.testing.assert_allclose(guess, expected)
+
+
+def test_gaussian_phase_guess_shapes_both_axes():
+    """Shaping both axes gives the two cylindrical lenses summed."""
+    x, y = _grid()
+    kwargs = dict(
+        input_beam_radius=(2e-3, 2e-3),
+        focal_length=FOCAL_LENGTH,
+        wavenumber=WAVENUMBER,
+    )
+    both = gaussian_phase_guess(x, y, output_beam_radius=(200e-6, 100e-6), **kwargs)
+    along_x = gaussian_phase_guess(x, y, output_beam_radius=(200e-6, None), **kwargs)
+    along_y = gaussian_phase_guess(x, y, output_beam_radius=(None, 100e-6), **kwargs)
+    np.testing.assert_allclose(both, along_x + along_y)
+
+    # Equal radii on both axes make the lens spherical.
+    square = gaussian_phase_guess(x, y, output_beam_radius=(100e-6, 100e-6), **kwargs)
+    np.testing.assert_allclose(square, square.T)
+
+
+def test_gaussian_phase_guess_accepts_torch_and_per_axis_radii():
+    axis = torch.linspace(-1e-3, 1e-3, 7, dtype=torch.float64)
+    x, y = torch.meshgrid(axis, axis, indexing="xy")
+    guess = gaussian_phase_guess(
+        x, y, (2e-3, 1e-3), (200e-6, 100e-6), FOCAL_LENGTH, WAVENUMBER
+    )
+    assert isinstance(guess, torch.Tensor)
+    assert guess.shape == x.shape
+
+
+def test_gaussian_phase_guess_rejects_nothing_to_shape():
+    x, y = _grid()
+    radii = (2e-3, 2e-3)
+    with pytest.raises(ValueError, match="[Aa]t least one axis"):
+        gaussian_phase_guess(x, y, radii, (None, None), FOCAL_LENGTH, WAVENUMBER)
+    focal_spot = get_focal_spot_radius(radii[1], WAVELENGTH, FOCAL_LENGTH)
+    with pytest.raises(ValueError, match="diffraction limit"):
+        gaussian_phase_guess(
+            x, y, radii, (None, 0.5 * focal_spot), FOCAL_LENGTH, WAVENUMBER
+        )
+    with pytest.raises(ValueError, match="diffraction limit"):
+        gaussian_phase_guess(x, y, radii, (None, -1e-6), FOCAL_LENGTH, WAVENUMBER)
+
+
+def test_gaussian_phase_guess_requires_pairs():
+    """Both radii are (x, y) pairs, so a bare number is refused, not broadcast."""
+    x, y = _grid()
+    with pytest.raises(TypeError):
+        gaussian_phase_guess(x, y, 2e-3, (None, 100e-6), FOCAL_LENGTH, WAVENUMBER)
