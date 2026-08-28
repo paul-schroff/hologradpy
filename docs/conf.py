@@ -32,10 +32,28 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
     "sphinx.ext.intersphinx",
+    "sphinx.ext.duration",
+    "sphinx.ext.inheritance_diagram",
     "myst_parser",
     "sphinx_design",
     "sphinx_gallery.gen_gallery",
+    "sphinx_copybutton",
 ]
+
+# ---- Code blocks ---------------------------------------------------------------------
+# Strip interpreter and shell prompts when copying, so a copied block runs as pasted.
+copybutton_prompt_text = r">>> |\.\.\. |\$ "
+copybutton_prompt_is_regexp = True
+
+# ---- Inheritance diagrams ------------------------------------------------------------
+graphviz_output_format = "svg"
+inheritance_graph_attrs = {"rankdir": "TB", "size": '""'}
+inheritance_node_attrs = {
+    "shape": "box",
+    "fontsize": 10,
+    "height": 0.25,
+    "style": "rounded",
+}
 
 # The README is included into index.rst below an RST title, so its headings start at
 # H2 by design. MyST flags that on any fragment it parses, which is a false positive
@@ -101,6 +119,7 @@ intersphinx_mapping = {
     "torch": ("https://docs.pytorch.org/docs/stable/", None),
     "slmsuite": ("https://slmsuite.readthedocs.io/en/latest/", None),
 }
+
 
 # ---- Example gallery -----------------------------------------------------------------
 # Examples run only when asked. Several take minutes and need a GPU, so a Read the
