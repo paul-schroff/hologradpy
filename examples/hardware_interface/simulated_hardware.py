@@ -4,11 +4,6 @@ Simulated hardware
 
 Building a simulated SLM and camera that behave like the real device, so an algorithm
 can be developed and tested without needing access to the physical hardware.
-
-Each stage models its own experimental effects: the beam carries the illumination and
-the aberrations, the SLM quantizes and blurs the phase it is given, and the camera turns
-whatever arrives into counts. Every one of those effects is optional and off by default,
-and each is described below where it is switched on.
 """
 
 # %% Imports
@@ -44,11 +39,6 @@ device = get_device(verbose=True)
 
 FOCAL_LENGTH = 0.25
 SEED = 0
-# Beam pointing jitter, as the resulting wander of the focal spot. Roughly half a
-# camera pixel, which is enough to see between frames without smearing the image.
-POINTING_FOCAL_SHIFT = 2e-6
-CAMERA_RESOLUTION = (960, 1440)
-CAMERA_PIXEL_SIZE = (3.45e-6, 3.45e-6)
 
 torch.manual_seed(SEED)
 
@@ -63,8 +53,7 @@ def aspect(image) -> float:
 # -----------------
 #
 # ``SimulatedSLMTorch`` needs a ``FieldGeometry`` and ``bitdepth``. It quantizes a
-# desired phase to gray levels as a real device would. Other effects like crosstalk
-# between neighbouring liquid-crystal pixels, comes further down.
+# desired phase to gray levels as a real device would.
 input_geometry = FieldGeometry(
     resolution=(1024, 1280),
     pixel_size=torch.tensor([12.5e-6, 12.5e-6], device=device),
@@ -117,14 +106,14 @@ beam = ComplexAmplitude(
 # ---------------
 #
 # The optical model carries the SLM, the beam and a Fourier lens. ``camera_angle`` and
-# ``camera_shift`` mount the sensor off axis, the way a real one never sits perfectly
-# square to the optical axis.
+# ``camera_shift`` mount the sensor off axis.
 #
-# This camera is noiseless and unquantized. The only thing it does to the light is
-# attenuate it with a neutral-density filter, applied before any read noise.
+# The light is attenuated with a neutral-density filter, applied before any read noise.
 #
-# Every camera takes ownership of the model it is given, so each one below gets its own.
-# These settings are the same for all of them.
+# The settings below are the same for all cameras used in this example.
+CAMERA_RESOLUTION = (960, 1440)
+CAMERA_PIXEL_SIZE = (3.45e-6, 3.45e-6)
+
 optics_settings = dict(
     input_geometry=input_geometry,
     camera_resolution=CAMERA_RESOLUTION,
@@ -153,20 +142,22 @@ ideal_camera = open_camera(
 # A realistic camera
 # ------------------
 #
-# The same model, with the effects seen in the lab switched on:
+# The same model, with additional experimental effects switched on:
 #
 # - Read noise, an additive floor drawn from a Poisson distribution of variance
-#   ``noise_level ** 2``. It does not depend on how much light arrived.
-# - Saturation, the clamp at the full-well capacity. How quickly it is reached depends
+#   ``noise_level ** 2``.
+# - Saturation, clamped at the full-well capacity. How quickly it is reached depends
 #   on the quantum efficiency and the gain.
 # - Quantization of the counts to the camera's bit depth.
 # - Intensity fluctuations, redrawing the laser power for every frame.
 # - Stray light, a static laser-speckle background scattered across the sensor.
 # - Pointing instability, which shifts the focal plane frame to frame.
 #
-# Power fluctuations are configured on the camera, since they are drawn afresh for every
+# Power fluctuations are configured on the camera, since they are redrawn for every
 # frame it captures. Beam pointing is configured on the optical model instead: the
 # jitter is a phase tilt in the SLM plane.
+POINTING_FOCAL_SHIFT = 2e-6
+
 realistic_camera = open_camera(
     SimulatedCameraTorch,
     slm_camera_model=SLMCZT(
@@ -195,8 +186,8 @@ realistic_camera = open_camera(
 # Capture from both
 # -----------------
 #
-# autoexpose finds an exposure that fills the well without saturating, exactly as it
-# would on a real camera.
+# ``camera.autoexpose()`` works just like it would on a real camera.
+#
 for camera in (ideal_camera, realistic_camera):
     camera.autoexpose(set_fraction=0.5)
 
@@ -225,24 +216,8 @@ plot = (
 )
 
 # %% 
-# Frame to frame variation
-# ------------------------
-# The ideal camera repeats exactly. The realistic one does not, which is what a feedback
-# loop or a calibration fit has to deal with.
-ideal_repeat = ideal_camera.get_image()
-realistic_repeat = realistic_camera.get_image()
-
-print(
-    f"ideal frames differ by     : {abs(ideal_repeat - ideal_image).max():.0f} counts"
-)
-print(
-    f"realistic frames differ by : "
-    f"{abs(realistic_repeat.astype(float) - realistic_image).max():.0f} counts"
-)
-
-# %% 
 # Pixel crosstalk
-# ===============
+# ---------------
 #
 # Fringing fields between neighbouring liquid-crystal pixels, modelled on a sub-pixel
 # grid on the SLM.
@@ -359,6 +334,7 @@ figure = image_grid(
 # %% 
 # Saving the optical model
 # ------------------------
+#
 data_directory = Path("../data")
 data_directory.mkdir(parents=True, exist_ok=True)
 
@@ -393,6 +369,7 @@ print(f"beam preserved: {same_beam}")
 # %% 
 # Saving the whole simulated camera
 # ---------------------------------
+#
 camera_path = data_directory / "realistic_camera.pt"
 realistic_camera.save(camera_path)
 print(f"saved the camera: {camera_path.stat().st_size / 1e6:.1f} MB")
