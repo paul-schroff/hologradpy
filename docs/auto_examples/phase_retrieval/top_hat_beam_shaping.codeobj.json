@@ -1389,15 +1389,6 @@
    "name": "tuple"
   }
  ],
- "cylinder_focal_length": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "float"
-  }
- ],
  "device": [
   {
    "is_class": false,
@@ -1577,6 +1568,27 @@
    "module": "PIL",
    "module_short": "PIL",
    "name": "FreeTypeFont.getbbox"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "PIL.ImageFont",
+   "module_short": "PIL.ImageFont",
+   "name": "BaseImageFont.getbbox"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "PIL",
+   "module_short": "PIL",
+   "name": "BaseImageFont.getbbox"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.getbbox"
   }
  ],
  "font_manager.FontProperties": [
@@ -1670,6 +1682,22 @@
    "name": "gaussian_beam_intensity"
   }
  ],
+ "gaussian_phase_guess": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.profiles.phase",
+   "module_short": "hologradpy.profiles",
+   "name": "gaussian_phase_guess"
+  }
+ ],
  "get_device": [
   {
    "is_class": false,
@@ -1697,8 +1725,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "hologradpy.profiles.amplitude",
-   "module_short": "hologradpy.profiles",
+   "module": "hologradpy.fourier_optics",
+   "module_short": "hologradpy.fourier_optics",
    "name": "get_focal_spot_radius"
   }
  ],
@@ -3621,15 +3649,6 @@
    "module": "torch",
    "module_short": "torch",
    "name": "zeros_like"
-  }
- ],
- "wavenumber": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "float"
   }
  ],
  "width": [

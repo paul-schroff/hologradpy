@@ -17,6 +17,15 @@
    "name": "builtin_function_or_method"
   }
  ],
+ "BEAM_RADIUS": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
  "CAMERA_PIXEL_SIZE": [
   {
    "is_class": false,
@@ -33,6 +42,15 @@
    "module": "builtins",
    "module_short": "builtins",
    "name": "tuple"
+  }
+ ],
+ "CAMERA_SPOT_RADIUS": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
   }
  ],
  "ComplexAmplitude": [
@@ -433,6 +451,29 @@
    "name": "PlotLayout"
   }
  ],
+ "ROI.detect": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.roi",
+   "module_short": "hologradpy.roi",
+   "name": "ROI.detect"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "ROI.detect"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.roi.ROI",
+   "module_short": "hologradpy.roi.ROI",
+   "name": "detect"
+  }
+ ],
  "SEED": [
   {
    "is_class": false,
@@ -440,6 +481,15 @@
    "module": "builtins",
    "module_short": "builtins",
    "name": "int"
+  }
+ ],
+ "SIGNAL_SHIFT": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "tuple"
   }
  ],
  "SLMCZT": [
@@ -1044,15 +1094,6 @@
    "name": "PurePath.stat"
   }
  ],
- "build_model": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "function"
-  }
- ],
  "camera": [
   {
    "is_class": false,
@@ -1469,6 +1510,22 @@
    "name": "device"
   }
  ],
+ "figure": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.figure",
+   "module_short": "matplotlib.figure",
+   "name": "Figure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Figure"
+  }
+ ],
  "gaussian_beam_intensity": [
   {
    "is_class": false,
@@ -1485,6 +1542,22 @@
    "name": "gaussian_beam_intensity"
   }
  ],
+ "gaussian_phase_guess": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.profiles.phase",
+   "module_short": "hologradpy.profiles",
+   "name": "gaussian_phase_guess"
+  }
+ ],
  "get_device": [
   {
    "is_class": false,
@@ -1499,6 +1572,22 @@
    "module": "hologradpy.utils",
    "module_short": "hologradpy.utils",
    "name": "get_device"
+  }
+ ],
+ "gpu_to_numpy": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.utils",
+   "module_short": "hologradpy.utils",
+   "name": "gpu_to_numpy"
   }
  ],
  "hologradpy.profiles.zernike.Zernike": [
@@ -1688,13 +1777,20 @@
    "name": "builtin_function_or_method"
   }
  ],
- "ideal_repeat": [
+ "image_grid": [
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "numpy",
-   "module_short": "numpy",
-   "name": "ndarray"
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "image_grid"
   }
  ],
  "input_geometry": [
@@ -1756,38 +1852,6 @@
    "name": "ndarray"
   }
  ],
- "kernel_layout": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy.visualizer",
-   "module_short": "hologradpy.visualizer",
-   "name": "PlotLayout"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy",
-   "module_short": "hologradpy",
-   "name": "PlotLayout"
-  }
- ],
- "kernel_layout.add_row": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy.visualizer",
-   "module_short": "hologradpy.visualizer",
-   "name": "PlotLayout.add_row"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy",
-   "module_short": "hologradpy",
-   "name": "PlotLayout.add_row"
-  }
- ],
  "layout": [
   {
    "is_class": false,
@@ -1836,6 +1900,240 @@
    "name": "load_optical_system"
   }
  ],
+ "no_crosstalk_camera": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch"
+  }
+ ],
+ "no_crosstalk_camera.autoexpose": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.autoexpose"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.autoexpose"
+  }
+ ],
+ "no_crosstalk_camera.get_exposure": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.get_exposure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.get_exposure"
+  }
+ ],
+ "no_crosstalk_camera.get_image": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.simulated",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "SimulatedCameraTorch.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera.abstract",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware.camera",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.hardware",
+   "module_short": "hologradpy.hardware",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "Camera.get_image"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.get_image"
+  }
+ ],
+ "no_crosstalk_image": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
  "np.allclose": [
   {
    "is_class": false,
@@ -1850,6 +2148,22 @@
    "module": "numpy",
    "module_short": "numpy",
    "name": "allclose"
+  }
+ ],
+ "np.pi": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "pi"
   }
  ],
  "open_camera": [
@@ -1882,6 +2196,31 @@
    "module": "hologradpy.hardware",
    "module_short": "hologradpy.hardware",
    "name": "open_slm"
+  }
+ ],
+ "optics_settings": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "dict"
+  }
+ ],
+ "plot": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib.figure",
+   "module_short": "matplotlib.figure",
+   "name": "Figure"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "matplotlib",
+   "module_short": "matplotlib",
+   "name": "Figure"
   }
  ],
  "realistic_camera": [
@@ -2298,24 +2637,6 @@
   }
  ],
  "realistic_image.max": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "builtin_function_or_method"
-  }
- ],
- "realistic_repeat": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "numpy",
-   "module_short": "numpy",
-   "name": "ndarray"
-  }
- ],
- "realistic_repeat.astype": [
   {
    "is_class": false,
    "is_explicit": false,
@@ -2889,6 +3210,47 @@
    "name": "bool"
   }
  ],
+ "sensor_settings": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "dict"
+  }
+ ],
+ "signal_roi": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.roi",
+   "module_short": "hologradpy.roi",
+   "name": "ROI"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "ROI"
+  }
+ ],
+ "signal_roi.crop": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.roi",
+   "module_short": "hologradpy.roi",
+   "name": "ROI.crop"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "ROI.crop"
+  }
+ ],
  "slm": [
   {
    "is_class": false,
@@ -3214,6 +3576,15 @@
    "module": "abc",
    "module_short": "abc",
    "name": "ABC.wavelength"
+  }
+ ],
+ "slm_phase": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "Tensor"
   }
  ],
  "speckle": [

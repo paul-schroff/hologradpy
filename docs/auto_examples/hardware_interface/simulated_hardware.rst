@@ -24,38 +24,7 @@ Simulated hardware
 Building a simulated SLM and camera that behave like the real device, so an algorithm
 can be developed and tested without needing access to the physical hardware.
 
-The laser beam illuminating the SLM models:
-
-- Its intensity profile across the SLM, a Gaussian here.
-- Its absolute optical power, in watts. That is what makes the camera counts and any
-  efficiency below physical numbers rather than relative ones.
-- Aberrations, carried as the phase of the field. Any wavefront can be put there, for
-  example a :class:`~hologradpy.profiles.zernike.Zernike` expansion.
-- Intensity fluctuations, randomly drawing the power of every frame.
-- Pointing instability, which shifts the focal plane frame to frame. Available on the
-  model, though not switched on below.
-
-A simulated SLM models:
-
-- Quantization of the phase to the SLM's bit depth.
-- Pixel crosstalk, the fringing field between neighbouring liquid-crystal pixels, which
-  blurs the phase pattern and reduces efficiency.
-
-A simulated camera models:
-
-- Read noise, an additive floor drawn from a Poisson distribution of variance
-  ``noise_level ** 2``. It does not depend on how much light arrived.
-- Saturation, the clamp at the full-well capacity. How quickly it is reached depends on
-  the quantum efficiency and the gain.
-- Quantization of the counts to the camera's bit depth.
-- Attenuation by a neutral-density filter, applied to the signal before the read noise.
-- Stray light, a static laser-speckle background scattered across the sensor.
-
-Power fluctuations are configured on the camera, since they are drawn afresh for
-every frame it captures. Beam pointing is configured on the optical model instead: the
-jitter is a phase tilt in the SLM plane.
-
-.. GENERATED FROM PYTHON SOURCE LINES 41-84
+.. GENERATED FROM PYTHON SOURCE LINES 10-51
 
 .. code-block:: Python
 
@@ -75,24 +44,22 @@ jitter is a phase tilt in the SLM plane.
     from hologradpy.optics.modules.virtual_slms import VirtualSLM
     from hologradpy.optics.systems import SLMCZT, load_optical_system
     from hologradpy.profiles.amplitude import gaussian_beam_intensity
+    from hologradpy.profiles.phase import gaussian_phase_guess
     from hologradpy.profiles.zernike import Zernike
-    from hologradpy.utils import get_device
+    from hologradpy.roi import ROI
+    from hologradpy.utils import get_device, gpu_to_numpy
     from hologradpy.visualizer import (
         INTENSITY_CMAP,
         GridCell,
         PlotBuilder,
         PlotLayout,
+        image_grid,
     )
 
     device = get_device(verbose=True)
 
-    FOCAL_LENGTH = 0.1
+    FOCAL_LENGTH = 0.25
     SEED = 0
-    # Beam pointing jitter, as the resulting wander of the focal spot. Roughly half a
-    # camera pixel, which is enough to see between frames without smearing the image.
-    POINTING_FOCAL_SHIFT = 2e-6
-    CAMERA_RESOLUTION = (400, 640)
-    CAMERA_PIXEL_SIZE = (3.45e-6, 3.45e-6)
 
     torch.manual_seed(SEED)
 
@@ -115,20 +82,20 @@ jitter is a phase tilt in the SLM plane.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 85-90
+.. GENERATED FROM PYTHON SOURCE LINES 52-57
 
-The SLM
--------
+Simulating an SLM
+-----------------
 
-A simulated SLM needs only its geometry and bit depth. It quantizes a desired phase
-to gray levels as a real device would.
+``SimulatedSLMTorch`` needs a ``FieldGeometry`` and ``bitdepth``. It quantizes a
+desired phase to gray levels as a real device would.
 
-.. GENERATED FROM PYTHON SOURCE LINES 90-101
+.. GENERATED FROM PYTHON SOURCE LINES 57-68
 
 .. code-block:: Python
 
     input_geometry = FieldGeometry(
-        resolution=(256, 320),
+        resolution=(1024, 1280),
         pixel_size=torch.tensor([12.5e-6, 12.5e-6], device=device),
         wavelength=torch.tensor(1039e-9, device=device),
     )
@@ -146,25 +113,30 @@ to gray levels as a real device would.
 
  .. code-block:: none
 
-    SLM: (256, 320) pixels, 8-bit, 1039 nm
+    SLM: (1024, 1280) pixels, 8-bit, 1039 nm
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 102-107
+.. GENERATED FROM PYTHON SOURCE LINES 69-77
 
-The beam illuminating it
-------------------------
+Defining the incident laser beam
+--------------------------------
 
-Whatever field you put here is the ground truth a wavefront calibration would try to
-recover, so it carries a wavefront as well as an intensity profile.
+The ``ComplexAmplitude`` incident onto the SLM, carrying a certain optical power in
+watts.
 
-.. GENERATED FROM PYTHON SOURCE LINES 107-132
+Here, we define a Gaussian intensity profile, modelling phase aberrations using a
+:class:`~hologradpy.profiles.zernike.Zernike` expansion.
+
+.. GENERATED FROM PYTHON SOURCE LINES 77-104
 
 .. code-block:: Python
 
+    BEAM_RADIUS = 3.5e-3
+
     beam_amplitude = gaussian_beam_intensity(
-        *slm.get_spatial_grid(device=device), beam_radius=1.2e-3
+        *slm.get_spatial_grid(device=device), beam_radius=BEAM_RADIUS
     ).sqrt()
 
     # Selecting astigmatism, coma and spherical Zernike polynomials.
@@ -201,47 +173,43 @@ recover, so it carries a wavefront as well as an intensity profile.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 133-139
+.. GENERATED FROM PYTHON SOURCE LINES 105-114
 
 An ideal camera
 ---------------
 
 The optical model carries the SLM, the beam and a Fourier lens. ``camera_angle`` and
-``camera_shift`` mount the sensor off axis, the way a real one never sits perfectly
-square to the optical axis.
+``camera_shift`` mount the sensor off axis.
 
-.. GENERATED FROM PYTHON SOURCE LINES 139-173
+The light is attenuated with a neutral-density filter, applied before any read noise.
+
+The settings below are the same for all cameras used in this example.
+
+.. GENERATED FROM PYTHON SOURCE LINES 114-141
 
 .. code-block:: Python
 
-    def build_model(virtual_slm=None, pointing_focal_shift_std=None) -> SLMCZT:
-        """A fresh model of the setup, since a camera takes ownership of the one it gets.
+    CAMERA_RESOLUTION = (960, 1440)
+    CAMERA_PIXEL_SIZE = (3.45e-6, 3.45e-6)
 
-        Args:
-            virtual_slm: The SLM stage to build on. Defaults to the one the simulated SLM
-                owns, so displaying a phase on the SLM shows up on the camera.
-            pointing_focal_shift_std: Beam pointing jitter, as the standard deviation of
-                the focal spot's wander in metres. Defaults to none, so the model is
-                deterministic and repeats exactly.
-        """
-        return SLMCZT(
-            input_geometry=input_geometry,
-            virtual_slm=slm.virtual_slm if virtual_slm is None else virtual_slm,
-            camera_resolution=CAMERA_RESOLUTION,
-            camera_pixel_size=CAMERA_PIXEL_SIZE,
-            focal_length=FOCAL_LENGTH,
-            slm_field=PixelwiseSLMField(beam),
-            camera_angle=5.0,
-            camera_shift=(-300e-6, 100e-6),
-            padded_resolution=(480, 768),
-            pointing_focal_shift_std=pointing_focal_shift_std,
-            pointing_seed=SEED,
-        )
-
+    optics_settings = dict(
+        input_geometry=input_geometry,
+        camera_resolution=CAMERA_RESOLUTION,
+        camera_pixel_size=CAMERA_PIXEL_SIZE,
+        focal_length=FOCAL_LENGTH,
+        camera_angle=5.0,
+        camera_shift=(-300e-6, 100e-6),
+        # padded_resolution=(480, 768),
+    )
 
     ideal_camera = open_camera(
         SimulatedCameraTorch,
-        slm_camera_model=build_model(),
+        # The SLM's own virtual SLM, so displaying a phase on the SLM shows up here.
+        slm_camera_model=SLMCZT(
+            **optics_settings,
+            virtual_slm=slm.virtual_slm,
+            slm_field=PixelwiseSLMField(beam),
+        ),
         bitdepth=12,
         nd_filter_optical_density=6,
         add_noise=False,
@@ -255,21 +223,42 @@ square to the optical axis.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 174-179
+.. GENERATED FROM PYTHON SOURCE LINES 142-159
 
 A realistic camera
 ------------------
 
-The same model, with experimental effects as seen in the lab. Every one of these
-is optional and off by default.
+The same model, with additional experimental effects switched on:
 
-.. GENERATED FROM PYTHON SOURCE LINES 179-196
+- Read noise, an additive floor drawn from a Poisson distribution of variance
+  ``noise_level ** 2``.
+- Saturation, clamped at the full-well capacity. How quickly it is reached depends
+  on the quantum efficiency and the gain.
+- Quantization of the counts to the camera's bit depth.
+- Intensity fluctuations, redrawing the laser power for every frame.
+- Stray light, a static laser-speckle background scattered across the sensor.
+- Pointing instability, which shifts the focal plane frame to frame.
+
+Power fluctuations are configured on the camera, since they are redrawn for every
+frame it captures. Beam pointing is configured on the optical model instead: the
+jitter is a phase tilt in the SLM plane.
+
+.. GENERATED FROM PYTHON SOURCE LINES 159-185
 
 .. code-block:: Python
 
+    POINTING_FOCAL_SHIFT = 2e-6
+
     realistic_camera = open_camera(
         SimulatedCameraTorch,
-        slm_camera_model=build_model(pointing_focal_shift_std=POINTING_FOCAL_SHIFT),
+        slm_camera_model=SLMCZT(
+            **optics_settings,
+            virtual_slm=slm.virtual_slm,
+            slm_field=PixelwiseSLMField(beam),
+            # Beam pointing jitter, as the wander of the focal spot in metres.
+            pointing_focal_shift_std=POINTING_FOCAL_SHIFT,
+            pointing_seed=SEED,
+        ),
         bitdepth=12,
         nd_filter_optical_density=6,
         # Sensor: shot and read noise, a finite well, and quantization to whole counts.
@@ -291,15 +280,15 @@ is optional and off by default.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 197-202
+.. GENERATED FROM PYTHON SOURCE LINES 186-191
 
 Capture from both
 -----------------
 
-autoexpose finds an exposure that fills the well without saturating, exactly as it
-would on a real camera.
+``camera.autoexpose()`` works just like it would on a real camera.
 
-.. GENERATED FROM PYTHON SOURCE LINES 202-229
+
+.. GENERATED FROM PYTHON SOURCE LINES 191-218
 
 .. code-block:: Python
 
@@ -318,7 +307,7 @@ would on a real camera.
         GridCell("ideal", aspect=aspect(ideal_image), colorbar=True),
         GridCell("realistic", aspect=aspect(realistic_image), colorbar=True),
     ])
-    (
+    plot = (
         PlotBuilder(layout)
         .draw_image("ideal", ideal_image, cmap=INTENSITY_CMAP, title="noiseless")
         .draw_image(
@@ -343,51 +332,16 @@ would on a real camera.
 
  .. code-block:: none
 
-    ideal exposure     : 224.7 us
-    realistic exposure : 457.0 us
-    peak counts        : 2048 vs 2149
-
-    <Figure size 1001x325 with 4 Axes>
-
-
-
-.. GENERATED FROM PYTHON SOURCE LINES 230-234
-
-Frame to frame variation
-------------------------
-The ideal camera repeats exactly. The realistic one does not, which is what a feedback
-loop or a calibration fit has to deal with.
-
-.. GENERATED FROM PYTHON SOURCE LINES 234-245
-
-.. code-block:: Python
-
-    ideal_repeat = ideal_camera.get_image()
-    realistic_repeat = realistic_camera.get_image()
-
-    print(
-        f"ideal frames differ by     : {abs(ideal_repeat - ideal_image).max():.0f} counts"
-    )
-    print(
-        f"realistic frames differ by : "
-        f"{abs(realistic_repeat.astype(float) - realistic_image).max():.0f} counts"
-    )
+    hologradpy/fourier_transforms/shear.py:63: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+    Consider using tensor.detach() first. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\torch\csrc\autograd\generated\python_variable_methods.cpp:823.)
+    ideal exposure     : 100.0 us
+    realistic exposure : 226.7 us
+    peak counts        : 1862 vs 2176
 
 
 
 
-
-.. rst-class:: sphx-glr-script-out
-
- .. code-block:: none
-
-    ideal frames differ by     : 0 counts
-    realistic frames differ by : 264 counts
-
-
-
-
-.. GENERATED FROM PYTHON SOURCE LINES 246-255
+.. GENERATED FROM PYTHON SOURCE LINES 219-233
 
 Pixel crosstalk
 ---------------
@@ -399,72 +353,184 @@ grid on the SLM.
    This is memory intensive, since every plane after the SLM grows by an upscale
    factor, and runs best on a GPU.
 
-.. GENERATED FROM PYTHON SOURCE LINES 255-293
+SLM phase pattern is a combination of a linear and a quadratic phase, generating a
+certain spot size on the sensor, away from the optical axis. This pattern contains
+many 0 - $2 \pi$ phase jumps, which makes the effect of pixel crosstalk visisble on
+the camera.
+
+.. GENERATED FROM PYTHON SOURCE LINES 233-253
 
 .. code-block:: Python
 
-    crosstalk_camera = open_camera(
-        SimulatedCameraTorch,
-        slm_camera_model=build_model(VirtualSLM.from_slm(slm)),
-        bitdepth=12,
-        nd_filter_optical_density=6,
-        add_noise=False,
-        quantize=True,
-        crosstalk_upscale_factor=3,
-        crosstalk_extent=3,
-        crosstalk_order=2,
-        crosstalk_width=1,
-    )
-    crosstalk_camera.set_exposure(ideal_camera.get_exposure())
-    crosstalk_image = crosstalk_camera.get_image()
+    SIGNAL_SHIFT = (1.5e-3, -1e-3)
+    CAMERA_SPOT_RADIUS = 1.0e-3
 
-    # The kernel the camera was built with, which a calibration would try to recover.
-    kernel = crosstalk_camera.static_crosstalk_kernel
-
-    kernel_layout = PlotLayout(column_width=3.6, margins=(1.0, 0.15, 0.5, 0.5))
-    kernel_layout.add_row([
-        GridCell("without", aspect=aspect(ideal_image), colorbar=True),
-        GridCell("with", aspect=aspect(crosstalk_image), colorbar=True),
-        GridCell("kernel", aspect="equal", colorbar=True),
-    ])
-    (
-        PlotBuilder(kernel_layout)
-        .draw_image("without", ideal_image, cmap=INTENSITY_CMAP, title="no crosstalk")
-        .draw_image("with", crosstalk_image, cmap=INTENSITY_CMAP, title="with crosstalk")
-        .draw_image(
-            "kernel",
-            kernel,
-            cmap=INTENSITY_CMAP,
-            title="fringing-field kernel",
-            interpolation="nearest",
-        )
-        .build()
+    slm_phase = gaussian_phase_guess(
+        *slm.get_spatial_grid(device=device),
+        input_beam_radius=(BEAM_RADIUS, BEAM_RADIUS),
+        output_beam_radius=(CAMERA_SPOT_RADIUS, CAMERA_SPOT_RADIUS),
+        wavenumber=2 * np.pi / float(input_geometry.wavelength),
+        focal_length=FOCAL_LENGTH,
+        output_beam_shift=SIGNAL_SHIFT,
     )
+
+    figure = image_grid(
+        gpu_to_numpy(slm_phase) % (2 * np.pi),
+        titles="SLM phase pattern",
+        cmap="magma",
+        colorbar_label="phase [rad]",
+        column_width=6,
+    ).build()
 
 
 
 
 .. image-sg:: /auto_examples/hardware_interface/images/sphx_glr_simulated_hardware_002.png
-   :alt: no crosstalk, with crosstalk, fringing-field kernel
+   :alt: SLM phase pattern
    :srcset: /auto_examples/hardware_interface/images/sphx_glr_simulated_hardware_002.png, /auto_examples/hardware_interface/images/sphx_glr_simulated_hardware_002_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
-.. rst-class:: sphx-glr-script-out
-
- .. code-block:: none
-
-
-    <Figure size 1459x357.143 with 6 Axes>
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 294-296
+.. GENERATED FROM PYTHON SOURCE LINES 254-256
 
-Saving just the optical model
------------------------------
+Opening two simulated cameras, with and without pixel crosstalk.
 
-.. GENERATED FROM PYTHON SOURCE LINES 296-323
+
+.. GENERATED FROM PYTHON SOURCE LINES 256-293
+
+.. code-block:: Python
+
+    sensor_settings = dict(
+        bitdepth=12,
+        nd_filter_optical_density=6,
+        add_noise=False,
+        quantize=True,
+    )
+
+    no_crosstalk_camera = open_camera(
+        SimulatedCameraTorch,
+        slm_camera_model=SLMCZT(
+            **optics_settings,
+            virtual_slm=VirtualSLM.from_slm(slm, init_phase=slm_phase),
+            slm_field=PixelwiseSLMField(beam),
+        ),
+        **sensor_settings,
+    )
+
+    crosstalk_camera = open_camera(
+        SimulatedCameraTorch,
+        slm_camera_model=SLMCZT(
+            **optics_settings,
+            virtual_slm=VirtualSLM.from_slm(slm, init_phase=slm_phase),
+            slm_field=PixelwiseSLMField(beam),
+        ),
+        **sensor_settings,
+        crosstalk_upscale_factor=3,
+        crosstalk_extent=3,
+        crosstalk_order=2,
+        crosstalk_width=1,
+    )
+
+    no_crosstalk_camera.autoexpose(set_fraction=0.99)
+    crosstalk_camera.set_exposure(no_crosstalk_camera.get_exposure())
+
+    crosstalk_image = crosstalk_camera.get_image()
+    no_crosstalk_image = no_crosstalk_camera.get_image()
+
+
+
+
+
+
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 294-297
+
+The pixel crosstalk kernel used in the model
+--------------------------------------------
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 297-307
+
+.. code-block:: Python
+
+    kernel = crosstalk_camera.static_crosstalk_kernel
+
+    figure = image_grid(
+        kernel,
+        titles="Pixel crosstalk kernel",
+        cmap=INTENSITY_CMAP,
+        colorbar_label="weight",
+        column_width=3.2,
+    ).build()
+
+
+
+
+.. image-sg:: /auto_examples/hardware_interface/images/sphx_glr_simulated_hardware_003.png
+   :alt: Pixel crosstalk kernel
+   :srcset: /auto_examples/hardware_interface/images/sphx_glr_simulated_hardware_003.png, /auto_examples/hardware_interface/images/sphx_glr_simulated_hardware_003_2_00x.png 2.00x
+   :class: sphx-glr-single-img
+
+
+
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 308-314
+
+Comparing the two simulated camera outputs
+------------------------------------------
+
+The full sensor beside the signal region, a row per camera. Detecting the region on
+the crosstalk-free frame crops both to the same window, showing the artefacts caused
+by pixel crosstalk.
+
+.. GENERATED FROM PYTHON SOURCE LINES 314-334
+
+.. code-block:: Python
+
+    signal_roi = ROI.detect(no_crosstalk_image, threshold=0.5)
+
+    figure = image_grid(
+        [
+            [no_crosstalk_image, signal_roi.crop(no_crosstalk_image)],
+            [crosstalk_image, signal_roi.crop(crosstalk_image)],
+        ],
+        titles=[
+            "No crosstalk",
+            "No crosstalk, zoom",
+            "With crosstalk",
+            "With crosstalk, zoom",
+        ],
+        cmap=INTENSITY_CMAP,
+        shared_scale=True,
+        merge_colorbars=True,
+        colorbar_label="camera counts [ADU]",
+        column_width=3.4,
+    ).build()
+
+
+
+
+.. image-sg:: /auto_examples/hardware_interface/images/sphx_glr_simulated_hardware_004.png
+   :alt: No crosstalk, No crosstalk, zoom, With crosstalk, With crosstalk, zoom
+   :srcset: /auto_examples/hardware_interface/images/sphx_glr_simulated_hardware_004.png, /auto_examples/hardware_interface/images/sphx_glr_simulated_hardware_004_2_00x.png 2.00x
+   :class: sphx-glr-single-img
+
+
+
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 335-338
+
+Saving the optical model
+------------------------
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 338-369
 
 .. code-block:: Python
 
@@ -472,7 +538,11 @@ Saving just the optical model
     data_directory.mkdir(parents=True, exist_ok=True)
 
     bench_path = data_directory / "simulated_bench.pt"
-    build_model(VirtualSLM.from_slm(slm)).save(str(bench_path))
+    SLMCZT(
+        **optics_settings,
+        virtual_slm=VirtualSLM.from_slm(slm),
+        slm_field=PixelwiseSLMField(beam),
+    ).save(str(bench_path))
     print(f"saved the optics: {bench_path.stat().st_size / 1e6:.1f} MB")
 
     # load_optical_system reopens it without needing to know which system class wrote it
@@ -503,20 +573,21 @@ Saving just the optical model
 
  .. code-block:: none
 
-    saved the optics: 2.0 MB
+    saved the optics: 31.5 MB
     reloaded a SLMCZT
-    same camera geometry: (400, 640)
+    same camera geometry: (960, 1440)
     beam preserved: True
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 324-326
+.. GENERATED FROM PYTHON SOURCE LINES 370-373
 
 Saving the whole simulated camera
 ---------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 326-343
+
+.. GENERATED FROM PYTHON SOURCE LINES 373-390
 
 .. code-block:: Python
 
@@ -545,10 +616,10 @@ Saving the whole simulated camera
 
  .. code-block:: none
 
-    saved the camera: 3.3 MB
-    exposure preserved: 457.0 us
+    saved the camera: 42.2 MB
+    exposure preserved: 226.7 us
     stray light preserved: True
-    peak counts: 2090 vs 2149
+    peak counts: 2112 vs 2176
 
 
 
@@ -556,7 +627,7 @@ Saving the whole simulated camera
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 5.980 seconds)
+   **Total running time of the script:** (0 minutes 4.333 seconds)
 
 
 .. _sphx_glr_download_auto_examples_hardware_interface_simulated_hardware.py:

@@ -234,7 +234,7 @@ Here, we set the exposure by hand.
     exposure now: 0.000100 s
     frame shape (h, w): (960, 1440) dtype: float32
 
-    <Figure size 453.903x284 with 2 Axes>
+    <Figure size 454.167x284 with 2 Axes>
 
 
 
@@ -271,7 +271,7 @@ camera.
 
     exposure after autoexposure: 0.000383 s
 
-    <Figure size 462.653x284 with 2 Axes>
+    <Figure size 463.167x284 with 2 Axes>
 
 
 
@@ -315,7 +315,7 @@ returns only that window.
     current roi: ROI(top_row=448, left_column=688, height=64, width=64)
     cropped frame shape (h, w): (64, 64)
 
-    <Figure size 462.653x404 with 2 Axes>
+    <Figure size 463.167x404 with 2 Axes>
 
 
 
@@ -464,7 +464,7 @@ yourself. Each vendor SDK is imported lazily, only when its backend is opened:
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 15.819 seconds)
+   **Total running time of the script:** (0 minutes 6.597 seconds)
 
 
 .. _sphx_glr_download_auto_examples_hardware_interface_hardware_interface.py:
