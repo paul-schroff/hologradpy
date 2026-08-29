@@ -10,7 +10,7 @@ the camera.
 # %% Imports
 
 from hologradpy.holography.phase_retrieval import PixelwisePhaseRetriever
-from hologradpy.profiles.phase import lens_phase
+from hologradpy.profiles.phase import gaussian_phase_guess
 from hologradpy.profiles.amplitude import (
     gaussian_beam_intensity,
     gaussian_blur,
@@ -65,32 +65,14 @@ slm_field = ComplexAmplitude.from_geometry(
     slm_geometry, data=slm_intensity.sqrt() + 0j
 )
 
-# Defining the SLM phase guess
-init_slm_phase = lens_phase(
-    *slm_grid,
-    focal_length=1.5,
-    wavenumber=2 * torch.pi / slm.wavelength,
-).to(torch.float32)
-
 slm_camera_model = SLMFFT(
     input_geometry=slm_field.geometry,
-    virtual_slm=VirtualSLM(phase_scaling=1.0, init_phase=init_slm_phase),
+    virtual_slm=VirtualSLM(phase_scaling=1.0),
     slm_field=PixelwiseSLMField(slm_field),
     focal_length=focal_length,
     padded_resolution=padded_resolution,
 )
-
-# %% 
-# Initial simulated output
-# ------------------------
-init_electric_field = slm_camera_model()
-init_intensity = init_electric_field.intensity
-
-slm_power = slm_camera_model.slm_field.amplitude**2
-image_power = init_intensity.sum()
-
-print(f"SLM Power: {slm_power.sum().item()}")
-print(f"Image Power: {image_power.item()}")
+slm_camera_model()
 
 # %% 
 # Setting up the target potential and signal region
@@ -117,6 +99,32 @@ signal_region = rectangular_mask(
     shift_y=0,
 )
 
+
+# %%
+# Defining the SLM phase guess
+# ----------------------------
+#
+# A Gaussian filling the signal region.
+init_slm_phase = gaussian_phase_guess(
+    *slm_grid,
+    input_beam_radius=(beam_radius, beam_radius),
+    output_beam_radius=(top_hat_width, top_hat_height),
+    focal_length=focal_length,
+    wavenumber=2 * torch.pi / slm.wavelength,
+).to(torch.float32)
+slm_camera_model.virtual_slm.set_phase(init_slm_phase)
+
+# %% 
+# Initial simulated output
+# ------------------------
+init_electric_field = slm_camera_model()
+init_intensity = init_electric_field.intensity
+
+slm_power = slm_camera_model.slm_field.amplitude**2
+image_power = init_intensity.sum()
+
+print(f"SLM Power: {slm_power.sum().item()}")
+print(f"Image Power: {image_power.item()}")
 
 # %% 
 # Sanity checking the target geometry and the output of the initial guess

@@ -46,7 +46,7 @@ from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.optics.systems import SLMFFT
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
-from hologradpy.profiles.phase import lens_phase
+from hologradpy.profiles.phase import gaussian_phase_guess
 from hologradpy.roi import ROI
 from hologradpy.utils import get_device, gpu_to_numpy, to_canvas
 from hologradpy.visualizer import INTENSITY_CMAP, image_grid
@@ -122,11 +122,27 @@ signal_region = torch.as_tensor(
 # mostly empty canvas it sits on.
 frame = ROI.detect(signal_region.to(torch.float32), threshold=0.5, pad=0)
 
+# How wide the target is, which is what the analytic guess later spreads the beam to
+# match. Size is all such a guess can know; where the light goes within it is what
+# optimal transport adds.
+camera_x, camera_y = model[-1].get_spatial_grid_output()
+guess_radius = (
+    picture.shape[1] * float(camera_x[0, 1] - camera_x[0, 0]) / 2,
+    picture.shape[0] * float(camera_y[1, 0] - camera_y[0, 0]) / 2,
+)
+
 
 def framed(image: torch.Tensor | np.ndarray) -> np.ndarray:
-    array = image if isinstance(image, np.ndarray) else gpu_to_numpy(image)
-    return np.asarray(frame.crop(torch.as_tensor(array)))
+    return frame.crop(gpu_to_numpy(image))
 
+
+figure = image_grid(
+    [[framed(target_intensity)]],
+    titles=["target"],
+    cmap=INTENSITY_CMAP,
+    colorbar_label="intensity [a. u.]",
+    column_width=4.0,
+).build()
 
 # %%
 # Running the optimal transport optimization
@@ -212,10 +228,18 @@ lens_metrics = DEFAULT_INTENSITY_METRICS + (
     efficiency_metric(lens_model.incident_power(), lens_model.output_pixel_area()),
 )
 lens_model.virtual_slm.set_phase(
-    lens_phase(*slm_grid, focal_length=0.35, wavenumber=2 * torch.pi / WAVELENGTH).to(
-        torch.float32
-    )
+    gaussian_phase_guess(
+        *slm_grid,
+        input_beam_radius=(BEAM_RADIUS, BEAM_RADIUS),
+        output_beam_radius=guess_radius,
+        focal_length=FOCAL_LENGTH,
+        wavenumber=2 * torch.pi / WAVELENGTH,
+    ).to(torch.float32)
 )
+
+lens_guess_phase = gpu_to_numpy(lens_model.virtual_slm.get_phase().detach())
+with torch.no_grad():
+    lens_guess_intensity = gpu_to_numpy(lens_model().intensity.squeeze())
 
 lens_records = [
     PixelwisePhaseRetriever(
@@ -225,6 +249,24 @@ lens_records = [
 
 with torch.no_grad():
     lens_intensity = gpu_to_numpy(lens_model().intensity.squeeze())
+
+figure = image_grid(
+    [[lens_guess_phase % (2 * np.pi)]],
+    titles=["quadratic phase on the SLM"],
+    cmap="magma",
+    colorbar_label="phase [rad]",
+    column_width=4.0,
+).build()
+
+# %%
+# It spreads the beam over roughly the right area.
+figure = image_grid(
+    [[framed(target_intensity), framed(lens_guess_intensity)]],
+    titles=["target", "what the quadratic guess produces"],
+    cmap=INTENSITY_CMAP,
+    colorbar_label="intensity [a. u.]",
+    column_width=4.0,
+).build()
 
 # %%
 # Comparison

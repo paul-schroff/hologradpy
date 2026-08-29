@@ -89,8 +89,11 @@ def get_device(verbose: bool = False) -> torch.device:
     return device
 
 
-def gpu_to_numpy(tensor: torch.Tensor) -> NDArray:
-    return tensor.clone().cpu().detach().numpy()
+def gpu_to_numpy(array: ArrayLike) -> NDArray:
+    """A numpy copy of a tensor, off the device and off the graph."""
+    if not is_torch_array(array):
+        return np.asarray(array)
+    return array.clone().cpu().detach().numpy()
 
 
 def unsqueeze_to(input: torch.Tensor, max_dim: int, dim: int = 0) -> torch.Tensor:

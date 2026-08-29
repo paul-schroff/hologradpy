@@ -28,7 +28,7 @@ from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.optics.systems import SLMCZT
 from hologradpy.profiles.amplitude import gaussian_beam_intensity, gaussian_blur
 from hologradpy.profiles.masks import rectangular_mask
-from hologradpy.profiles.phase import lens_phase, linear_phase
+from hologradpy.profiles.phase import gaussian_phase_guess
 from hologradpy.grids import get_spatial_grid
 from hologradpy.profiles.zernike import Zernike
 from hologradpy.utils import get_device, gpu_to_numpy
@@ -145,20 +145,6 @@ slm_camera_model()
 # zeroth order so the undiffracted spot does not sit in the middle of the potential.
 TARGET_POSITION = (-1200e-6, -800e-6)
 
-init_slm_phase = (
-    lens_phase(
-        *slm.get_spatial_grid(device=device),
-        focal_length=1,
-        wavenumber=2 * torch.pi / slm.wavelength,
-    )
-    + linear_phase(
-        *slm.get_spatial_grid(device=device),
-        tilt_x=TARGET_POSITION[0],
-        tilt_y=TARGET_POSITION[1],
-        wavenumber=2 * torch.pi / slm.wavelength,
-        focal_length=FOCAL_LENGTH,
-    )
-).to(torch.float32)
 
 PATCH_RESOLUTION = (400, 800)
 patch_grid = get_spatial_grid(PATCH_RESOLUTION, CAMERA_PIXEL_SIZE)
@@ -174,6 +160,16 @@ target_top_hat = gaussian_blur(
 signal_region = rectangular_mask(
     *patch_grid, 2 * top_hat_width, 2 * top_hat_height, shift_x=0, shift_y=0
 )
+
+# A Gaussian filling the signal region, placed on the target.
+init_slm_phase = gaussian_phase_guess(
+    *slm.get_spatial_grid(device=device),
+    input_beam_radius=(BEAM_RADIUS, BEAM_RADIUS),
+    output_beam_radius=(top_hat_width, top_hat_height),
+    focal_length=FOCAL_LENGTH,
+    wavenumber=2 * torch.pi / slm.wavelength,
+    output_beam_shift=TARGET_POSITION,
+).to(torch.float32)
 
 # %% Camera feedback
 feedback = SimpleFeedbackCorrector(
