@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib.util
+import sys
 import time
 from typing import Iterable, TypeVar
 
@@ -7,9 +9,27 @@ import numpy as np
 import torch
 from array_api_compat import is_torch_array
 from numpy.typing import NDArray
-from tqdm.auto import tqdm
+
+if importlib.util.find_spec("ipywidgets") is not None:
+    # The widget bar, which is the nicer one and always renders under a kernel.
+    from tqdm.auto import tqdm
+else:
+    # Without ipywidgets, ``tqdm.auto`` under a kernel warns that IProgress was not
+    # found and then renders nothing. The text bar renders everywhere.
+    from tqdm import tqdm
 
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
+
+
+def _bar_would_be_seen() -> bool:
+    """Whether a progress bar has somewhere worth rendering to."""
+    if "ipykernel" in sys.modules:
+        return True
+    try:
+        return bool(sys.stderr.isatty())
+    except Exception:
+        # A stream that will not answer is not one to write a bar to.
+        return False
 
 
 def to_canvas(field: ArrayLike, resolution: tuple[int, int]) -> ArrayLike:
@@ -103,7 +123,7 @@ def progress(
     if not verbose:
         return iterable
 
-    kwargs.setdefault("disable", None)
+    kwargs.setdefault("disable", not _bar_would_be_seen())
     return tqdm(iterable, total=total, desc=description or None, **kwargs)
 
 
@@ -136,8 +156,7 @@ class ProgressBar:
 
     def __enter__(self) -> ProgressBar:
         if self.verbose:
-            # See progress() for why disable=None.
-            self._kwargs.setdefault("disable", None)
+            self._kwargs.setdefault("disable", not _bar_would_be_seen())
             self._bar = tqdm(
                 total=self.total, desc=self.description or None, **self._kwargs
             )

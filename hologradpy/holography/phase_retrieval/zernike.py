@@ -5,14 +5,14 @@ import torch
 
 from ...optics.systems import SLMFourierLensModel
 
-from .abstract import PhaseRetrieverBase
+from .abstract import GradientPhaseRetriever
 
 from ...loss_functions import INTENSITY_MSE_SCALE
 
 
 # TODO: Add error metrics
 # TODO: Add saving functionality
-class ZernikePhaseRetriever(PhaseRetrieverBase):
+class ZernikePhaseRetriever(GradientPhaseRetriever):
     def __init__(
         self,
         slm_camera_model: SLMFourierLensModel,

@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 import torch
 import torch.nn as nn
 
+from .vector_fields import forward_difference
+
 if TYPE_CHECKING:
     from .optics.modules.slm_fields import SLMField
 
@@ -245,12 +247,6 @@ class AmplitudeSmoothness(LossFunction):
         return gradient_loss(unit_amplitude)
 
 
-def forward_difference(input: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    grad_img_x = torch.diff(input, dim=-2)
-    grad_img_y = torch.diff(input, dim=-1)
-    return grad_img_x, grad_img_y
-
-
 def gradient_loss(input: torch.Tensor, aperture_relative: bool = True) -> torch.Tensor:
     """Mean squared finite difference, measured across the aperture by default.
 
@@ -261,35 +257,9 @@ def gradient_loss(input: torch.Tensor, aperture_relative: bool = True) -> torch.
     """
     gradient_x, gradient_y = forward_difference(input)
     if aperture_relative:
-        gradient_x = gradient_x * input.shape[-2]
-        gradient_y = gradient_y * input.shape[-1]
+        gradient_x = gradient_x * input.shape[-1]
+        gradient_y = gradient_y * input.shape[-2]
     return torch.mean(gradient_x**2) + torch.mean(gradient_y**2)
-
-
-def mean_curvature(input: torch.Tensor, pixel_pitch: float = 1.0) -> torch.Tensor:
-    """Calculate the mean curvature of a 2D image using finite differences."""
-    gradient_x, gradient_y = torch.gradient(
-        input, dim=[-2, -1], spacing=pixel_pitch, edge_order=2
-    )
-    curvature_xx, curvature_xy = torch.gradient(
-        gradient_x, dim=[-2, -1], spacing=1, edge_order=2
-    )
-
-    # Note: curvature_yx is not needed in this calculation
-    curvature_yx, curvature_yy = torch.gradient(
-        gradient_y, dim=[-2, -1], spacing=1, edge_order=2
-    )
-
-    mean_curvature = (
-        0.5
-        * (
-            (1 + gradient_x**2) * curvature_yy
-            + (1 + gradient_y**2) * curvature_xx
-            - 2 * gradient_x * gradient_y * curvature_xy
-        )
-        / ((1 + gradient_x**2 + gradient_y**2) ** (3 / 2))
-    )
-    return mean_curvature
 
 
 class LossIntensityMSE(LossFunction):

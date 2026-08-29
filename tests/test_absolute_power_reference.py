@@ -14,7 +14,7 @@ import pytest
 import torch
 
 from hologradpy.analysis.error_metrics import captured_power, efficiency_metric
-from hologradpy.holography.phase_retrieval import GradientPhaseRetriever
+from hologradpy.holography.phase_retrieval import PixelwisePhaseRetriever
 from hologradpy.loss_functions import LossAbsoluteIntensityMSE, LossIntensityMSE
 from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
@@ -208,11 +208,11 @@ class TestTheLossFactory:
     partway through the run, silently.
     """
 
-    def _retriever(self) -> GradientPhaseRetriever:
+    def _retriever(self) -> PixelwisePhaseRetriever:
         model = _model((64, 64), (2 * ORDER_HALF_EXTENT / 256,) * 2)
         target = torch.ones((64, 64))
         region = torch.ones((64, 64), dtype=torch.bool)
-        return GradientPhaseRetriever(
+        return PixelwisePhaseRetriever(
             slm_camera_model=model, target=target, signal_region=region
         )
 

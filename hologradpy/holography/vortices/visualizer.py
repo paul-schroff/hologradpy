@@ -28,7 +28,7 @@ TWO_PI = 2 * np.pi
 
 #: Marker colours for a positive and a negative topological charge.
 POSITIVE_COLOR = "#ff3b30"
-NEGATIVE_COLOR = "#0a84ff"
+NEGATIVE_COLOR = "#00e5ff"
 
 
 @record_type("vortex_annihilation")

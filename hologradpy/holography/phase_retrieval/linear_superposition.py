@@ -3,10 +3,12 @@ from __future__ import annotations
 import torch
 
 from .abstract import PhaseRetrieverBase
+from .recorder import RetrievalRun
 
 from ...optics.systems import SLMFourierLensModel
 
 from ...profiles.phase import linear_phase
+from ...utils import ProgressBar
 
 
 class LinearSuperpositionPhaseRetriever(PhaseRetrieverBase):
@@ -46,7 +48,32 @@ class LinearSuperpositionPhaseRetriever(PhaseRetrieverBase):
             "it cannot be retargeted with one. Set those attributes instead."
         )
 
-    def retrieve_phase(self: LinearSuperpositionPhaseRetriever) -> torch.Tensor:
+    # TODO: Liskov is sad.
+    def retrieve_phase(
+        self,
+        number_of_iterations: int = 0,
+        *,
+        run: RetrievalRun | None = None,
+        verbose: bool = True,
+        progress_bar: ProgressBar | None = None,
+        **_: object,
+    ) -> torch.Tensor:
+        """Superpose the gratings and set the model with the resulting phase.
+
+        Args:
+            number_of_iterations: Unused, and only accepted so this retriever can be
+                driven like any other, and so :meth:`~PhaseRetrieverBase.retrieve` works
+                on it.
+            run: The run to record into. A new one is made when none is given.
+            verbose: Unused, accepted for the same reason.
+            progress_bar: Unused, accepted for the same reason.
+
+        Returns:
+            torch.Tensor: The phase the SLM is now showing.
+        """
+        self.timer.start()
+        self.run = run if run is not None else RetrievalRun()
+
         geometry = self.slm_camera_model.input_geometry
         complex_dtype = (
             torch.complex128
@@ -54,9 +81,7 @@ class LinearSuperpositionPhaseRetriever(PhaseRetrieverBase):
             else torch.complex64
         )
         grid_x, grid_y = geometry.get_spatial_grid()
-        # Single-wavelength retriever: collapse the wavenumber to a scalar so it
-        # broadcasts against the grid regardless of whether the geometry stores a
-        # 0-dim or shape-(1,) wavelength.
+        
         wavenumber = geometry.wavenumber.reshape(())
 
         field_superposition = torch.zeros(
@@ -79,4 +104,7 @@ class LinearSuperpositionPhaseRetriever(PhaseRetrieverBase):
                 1j * (blazed_grating + self.target_phases[i])
             )
 
-        return field_superposition.angle()
+        virtual_slm = self.slm_camera_model.virtual_slm
+        virtual_slm.set_phase(field_superposition.angle().to(torch.float32))
+        self.timer.stop()
+        return virtual_slm.get_phase().detach()

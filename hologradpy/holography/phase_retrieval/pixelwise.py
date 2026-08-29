@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from .abstract import PhaseRetrieverBase
+from .abstract import GradientPhaseRetriever
 
 from ...loss_functions import INTENSITY_MSE_SCALE
 
@@ -11,7 +11,7 @@ from ...optics.systems import SLMFourierLensModel
 
 
 # TODO: Add convergence error metrics
-class GradientPhaseRetriever(PhaseRetrieverBase):
+class PixelwisePhaseRetriever(GradientPhaseRetriever):
     """Search the SLM phase pixel by pixel, following the gradient of a cost.
 
     The phase of every pixel is a free parameter, and the model is differentiable end
@@ -44,4 +44,3 @@ class GradientPhaseRetriever(PhaseRetrieverBase):
             self.slm_camera_model.virtual_slm.set_phase(init_slm_phase.detach())
 
     PARAMETER_NAME = "virtual_slm.levels"
-    METHOD = "cg"

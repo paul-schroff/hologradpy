@@ -21,7 +21,7 @@ from ....profiles.phase import analytic_phase_guess
 from ....profiles.masks import rectangular_mask
 from ....grids import get_spatial_grid, pixel_to_metres, plane_center
 
-from ....holography.phase_retrieval import GradientPhaseRetriever
+from ....holography.phase_retrieval import PixelwisePhaseRetriever
 from ....holography.vortices.vortex_annihilator import VortexAnnihilator
 
 from ..abstract import CameraMapper, CameraMapping
@@ -193,7 +193,7 @@ class CheckerboardMapper(CameraMapper):
 
         # Performing phase retrieval to find SLM phase pattern for checkerboard
         # target
-        phase_retriever = GradientPhaseRetriever(
+        phase_retriever = PixelwisePhaseRetriever(
             self.slm_camera_model,
             target=target,
             signal_region=signal_region,

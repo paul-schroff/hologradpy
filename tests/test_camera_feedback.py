@@ -42,7 +42,7 @@ from hologradpy.holography.camera_feedback import (
 from hologradpy.holography.phase_retrieval import (
     MODEL_CHECKPOINT_NAME,
     RETRIEVAL_STEPS_NAME,
-    GradientPhaseRetriever,
+    PixelwisePhaseRetriever,
     PhaseRetrievalData,
     LinearSuperpositionPhaseRetriever,
     RetrievalStepWriter,
@@ -226,7 +226,7 @@ def _bench() -> tuple:
     # Targeted on the full frame so the retriever can be exercised on its own. The
     # corrector replaces this with the placed patch in place_target().
     placed_target, placed_region = _placed(target, signal_region)
-    retriever = GradientPhaseRetriever(
+    retriever = PixelwisePhaseRetriever(
         slm_camera_model=model,
         target=placed_target,
         signal_region=placed_region,
@@ -721,7 +721,7 @@ def test_builds_its_own_retriever() -> None:
         camera_mapping=_identity_mapping(),
     )
 
-    assert isinstance(feedback.phase_retriever, GradientPhaseRetriever)
+    assert isinstance(feedback.phase_retriever, PixelwisePhaseRetriever)
     assert feedback.slm_camera_model is model
 
     data = feedback.run(
@@ -817,7 +817,7 @@ def test_target_without_signal_region_raises() -> None:
     model = _model(geometry, VirtualSLM.from_slm(slm), _beam(geometry))
     target, _ = _placed(*_target(model))
 
-    retriever = GradientPhaseRetriever(
+    retriever = PixelwisePhaseRetriever(
         slm_camera_model=model,
         target=target,
         signal_region=torch.ones(CAMERA_RESOLUTION, dtype=torch.bool),
@@ -838,7 +838,7 @@ def test_retrieve_returns_a_record() -> None:
 
     assert record.phase.shape == SLM_RESOLUTION
     assert record.target.shape == CAMERA_RESOLUTION
-    assert record.name == "GradientPhaseRetriever"
+    assert record.name == "PixelwisePhaseRetriever"
     assert set(record.metrics) == {"rmse", "psnr [dB]"}
     # One entry per objective evaluation, which the line search makes several of per
     # iteration, so this is at least as long as the iteration count.

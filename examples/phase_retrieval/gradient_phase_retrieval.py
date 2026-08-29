@@ -9,7 +9,7 @@ the camera.
 
 # %% Imports
 
-from hologradpy.holography.phase_retrieval import GradientPhaseRetriever
+from hologradpy.holography.phase_retrieval import PixelwisePhaseRetriever
 from hologradpy.profiles.phase import lens_phase
 from hologradpy.profiles.amplitude import (
     gaussian_beam_intensity,
@@ -148,7 +148,7 @@ setup_layout.add_row(
 # %% 
 # Setting up the phase retrieval module
 # -------------------------------------
-phase_retriever = GradientPhaseRetriever(
+phase_retriever = PixelwisePhaseRetriever(
     slm_camera_model=slm_camera_model,
     target=target_top_hat,
     signal_region=signal_region,

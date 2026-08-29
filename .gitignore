@@ -1,5 +1,6 @@
 **/__pycache__/
 .idea/
+.vscode/
 
 # Sphinx documentation
 docs/_build/

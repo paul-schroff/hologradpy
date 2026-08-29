@@ -6,7 +6,7 @@ from numpy.typing import NDArray
 from .vortex_detection import VortexDetector
 from .visualizer import VortexAnnihilationData
 
-from ..phase_retrieval.gradient import GradientPhaseRetriever
+from ..phase_retrieval.abstract import GradientPhaseRetriever
 
 
 class VortexAnnihilator:
@@ -34,18 +34,26 @@ class VortexAnnihilator:
     def _state(self) -> tuple[NDArray, NDArray, NDArray, NDArray]:
         """The image-plane intensity and phase, and the vortices currently in them."""
         complex_amplitude = self.phase_retriever.slm_camera_model()
-        positions = np.asarray(
-            [(int(row), int(column)) for row, column in
-             self.vortex_detector.center_indices],
-            dtype=int,
-        ).reshape(-1, 2)
-        charges = self.vortex_detector.charges.detach().cpu().numpy().reshape(-1)
+        positions, charges = self._charged_vortices()
         return (
             complex_amplitude.intensity.detach().cpu().numpy(),
             complex_amplitude.phase.detach().cpu().numpy(),
             positions,
             charges,
         )
+
+    def _charged_vortices(self) -> tuple[NDArray, NDArray]:
+        """The vortices the detector found that actually carry charge."""
+        positions = np.asarray(
+            [
+                (int(row), int(column))
+                for row, column in self.vortex_detector.center_indices
+            ],
+            dtype=int,
+        ).reshape(-1, 2)
+        charges = self.vortex_detector.charges.detach().cpu().numpy().reshape(-1)
+        charged = charges != 0
+        return positions[charged], charges[charged]
 
     def annihilate_vortices(
         self,
@@ -89,8 +97,8 @@ class VortexAnnihilator:
                 pad=1,
             )
 
-            number_of_vortices = self.vortex_detector.number_of_vortices
-            counts.append(int(number_of_vortices))
+            number_of_vortices = len(self._charged_vortices()[1])
+            counts.append(number_of_vortices)
             if initial is None:
                 initial = self._state()
 

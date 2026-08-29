@@ -13,8 +13,8 @@ from .visualizer import CameraFeedbackVisualizer, TargetPlacementData
 
 from ..phase_retrieval import (
     GradientPhaseRetriever,
+    PixelwisePhaseRetriever,
     PhaseRetrievalData,
-    PhaseRetrieverBase,
 )
 
 from ...calibration.camera_mapping import CameraMapping, SpotArrayMapper
@@ -76,9 +76,10 @@ class CameraFeedbackData(SaveableRecord):
 class FeedbackCorrectorBase(ABC):
     """Correct a light potential against the camera, driving a phase retriever.
 
-    Works with any :class:`~hologradpy.holography.phase_retrieval.PhaseRetrieverBase`
-    that implements set_target() and run(). Uses 
-    :class:`~hologradpy.holography.phase_retrieval.GradientPhaseRetriever` by default.
+    Needs a :class:`~hologradpy.holography.phase_retrieval.GradientPhaseRetriever`:
+    each round retargets the retriever against the camera-corrected target, which a
+    retriever without a signal region cannot accept. Builds a
+    :class:`~hologradpy.holography.phase_retrieval.PixelwisePhaseRetriever` by default.
     """
 
     def __init__(
@@ -90,7 +91,7 @@ class FeedbackCorrectorBase(ABC):
         target_position: tuple[float, float] = (0.0, 0.0),
         slm_camera_model: SLMFourierLensModel | None = None,
         init_slm_phase: torch.Tensor | None = None,
-        phase_retriever: PhaseRetrieverBase | None = None,
+        phase_retriever: GradientPhaseRetriever | None = None,
         camera_mapping: CameraMapping | None = None,
         loss_scale: float | None = None,
     ) -> None:
@@ -159,7 +160,7 @@ class FeedbackCorrectorBase(ABC):
         slm_camera_model: SLMFourierLensModel | None,
         init_slm_phase: torch.Tensor | None,
         loss_scale: float | None,
-    ) -> GradientPhaseRetriever:
+    ) -> PixelwisePhaseRetriever:
         """The default search, so the usual case needs no retriever built by hand."""
         if slm_camera_model is None:
             raise ValueError(
@@ -168,7 +169,7 @@ class FeedbackCorrectorBase(ABC):
             )
 
         options = {} if loss_scale is None else {"loss_scale": loss_scale}
-        return GradientPhaseRetriever(
+        return PixelwisePhaseRetriever(
             slm_camera_model=slm_camera_model,
             init_slm_phase=init_slm_phase,
             **options,

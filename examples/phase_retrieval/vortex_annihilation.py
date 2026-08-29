@@ -35,7 +35,7 @@ from hologradpy.analysis.error_metrics import (
     efficiency_metric,
 )
 from hologradpy.hardware import SimulatedSLMTorch, open_slm
-from hologradpy.holography.phase_retrieval import GradientPhaseRetriever
+from hologradpy.holography.phase_retrieval import PixelwisePhaseRetriever
 from hologradpy.holography.vortices import VortexAnnihilator
 from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
@@ -127,7 +127,7 @@ init_slm_phase = lens_phase(
     wavenumber=2 * torch.pi / slm.wavelength,
 ).to(torch.float32)
 
-phase_retriever = GradientPhaseRetriever(
+phase_retriever = PixelwisePhaseRetriever(
     slm_camera_model=slm_camera_model,
     target=target_intensity,
     signal_region=signal_region,

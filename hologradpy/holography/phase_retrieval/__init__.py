@@ -6,9 +6,11 @@ from .recorder import (
     RetrievalRun,
     RetrievalStepWriter,
 )
-from .gradient import GradientPhaseRetriever
+from .abstract import GradientPhaseRetriever
+from .pixelwise import PixelwisePhaseRetriever
 from .zernike import ZernikePhaseRetriever
 from .linear_superposition import LinearSuperpositionPhaseRetriever
+from .optimal_transport import OptimalTransportPhaseRetriever
 
 __all__ = [
     "MODEL_CHECKPOINT_NAME",
@@ -20,6 +22,8 @@ __all__ = [
     "RetrievalRun",
     "RetrievalStepWriter",
     "GradientPhaseRetriever",
+    "PixelwisePhaseRetriever",
     "ZernikePhaseRetriever",
     "LinearSuperpositionPhaseRetriever",
+    "OptimalTransportPhaseRetriever",
 ]

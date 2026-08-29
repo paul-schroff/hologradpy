@@ -44,7 +44,11 @@ this package.
   Optimization of SLM phase patterns for arbitrary target intensity profiles, by
   conjugate gradient minimization <a href="#ref2">[2]</a> of flexible cost functions,
   allowing for simultaneous phase and amplitude control in the Fourier plane
-  <a href="#ref3">[3]</a>. A vortex annihilation scheme actively removes optical
+  <a href="#ref3">[3]</a>. 
+  A scalable optimal transport method provides an accurate and efficient phase guess to
+  seed the gradient-based optimization <a href="#ref4">[4]</a>,
+  <a href="#ref5">[5]</a>.
+  A vortex annihilation scheme actively removes any remaining optical
   vortices to prevent the gradient-based algorithms from stagnating.
 
 - **Differentiable optical models**
@@ -60,13 +64,13 @@ this package.
   Each of these layers needs to be calibrated. The intensity and phase profile of the
   beam incident onto the SLM can be calibrated in a few minutes using a stochastic
   method based on speckle intensity patterns. An interferometric raster-scan
-  calibration <a href="#ref4">[4]</a> that is robust to beam pointing instability is
+  calibration <a href="#ref6">[6]</a> that is robust to beam pointing instability is
   included as well. Pixel crosstalk on the SLM is calibrated using the same
   speckle-based method.
 
 - **Camera feedback**
 
-  A feedback algorithm <a href="#ref5">[5]</a> measures the intensity profile on the
+  A feedback algorithm <a href="#ref7">[7]</a> measures the intensity profile on the
   camera and uses the gradient-based algorithms above to correct residual errors that
   even a well-calibrated model of the setup cannot predict.
 
@@ -134,13 +138,24 @@ Please cite whichever is relevant to what you used.
    Opt. Express **25**, 11692 (2017).
    <https://doi.org/10.1364/OE.25.011692>
 
-4. <a id="ref4"></a>P. Zupancic, P. M. Preiss, R. Ma, A. Lukin, M. E. Tai,
+4. <a id="ref4"></a>A. Torchylo, H. Swan, L. Tellez and J. M. Hogan,
+   *A fast, large-scale optimal transport algorithm for holographic beam shaping*,
+   arXiv:2512.19072 (2025).
+   <https://arxiv.org/abs/2512.19072>
+
+5. <a id="ref5"></a>H. Swan, A. Torchylo, M. J. Van de Graaff, J. Rudolph and
+   J. M. Hogan,
+   *High-fidelity holographic beam shaping with optimal transport and phase diversity*,
+   Opt. Express **33**, 6290 (2025).
+   <https://doi.org/10.1364/OE.540901>
+
+6. <a id="ref6"></a>P. Zupancic, P. M. Preiss, R. Ma, A. Lukin, M. E. Tai,
    M. Rispoli, R. Islam and M. Greiner,
    *Ultra-precise holographic beam shaping for microscopic quantum control*,
    Opt. Express **24**, 13881 (2016).
    <https://doi.org/10.1364/OE.24.013881>
 
-5. <a id="ref5"></a>G. D. Bruce, M. Y. H. Johnson, E. Cormack, D. A. W. Richards, J.
+7. <a id="ref7"></a>G. D. Bruce, M. Y. H. Johnson, E. Cormack, D. A. W. Richards, J.
    Mayoh and D. Cassettari,
    *Feedback-enhanced algorithm for aberration correction of holographic atom traps*,
    J. Phys. B: At. Mol. Opt. Phys. **48**, 115303 (2015).

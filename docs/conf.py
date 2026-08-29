@@ -9,7 +9,7 @@ import re
 import sys
 import warnings
 
-from sphinx_gallery.sorting import ExplicitOrder
+from sphinx_gallery.sorting import ExplicitOrder, NumberOfCodeLinesSortKey
 
 # ---- Project information -------------------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
@@ -140,6 +140,20 @@ if RUN_EXAMPLES and EXAMPLE_FILTER:
         if re.search(EXAMPLE_FILTER, _stamp.as_posix()):
             _stamp.unlink()
 
+class WithinSectionOrder(NumberOfCodeLinesSortKey):
+    EXPLICIT = (
+        "top_hat_beam_shaping.py",
+        "gradient_phase_retrieval.py",
+        "optimal_transport_phase_guess.py",
+        "vortex_annihilation.py",
+    )
+
+    def __call__(self, filename: str) -> tuple[int, int]:
+        if filename in self.EXPLICIT:
+            return (0, self.EXPLICIT.index(filename))
+        return (1, super().__call__(filename))
+
+
 sphinx_gallery_conf = {
     "examples_dirs": [
         "../examples/hardware_interface",
@@ -153,6 +167,7 @@ sphinx_gallery_conf = {
         "auto_examples/camera_feedback",
         "auto_examples/calibration",
     ],
+    "within_subsection_order": WithinSectionOrder,
     "reference_url": {"hologradpy": None},
     "filename_pattern": (EXAMPLE_FILTER or r".*") if RUN_EXAMPLES else "(?!.*)",
     "ignore_pattern": r"(__init__|.*[\\/]dev_scripts[\\/].*)\.py",
