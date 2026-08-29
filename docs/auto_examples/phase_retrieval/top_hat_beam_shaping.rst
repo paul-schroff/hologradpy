@@ -52,7 +52,7 @@ cost function that constrains both intensity and phase,
     from PIL import Image, ImageDraw, ImageFont
 
     from hologradpy.hardware import SimulatedSLMTorch, open_slm
-    from hologradpy.holography.phase_retrieval import GradientPhaseRetriever
+    from hologradpy.holography.phase_retrieval import PixelwisePhaseRetriever
     from hologradpy.loss_functions import (
         LossAbsoluteIntensityMSE,
         LossFidelity,
@@ -108,6 +108,18 @@ cost function that constrains both intensity and phase,
     GIF_ANNOTATION_INDEX = 255
 
 
+
+
+
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+    Using device: cuda
+
+
+
+
 .. GENERATED FROM PYTHON SOURCE LINES 91-94
 
 The SLM and the incident Gaussian beam
@@ -160,6 +172,19 @@ The SLM and the incident Gaussian beam
     camera_x, camera_y = slm_camera_model[-1].get_spatial_grid_output()
 
 
+
+
+
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+    hologradpy/fourier_transforms/shear.py:63: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+    Consider using tensor.detach() first. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\torch\csrc\autograd\generated\python_variable_methods.cpp:823.)
+
+
+
+
 .. GENERATED FROM PYTHON SOURCE LINES 136-139
 
 1D top hat target with diffraction-limited shoulders and width
@@ -205,6 +230,20 @@ The SLM and the incident Gaussian beam
     )
 
 
+
+
+
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+    top hat: 200 um tall, 28.3 um waist
+    the waist is the focal spot of a 7 mm beam through 300 mm, so the plateau is 7 spots long
+    sampled at 3.45 um per pixel, so the waist spans 8.2 pixels
+
+
+
+
 .. GENERATED FROM PYTHON SOURCE LINES 174-177
 
 How much light there is to lose
@@ -239,6 +278,19 @@ How much light there is to lose
 
 
 
+
+
+
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+    the SLM can address +-12.5 mm, the camera sees +-221 um of it
+    focal-plane sampling margin: (3.53, 2.82)
+
+
+
+
 .. GENERATED FROM PYTHON SOURCE LINES 201-203
 
 Top hat optimized with an intensity-only cost
@@ -255,7 +307,7 @@ Top hat optimized with an intensity-only cost
     )
     print(f"\nasking for {WANTED_EFFICIENCY:.0%} of the incident power in the shape")
 
-    phase_retriever = GradientPhaseRetriever(
+    phase_retriever = PixelwisePhaseRetriever(
         slm_camera_model=slm_camera_model,
         target=absolute_target,
         signal_region=signal_region,
@@ -284,6 +336,26 @@ Top hat optimized with an intensity-only cost
     )
 
     absolute.visualizer().render()
+
+
+
+
+.. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_001.png
+   :alt: target, retrieved, retrieved - target (rms 3.68e-06), retrieved SLM phase [rad], full output plane, convergence, rmse: 0.6349 to 0.003896, psnr [dB]: 13.7 to 51
+   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_001.png, /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_001_2_00x.png 2.00x
+   :class: sphx-glr-single-img
+
+
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+
+    asking for 100% of the incident power in the shape
+    absolute intensity cost: {'rmse': '0.003896', 'psnr [dB]': '51'}
+
+    <Figure size 1549x2085.19 with 13 Axes>
+
 
 
 .. GENERATED FROM PYTHON SOURCE LINES 241-244
@@ -317,6 +389,24 @@ Optimize again, this time constraining the phase as well
     )
 
     fidelity.visualizer().render()
+
+
+
+
+.. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_002.png
+   :alt: target, retrieved, retrieved - target (rms 6.63e-06), target phase [rad], image-plane phase [rad], phase error [rad] (max 0.04), retrieved SLM phase [rad], full output plane, convergence, rmse: 0.6349 to 0.01276, psnr [dB]: 13.7 to 45.88
+   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_002.png, /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_002_2_00x.png 2.00x
+   :class: sphx-glr-single-img
+
+
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+    fidelity cost : {'rmse': '0.01276', 'psnr [dB]': '45.88'}
+
+    <Figure size 1549x2986.82 with 19 Axes>
+
 
 
 .. GENERATED FROM PYTHON SOURCE LINES 267-270
@@ -387,6 +477,25 @@ Compare the two
         ylabel=r"y [$\mu$m]",
         column_width=2.2,
     ).build()
+
+
+
+
+.. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_003.png
+   :alt: target, absolute (rmse 0.003), fidelity (rmse 0.013), target phase (flat), phase, absolute (std 1.30 rad), phase, fidelity (std 0.01 rad)
+   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_003.png, /auto_examples/phase_retrieval/images/sphx_glr_top_hat_beam_shaping_003_2_00x.png 2.00x
+   :class: sphx-glr-single-img
+
+
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+    absolute : phase spread 1.299 rad, rmse 0.0031, 99.5% of the light kept
+    fidelity : phase spread 0.012 rad, rmse 0.0130, 46.4% of the light kept
+
+    <Figure size 882.614x590 with 8 Axes>
+
 
 
 .. GENERATED FROM PYTHON SOURCE LINES 330-334
@@ -494,6 +603,24 @@ define when it executes this script.
 
     plt.show()
 
+
+
+
+
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+    frame peaks: first 4.27e+03, last 2.09e+03, each frame normalized to its own peak
+    wrote top_hat_beam_shaping.gif: 31 frames, 294x642, 620 kB
+
+
+
+
+
+.. rst-class:: sphx-glr-timing
+
+   **Total running time of the script:** (1 minutes 12.960 seconds)
 
 
 .. _sphx_glr_download_auto_examples_phase_retrieval_top_hat_beam_shaping.py:

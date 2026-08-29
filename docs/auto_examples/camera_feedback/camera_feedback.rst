@@ -49,7 +49,7 @@ target passed to the phase retrieval algorithm.
     from hologradpy.optics.systems import SLMCZT
     from hologradpy.profiles.amplitude import gaussian_beam_intensity, gaussian_blur
     from hologradpy.profiles.masks import rectangular_mask
-    from hologradpy.profiles.phase import lens_phase, linear_phase
+    from hologradpy.profiles.phase import gaussian_phase_guess
     from hologradpy.grids import get_spatial_grid
     from hologradpy.profiles.zernike import Zernike
     from hologradpy.utils import get_device, gpu_to_numpy
@@ -213,7 +213,7 @@ target passed to the phase retrieval algorithm.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 142-178
+.. GENERATED FROM PYTHON SOURCE LINES 142-174
 
 .. code-block:: Python
 
@@ -223,20 +223,6 @@ target passed to the phase retrieval algorithm.
     # zeroth order so the undiffracted spot does not sit in the middle of the potential.
     TARGET_POSITION = (-1200e-6, -800e-6)
 
-    init_slm_phase = (
-        lens_phase(
-            *slm.get_spatial_grid(device=device),
-            focal_length=1,
-            wavenumber=2 * torch.pi / slm.wavelength,
-        )
-        + linear_phase(
-            *slm.get_spatial_grid(device=device),
-            tilt_x=TARGET_POSITION[0],
-            tilt_y=TARGET_POSITION[1],
-            wavenumber=2 * torch.pi / slm.wavelength,
-            focal_length=FOCAL_LENGTH,
-        )
-    ).to(torch.float32)
 
     PATCH_RESOLUTION = (400, 800)
     patch_grid = get_spatial_grid(PATCH_RESOLUTION, CAMERA_PIXEL_SIZE)
@@ -253,14 +239,31 @@ target passed to the phase retrieval algorithm.
         *patch_grid, 2 * top_hat_width, 2 * top_hat_height, shift_x=0, shift_y=0
     )
 
+    # A Gaussian filling the signal region, placed on the target.
+    init_slm_phase = gaussian_phase_guess(
+        *slm.get_spatial_grid(device=device),
+        input_beam_radius=(BEAM_RADIUS, BEAM_RADIUS),
+        output_beam_radius=(top_hat_width, top_hat_height),
+        focal_length=FOCAL_LENGTH,
+        wavenumber=2 * torch.pi / slm.wavelength,
+        output_beam_shift=TARGET_POSITION,
+    ).to(torch.float32)
 
 
 
 
 
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+    hologradpy/fourier_transforms/shear.py:63: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+    Consider using tensor.detach() first. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\torch\csrc\autograd\generated\python_variable_methods.cpp:823.)
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 179-189
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 175-185
 
 .. code-block:: Python
 
@@ -281,7 +284,7 @@ target passed to the phase retrieval algorithm.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 190-193
+.. GENERATED FROM PYTHON SOURCE LINES 186-189
 
 .. code-block:: Python
 
@@ -300,7 +303,7 @@ target passed to the phase retrieval algorithm.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 194-203
+.. GENERATED FROM PYTHON SOURCE LINES 190-199
 
 .. code-block:: Python
 
@@ -320,7 +323,7 @@ target passed to the phase retrieval algorithm.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 204-206
+.. GENERATED FROM PYTHON SOURCE LINES 200-202
 
 .. code-block:: Python
 
@@ -330,7 +333,7 @@ target passed to the phase retrieval algorithm.
 
 
 .. image-sg:: /auto_examples/camera_feedback/images/sphx_glr_camera_feedback_003.png
-   :alt: target on the camera grid, initial guess (fraction inside the region 0.727), SLM phase [rad], iteration 7, camera image [counts], iteration 1, iteration 4, best rmse, measured - target (rms 0.028), rmse, psnr [dB]
+   :alt: target on the camera grid, initial guess (fraction inside the region 0.774), SLM phase [rad], iteration 7, camera image [counts], iteration 1, iteration 4, best rmse, measured - target (rms 0.024), rmse, psnr [dB]
    :srcset: /auto_examples/camera_feedback/images/sphx_glr_camera_feedback_003.png, /auto_examples/camera_feedback/images/sphx_glr_camera_feedback_003_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
@@ -341,7 +344,7 @@ target passed to the phase retrieval algorithm.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 31.495 seconds)
+   **Total running time of the script:** (0 minutes 32.535 seconds)
 
 
 .. _sphx_glr_download_auto_examples_camera_feedback_camera_feedback.py:

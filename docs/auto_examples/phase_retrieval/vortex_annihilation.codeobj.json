@@ -96,71 +96,6 @@
    "name": "FieldGeometry"
   }
  ],
- "GradientPhaseRetriever": [
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "hologradpy.holography.phase_retrieval.gradient",
-   "module_short": "hologradpy.holography.phase_retrieval",
-   "name": "GradientPhaseRetriever"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "hologradpy.holography.phase_retrieval",
-   "module_short": "hologradpy.holography.phase_retrieval",
-   "name": "GradientPhaseRetriever"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "hologradpy.holography",
-   "module_short": "hologradpy.holography",
-   "name": "GradientPhaseRetriever"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "hologradpy",
-   "module_short": "hologradpy",
-   "name": "GradientPhaseRetriever"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "hologradpy.holography.phase_retrieval.abstract",
-   "module_short": "hologradpy.holography.phase_retrieval",
-   "name": "PhaseRetrieverBase"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "hologradpy.holography.phase_retrieval",
-   "module_short": "hologradpy.holography.phase_retrieval",
-   "name": "PhaseRetrieverBase"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "hologradpy.holography",
-   "module_short": "hologradpy.holography",
-   "name": "PhaseRetrieverBase"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "hologradpy",
-   "module_short": "hologradpy",
-   "name": "PhaseRetrieverBase"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy.holography.phase_retrieval",
-   "module_short": "hologradpy.holography.phase_retrieval",
-   "name": "GradientPhaseRetriever"
-  }
- ],
  "GridCell": [
   {
    "is_class": true,
@@ -237,6 +172,99 @@
    "module": "pathlib",
    "module_short": "pathlib",
    "name": "Path"
+  }
+ ],
+ "PixelwisePhaseRetriever": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval.pixelwise",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "PixelwisePhaseRetriever"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "PixelwisePhaseRetriever"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.holography",
+   "module_short": "hologradpy.holography",
+   "name": "PixelwisePhaseRetriever"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "PixelwisePhaseRetriever"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval.abstract",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "GradientPhaseRetriever"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "GradientPhaseRetriever"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.holography",
+   "module_short": "hologradpy.holography",
+   "name": "GradientPhaseRetriever"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "GradientPhaseRetriever"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval.abstract",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "PhaseRetrieverBase"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "PhaseRetrieverBase"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.holography",
+   "module_short": "hologradpy.holography",
+   "name": "PhaseRetrieverBase"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "PhaseRetrieverBase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "PixelwisePhaseRetriever"
   }
  ],
  "PixelwiseSLMField": [
@@ -1427,6 +1455,22 @@
    "name": "gaussian_beam_intensity"
   }
  ],
+ "gaussian_phase_guess": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.profiles.phase",
+   "module_short": "hologradpy.profiles",
+   "name": "gaussian_phase_guess"
+  }
+ ],
  "get_device": [
   {
    "is_class": false,
@@ -1459,6 +1503,15 @@
    "name": "gpu_to_numpy"
   }
  ],
+ "guess_radius": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
  "hologradpy.__file__": [
   {
    "is_class": false,
@@ -1482,22 +1535,6 @@
    "module": "torch",
    "module_short": "torch",
    "name": "Tensor"
-  }
- ],
- "lens_phase": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "function"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy.profiles.phase",
-   "module_short": "hologradpy.profiles",
-   "name": "lens_phase"
   }
  ],
  "lit": [
@@ -1646,37 +1683,65 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "hologradpy.holography.phase_retrieval.gradient",
+   "module": "hologradpy.holography.phase_retrieval.pixelwise",
    "module_short": "hologradpy.holography.phase_retrieval",
-   "name": "GradientPhaseRetriever"
+   "name": "PixelwisePhaseRetriever"
   },
   {
    "is_class": false,
    "is_explicit": false,
    "module": "hologradpy.holography.phase_retrieval",
    "module_short": "hologradpy.holography.phase_retrieval",
-   "name": "GradientPhaseRetriever"
+   "name": "PixelwisePhaseRetriever"
   },
   {
    "is_class": false,
    "is_explicit": false,
    "module": "hologradpy.holography",
    "module_short": "hologradpy.holography",
-   "name": "GradientPhaseRetriever"
+   "name": "PixelwisePhaseRetriever"
   },
   {
    "is_class": false,
    "is_explicit": false,
    "module": "hologradpy",
    "module_short": "hologradpy",
-   "name": "GradientPhaseRetriever"
+   "name": "PixelwisePhaseRetriever"
   }
  ],
  "phase_retriever.retrieve": [
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "hologradpy.holography.phase_retrieval.gradient",
+   "module": "hologradpy.holography.phase_retrieval.pixelwise",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "PixelwisePhaseRetriever.retrieve"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "PixelwisePhaseRetriever.retrieve"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.holography",
+   "module_short": "hologradpy.holography",
+   "name": "PixelwisePhaseRetriever.retrieve"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "PixelwisePhaseRetriever.retrieve"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval.abstract",
    "module_short": "hologradpy.holography.phase_retrieval",
    "name": "GradientPhaseRetriever.retrieve"
   },

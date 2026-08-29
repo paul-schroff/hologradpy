@@ -1470,6 +1470,22 @@
    "name": "gaussian_blur"
   }
  ],
+ "gaussian_phase_guess": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.profiles.phase",
+   "module_short": "hologradpy.profiles",
+   "name": "gaussian_phase_guess"
+  }
+ ],
  "get_device": [
   {
    "is_class": false,
@@ -1634,38 +1650,6 @@
    "module": "hologradpy",
    "module_short": "hologradpy",
    "name": "PlotLayout.add_row"
-  }
- ],
- "lens_phase": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "function"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy.profiles.phase",
-   "module_short": "hologradpy.profiles",
-   "name": "lens_phase"
-  }
- ],
- "linear_phase": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "function"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy.profiles.phase",
-   "module_short": "hologradpy.profiles",
-   "name": "linear_phase"
   }
  ],
  "open_slm": [

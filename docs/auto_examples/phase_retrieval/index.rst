@@ -21,6 +21,23 @@ Optimizing the SLM phase pattern for a target intensity profile in the Fourier p
 
 .. raw:: html
 
+    <div class="sphx-glr-thumbcontainer" tooltip="Shaping a Gaussian Rydberg addressing beam into a 1D top-hat profile to achieve uniform Rabi frequencies across our neutral atom array.">
+
+.. only:: html
+
+  .. image:: /auto_examples/phase_retrieval/images/thumb/sphx_glr_top_hat_beam_shaping_thumb.png
+    :alt:
+
+  :doc:`/auto_examples/phase_retrieval/top_hat_beam_shaping`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">Top-hat beam shaping for Rydberg addressing</div>
+    </div>
+
+
+.. raw:: html
+
     <div class="sphx-glr-thumbcontainer" tooltip="Finds the SLM phase that forms a target light potential, by minimizing a cost function based on the output of a model that simulates the propagation of light from the SLM to the camera.">
 
 .. only:: html
@@ -33,6 +50,23 @@ Optimizing the SLM phase pattern for a target intensity profile in the Fourier p
 .. raw:: html
 
       <div class="sphx-glr-thumbnail-title">Gradient-based phase retrieval</div>
+    </div>
+
+
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="For intricate targets, the combination of a linear and a quadratic phase term we applied before is not sufficient to ensure a vortex-free result. Recent work employs optimal transport methods to find an accurate initial phase guess, leading to improved convergence:">
+
+.. only:: html
+
+  .. image:: /auto_examples/phase_retrieval/images/thumb/sphx_glr_optimal_transport_phase_guess_thumb.png
+    :alt:
+
+  :doc:`/auto_examples/phase_retrieval/optimal_transport_phase_guess`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">Phase guess using optimal transport</div>
     </div>
 
 
@@ -53,23 +87,6 @@ Optimizing the SLM phase pattern for a target intensity profile in the Fourier p
     </div>
 
 
-.. raw:: html
-
-    <div class="sphx-glr-thumbcontainer" tooltip="Shaping a Gaussian Rydberg addressing beam into a 1D top-hat profile to achieve uniform Rabi frequencies across our neutral atom array.">
-
-.. only:: html
-
-  .. image:: /auto_examples/phase_retrieval/images/thumb/sphx_glr_top_hat_beam_shaping_thumb.png
-    :alt:
-
-  :doc:`/auto_examples/phase_retrieval/top_hat_beam_shaping`
-
-.. raw:: html
-
-      <div class="sphx-glr-thumbnail-title">Top-hat beam shaping for Rydberg addressing</div>
-    </div>
-
-
 .. thumbnail-parent-div-close
 
 .. raw:: html
@@ -80,9 +97,10 @@ Optimizing the SLM phase pattern for a target intensity profile in the Fourier p
 .. toctree::
    :hidden:
 
-   /auto_examples/phase_retrieval/gradient_phase_retrieval
-   /auto_examples/phase_retrieval/vortex_annihilation
    /auto_examples/phase_retrieval/top_hat_beam_shaping
+   /auto_examples/phase_retrieval/gradient_phase_retrieval
+   /auto_examples/phase_retrieval/optimal_transport_phase_guess
+   /auto_examples/phase_retrieval/vortex_annihilation
 
 
 .. only:: html

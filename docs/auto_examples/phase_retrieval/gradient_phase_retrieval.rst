@@ -25,18 +25,34 @@ Finds the SLM phase that forms a target light potential, by minimizing a cost fu
 based on the output of a model that simulates the propagation of light from the SLM to
 the camera.
 
-.. GENERATED FROM PYTHON SOURCE LINES 11-42
+.. GENERATED FROM PYTHON SOURCE LINES 9-12
 
 .. code-block:: Python
 
 
-    from hologradpy.holography.phase_retrieval import GradientPhaseRetriever
-    from hologradpy.profiles.phase import lens_phase
+    # sphinx_gallery_thumbnail_number = 2
+
+
+
+
+
+
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 13-51
+
+.. code-block:: Python
+
+    from hologradpy.holography.phase_retrieval import PixelwisePhaseRetriever
+    from hologradpy.profiles.phase import gaussian_phase_guess
     from hologradpy.profiles.amplitude import (
         gaussian_beam_intensity,
         gaussian_blur,
     )
+    from hologradpy.analysis.error_metrics import normalize
+    from hologradpy.analysis.unwrapping import wrap
     from hologradpy.profiles.masks import rectangular_mask
+    from hologradpy.roi import ROI
     from hologradpy.utils import (
         get_device,
         gpu_to_numpy,
@@ -52,11 +68,16 @@ the camera.
 
     from hologradpy.hardware import SimulatedSLMTorch, open_slm
     from hologradpy.visualizer import (
+        DIFFERENCE_CMAP,
         INTENSITY_CMAP,
+        PHASE_CMAP,
         GridCell,
         PlotBuilder,
         PlotLayout,
+        image_grid,
     )
+
+    import time
 
     import torch
 
@@ -67,12 +88,12 @@ the camera.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 43-45
+.. GENERATED FROM PYTHON SOURCE LINES 52-54
 
-Setting up the the SLM and camera devices
------------------------------------------
+Setting up the SLM
+------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 45-55
+.. GENERATED FROM PYTHON SOURCE LINES 54-64
 
 .. code-block:: Python
 
@@ -99,12 +120,12 @@ Setting up the the SLM and camera devices
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 56-58
+.. GENERATED FROM PYTHON SOURCE LINES 65-67
 
 Setting up models of the SLM and the camera
 -------------------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 58-83
+.. GENERATED FROM PYTHON SOURCE LINES 67-86
 
 .. code-block:: Python
 
@@ -118,45 +139,14 @@ Setting up models of the SLM and the camera
         slm_geometry, data=slm_intensity.sqrt() + 0j
     )
 
-    # Defining the SLM phase guess
-    init_slm_phase = lens_phase(
-        *slm_grid,
-        focal_length=1.5,
-        wavenumber=2 * torch.pi / slm.wavelength,
-    ).to(torch.float32)
-
     slm_camera_model = SLMFFT(
         input_geometry=slm_field.geometry,
-        virtual_slm=VirtualSLM(phase_scaling=1.0, init_phase=init_slm_phase),
+        virtual_slm=VirtualSLM(phase_scaling=1.0),
         slm_field=PixelwiseSLMField(slm_field),
         focal_length=focal_length,
         padded_resolution=padded_resolution,
     )
-
-
-
-
-
-
-
-
-.. GENERATED FROM PYTHON SOURCE LINES 84-86
-
-Initial simulated output
-------------------------
-
-.. GENERATED FROM PYTHON SOURCE LINES 86-95
-
-.. code-block:: Python
-
-    init_electric_field = slm_camera_model()
-    init_intensity = init_electric_field.intensity
-
-    slm_power = slm_camera_model.slm_field.amplitude**2
-    image_power = init_intensity.sum()
-
-    print(f"SLM Power: {slm_power.sum().item()}")
-    print(f"Image Power: {image_power.item()}")
+    slm_camera_model()
 
 
 
@@ -166,18 +156,17 @@ Initial simulated output
 
  .. code-block:: none
 
-    SLM Power: 160618.328125
-    Image Power: 146556.53125
+
+    ComplexAmplitude(shape=(2048, 2048), dtype=torch.complex64, wavelength=tensor([6.7000e-07], device='cuda:0'), pixel_size=tensor([[1.3086e-05, 1.3086e-05]], device='cuda:0'))
 
 
 
-
-.. GENERATED FROM PYTHON SOURCE LINES 96-98
+.. GENERATED FROM PYTHON SOURCE LINES 87-89
 
 Setting up the target potential and signal region
 -------------------------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 98-121
+.. GENERATED FROM PYTHON SOURCE LINES 89-114
 
 .. code-block:: Python
 
@@ -203,6 +192,7 @@ Setting up the target potential and signal region
         shift_y=0,
     )
 
+    frame = ROI.detect(signal_region.to(torch.float32), threshold=0.5, pad=0)
 
 
 
@@ -211,12 +201,72 @@ Setting up the target potential and signal region
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 122-124
 
-Sanity checking the target geometry and the output of the initial guess
------------------------------------------------------------------------
+.. GENERATED FROM PYTHON SOURCE LINES 115-119
 
-.. GENERATED FROM PYTHON SOURCE LINES 124-148
+Defining the SLM phase guess
+----------------------------
+
+A Gaussian filling the signal region.
+
+.. GENERATED FROM PYTHON SOURCE LINES 119-128
+
+.. code-block:: Python
+
+    init_slm_phase = gaussian_phase_guess(
+        *slm_grid,
+        input_beam_radius=(beam_radius, beam_radius),
+        output_beam_radius=(top_hat_width, top_hat_height),
+        focal_length=focal_length,
+        wavenumber=2 * torch.pi / slm.wavelength,
+    ).to(torch.float32)
+    slm_camera_model.virtual_slm.set_phase(init_slm_phase)
+
+
+
+
+
+
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 129-131
+
+Initial simulated output
+------------------------
+
+.. GENERATED FROM PYTHON SOURCE LINES 131-140
+
+.. code-block:: Python
+
+    init_electric_field = slm_camera_model()
+    init_intensity = init_electric_field.intensity
+
+    slm_power = slm_camera_model.slm_field.amplitude**2
+    image_power = init_intensity.sum()
+
+    print(f"SLM Power: {slm_power.sum().item()}")
+    print(f"Image Power: {image_power.item()}")
+
+
+
+
+
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+    SLM Power: 160618.34375
+    Image Power: 146556.53125
+
+
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 141-143
+
+Sanity checking the target geometry and the initial guess
+---------------------------------------------------------
+
+.. GENERATED FROM PYTHON SOURCE LINES 143-171
 
 .. code-block:: Python
 
@@ -225,21 +275,25 @@ Sanity checking the target geometry and the output of the initial guess
         return image.shape[0] / image.shape[1]
 
 
+    # The camera panels are cropped to the signal region.
+    initial_frame = frame.crop(gpu_to_numpy(init_intensity))
+    target_frame = frame.crop(gpu_to_numpy(target_top_hat))
+
     setup_layout = PlotLayout(column_width=3.6, margins=(1.0, 0.15, 0.5, 0.5))
     setup_layout.add_row(
         [
             GridCell("slm", aspect=_aspect(slm_intensity), colorbar=True),
-            GridCell("initial", aspect=_aspect(init_intensity), colorbar=True),
-            GridCell("target", aspect=_aspect(target_top_hat), colorbar=True),
+            GridCell("initial", aspect=_aspect(initial_frame), colorbar=True),
+            GridCell("target", aspect=_aspect(target_frame), colorbar=True),
         ]
     )
-    (
+    figure = (
         PlotBuilder(setup_layout)
         .draw_image("slm", gpu_to_numpy(slm_intensity), cmap=INTENSITY_CMAP,
                     title="SLM illumination")
-        .draw_image("initial", gpu_to_numpy(init_intensity), cmap=INTENSITY_CMAP,
+        .draw_image("initial", initial_frame, cmap=INTENSITY_CMAP,
                     title="initial camera image")
-        .draw_image("target", gpu_to_numpy(target_top_hat), cmap=INTENSITY_CMAP,
+        .draw_image("target", target_frame, cmap=INTENSITY_CMAP,
                     title="target")
         .build()
     )
@@ -253,81 +307,200 @@ Sanity checking the target geometry and the output of the initial guess
    :class: sphx-glr-single-img
 
 
+
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 172-180
+
+Comparing conjugate gradient with L-BFGS
+----------------------------------------
+
+Both searches start from the same guess against the same cost. Conjugate gradient
+steps are cheaper than L-BFGS steps, so it is given more iterations.
+
+The cost is recorded once per objective evaluation, and a line search evaluates the
+objective more than once per iteration.
+
+.. GENERATED FROM PYTHON SOURCE LINES 180-220
+
+.. code-block:: Python
+
+    SEARCHES = (
+        ("cg", "conjugate gradient", 250),
+        ("l-bfgs", "L-BFGS", 100),
+    )
+
+
+    def timed(cost, stamps):
+        """The cost, noting the clock each time it is evaluated."""
+
+        def evaluate(field=None, target=None):
+            value = cost(field, target)
+            stamps.append(time.perf_counter())
+            return value
+
+        return evaluate
+
+
+    results = []
+    for method, label, iterations in SEARCHES:
+        phase_retriever = PixelwisePhaseRetriever(
+            slm_camera_model=slm_camera_model,
+            target=target_top_hat,
+            signal_region=signal_region,
+            init_slm_phase=init_slm_phase,
+        )
+        stamps = []
+        phase_retriever.set_loss_function(timed(phase_retriever.loss_function, stamps))
+        retrieval = phase_retriever.retrieve(iterations, method=method, name=label)
+        seconds = [stamp - stamps[0] for stamp in stamps]
+        intensity = frame.crop(gpu_to_numpy(slm_camera_model().intensity.squeeze()))
+        results.append((retrieval, seconds, intensity))
+
+    for retrieval, seconds, _ in results:
+        print(
+            f"  {retrieval.name:<20}"
+            f"rmse {retrieval.metrics['rmse'][-1]:.4f}   "
+            f"{len(retrieval.loss_history):4d} evaluations   "
+            f"{seconds[-1]:5.1f} s"
+        )
+
+
+
+
+
 .. rst-class:: sphx-glr-script-out
 
  .. code-block:: none
 
+      conjugate gradient  rmse 0.0013    378 evaluations    11.1 s
+      L-BFGS              rmse 0.0031    105 evaluations    12.9 s
 
-    <Figure size 1459x432.308 with 6 Axes>
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 149-151
+.. GENERATED FROM PYTHON SOURCE LINES 221-223
 
-Setting up the phase retrieval module
--------------------------------------
+Convergence
+-----------
 
-.. GENERATED FROM PYTHON SOURCE LINES 151-158
+.. GENERATED FROM PYTHON SOURCE LINES 223-246
 
 .. code-block:: Python
 
-    phase_retriever = GradientPhaseRetriever(
-        slm_camera_model=slm_camera_model,
-        target=target_top_hat,
-        signal_region=signal_region,
-        init_slm_phase=init_slm_phase,
+    cost_layout = PlotLayout(column_width=4.4, margins=(0.62, 0.12, 0.28, 0.45))
+    cost_layout.add_row([GridCell("cost", aspect=0.652)])
+    figure = (
+        PlotBuilder(cost_layout)
+        .draw_line(
+            "cost",
+            [
+                {
+                    "x": seconds,
+                    "y": list(retrieval.loss_history),
+                    "label": retrieval.name,
+                }
+                for retrieval, seconds, _ in results
+            ],
+            xlabel="time [s]",
+            ylabel="cost",
+            yscale="log",
+            title="convergence",
+            legend=True,
+        )
+        .build()
     )
 
 
 
 
-
-
-
-
-.. GENERATED FROM PYTHON SOURCE LINES 159-161
-
-Running phase retrieval
------------------------
-
-.. GENERATED FROM PYTHON SOURCE LINES 161-163
-
-.. code-block:: Python
-
-    retrieval = phase_retriever.retrieve(20, method="cg", name="conjugate gradient")
-
-
-
-
-
-
-
-
-.. GENERATED FROM PYTHON SOURCE LINES 164-166
-
-Plotting the results
---------------------
-
-.. GENERATED FROM PYTHON SOURCE LINES 166-168
-
-.. code-block:: Python
-
-    figure = retrieval.visualizer().render()
-    print({name: f"{values[-1]:.4g}" for name, values in retrieval.metrics.items()})
-
-
-
 .. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_002.png
-   :alt: target, retrieved, retrieved - target (rms 4.85e-06), retrieved SLM phase [rad], full output plane, convergence, rmse: 0.1935 to 0.0202, psnr [dB]: 9.746 to 30.58
+   :alt: convergence
    :srcset: /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_002.png, /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_002_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
 
-.. rst-class:: sphx-glr-script-out
 
- .. code-block:: none
 
-    {'rmse': '0.0202', 'psnr [dB]': '30.58'}
+
+.. GENERATED FROM PYTHON SOURCE LINES 247-249
+
+Results
+--------
+
+.. GENERATED FROM PYTHON SOURCE LINES 249-276
+
+.. code-block:: Python
+
+    region_frame = frame.crop(gpu_to_numpy(signal_region))
+    scaled_target = normalize(target_frame, region_frame)
+    errors = [
+        normalize(intensity, region_frame) - scaled_target for _, _, intensity in results
+    ]
+
+    peak = max(float(intensity.max()) for _, _, intensity in results)
+    limit = max(float(abs(error).max()) for error in errors)
+
+    figure = image_grid(
+        [
+            [results[0][2], results[1][2]],
+            [errors[0], errors[1]],
+        ],
+        titles=[
+            results[0][0].name,
+            results[1][0].name,
+            f"{results[0][0].name} - target",
+            f"{results[1][0].name} - target",
+        ],
+        cmap=[INTENSITY_CMAP, INTENSITY_CMAP, DIFFERENCE_CMAP, DIFFERENCE_CMAP],
+        vmin=[0.0, 0.0, -limit, -limit],
+        vmax=[peak, peak, limit, limit],
+        colorbar_label=["intensity [a. u.]", "intensity [a. u.]", "error", "error"],
+        column_width=3.6,
+    ).build()
+
+
+
+
+.. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_003.png
+   :alt: conjugate gradient, L-BFGS, conjugate gradient - target, L-BFGS - target
+   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_003.png, /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_003_2_00x.png 2.00x
+   :class: sphx-glr-single-img
+
+
+
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 277-279
+
+Optimized SLM phase patterns
+----------------------------
+
+.. GENERATED FROM PYTHON SOURCE LINES 279-292
+
+.. code-block:: Python
+
+    patterns = [wrap(retrieval.phase) for retrieval, _, _ in results]
+
+    figure = image_grid(
+        patterns,
+        titles=[results[0][0].name, results[1][0].name],
+        cmap=PHASE_CMAP,
+        vmin=-torch.pi,
+        vmax=torch.pi,
+        colorbar_label="phase [rad]",
+        merge_colorbars=True,
+        column_width=3.6,
+    ).build()
+
+
+
+
+.. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_004.png
+   :alt: conjugate gradient, L-BFGS
+   :srcset: /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_004.png, /auto_examples/phase_retrieval/images/sphx_glr_gradient_phase_retrieval_004_2_00x.png 2.00x
+   :class: sphx-glr-single-img
+
 
 
 
@@ -335,7 +508,7 @@ Plotting the results
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 6.211 seconds)
+   **Total running time of the script:** (0 minutes 37.634 seconds)
 
 
 .. _sphx_glr_download_auto_examples_phase_retrieval_gradient_phase_retrieval.py:

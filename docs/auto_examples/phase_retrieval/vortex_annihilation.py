@@ -35,14 +35,14 @@ from hologradpy.analysis.error_metrics import (
     efficiency_metric,
 )
 from hologradpy.hardware import SimulatedSLMTorch, open_slm
-from hologradpy.holography.phase_retrieval import GradientPhaseRetriever
+from hologradpy.holography.phase_retrieval import PixelwisePhaseRetriever
 from hologradpy.holography.vortices import VortexAnnihilator
 from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.optics.systems import SLMFFT
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
-from hologradpy.profiles.phase import lens_phase
+from hologradpy.profiles.phase import gaussian_phase_guess
 from hologradpy.utils import get_device, gpu_to_numpy, to_canvas
 from hologradpy.visualizer import (
     INTENSITY_CMAP,
@@ -121,13 +121,17 @@ signal_region = torch.as_tensor(
 )
 
 # %% Retrieve, with no vortex handling at all
-init_slm_phase = lens_phase(
+# A Gaussian of this radius in the Fourier plane, wide enough to cover the target.
+guess_radius = 2.86e-3
+init_slm_phase = gaussian_phase_guess(
     *slm_grid,
-    focal_length=0.35,
+    input_beam_radius=(beam_radius, beam_radius),
+    output_beam_radius=(guess_radius, guess_radius),
+    focal_length=focal_length,
     wavenumber=2 * torch.pi / slm.wavelength,
 ).to(torch.float32)
 
-phase_retriever = GradientPhaseRetriever(
+phase_retriever = PixelwisePhaseRetriever(
     slm_camera_model=slm_camera_model,
     target=target_intensity,
     signal_region=signal_region,

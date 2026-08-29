@@ -56,14 +56,14 @@ This example demonstrates the vortex detection and annihilation scheme used in
         efficiency_metric,
     )
     from hologradpy.hardware import SimulatedSLMTorch, open_slm
-    from hologradpy.holography.phase_retrieval import GradientPhaseRetriever
+    from hologradpy.holography.phase_retrieval import PixelwisePhaseRetriever
     from hologradpy.holography.vortices import VortexAnnihilator
     from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
     from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
     from hologradpy.optics.modules.virtual_slms import VirtualSLM
     from hologradpy.optics.systems import SLMFFT
     from hologradpy.profiles.amplitude import gaussian_beam_intensity
-    from hologradpy.profiles.phase import lens_phase
+    from hologradpy.profiles.phase import gaussian_phase_guess
     from hologradpy.utils import get_device, gpu_to_numpy, to_canvas
     from hologradpy.visualizer import (
         INTENSITY_CMAP,
@@ -206,17 +206,24 @@ The signal region leaves a dark margin around the image.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 124-152
+.. GENERATED FROM PYTHON SOURCE LINES 124-125
+
+A Gaussian of this radius in the Fourier plane, wide enough to cover the target.
+
+.. GENERATED FROM PYTHON SOURCE LINES 125-156
 
 .. code-block:: Python
 
-    init_slm_phase = lens_phase(
+    guess_radius = 2.86e-3
+    init_slm_phase = gaussian_phase_guess(
         *slm_grid,
-        focal_length=0.35,
+        input_beam_radius=(beam_radius, beam_radius),
+        output_beam_radius=(guess_radius, guess_radius),
+        focal_length=focal_length,
         wavenumber=2 * torch.pi / slm.wavelength,
     ).to(torch.float32)
 
-    phase_retriever = GradientPhaseRetriever(
+    phase_retriever = PixelwisePhaseRetriever(
         slm_camera_model=slm_camera_model,
         target=target_intensity,
         signal_region=signal_region,
@@ -242,7 +249,7 @@ The signal region leaves a dark margin around the image.
 
 
 .. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_001.png
-   :alt: target, retrieved, retrieved - target (rms 2.35e-07), retrieved SLM phase [rad], full output plane, convergence, rmse: 0.3426 to 0.04384, psnr [dB]: 15.11 to 34.3, signal efficiency: 0.7465 to 0.5924
+   :alt: target, retrieved, retrieved - target (rms 2.36e-07), retrieved SLM phase [rad], full output plane, convergence, rmse: 0.3421 to 0.04478, psnr [dB]: 15.11 to 34.26, signal efficiency: 0.7458 to 0.5933
    :srcset: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_001.png, /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_001_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
@@ -251,17 +258,17 @@ The signal region leaves a dark margin around the image.
 
  .. code-block:: none
 
-    {'rmse': '0.04384', 'psnr [dB]': '34.3', 'signal efficiency': '0.5924'}
+    {'rmse': '0.04478', 'psnr [dB]': '34.26', 'signal efficiency': '0.5933'}
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 153-155
+.. GENERATED FROM PYTHON SOURCE LINES 157-159
 
 Each round detects the vortices, multiplies in a field of the opposite charge to
 cancel their winding, propagates that back to the SLM, and retrieves again.
 
-.. GENERATED FROM PYTHON SOURCE LINES 155-165
+.. GENERATED FROM PYTHON SOURCE LINES 159-169
 
 .. code-block:: Python
 
@@ -279,7 +286,7 @@ cancel their winding, propagates that back to the SLM, and retrieves again.
 
 
 .. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_002.png
-   :alt: intensity, 315 vortices, phase [rad], intensity, 6 left, phase [rad], stopped at the iteration limit
+   :alt: intensity, 275 vortices, phase [rad], intensity, 6 left, phase [rad], stopped at the iteration limit
    :srcset: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_002.png, /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_002_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
@@ -289,24 +296,24 @@ cancel their winding, propagates that back to the SLM, and retrieves again.
  .. code-block:: none
 
     Starting vortex annihilation...
-    Iteration 1: Detected 315 vortices.
-    Iteration 2: Detected 118 vortices.
-    Iteration 3: Detected 50 vortices.
-    Iteration 4: Detected 39 vortices.
-    Iteration 5: Detected 39 vortices.
-    Iteration 6: Detected 28 vortices.
-    Iteration 7: Detected 21 vortices.
-    Iteration 8: Detected 13 vortices.
-    Iteration 9: Detected 11 vortices.
+    Iteration 1: Detected 275 vortices.
+    Iteration 2: Detected 113 vortices.
+    Iteration 3: Detected 62 vortices.
+    Iteration 4: Detected 32 vortices.
+    Iteration 5: Detected 23 vortices.
+    Iteration 6: Detected 7 vortices.
+    Iteration 7: Detected 11 vortices.
+    Iteration 8: Detected 6 vortices.
+    Iteration 9: Detected 8 vortices.
     Iteration 10: Detected 6 vortices.
     Reached maximum iterations, stopping vortex removal.
-    vortices per round: [315, 118, 50, 39, 39, 28, 21, 13, 11, 6]
+    vortices per round: [275, 113, 62, 32, 23, 7, 11, 6, 8, 6]
     converged: False
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 166-173
+.. GENERATED FROM PYTHON SOURCE LINES 170-177
 
 .. code-block:: Python
 
@@ -321,7 +328,7 @@ cancel their winding, propagates that back to the SLM, and retrieves again.
 
 
 .. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_003.png
-   :alt: target, retrieved, retrieved - target (rms 1.21e-07), retrieved SLM phase [rad], full output plane, convergence, rmse: 0.0396 to 0.02361, psnr [dB]: 35.92 to 40.1, signal efficiency: 0.2361 to 0.2099
+   :alt: target, retrieved, retrieved - target (rms 1.2e-07), retrieved SLM phase [rad], full output plane, convergence, rmse: 0.03835 to 0.02354, psnr [dB]: 36.19 to 40.12, signal efficiency: 0.2457 to 0.2115
    :srcset: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_003.png, /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_003_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
@@ -330,12 +337,12 @@ cancel their winding, propagates that back to the SLM, and retrieves again.
 
  .. code-block:: none
 
-    {'rmse': '0.02361', 'psnr [dB]': '40.1', 'signal efficiency': '0.2099'}
+    {'rmse': '0.02354', 'psnr [dB]': '40.12', 'signal efficiency': '0.2115'}
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 174-203
+.. GENERATED FROM PYTHON SOURCE LINES 178-207
 
 .. code-block:: Python
 
@@ -372,7 +379,7 @@ cancel their winding, propagates that back to the SLM, and retrieves again.
 
 
 .. image-sg:: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_004.png
-   :alt: target, before, 315 vortices, after, 6 vortices
+   :alt: target, before, 275 vortices, after, 6 vortices
    :srcset: /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_004.png, /auto_examples/phase_retrieval/images/sphx_glr_vortex_annihilation_004_2_00x.png 2.00x
    :class: sphx-glr-single-img
 
@@ -383,7 +390,7 @@ cancel their winding, propagates that back to the SLM, and retrieves again.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (1 minutes 13.256 seconds)
+   **Total running time of the script:** (1 minutes 17.123 seconds)
 
 
 .. _sphx_glr_download_auto_examples_phase_retrieval_vortex_annihilation.py:

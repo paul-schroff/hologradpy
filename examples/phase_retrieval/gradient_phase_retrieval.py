@@ -7,6 +7,8 @@ based on the output of a model that simulates the propagation of light from the 
 the camera.
 """
 
+# sphinx_gallery_thumbnail_number = 2
+
 # %% Imports
 from hologradpy.holography.phase_retrieval import PixelwisePhaseRetriever
 from hologradpy.profiles.phase import gaussian_phase_guess
@@ -202,9 +204,8 @@ for method, label, iterations in SEARCHES:
     )
     stamps = []
     phase_retriever.set_loss_function(timed(phase_retriever.loss_function, stamps))
-    start = time.perf_counter()
     retrieval = phase_retriever.retrieve(iterations, method=method, name=label)
-    seconds = [stamp - start for stamp in stamps]
+    seconds = [stamp - stamps[0] for stamp in stamps]
     intensity = frame.crop(gpu_to_numpy(slm_camera_model().intensity.squeeze()))
     results.append((retrieval, seconds, intensity))
 
@@ -219,8 +220,8 @@ for retrieval, seconds, _ in results:
 # %%
 # Convergence
 # -----------
-cost_layout = PlotLayout(column_width=4.8, margins=(0.9, 0.2, 0.4, 0.6))
-cost_layout.add_row([GridCell("cost", aspect=0.55)])
+cost_layout = PlotLayout(column_width=4.4, margins=(0.62, 0.12, 0.28, 0.45))
+cost_layout.add_row([GridCell("cost", aspect=0.652)])
 figure = (
     PlotBuilder(cost_layout)
     .draw_line(

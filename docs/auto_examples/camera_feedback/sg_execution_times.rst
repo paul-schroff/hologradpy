@@ -6,7 +6,7 @@
 
 Computation times
 =================
-**00:31.495** total execution time for 1 file **from auto_examples\camera_feedback**:
+**00:32.535** total execution time for 1 file **from auto_examples\camera_feedback**:
 
 .. container::
 
@@ -33,5 +33,5 @@ Computation times
      - Time
      - Mem (MB)
    * - :ref:`sphx_glr_auto_examples_camera_feedback_camera_feedback.py` (``camera_feedback.py``)
-     - 00:31.495
+     - 00:32.535
      - 0.0

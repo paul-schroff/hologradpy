@@ -32,7 +32,7 @@ from matplotlib import font_manager
 from PIL import Image, ImageDraw, ImageFont
 
 from hologradpy.hardware import SimulatedSLMTorch, open_slm
-from hologradpy.holography.phase_retrieval import GradientPhaseRetriever
+from hologradpy.holography.phase_retrieval import PixelwisePhaseRetriever
 from hologradpy.loss_functions import (
     LossAbsoluteIntensityMSE,
     LossFidelity,
@@ -207,7 +207,7 @@ absolute_target = (
 )
 print(f"\nasking for {WANTED_EFFICIENCY:.0%} of the incident power in the shape")
 
-phase_retriever = GradientPhaseRetriever(
+phase_retriever = PixelwisePhaseRetriever(
     slm_camera_model=slm_camera_model,
     target=absolute_target,
     signal_region=signal_region,

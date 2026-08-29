@@ -50,6 +50,22 @@
    "name": "from_geometry"
   }
  ],
+ "DIFFERENCE_CMAP": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "DIFFERENCE_CMAP"
+  }
+ ],
  "FieldGeometry": [
   {
    "is_class": true,
@@ -80,11 +96,94 @@
    "name": "FieldGeometry"
   }
  ],
- "GradientPhaseRetriever": [
+ "GridCell": [
   {
    "is_class": true,
    "is_explicit": false,
-   "module": "hologradpy.holography.phase_retrieval.gradient",
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "GridCell"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "GridCell"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "GridCell"
+  }
+ ],
+ "INTENSITY_CMAP": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "INTENSITY_CMAP"
+  }
+ ],
+ "PHASE_CMAP": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "PHASE_CMAP"
+  }
+ ],
+ "PixelwisePhaseRetriever": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval.pixelwise",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "PixelwisePhaseRetriever"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "PixelwisePhaseRetriever"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.holography",
+   "module_short": "hologradpy.holography",
+   "name": "PixelwisePhaseRetriever"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "PixelwisePhaseRetriever"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval.abstract",
    "module_short": "hologradpy.holography.phase_retrieval",
    "name": "GradientPhaseRetriever"
   },
@@ -142,46 +241,7 @@
    "is_explicit": false,
    "module": "hologradpy.holography.phase_retrieval",
    "module_short": "hologradpy.holography.phase_retrieval",
-   "name": "GradientPhaseRetriever"
-  }
- ],
- "GridCell": [
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "hologradpy.visualizer",
-   "module_short": "hologradpy.visualizer",
-   "name": "GridCell"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "hologradpy",
-   "module_short": "hologradpy",
-   "name": "GridCell"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy.visualizer",
-   "module_short": "hologradpy.visualizer",
-   "name": "GridCell"
-  }
- ],
- "INTENSITY_CMAP": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "str"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy.visualizer",
-   "module_short": "hologradpy.visualizer",
-   "name": "INTENSITY_CMAP"
+   "name": "PixelwisePhaseRetriever"
   }
  ],
  "PixelwiseSLMField": [
@@ -419,6 +479,38 @@
    "module": "hologradpy.visualizer",
    "module_short": "hologradpy.visualizer",
    "name": "PlotLayout"
+  }
+ ],
+ "ROI.detect": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy.roi",
+   "module_short": "hologradpy.roi",
+   "name": "ROI.detect"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "ROI.detect"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.roi.ROI",
+   "module_short": "hologradpy.roi.ROI",
+   "name": "detect"
+  }
+ ],
+ "SEARCHES": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "tuple"
   }
  ],
  "SLMFFT": [
@@ -742,6 +834,15 @@
    "name": "VirtualSLM"
   }
  ],
+ "_": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
  "_aspect": [
   {
    "is_class": false,
@@ -769,6 +870,38 @@
    "name": "tuple"
   }
  ],
+ "cost_layout": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "PlotLayout"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "PlotLayout"
+  }
+ ],
+ "cost_layout.add_row": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "PlotLayout.add_row"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "PlotLayout.add_row"
+  }
+ ],
  "device": [
   {
    "is_class": false,
@@ -776,6 +909,15 @@
    "module": "torch",
    "module_short": "torch",
    "name": "device"
+  }
+ ],
+ "errors": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "list"
   }
  ],
  "figure": [
@@ -801,6 +943,38 @@
    "module": "builtins",
    "module_short": "builtins",
    "name": "float"
+  }
+ ],
+ "frame": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.roi",
+   "module_short": "hologradpy.roi",
+   "name": "ROI"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "ROI"
+  }
+ ],
+ "frame.crop": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.roi",
+   "module_short": "hologradpy.roi",
+   "name": "ROI.crop"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "ROI.crop"
   }
  ],
  "gaussian_beam_intensity": [
@@ -835,6 +1009,22 @@
    "name": "gaussian_blur"
   }
  ],
+ "gaussian_phase_guess": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.profiles.phase",
+   "module_short": "hologradpy.profiles",
+   "name": "gaussian_phase_guess"
+  }
+ ],
  "get_device": [
   {
    "is_class": false,
@@ -865,6 +1055,22 @@
    "module": "hologradpy.utils",
    "module_short": "hologradpy.utils",
    "name": "gpu_to_numpy"
+  }
+ ],
+ "image_grid": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.visualizer",
+   "module_short": "hologradpy.visualizer",
+   "name": "image_grid"
   }
  ],
  "image_power": [
@@ -979,7 +1185,70 @@
    "name": "Tensor"
   }
  ],
- "lens_phase": [
+ "initial_frame": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "intensity": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "intensity.max": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "iterations": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "int"
+  }
+ ],
+ "label": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  }
+ ],
+ "limit": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "method": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  }
+ ],
+ "normalize": [
   {
    "is_class": false,
    "is_explicit": false,
@@ -990,9 +1259,9 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "hologradpy.profiles.phase",
-   "module_short": "hologradpy.profiles",
-   "name": "lens_phase"
+   "module": "hologradpy.analysis.error_metrics",
+   "module_short": "hologradpy.analysis.error_metrics",
+   "name": "normalize"
   }
  ],
  "open_slm": [
@@ -1020,41 +1289,96 @@
    "name": "tuple"
   }
  ],
+ "patterns": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "list"
+  }
+ ],
+ "peak": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
  "phase_retriever": [
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "hologradpy.holography.phase_retrieval.gradient",
+   "module": "hologradpy.holography.phase_retrieval.pixelwise",
    "module_short": "hologradpy.holography.phase_retrieval",
-   "name": "GradientPhaseRetriever"
+   "name": "PixelwisePhaseRetriever"
   },
   {
    "is_class": false,
    "is_explicit": false,
    "module": "hologradpy.holography.phase_retrieval",
    "module_short": "hologradpy.holography.phase_retrieval",
-   "name": "GradientPhaseRetriever"
+   "name": "PixelwisePhaseRetriever"
   },
   {
    "is_class": false,
    "is_explicit": false,
    "module": "hologradpy.holography",
    "module_short": "hologradpy.holography",
-   "name": "GradientPhaseRetriever"
+   "name": "PixelwisePhaseRetriever"
   },
   {
    "is_class": false,
    "is_explicit": false,
    "module": "hologradpy",
    "module_short": "hologradpy",
-   "name": "GradientPhaseRetriever"
+   "name": "PixelwisePhaseRetriever"
+  }
+ ],
+ "phase_retriever.loss_function": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
   }
  ],
  "phase_retriever.retrieve": [
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "hologradpy.holography.phase_retrieval.gradient",
+   "module": "hologradpy.holography.phase_retrieval.pixelwise",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "PixelwisePhaseRetriever.retrieve"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "PixelwisePhaseRetriever.retrieve"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.holography",
+   "module_short": "hologradpy.holography",
+   "name": "PixelwisePhaseRetriever.retrieve"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "PixelwisePhaseRetriever.retrieve"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval.abstract",
    "module_short": "hologradpy.holography.phase_retrieval",
    "name": "GradientPhaseRetriever.retrieve"
   },
@@ -1108,6 +1432,92 @@
    "name": "PhaseRetrieverBase.retrieve"
   }
  ],
+ "phase_retriever.set_loss_function": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval.pixelwise",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "PixelwisePhaseRetriever.set_loss_function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "PixelwisePhaseRetriever.set_loss_function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.holography",
+   "module_short": "hologradpy.holography",
+   "name": "PixelwisePhaseRetriever.set_loss_function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "PixelwisePhaseRetriever.set_loss_function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval.abstract",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "GradientPhaseRetriever.set_loss_function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "GradientPhaseRetriever.set_loss_function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.holography",
+   "module_short": "hologradpy.holography",
+   "name": "GradientPhaseRetriever.set_loss_function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "GradientPhaseRetriever.set_loss_function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval.abstract",
+   "module_short": "hologradpy.holography.phase_retrieval.abstract",
+   "name": "PhaseRetrieverBase.set_loss_function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.holography.phase_retrieval",
+   "module_short": "hologradpy.holography.phase_retrieval",
+   "name": "PhaseRetrieverBase.set_loss_function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.holography",
+   "module_short": "hologradpy.holography",
+   "name": "PhaseRetrieverBase.set_loss_function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "PhaseRetrieverBase.set_loss_function"
+  }
+ ],
  "rectangular_mask": [
   {
    "is_class": false,
@@ -1122,6 +1532,33 @@
    "module": "hologradpy.profiles.masks",
    "module_short": "hologradpy.profiles",
    "name": "rectangular_mask"
+  }
+ ],
+ "region_frame": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "results": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "list"
+  }
+ ],
+ "results.append": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
   }
  ],
  "retrieval": [
@@ -1154,57 +1591,58 @@
    "name": "PhaseRetrievalData"
   }
  ],
- "retrieval.metrics.items": [
+ "retrieval.loss_history": [
   {
    "is_class": false,
    "is_explicit": false,
    "module": "builtins",
    "module_short": "builtins",
-   "name": "builtin_function_or_method"
+   "name": "list"
   }
  ],
- "retrieval.visualizer": [
+ "retrieval.metrics": [
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "hologradpy.holography.phase_retrieval.abstract",
-   "module_short": "hologradpy.holography.phase_retrieval",
-   "name": "PhaseRetrievalData.visualizer"
-  },
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "dict"
+  }
+ ],
+ "retrieval.name": [
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "hologradpy.holography.phase_retrieval",
-   "module_short": "hologradpy.holography.phase_retrieval",
-   "name": "PhaseRetrievalData.visualizer"
-  },
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  }
+ ],
+ "retrieval.phase": [
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "hologradpy.holography",
-   "module_short": "hologradpy.holography",
-   "name": "PhaseRetrievalData.visualizer"
-  },
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "scaled_target": [
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "hologradpy",
-   "module_short": "hologradpy",
-   "name": "PhaseRetrievalData.visualizer"
-  },
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "seconds": [
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "hologradpy.serialization",
-   "module_short": "hologradpy.serialization",
-   "name": "SaveableRecord.visualizer"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "hologradpy",
-   "module_short": "hologradpy",
-   "name": "SaveableRecord.visualizer"
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "list"
   }
  ],
  "setup_layout": [
@@ -1246,6 +1684,15 @@
    "module": "torch",
    "module_short": "torch",
    "name": "Tensor"
+  }
+ ],
+ "signal_region.to": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
   }
  ],
  "slm": [
@@ -1396,6 +1843,127 @@
    "name": "Parameter"
   }
  ],
+ "slm_camera_model.virtual_slm.set_phase": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.virtual_slms.abstract",
+   "module_short": "hologradpy.optics",
+   "name": "VirtualSLM.set_phase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.virtual_slms",
+   "module_short": "hologradpy.optics",
+   "name": "VirtualSLM.set_phase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules",
+   "module_short": "hologradpy.optics",
+   "name": "VirtualSLM.set_phase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "VirtualSLM.set_phase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "VirtualSLM.set_phase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.abstract",
+   "module_short": "hologradpy.optics.modules.abstract",
+   "name": "OpticsModule.set_phase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules",
+   "module_short": "hologradpy.optics.modules",
+   "name": "OpticsModule.set_phase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "OpticsModule.set_phase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "OpticsModule.set_phase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules.recording",
+   "module_short": "hologradpy.optics.modules.recording",
+   "name": "RecordingMixin.set_phase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics.modules",
+   "module_short": "hologradpy.optics.modules",
+   "name": "RecordingMixin.set_phase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.optics",
+   "module_short": "hologradpy.optics",
+   "name": "RecordingMixin.set_phase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy",
+   "module_short": "hologradpy",
+   "name": "RecordingMixin.set_phase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch.nn.modules.module",
+   "module_short": "torch.nn.modules.module",
+   "name": "Module.set_phase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch.nn.modules",
+   "module_short": "torch.nn.modules",
+   "name": "Module.set_phase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch.nn",
+   "module_short": "torch.nn",
+   "name": "Module.set_phase"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "torch",
+   "module_short": "torch",
+   "name": "Module.set_phase"
+  }
+ ],
  "slm_field": [
   {
    "is_class": false,
@@ -1533,6 +2101,33 @@
    "name": "builtin_function_or_method"
   }
  ],
+ "stamps": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "list"
+  }
+ ],
+ "stamps.append": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
+ "target_frame": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
  "target_top_hat": [
   {
    "is_class": false,
@@ -1549,6 +2144,31 @@
    "module": "builtins",
    "module_short": "builtins",
    "name": "builtin_function_or_method"
+  }
+ ],
+ "time.perf_counter": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "time",
+   "module_short": "time",
+   "name": "perf_counter"
+  }
+ ],
+ "timed": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
   }
  ],
  "top_hat_height": [
@@ -1615,6 +2235,22 @@
    "module": "torch",
    "module_short": "torch",
    "name": "tensor"
+  }
+ ],
+ "wrap": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "hologradpy.analysis.unwrapping",
+   "module_short": "hologradpy.analysis.unwrapping",
+   "name": "wrap"
   }
  ]
 }
