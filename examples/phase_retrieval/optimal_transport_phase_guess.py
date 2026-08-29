@@ -161,9 +161,9 @@ with torch.no_grad():
 
 figure = image_grid(
     [[gpu_to_numpy(guess_phase) % (2 * np.pi), framed(guess_intensity)]],
-    titles=["transport phase on the SLM", "what it produces, before refinement"],
+    titles=["optimal transport phase guess", "corresponding output"],
     cmap=["magma", INTENSITY_CMAP],
-    column_width=3.2,
+    column_width=3.2, 
 ).build()
 
 
@@ -262,7 +262,7 @@ figure = image_grid(
 # It spreads the beam over roughly the right area.
 figure = image_grid(
     [[framed(target_intensity), framed(lens_guess_intensity)]],
-    titles=["target", "what the quadratic guess produces"],
+    titles=["target", "outpupt from quadratic phase guess"],
     cmap=INTENSITY_CMAP,
     colorbar_label="intensity [a. u.]",
     column_width=4.0,
