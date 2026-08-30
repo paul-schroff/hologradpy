@@ -12,6 +12,7 @@ import pytest
 import torch
 
 from hologradpy.fourier_transforms import (
+    ifft_2d,
     SemiAnalyticalFourierTransform,
     transformed_curvature,
 )
@@ -197,3 +198,66 @@ def test_a_margin_over_one_means_the_lattice_repeats_itself() -> None:
         difference = float(frequencies[row, wrapped] - frequencies[row, column])
         assert difference == pytest.approx(2 * torch.pi)
         assert got[row, wrapped] == pytest.approx(got[row, column], rel=1e-9)
+
+
+@pytest.mark.parametrize(
+    "curvature", [SEPARABLE, WITH_CROSS], ids=["separable", "cross"]
+)
+def test_the_inverse_sums_the_other_way(curvature) -> None:
+    """The leg that comes back from a spectrum to a plane.
+
+    Completing the square leaves ``(x + m)`` where the forward has ``(x - m)``, so
+    the same convolution is read the other way up and nothing else changes.
+    """
+    residual = _compact_residual()
+    transform = SemiAnalyticalFourierTransform(RESOLUTION, curvature, inverse=True)
+
+    got = transform(residual)
+
+    x, y = _grid(RESOLUTION)
+    curvature_x, cross, curvature_y = curvature
+    whole = residual * torch.exp(
+        1j * (curvature_x * x**2 + cross * x * y + curvature_y * y**2)
+    )
+    wanted = torch.stack([
+        (whole * torch.exp(1j * (kx * x + ky * y))).sum()
+        for kx, ky in zip(transform.frequencies[0], transform.frequencies[1])
+    ]).reshape(RESOLUTION)
+
+    assert (got - wanted).abs().max() / wanted.abs().max() < 1e-12
+
+
+def test_the_inverse_has_its_own_adjoint() -> None:
+    """It reads the convolution elsewhere, so its transpose is not the forward's."""
+    transform = SemiAnalyticalFourierTransform(
+        RESOLUTION, WITH_CROSS, inverse=True
+    )
+    generator = torch.Generator().manual_seed(0)
+    a = torch.randn(RESOLUTION, generator=generator, dtype=torch.complex128)
+    b = torch.randn(RESOLUTION, generator=generator, dtype=torch.complex128)
+
+    left = (transform(a).conj() * b).sum()
+    right = (a.conj() * transform.adjoint(b)).sum()
+
+    assert abs(left - right) / abs(left) < 1e-12
+
+
+def test_the_inverse_is_the_unnormalised_inverse_transform() -> None:
+    """With the chirp divided out first, it is a plain inverse DFT.
+
+    Which is what lets a propagator use it as the leg back from a spectrum: the only
+    thing it owes the caller afterwards is the transform size it did not divide by.
+    """
+    length = RESOLUTION[0]
+    curvature = -torch.pi / length
+    transform = SemiAnalyticalFourierTransform(
+        (length, length), (curvature, 0.0, curvature), inverse=True
+    )
+    generator = torch.Generator().manual_seed(1)
+    spectrum = torch.randn(length, length, generator=generator, dtype=torch.complex128)
+
+    x, y = _grid((length, length))
+    got = transform(spectrum * torch.exp(-1j * curvature * (x**2 + y**2)))
+    wanted = ifft_2d(spectrum) * length * length
+
+    assert (got - wanted).abs().max() / wanted.abs().max() < 1e-12
