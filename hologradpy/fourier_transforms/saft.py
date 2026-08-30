@@ -195,6 +195,18 @@ class SemiAnalyticalFourierTransform(FourierBase):
             dim=0,
         )
 
+    def sampling_margin(self) -> tuple[float, float]:
+        """How far the sample points reach, as a fraction of one period.
+
+        Returns:
+            tuple[float, float]: ``max|k| / pi`` along ``x`` and along ``y``.
+        """
+        frequencies = self.frequencies
+        return (
+            float(frequencies[0].abs().max() / torch.pi),
+            float(frequencies[1].abs().max() / torch.pi),
+        )
+
     def forward(self, input: Tensor) -> Tensor:
         """Transform a residual field, returning the transform of it times the chirp.
 

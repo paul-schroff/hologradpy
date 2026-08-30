@@ -161,3 +161,39 @@ def test_it_carries_a_batch() -> None:
 
     assert got.shape == (2, *RESOLUTION)
     assert (got[1] - 2 * got[0]).abs().max() < 1e-12
+
+
+def test_the_margin_says_how_far_the_lattice_reaches() -> None:
+    """Below one, every sample point is a frequency of its own."""
+    transform = SemiAnalyticalFourierTransform(RESOLUTION, (0.01, 0.0, 0.005))
+
+    margin_x, margin_y = transform.sampling_margin()
+
+    assert margin_x < 1.0 and margin_y < 1.0
+    # Twice the curvature is twice the reach, per axis independently.
+    doubled = SemiAnalyticalFourierTransform(RESOLUTION, (0.02, 0.0, 0.005))
+    assert doubled.sampling_margin()[0] == pytest.approx(2 * margin_x)
+    assert doubled.sampling_margin()[1] == pytest.approx(margin_y)
+
+
+def test_a_margin_over_one_means_the_lattice_repeats_itself() -> None:
+    """What the margin is warning about, demonstrated.
+
+    The input sits on integer samples, so the sum is ``2 pi`` periodic in ``k``. A
+    lattice reaching past ``pi`` walks into the next period and takes frequencies it
+    already has, and those outputs are equal rather than merely similar.
+    """
+    # Spacing is 2 * curvature, so points eight apart differ by exactly 2 pi.
+    step = torch.pi / 8
+    transform = SemiAnalyticalFourierTransform(RESOLUTION, (step, 0.0, step))
+    assert transform.sampling_margin()[0] > 1.0
+
+    got = transform(_compact_residual())
+    frequencies = transform.frequencies[0].reshape(RESOLUTION)
+    row = RESOLUTION[0] // 2
+
+    for column in (2, 4, 5):
+        wrapped = column + 8
+        difference = float(frequencies[row, wrapped] - frequencies[row, column])
+        assert difference == pytest.approx(2 * torch.pi)
+        assert got[row, wrapped] == pytest.approx(got[row, column], rel=1e-9)
