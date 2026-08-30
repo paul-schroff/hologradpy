@@ -17,6 +17,7 @@ from hologradpy.loss_functions import (
     normalize_to_unit_sum,
     smallest_divisor,
     LossEfficiency,
+    LossAbsoluteFidelity,
     LossAbsoluteIntensityMSE,
     LossFidelity,
     LossFunction,
@@ -468,3 +469,73 @@ def test_an_explicit_scale_wins_over_the_derived_one() -> None:
     )
 
     assert loss.scale == 7.0
+
+
+def _with_phase(target, phase, mask):
+    """The field that produces exactly ``target`` with exactly ``phase``."""
+    return (target * mask).sqrt() * torch.exp(1j * phase)
+
+
+def test_the_absolute_fidelity_is_zero_on_the_field_it_asks_for() -> None:
+    """Amplitude and phase both matched, so there is nothing left to pay."""
+    target_intensity, target_phase, signal_mask, _ = _fixture()
+    target = target_intensity * signal_mask
+    field = _with_phase(target, target_phase, signal_mask)
+
+    loss = LossAbsoluteFidelity(target, target_phase, signal_mask)
+
+    assert float(loss(field)) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_the_absolute_fidelity_sees_the_phase() -> None:
+    """The intensity alone cannot tell these apart, which is why this term exists."""
+    target_intensity, target_phase, signal_mask, _ = _fixture()
+    target = target_intensity * signal_mask
+    wrong_phase = _with_phase(target, target_phase + 0.7, signal_mask)
+
+    fidelity = LossAbsoluteFidelity(target, target_phase, signal_mask)
+    intensity_only = LossAbsoluteIntensityMSE(target, signal_mask)
+
+    assert float(fidelity(wrong_phase)) > 1.0
+    assert float(intensity_only(wrong_phase)) == pytest.approx(0.0, abs=1e-12)
+
+
+def test_the_absolute_fidelity_sees_light_leaving_the_window() -> None:
+    """LossFidelity divides the overlap by the produced power, so dimming is free
+    there. Here the level of the target is the statement of how much light to hold.
+    """
+    target_intensity, target_phase, signal_mask, _ = _fixture()
+    target = target_intensity * signal_mask
+    field = _with_phase(target, target_phase, signal_mask)
+
+    absolute = LossAbsoluteFidelity(target, target_phase, signal_mask)
+    normalised = LossFidelity(target, target_phase, signal_mask)
+
+    assert float(absolute(field * 0.5)) > 1.0
+    assert float(normalised(field * 0.5)) == pytest.approx(
+        float(normalised(field)), abs=1e-12
+    )
+
+
+def test_the_absolute_fidelity_penalises_overshoot_too() -> None:
+    """Symmetric about the level asked for, as the intensity-only cost is."""
+    target_intensity, target_phase, signal_mask, _ = _fixture()
+    target = target_intensity * signal_mask
+    field = _with_phase(target, target_phase, signal_mask)
+
+    loss = LossAbsoluteFidelity(target, target_phase, signal_mask)
+
+    assert float(loss(field * 1.5)) > 1.0
+
+
+def test_the_absolute_fidelity_ignores_the_phase_where_there_is_no_light() -> None:
+    """A zero target pixel carries no field, so its phase cannot matter."""
+    target_intensity, target_phase, signal_mask, field = _fixture()
+    target = target_intensity * signal_mask
+
+    asked = LossAbsoluteFidelity(target, target_phase, signal_mask)
+    elsewhere = LossAbsoluteFidelity(
+        target, target_phase + 3.0 * (target == 0), signal_mask
+    )
+
+    assert float(asked(field)) == pytest.approx(float(elsewhere(field)), rel=1e-12)

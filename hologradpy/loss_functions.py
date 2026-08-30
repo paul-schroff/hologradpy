@@ -367,6 +367,54 @@ class LossFidelity(LossFunction):
         return (1 - overlap) ** 2
 
 
+class LossAbsoluteFidelity(LossFunction):
+    """Squared error against a target field, in absolute intensity units."""
+
+    def __init__(
+        self,
+        target_intensity: torch.Tensor,
+        target_phase: torch.Tensor,
+        signal_mask: torch.Tensor,
+        scale: float | None = None,
+    ) -> None:
+        """
+        Args:
+            target_intensity: Target intensity in the same units the model produces.
+            target_phase: Target phase in radians.
+            signal_mask: Binary mask containing the signal region.
+            scale: Weight of this term.
+        """
+        self.signal_mask = signal_mask
+        self.target_intensity = target_intensity * signal_mask
+        self.target_field = (
+            self.target_intensity.sqrt() * torch.exp(1j * target_phase) * signal_mask
+        )
+
+        total = self.target_intensity.sum()
+        lit_pixels = total**2 / (self.target_intensity**2).sum().clamp_min(
+            smallest_divisor(total)
+        )
+        reference = (total * lit_pixels).clamp_min(smallest_divisor(total))
+        self.scale: float = (
+            float(INTENSITY_MSE_SCALE / reference) if scale is None else scale
+        )
+
+    def evaluate(
+        self, field: torch.Tensor | None = None, target: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        """Calculate the loss based on the electric field.
+
+        Args:
+            field: Electric field at the image plane.
+            target: Ignored. The target was fixed at construction.
+
+        Returns:
+            torch.Tensor: Cost.
+        """
+        difference = (field - self.target_field) * self.signal_mask
+        return (difference.real**2 + difference.imag**2).sum()
+
+
 class LossEfficiency(LossFunction):
     """The fraction of the total power that misses the signal region.
 
