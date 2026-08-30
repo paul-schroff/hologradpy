@@ -62,6 +62,7 @@ class SemiAnalyticalFourierTransform(FourierBase):
         self,
         resolution: tuple[int, int],
         curvature: tuple[float, float, float],
+        inverse: bool = False,
         device: torch.device = "cpu",
     ) -> None:
         """
@@ -69,6 +70,10 @@ class SemiAnalyticalFourierTransform(FourierBase):
             resolution: ``(height, width)`` of the residual field.
             curvature: ``(Dx, C, Dy)`` of the phase being carried, in radians per
                 sample squared.
+            inverse: Sum with ``exp(+i k.x)`` rather than ``exp(-i k.x)``, which is
+                the leg that comes back from a spectrum to a plane. Completing the
+                square leaves ``(x + m)`` in place of ``(x - m)``, so the same
+                convolution is read the other way up and nothing else changes.
             device: Where to build the chirp.
 
         Raises:
@@ -84,6 +89,7 @@ class SemiAnalyticalFourierTransform(FourierBase):
             device=device,
         )
         self.curvature = curvature
+        self.inverse = inverse
 
         # Padded to twice the resolution, so the convolution does not wrap.
         self._padded = tuple(2 * length for length in resolution)
@@ -221,6 +227,9 @@ class SemiAnalyticalFourierTransform(FourierBase):
         padded = to_canvas(input, self._padded)
 
         convolved = self._convolve(padded, self._chirp_spectrum)
+        if self.inverse:
+            return self._residual_phase * to_canvas(convolved, self.resolution)
+
         convolved = torch.flip(convolved, dims=(-2, -1))
         top, left = self._reflected_corner()
         cropped = convolved[..., top : top + height, left : left + width]
@@ -230,6 +239,13 @@ class SemiAnalyticalFourierTransform(FourierBase):
         """The conjugate transpose of :meth:`forward`."""
         height, width = self.resolution
         undone = torch.conj(self._residual_phase) * input
+
+        if self.inverse:
+            padded = to_canvas(undone, self._padded)
+            return to_canvas(
+                self._convolve(padded, torch.conj(self._chirp_spectrum)),
+                self.resolution,
+            )
 
         top, left = self._reflected_corner()
         padded = torch.nn.functional.pad(
