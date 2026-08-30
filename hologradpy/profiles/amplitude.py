@@ -218,9 +218,9 @@ def top_hat_gaussian_shoulders(
         raise ValueError(f"Unsupported array namespace: {xp}")
 
     width = plateau_width + 2 * shoulder_radius
-    a = amplitude * math.sqrt(2) * shoulder_radius
+    a = math.sqrt(2) * shoulder_radius
     x = x - shift
-    return 0.5 * (erf((width - 2 * x) / a) + erf((width + 2 * x) / a))
+    return 0.5 * amplitude * (erf((width - 2 * x) / a) + erf((width + 2 * x) / a))
 
 def top_hat_2D(
     x: ArrayLike,

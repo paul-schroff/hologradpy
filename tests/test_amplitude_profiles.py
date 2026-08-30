@@ -93,15 +93,32 @@ def test_numpy_and_torch_agree() -> None:
 
 
 def test_the_intensity_sets_the_peak() -> None:
-    """The peak is what was asked for.
-
-    Unlike the ``amplitude`` argument of `top_hat_gaussian_shoulders`, which divides
-    into the erf argument and leaves the peak at one.
-    """
+    """The peak is what was asked for."""
     x, y = _numpy_grid()
     profile = np.asarray(top_hat_1D(x, y, PLATEAU, SHOULDER, WAIST, intensity=2.5))
 
     assert profile.max() == pytest.approx(2.5, rel=1e-6)
+
+
+@pytest.mark.parametrize("grid", [_numpy_grid, _torch_grid], ids=["numpy", "torch"])
+def test_the_amplitude_scales_the_shoulder_profiles(grid) -> None:
+    """``amplitude`` sets the peak, leaving the edge where it was.
+
+    It once divided into the erf argument, which left the peak at one and widened the
+    shoulders instead.
+    """
+    x, y = grid()
+
+    plain = np.asarray(top_hat_gaussian_shoulders(y, 0.0, PLATEAU, SHOULDER, 1.0))
+    scaled = np.asarray(top_hat_gaussian_shoulders(y, 0.0, PLATEAU, SHOULDER, 2.5))
+
+    assert scaled.max() == pytest.approx(2.5, rel=1e-6)
+    assert np.abs(scaled - 2.5 * plain).max() < 1e-12
+
+    flat = np.asarray(
+        top_hat_2D(x, y, 0.0, 0.0, PLATEAU, PLATEAU, SHOULDER, SHOULDER, 2.5)
+    )
+    assert flat.max() == pytest.approx(2.5, rel=1e-6)
 
 
 @pytest.mark.parametrize("axis", ["x", "y"])
