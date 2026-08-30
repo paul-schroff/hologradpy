@@ -327,6 +327,16 @@ class PhaseRetrieverBase:
         pass
 
 
+FIRST_ORDER_OPTIMIZERS: dict[str, type[torch.optim.Optimizer]] = {
+    "adam": torch.optim.Adam,
+    "adamw": torch.optim.AdamW,
+    "rmsprop": torch.optim.RMSprop,
+    "sgd": torch.optim.SGD,
+}
+
+DEFAULT_LEARNING_RATE = 0.03
+
+
 class GradientPhaseRetriever(PhaseRetrieverBase):
     """A retriever that reaches a target by minimizing a cost with an optimizer.
 
@@ -435,15 +445,33 @@ class GradientPhaseRetriever(PhaseRetrieverBase):
         return name
 
     def set_optimizer(
-        self, number_of_iterations: int, method: str, display: int = 0
+        self,
+        number_of_iterations: int,
+        method: str,
+        display: int = 0,
+        learning_rate: float | None = None,
     ) -> None:
         """Build the optimizer this search steps.
 
         Args:
             number_of_iterations: Maximum optimizer iterations.
-            method: Which torchmin method to use.
+            method: A torchmin method, or a key of :data:`FIRST_ORDER_OPTIMIZERS`.
             display: torchmin's own verbosity.
+            learning_rate: Step size for a first-order method. Defaults to
+                :data:`DEFAULT_LEARNING_RATE`.
         """
+        first_order = FIRST_ORDER_OPTIMIZERS.get(method)
+        if first_order is not None:
+            self.optimizer = first_order(
+                [
+                    parameter
+                    for parameter in self.slm_camera_model.parameters()
+                    if parameter.requires_grad
+                ],
+                lr=DEFAULT_LEARNING_RATE if learning_rate is None else learning_rate,
+            )
+            return
+
         self.optimizer = torchmin.Minimizer(
             self.slm_camera_model.parameters(),
             method=method,
@@ -465,6 +493,18 @@ class GradientPhaseRetriever(PhaseRetrieverBase):
         """
         self.iteration += 1
         self.run.record_iteration(self.iteration, self.slm_camera_model)
+
+    def step_first_order(self, number_of_iterations: int) -> None:
+        """Drive a torch.optim optimizer, which takes one step per call.
+
+        Args:
+            number_of_iterations: How many steps to take.
+        """
+        for _ in range(number_of_iterations):
+            loss = self.closure()
+            loss.backward()
+            self.optimizer.step()
+            self.callback(loss)
 
     def closure(self) -> torch.Tensor:
         """The objective, evaluated once per optimizer call."""
@@ -499,6 +539,7 @@ class GradientPhaseRetriever(PhaseRetrieverBase):
         number_of_iterations: int = 10,
         parameter_name: str | None = None,
         method: str | None = None,
+        learning_rate: float | None = None,
         verbose: bool = True,
         progress_bar: ProgressBar | None = None,
         run: RetrievalRun | None = None,
@@ -510,6 +551,7 @@ class GradientPhaseRetriever(PhaseRetrieverBase):
             parameter_name: What to optimize. Defaults to this retriever's
                 :attr:`PARAMETER_NAME`.
             method: Optimizer method. Defaults to this retriever's :attr:`METHOD`.
+            learning_rate: Step size, for a first-order method.
             verbose: Show a progress bar when one is not supplied.
             progress_bar: A bar to borrow. Reset here and handed back untouched.
             run: The run to record into. A new one is made when none is given.
@@ -521,8 +563,12 @@ class GradientPhaseRetriever(PhaseRetrieverBase):
         self.run = run if run is not None else RetrievalRun()
         self.iteration = 0
         self.set_gradient_requirements(parameter_name or self._parameter_name())
+        chosen = method or self.METHOD
         self.set_optimizer(
-            number_of_iterations, method=method or self.METHOD, display=0
+            number_of_iterations,
+            method=chosen,
+            display=0,
+            learning_rate=learning_rate,
         )
 
         borrowed = progress_bar is not None
@@ -537,7 +583,10 @@ class GradientPhaseRetriever(PhaseRetrieverBase):
 
         self.run.progress_bar = progress_bar
         try:
-            self.optimizer.step(self.closure)
+            if chosen in FIRST_ORDER_OPTIMIZERS:
+                self.step_first_order(number_of_iterations)
+            else:
+                self.optimizer.step(self.closure)
         finally:
             self.run.progress_bar = None
             if not borrowed:
