@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 
+import torch
 from numpy.typing import NDArray
 from torch import Tensor
 
@@ -121,7 +122,6 @@ def fourier_lens_half_extent(
     """
     return wavelength * focal_length / (2.0 * pixel_size_in)
 
-# TODO: Make this return (y, x)?
 def addressable_half_extent(
     wavelength: float,
     focal_length: float,
@@ -129,9 +129,12 @@ def addressable_half_extent(
 ) -> tuple[float, float]:
     """Half-extent ``(x, y)`` of the focal-plane region an SLM can address, in metres.
     The first-order deflection of a grating at the SLM's Nyquist frequency, per axis.
-    ``pixel_size`` is ``(y, x)``, so x takes the second entry.
+    ``pixel_size`` is ``(y, x)``, so x takes the second entry. A per-wavelength stack
+    of pitches is read from its first row, all wavelengths sharing the one SLM.
     """
-    pitch_y, pitch_x = (float(pitch) for pitch in pixel_size)
+    pitch_y, pitch_x = (
+        float(pitch) for pitch in torch.as_tensor(pixel_size).reshape(-1, 2)[0]
+    )
     return (
         fourier_lens_half_extent(wavelength, focal_length, pitch_x),
         fourier_lens_half_extent(wavelength, focal_length, pitch_y),

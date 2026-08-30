@@ -170,6 +170,19 @@ def test_to_cuda_moves_device_and_init_field() -> None:
     assert model().device.type == "cuda"  # no-input forward on the moved model
 
 
+def test_addressable_half_extent_reads_a_per_wavelength_pitch() -> None:
+    """A geometry taken off a ComplexAmplitude carries one row of pitches per
+    wavelength, and the extent is read from it just as it is from a bare pair.
+    """
+    model = _make_slm_fft()
+    assert model.input_geometry.pixel_size.shape == (1, 2)
+
+    half_extent = 800e-9 * 0.1 / (2 * 10e-6)
+    assert model.addressable_half_extent() == pytest.approx(
+        (half_extent, half_extent)
+    )
+
+
 def test_layer_name_collisions_are_rejected_clearly() -> None:
     from hologradpy.optics.modules.hardware_models import (
         PointingInstability,
