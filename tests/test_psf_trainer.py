@@ -337,3 +337,27 @@ def test_a_shifted_kernel_tilts_the_beam_by_the_matching_amount(shift_pixels) ->
         / (WAVELENGTH * FOCAL_LENGTH)
     )
     assert abs(step) == pytest.approx(abs(predicted), rel=1e-3)
+
+
+@pytest.mark.parametrize("kernel_size", [9, 11, 15], ids=["9", "11", "15"])
+def test_the_gaussian_seed_is_centred_on_the_sample_the_lens_uses(kernel_size) -> None:
+    """An off-centre kernel is a linear phase across the SLM plane.
+
+    ``kernel_size_from_waist`` always returns an odd size so the kernel has a centre
+    sample, and the chirp-z that consumes this plane centres it at ``size // 2``. The
+    seed is built on ``get_spatial_grid``, so it has to agree, or a freshly built model
+    starts with a tilt nobody asked for.
+    """
+    module = PSFSLMField(
+        focal_length=FOCAL_LENGTH,
+        camera_pixel_size=CAMERA_PIXEL_SIZE,
+        psf_kernel_size=kernel_size,
+    )
+    module(_uniform_field())
+
+    kernel = module.get_psf_kernel().detach().abs()
+    peak = np.unravel_index(int(kernel.argmax()), kernel.shape)
+
+    assert peak == (kernel_size // 2, kernel_size // 2)
+    # Symmetric to the bit, so the kernel carries no tilt of its own.
+    assert float((kernel - torch.flip(kernel, dims=(-2, -1))).abs().max()) == 0.0

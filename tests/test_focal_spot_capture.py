@@ -189,7 +189,8 @@ def test_the_captured_spot_lands_in_the_middle_of_the_kernel(camera_shift) -> No
 
     assert kernel.shape == (kernel_size, kernel_size)
     peak = np.unravel_index(int(np.argmax(kernel)), kernel.shape)
-    assert peak == pytest.approx((kernel_size // 2, kernel_size // 2), abs=1)
+    # Exact: abs=1 here is the width of the very off-by-one this would catch.
+    assert peak == (kernel_size // 2, kernel_size // 2)
     # And it is a spot, not the noise floor a mis-aimed crop would return.
     edge = np.concatenate(
         [kernel[0], kernel[-1], kernel[:, 0], kernel[:, -1]]

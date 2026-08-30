@@ -17,6 +17,7 @@ import pytest
 import torch
 
 from hologradpy.profiles.amplitude import (
+    gaussian_blur,
     gaussian_beam_intensity,
     gaussian_beam_intensity_1D,
     top_hat_1D,
@@ -202,3 +203,25 @@ def test_the_line_uses_the_same_gaussian_across_it() -> None:
     expected = np.asarray(gaussian_beam_intensity_1D(AXIS, WAIST, shift=40e-6))
 
     assert np.abs(across - expected).max() < 1e-9
+
+
+@pytest.mark.parametrize("beam_radius", [2.0, 3.0, 4.5], ids=["7", "9", "13"])
+def test_the_blur_leaves_an_impulse_where_it_found_it(beam_radius) -> None:
+    """A symmetric blur must not move the thing it blurs.
+
+    ``kernel_size`` is ``3 * beam_radius // 2 * 2 + 1``, always odd, and the kernel is
+    applied with ``padding="same"``, which centres on ``size // 2``. When the kernel
+    grid put its peak a sample away from that, every blurred image came out shifted by
+    one pixel up and to the left, and the kernel itself was lopsided.
+    """
+    samples = 33
+    middle = samples // 2
+    image = torch.zeros(samples, samples)
+    image[middle, middle] = 1.0
+
+    blurred = gaussian_blur(image, beam_radius=beam_radius)
+
+    peak = np.unravel_index(int(blurred.argmax()), blurred.shape)
+    assert peak == (middle, middle)
+    # Exactly symmetric, not nearly: any residual is the kernel being lopsided.
+    assert float((blurred - torch.flip(blurred, dims=(-2, -1))).abs().max()) == 0.0

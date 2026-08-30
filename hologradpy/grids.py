@@ -1,45 +1,85 @@
-from __future__ import annotations
+"""Centred coordinate grids sharing one convention.
 
+The origin of a plane of length ``n`` is the sample at index ``n // 2``, so sample ``i``
+sits at ``(i - n // 2) * pitch``.
+
+The grid of an even-length axis is asymmetric, running ``-n/2`` to ``n/2 - 1``.
+"""
+
+from __future__ import annotations
 
 import torch
 from torch import Tensor
 
 
 def get_pixel_grid(
-    resolution: tuple[int, int], device: torch.device = "cpu"
+    resolution: tuple[int, int],
+    device: torch.device = "cpu",
+    dtype: torch.dtype | None = None,
 ) -> tuple[Tensor, Tensor]:
+    """Centred pixel indices, as an ``(x, y)`` pair of grids.
+
+    Args:
+        resolution: ``(height, width)`` in pixels.
+        device: Where to build the grid.
+        dtype: Dtype of the indices. Defaults to the integer one ``arange`` picks.
+
+    Returns:
+        tuple[Tensor, Tensor]: The ``x`` and ``y`` index grids.
+    """
     height, width = resolution
 
-    pixel_indices_x = torch.arange(-width // 2, width // 2, device=device)
-    pixel_indices_y = torch.arange(-height // 2, height // 2, device=device)
+    pixel_indices_x = torch.arange(
+        -(width // 2), width - width // 2, device=device, dtype=dtype
+    )
+    pixel_indices_y = torch.arange(
+        -(height // 2), height - height // 2, device=device, dtype=dtype
+    )
 
     return torch.meshgrid(pixel_indices_x, pixel_indices_y, indexing="xy")
 
 
 def get_spatial_grid(
     resolution: tuple[int, int],
-    pixel_size: tuple[float, float],
+    pixel_size: tuple[float, float] | Tensor,
     device: torch.device = "cpu",
 ) -> tuple[Tensor, Tensor]:
-    resolution = torch.tensor(resolution, device=device)
-    pixel_size = torch.tensor(pixel_size, device=device)
+    """Centred ``(x, y)`` coordinates in metres, one point per pixel.
 
-    spatial_extent = resolution * pixel_size
+    The grid is returned in ``pixel_size``'s dtype if a tensor is passed.
 
-    pixel_grid_x, pixel_grid_y = get_pixel_grid(resolution, device)
+    Args:
+        resolution: ``(height, width)`` in pixels.
+        pixel_size: ``(height, width)`` pitch in metres, as a pair or a tensor.
+        device: Where to build the grid.
 
-    spatial_grid_x = pixel_grid_x / resolution[1] * spatial_extent[1]
-    spatial_grid_y = pixel_grid_y / resolution[0] * spatial_extent[0]
+    Returns:
+        tuple[Tensor, Tensor]: The ``x`` and ``y`` coordinate grids.
+    """
+    pixel_size = torch.as_tensor(pixel_size, device=device)
+    extent = torch.as_tensor(resolution, device=device) * pixel_size
+
+    pixel_grid_x, pixel_grid_y = get_pixel_grid(
+        resolution, device, dtype=pixel_size.dtype
+    )
+
+    spatial_grid_x = pixel_grid_x / resolution[1] * extent[1]
+    spatial_grid_y = pixel_grid_y / resolution[0] * extent[0]
 
     return spatial_grid_x, spatial_grid_y
 
 
 def plane_center(resolution: tuple[int, int]) -> tuple[int, int]:
-    """The ``(x, y)`` pixel where :func:`get_pixel_grid` crosses zero."""
+    """The ``(x, y)`` pixel holding the origin, ``(width // 2, height // 2)``.
+
+    Args:
+        resolution: ``(height, width)`` in pixels.
+
+    Returns:
+        tuple[int, int]: The origin as ``(x, y)`` pixel indices.
+    """
     height, width = resolution
-    first_x = -width // 2
-    first_y = -height // 2
-    return (-first_x, -first_y)
+    return (width // 2, height // 2)
 
 
 def metres_to_pixel(
@@ -77,15 +117,28 @@ def pixel_to_metres(
 
 def get_frequency_grid(
     resolution: tuple[int, int],
-    pixel_size: tuple[float, float],
+    pixel_size: tuple[float, float] | Tensor,
     device: torch.device = "cpu",
 ) -> tuple[Tensor, Tensor]:
-    resolution = torch.tensor(resolution, device=device)
-    pixel_size = torch.tensor(pixel_size, device=device)
+    """Centred angular frequencies in rad/m, one per sample.
 
+    Spaced by ``2 * pi / (n * pitch)`` and spanning ``2 * pi / pitch``.
+
+    Args:
+        resolution: ``(height, width)`` in pixels.
+        pixel_size: ``(height, width)`` pitch in metres, as a pair or a tensor. The
+            grid comes back in its dtype.
+        device: Where to build the grid.
+
+    Returns:
+        tuple[Tensor, Tensor]: The ``x`` and ``y`` frequency grids.
+    """
+    pixel_size = torch.as_tensor(pixel_size, device=device)
     frequency_extent = 2 * torch.pi / pixel_size
 
-    pixel_grid_x, pixel_grid_y = get_pixel_grid(resolution, device)
+    pixel_grid_x, pixel_grid_y = get_pixel_grid(
+        resolution, device, dtype=pixel_size.dtype
+    )
 
     frequency_grid_x = pixel_grid_x / resolution[1] * frequency_extent[1]
     frequency_grid_y = pixel_grid_y / resolution[0] * frequency_extent[0]

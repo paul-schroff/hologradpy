@@ -15,6 +15,7 @@ from ....fourier_transforms import (
 )
 
 from ....geometry import PartialAffineTransform
+from ....grids import plane_center
 from ....utils import to_canvas
 from ..abstract import OpticsModule
 from ...complex_amplitude import ComplexAmplitude, pixel_area
@@ -120,7 +121,7 @@ class FourierLensCZT(OpticsModule):
                 "FourierLensCZT must be initialized before apply_partial_affine "
                 "(run the system once)."
             )
-        center = (self.resolution_out[1] // 2, self.resolution_out[0] // 2)
+        center = plane_center(self.resolution_out)
         scale, angle_deg, shift = recalibrated_partial_affine(
             float(self.scale_factor.mean()),
             float(self.angle),

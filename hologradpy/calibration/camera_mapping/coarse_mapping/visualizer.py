@@ -14,6 +14,8 @@ the spot-walking trail, and the final four affine probes).
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+from ....grids import plane_center
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -104,9 +106,8 @@ class CoarseMapperVisualizer(BaseVisualizer):
         import matplotlib.patches as patches
 
         data = self.data
-        height, width = data.output_resolution
         half_x, half_y = data.nyquist_half_extent_px
-        center = (width / 2.0, height / 2.0)
+        center = plane_center(data.output_resolution)
 
         axs.add_patch(
             patches.Rectangle(
