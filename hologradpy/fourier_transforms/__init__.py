@@ -6,6 +6,7 @@ from .shear import fft_shear, padded_resolution_for_rotation
 from .translate import fft_translate, translate_intensity
 from .resample import fft_resample
 from .czt import ChirpZPartialAffine
+from .saft import SemiAnalyticalFourierTransform, transformed_curvature
 
 __all__ = [
     "get_zoom_frequency_grid",
@@ -21,4 +22,6 @@ __all__ = [
     "translate_intensity",
     "fft_resample",
     "ChirpZPartialAffine",
+    "SemiAnalyticalFourierTransform",
+    "transformed_curvature",
 ]
