@@ -97,7 +97,7 @@ class LinearSuperpositionPhaseRetriever(PhaseRetrieverBase):
                 self.target_positions[i, 0],
                 self.target_positions[i, 1],
                 wavenumber=wavenumber,
-                focal_length=self.slm_camera_model.fourier_lens.focal_length,
+                focal_length=self.slm_camera_model.focal_length,
             )
 
             field_superposition += self.target_intensities[i] ** 2 * torch.exp(

@@ -26,10 +26,6 @@ class FourierLensCZT(OpticsModule):
     """Exact Fourier lens via the chirp-z zoom, with learnable focal-plane affine
     parameters (scale, shift, angle).
 
-    Unlike :class:`FourierLensNUFFT` (which interpolates with the Kaiser-Bessel
-    NUFFT) this evaluates the *exact* DFT at the chosen focal-plane sample points
-    (:class:`ChirpZPartialAffine`), so the sampled amplitudes carry no interpolation
-    error and the optical power is represented faithfully.
 
     ``scale_factor`` (per-axis zoom multiplier, ``(x, y)``), ``shift`` (focal-plane
     offset in output pixels, ``(x, y)``) and ``angle`` (rotation in degrees) are

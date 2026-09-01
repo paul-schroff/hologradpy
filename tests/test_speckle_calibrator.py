@@ -4,7 +4,7 @@ Runs the full pipeline (generate band-limited phase patterns -> capture simulate
 camera speckle -> fit the learnable SLM-plane field) end-to-end on a small
 ``SimulatedSLMTorch`` / ``SimulatedCameraTorch`` and checks it returns a valid
 field-only ``WavefrontCalibrationData``. It is a run-only smoke test (no quantitative
-recovery bar): the calibrator uses its default ``SLMNUFFTAffine`` model against an
+recovery bar): the calibrator uses its default ``SLMNUFFT`` model against an
 ``SLMFFTAffine`` "hardware", a deliberate model mismatch.
 """
 
@@ -26,7 +26,7 @@ from hologradpy.optics.complex_amplitude import (
 from hologradpy.optics.systems import (
     SLMCZT,
     SLMFFTAffine,
-    SLMNUFFTAffine,
+    SLMNUFFT,
 )
 from hologradpy.optics.modules.slm_fields import (
     PSFSLMField,
@@ -841,7 +841,7 @@ def test_speckle_calibrator_recovers_injected_wavefront(tmp_path) -> None:
         pixel_size=geometry.pixel_size,
         power=1e-3,
     )
-    hardware = SLMNUFFTAffine(
+    hardware = SLMNUFFT(
         input_geometry=geometry,
         virtual_slm=slm.virtual_slm,
         camera_resolution=RECOVERY_CAMERA_RESOLUTION,

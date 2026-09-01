@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from ..modules.propagators import FourierLensNUFFT
 from ..modules.slm_fields import SLMField
-from ..modules.geometric_transforms import GeometricWarp
 from ..modules.virtual_slms.abstract import VirtualSLM
 from ..complex_amplitude import FieldGeometry
 
@@ -10,26 +9,17 @@ from .abstract import (
     SLMFourierLensModel,
     camera_shift_pixels,
     slm_stages,
+    upscaled_padding,
 )
 from ..modules.abstract import capture_init
 
 
-class SLMNUFFTAffine(SLMFourierLensModel):
-    """SLM -> Fourier lens (NUFFT) -> affine camera registration.
-
-    The ``FourierLensNUFFT`` carries a fixed coarse geometric transform
-    (``camera_shift`` ``(x, y)`` metres / ``camera_angle`` degrees, applied
-    via its k-space trajectory) and maps onto a slightly oversized grid at the
-    camera pixel size. The
-    ``GeometricWarp`` then performs the *learnable* fine registration
-    onto the camera resolution, because the NUFFT cannot learn those geometric
-    parameters efficiently.
-    """
+class SLMNUFFT(SLMFourierLensModel):
+    """SLM -> NUFFT Fourier lens with learnable focal-plane geometry."""
 
     virtual_slm: VirtualSLM
     slm_field: SLMField
     fourier_lens: FourierLensNUFFT
-    affine_transform: GeometricWarp
 
     @capture_init
     def __init__(
@@ -40,21 +30,15 @@ class SLMNUFFTAffine(SLMFourierLensModel):
         camera_pixel_size: tuple[float, float],
         focal_length: float,
         slm_field: SLMField,
-        nufft_resolution: tuple[int, int] | None = None,
         camera_angle: float = 0.0,
         camera_shift: tuple[float, float] = (0.0, 0.0),
+        padded_resolution: tuple[int, int] | None = None,
         power_normalized: bool = True,
+        nufft_kwargs: dict | None = None,
         pointing_focal_shift_std: float | tuple[float, float] | None = None,
         pointing_seed: int | None = None,
         grid_cache: bool = False,
     ) -> None:
-        # The NUFFT outputs a slightly oversized grid so the learnable affine
-        # has margin to shift/rotate without cropping signal.
-        if nufft_resolution is None:
-            nufft_resolution = tuple(
-                int(camera_resolution[i] * 1.1) for i in range(2)
-            )
-
         super().__init__(
             input_geometry=input_geometry,
             focal_length=focal_length,
@@ -63,17 +47,16 @@ class SLMNUFFTAffine(SLMFourierLensModel):
             **slm_stages(virtual_slm, slm_field, grid_cache),
             fourier_lens=FourierLensNUFFT(
                 focal_length,
-                resolution_out=nufft_resolution,
+                resolution_out=camera_resolution,
                 pixel_size_out=camera_pixel_size,
                 shift=camera_shift_pixels(camera_shift, camera_pixel_size),
                 angle=camera_angle,
+                learnable=True,
                 power_normalized=power_normalized,
-            ),
-            affine_transform=GeometricWarp(
-                resolution_out=camera_resolution,
-                pixel_size_out=camera_pixel_size,
+                padded_resolution=upscaled_padding(padded_resolution, virtual_slm),
+                nufft_kwargs={} if nufft_kwargs is None else nufft_kwargs,
             ),
         )
 
-    def affine_module(self) -> GeometricWarp:
-        return self.affine_transform
+    def affine_module(self) -> FourierLensNUFFT:
+        return self.fourier_lens

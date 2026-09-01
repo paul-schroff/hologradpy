@@ -18,7 +18,7 @@ from hologradpy.optics.complex_amplitude import (
 from hologradpy.optics.systems import (
     SLMFFT,
     SLMFFTAffine,
-    SLMNUFFTAffine,
+    SLMNUFFT,
     SLMCZT,
 )
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
@@ -75,8 +75,8 @@ def _make_slm_fft_affine(pointing_focal_shift_std=None) ->SLMFFTAffine:
     )
 
 
-def _make_slm_nufft_affine(pointing_focal_shift_std=None) ->SLMNUFFTAffine:
-    return SLMNUFFTAffine(
+def _make_slm_nufft(pointing_focal_shift_std=None) ->SLMNUFFT:
+    return SLMNUFFT(
         input_geometry=_input_geometry(),
         virtual_slm=VirtualSLM(phase_scaling=1.0),
         camera_resolution=CAMERA_RESOLUTION,
@@ -106,7 +106,7 @@ def _make_slm_czt(pointing_focal_shift_std=None) ->SLMCZT:
 SYSTEM_FACTORIES = {
     "SLMFFT": _make_slm_fft,
     "SLMFFTAffine": _make_slm_fft_affine,
-    "SLMNUFFTAffine": _make_slm_nufft_affine,
+    "SLMNUFFT": _make_slm_nufft,
     "SLMCZT": _make_slm_czt,
 }
 SYSTEM_IDS = list(SYSTEM_FACTORIES)

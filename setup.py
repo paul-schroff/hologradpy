@@ -29,7 +29,16 @@ requirements = [
 ]
 
 extras = {
-    "nufft": ["torchkbnufft"],
+    "nufft": [
+        "pytorch-finufft==0.1.0",
+        "finufft==2.5.1",
+    ],
+    # Adds the GPU transform. pytorch-finufft uses it automatically when present.
+    "nufft-cuda": [
+        "pytorch-finufft==0.1.0",
+        "finufft==2.5.1",
+        "cufinufft==2.5.1",
+    ],
 }
 
 setup(

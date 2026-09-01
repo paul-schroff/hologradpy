@@ -56,7 +56,7 @@ class BatchSpec:
     A field is canonically laid out as ``(*batch, wavelength, H, W)`` where the
     wavelength axis is always at ``dim=-3`` and everything before it is batch.
     To run a fixed-rank operation (e.g. kornia ``warp_perspective`` or
-    ``torchkbnufft``) the batch dimensions are collapsed into a single leading
+    the NUFFT) the batch dimensions are collapsed into a single leading
     axis, giving canonical ``(N, n_wavelengths, H, W)``. ``BatchSpec`` captures
     enough information to restore the original rank afterwards.
     """

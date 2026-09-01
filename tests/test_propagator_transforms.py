@@ -1,10 +1,9 @@
 """Behavior locks for the propagators after they were refactored to compose
 the ``hologradpy.fourier_transforms`` transforms.
 
-* ``FourierLensNUFFT`` -> ``KbNufftPartialAffine``: a characterization golden pins
-  the migrated output to values captured from the pre-refactor implementation
-  (non-square, asymmetric pixel size, rotated, multi-wavelength -- so a swapped
-  axis or x/y scale would be caught).
+* ``FourierLensNUFFT`` -> ``NUFFTPartialAffine``: the focal field matches the
+  exact chirp-z lens in orientation and in value, which catches a swapped axis or
+  an x/y scale as well as the historical omega[0]<->omega[1] transpose.
 * ``FourierLensFFT`` -> ``FastFourierTransform``: forward/adjoint equal the plain
   padded FFT / cropped IFFT.
 * ``AngularSpectrumMethod``: transform-pluggable -- an explicit orthonormal FFT
@@ -59,7 +58,7 @@ def make_field(shape, n_wl, seed=0, pixel_size=PIXEL_IN):
 def test_fourier_lens_nufft_orientation_matches_czt() -> None:
     """The NUFFT lens shares the x/y orientation of the exact CZT lens (and a
     plain FFT): an x-tilt deflects the focal spot along x, not y -- the regression
-    guard for the historical KbNufft omega[0]<->omega[1] transpose. They also
+    guard for the historical omega[0]<->omega[1] transpose. They also
     agree to within the NUFFT's interpolation error.
     """
     resolution = (32, 32)

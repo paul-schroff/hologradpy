@@ -473,7 +473,11 @@ class GradientPhaseRetriever(PhaseRetrieverBase):
             return
 
         self.optimizer = torchmin.Minimizer(
-            self.slm_camera_model.parameters(),
+            [
+                parameter
+                for parameter in self.slm_camera_model.parameters()
+                if parameter.requires_grad
+            ],
             method=method,
             max_iter=number_of_iterations,
             disp=display,

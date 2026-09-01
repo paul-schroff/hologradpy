@@ -4,6 +4,7 @@ import warnings
 
 import torch
 from torch import Tensor
+from torch.fft import fftshift
 
 from ....fourier_transforms import SemiAnalyticalFourierTransform, fft_2d
 from ....grids import get_frequency_grid, get_pixel_grid
@@ -11,6 +12,17 @@ from ....utils import to_canvas
 
 from ..abstract import OpticsModule, capture_init
 from ...complex_amplitude import ComplexAmplitude, broadcast_wavelength_operand
+
+
+def _phase_steps(phase_factor: Tensor) -> tuple[float, float]:
+    """The largest phase step between neighbouring samples, over ``pi``, per axis."""
+    phase = torch.angle(phase_factor)
+    step_x = torch.angle(torch.exp(1j * torch.diff(phase, dim=-1)))
+    step_y = torch.angle(torch.exp(1j * torch.diff(phase, dim=-2)))
+    return (
+        float(step_x.abs().max() / torch.pi),
+        float(step_y.abs().max() / torch.pi),
+    )
 
 
 class AngularSpectrumSAFT(OpticsModule):
@@ -73,9 +85,18 @@ class AngularSpectrumSAFT(OpticsModule):
             (self._curvature[1], 0.0, self._curvature[0]),
             inverse=True,
             device=complex_amplitude.device,
+            dtype=complex_amplitude.dtype_c,
         )
+        residual = self._residual_transfer(complex_amplitude)
+        self._transfer_margin = _phase_steps(residual[0])
+
+        index_x, index_y = get_pixel_grid(
+            self._padded_resolution, complex_amplitude.device, dtype=torch.float64
+        )
+        checkerboard = (-1.0) ** (index_x + index_y)
         self.register_buffer(
-            "residual_transfer", self._residual_transfer(complex_amplitude)
+            "residual_transfer",
+            (residual * checkerboard).to(complex_amplitude.dtype_c),
         )
 
     def _residual_transfer(self, complex_amplitude: ComplexAmplitude) -> Tensor:
@@ -109,15 +130,10 @@ class AngularSpectrumSAFT(OpticsModule):
         Returns:
             tuple[float, float]: The margin along ``x`` and along ``y``.
         """
-        phase = torch.angle(self.residual_transfer[0])
-
-        step_x = torch.angle(torch.exp(1j * torch.diff(phase, dim=-1)))
-        step_y = torch.angle(torch.exp(1j * torch.diff(phase, dim=-2)))
-
         lattice_x, lattice_y = self._transform.sampling_margin()
         return (
-            max(float(step_x.abs().max() / torch.pi), lattice_x),
-            max(float(step_y.abs().max() / torch.pi), lattice_y),
+            max(self._transfer_margin[0], lattice_x),
+            max(self._transfer_margin[1], lattice_y),
         )
 
     def _warn_if_aliased(self) -> None:
@@ -155,7 +171,8 @@ class AngularSpectrumSAFT(OpticsModule):
             self.residual_transfer, complex_amplitude.ndim
         )
         padded = to_canvas(complex_amplitude, self._padded_resolution)
-        spectrum = fft_2d(padded)
+
+        spectrum = fftshift(fft_2d(padded, fft_shift=False), dim=(-2, -1))
 
         out = self._transform(spectrum * transfer) / (
             self._padded_resolution[0] * self._padded_resolution[1]

@@ -64,6 +64,7 @@ class SemiAnalyticalFourierTransform(FourierBase):
         curvature: tuple[float, float, float],
         inverse: bool = False,
         device: torch.device = "cpu",
+        dtype: torch.dtype | None = None,
     ) -> None:
         """
         Args:
@@ -75,6 +76,8 @@ class SemiAnalyticalFourierTransform(FourierBase):
                 square leaves ``(x + m)`` in place of ``(x - m)``, so the same
                 convolution is read the other way up and nothing else changes.
             device: Where to build the chirp.
+            dtype: Complex dtype to hold the chirp buffers in. Defaults to 
+                ``complex128``.
 
         Raises:
             ValueError: The curvature is degenerate. See :func:`transformed_curvature`.
@@ -120,26 +123,25 @@ class SemiAnalyticalFourierTransform(FourierBase):
         # permutation, so it passes through the pointwise product, and doing it
         # once here rather than twice per call leaves the two convolution
         # transforms with no shifting to do at all.
-        self.register_buffer(
-            "_chirp_spectrum",
-            fftshift(fft_2d(chirp), dim=(-2, -1)),
-            persistent=False,
-        )
-        self._chirp_spectrum: Tensor
+        chirp_spectrum = fftshift(fft_2d(chirp), dim=(-2, -1))
 
         out_x, out_y = self._lattice()
-        self.register_buffer(
-            "_residual_phase",
-            torch.exp(
-                -1j
-                * (
-                    curvature_x * out_x**2
-                    + cross * out_x * out_y
-                    + curvature_y * out_y**2
-                )
-            ),
-            persistent=False,
+        residual_phase = torch.exp(
+            -1j
+            * (
+                curvature_x * out_x**2
+                + cross * out_x * out_y
+                + curvature_y * out_y**2
+            )
         )
+
+        if dtype is not None:
+            chirp_spectrum = chirp_spectrum.to(dtype)
+            residual_phase = residual_phase.to(dtype)
+
+        self.register_buffer("_chirp_spectrum", chirp_spectrum, persistent=False)
+        self._chirp_spectrum: Tensor
+        self.register_buffer("_residual_phase", residual_phase, persistent=False)
         self._residual_phase: Tensor
 
     def _lattice(self) -> tuple[Tensor, Tensor]:

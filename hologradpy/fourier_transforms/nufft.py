@@ -9,26 +9,32 @@ from torch import Tensor
 from .abstract import FourierBase
 
 try:
-    import torchkbnufft as tkbn
+    from pytorch_finufft.functional import finufft_type1, finufft_type2
 except ImportError:
     # Only this transform needs it, so the rest of the package imports without it and
     # the constructor below raises with an instruction instead.
-    tkbn = None
+    finufft_type1 = finufft_type2 = None
 
 NUFFT_INSTALL_HINT = (
-    "KbNufftPartialAffine needs torchkbnufft, which is an optional dependency. "
-    "Install it with: pip install hologradpy[nufft]"
+    "NUFFTPartialAffine needs pytorch-finufft, which is an optional dependency. "
+    "Install it with: pip install hologradpy[nufft], or hologradpy[nufft-cuda] to "
+    "add the GPU transform."
 )
+
+FORWARD_SIGN = -1
+ADJOINT_SIGN = +1
+CENTERED_MODES = 0
+RESERVED_KWARGS = ("isign", "modeord")
 
 
 def _as_per_wavelength(
-    value: tuple[float, float] | Tensor, device: torch.device
+    value: tuple[float, float] | Tensor, device: torch.device, dtype: torch.dtype
 ) -> Tensor:
     """Normalize a magnification / shift argument to a ``(n_wl, 2)`` float
     tensor in ``(x, y)`` order. Accepts a 2-tuple ``(x, y)`` (treated as a
     single wavelength) or an already-batched ``(n_wl, 2)`` tensor/sequence.
     """
-    tensor = torch.as_tensor(value, dtype=torch.float32, device=device)
+    tensor = torch.as_tensor(value, dtype=dtype, device=device)
     if tensor.ndim == 1:
         tensor = tensor.unsqueeze(0)
     return tensor
@@ -39,8 +45,9 @@ def _build_rotated_trajectory(
     resolution_out: tuple[int, int],
     magnification: Tensor,
     shift: Tensor,
-    angle: float,
+    angle: float | Tensor,
     device: torch.device,
+    dtype: torch.dtype,
 ) -> Tensor:
     """Per-wavelength k-space sample points of a scaled + shifted + rotated zoom
     window, in rad/sample, laid out as ``(2, n_wl, hw)`` (``[0] = kx``,
@@ -64,7 +71,7 @@ def _build_rotated_trajectory(
         step = (2 * torch.pi / length_in) / mag  # (n_wl,)
         indices = torch.arange(
             -(length_out // 2), length_out - length_out // 2,
-            device=device, dtype=torch.float32,
+            device=device, dtype=dtype,
         )  # (length_out,)
         return indices.unsqueeze(0) * step.unsqueeze(-1) + offset.unsqueeze(-1)
 
@@ -74,7 +81,8 @@ def _build_rotated_trajectory(
     grid_x = omega_x[:, None, :].expand(number_of_wavelengths, out_height, out_width)
     grid_y = omega_y[:, :, None].expand(number_of_wavelengths, out_height, out_width)
 
-    cos_angle, sin_angle = math.cos(angle), math.sin(angle)
+    angle = torch.as_tensor(angle, dtype=dtype, device=device)
+    cos_angle, sin_angle = torch.cos(angle), torch.sin(angle)
     sample_x = grid_x * cos_angle - grid_y * sin_angle
     sample_y = grid_x * sin_angle + grid_y * cos_angle
 
@@ -87,8 +95,8 @@ def _build_rotated_trajectory(
     )
 
 
-class KbNufftPartialAffine(FourierBase):
-    """A partial affine of the spectrum via the Kaiser-Bessel NUFFT (``torchkbnufft``).
+class NUFFTPartialAffine(FourierBase):
+    """A partial affine of the spectrum via the non-uniform FFT (``FINUFFT``).
 
     The sample points come from :func:`_build_rotated_trajectory` -- the same
     scaled + shifted window the chirp-z zoom uses, with an extra rotation that,
@@ -97,12 +105,13 @@ class KbNufftPartialAffine(FourierBase):
     leading wavelength axis ``(n_wl, 2)`` so the trajectory differs per
     wavelength; ``angle`` is a scalar in radians. The points are evaluated by the
     general (interpolating) non-uniform FFT, so ``is_gridded`` is ``False`` and
-    the output amplitude carries the KbNufft normalization (not the exact DFT).
+    the amplitude is the exact DFT sum to within the requested ``eps``, which
+    FINUFFT defaults to ``1e-6``.
 
     ``forward``/``adjoint`` operate on a flattened ``(n_images, n_wl, H, W)``
-    field (the leading batch already collapsed by the caller); the per-wavelength
-    trajectory is tiled across the image axis. ``adjoint`` is the conjugate
-    transpose (``KbNufftAdjoint``) on the same trajectory.
+    field (the leading batch already collapsed by the caller). FINUFFT takes one
+    trajectory per call and broadcasts it over leading batch dimensions, so the
+    image axis rides along for free and only the wavelength axis is a loop.
     """
 
     def __init__(
@@ -111,23 +120,30 @@ class KbNufftPartialAffine(FourierBase):
         resolution_out: tuple[int, int],
         magnification: tuple[float, float] | Tensor,
         shift: tuple[float, float] | Tensor = (0.0, 0.0),
-        angle: float = 0.0,
+        angle: float | Tensor = 0.0,
         grid_size: tuple[int, int] | None = None,
         dtype: torch.dtype = torch.float32,
         device: torch.device = "cpu",
         norm: str | None = None,
         **nufft_kwargs: Any,
     ) -> None:
-        if tkbn is None:
+        if finufft_type1 is None:
             raise ImportError(NUFFT_INSTALL_HINT)
+
+        reserved = [name for name in RESERVED_KWARGS if name in nufft_kwargs]
+        if reserved:
+            raise TypeError(
+                f"{type(self).__name__} sets {', '.join(reserved)} itself; passing "
+                "it would silently change which direction is the forward transform."
+            )
 
         if grid_size is None:
             grid_size = resolution
 
-        magnification = _as_per_wavelength(magnification, device)
-        shift = _as_per_wavelength(shift, device)
+        magnification = _as_per_wavelength(magnification, device, dtype)
+        shift = _as_per_wavelength(shift, device, dtype)
         frequencies = _build_rotated_trajectory(
-            grid_size, resolution_out, magnification, shift, angle, device
+            grid_size, resolution_out, magnification, shift, angle, device, dtype
         )
 
         super().__init__(
@@ -139,59 +155,53 @@ class KbNufftPartialAffine(FourierBase):
         )
 
         self.angle = angle
+        self.grid_size = grid_size
         self.norm = norm
-        self._kbnufft = tkbn.KbNufft(
-            im_size=list(resolution),
-            grid_size=list(grid_size),
-            dtype=dtype,
-            device=device,
-            **nufft_kwargs,
-        ).to(device)
-        self._kbnufft_adjoint = tkbn.KbNufftAdjoint(
-            im_size=list(resolution),
-            grid_size=list(grid_size),
-            dtype=dtype,
-            device=device,
-            **nufft_kwargs,
-        ).to(device)
+        self.nufft_kwargs = nufft_kwargs
+        self._normalization = (
+            1.0 / math.sqrt(grid_size[0] * grid_size[1]) if norm == "ortho" else 1.0
+        )
 
-    def _batched_trajectory(
-        self, number_of_images: int, number_of_wavelengths: int
-    ) -> Tensor:
-        """Tile the stored ``(2, n_wl, hw)`` trajectory across the image batch to
-        ``(n_images * n_wl, 2, hw)``, matching the row-major ``(image,
-        wavelength)`` flattening of the field.
-        """
-        trajectory = self.frequencies.moveaxis(0, 1)  # (n_wl, 2, hw): [:, 0] = x
-        # torchkbnufft maps omega[0] onto the first image axis (rows / height) and
-        # omega[1] onto columns / width, so hand it (omega_y, omega_x). Without
-        # this swap the focal field comes out transposed relative to a plain FFT.
-        trajectory = trajectory.flip(1)
-        trajectory = trajectory.unsqueeze(0).expand(number_of_images, -1, -1, -1)
-        return trajectory.reshape(number_of_images * number_of_wavelengths, 2, -1)
+    def _points(self, index: int, values: Tensor) -> Tensor:
+        """The trajectory for one wavelength, as ``(2, hw)`` laid out for FINUFFT."""
+        trajectory = self.frequencies
+        trajectory = trajectory[:, index if trajectory.shape[1] > 1 else 0]
+        trajectory = trajectory.flip(0)
+        wrapped = torch.remainder(trajectory + torch.pi, 2 * torch.pi) - torch.pi
+        return wrapped.to(device=values.device, dtype=values.real.dtype).contiguous()
 
     def forward(self, input: Tensor) -> Tensor:
         """``input``: ``(n_images, n_wl, H, W)`` -> ``(n_images, n_wl, H_out,
         W_out)``.
         """
         number_of_images, number_of_wavelengths = input.shape[0], input.shape[1]
-        field = input.reshape(
-            number_of_images * number_of_wavelengths, 1, *self.resolution
-        )
-        trajectory = self._batched_trajectory(number_of_images, number_of_wavelengths)
-        output = self._kbnufft(field, trajectory, norm=self.norm)
-        return output.reshape(
-            number_of_images, number_of_wavelengths, *self.resolution_out
-        )
+        samples = [
+            finufft_type2(
+                self._points(index, input),
+                input[:, index].contiguous(),
+                isign=FORWARD_SIGN,
+                modeord=CENTERED_MODES,
+                **self.nufft_kwargs,
+            ).reshape(number_of_images, *self.resolution_out)
+            for index in range(number_of_wavelengths)
+        ]
+        return torch.stack(samples, dim=1) * self._normalization
 
     def adjoint(self, samples: Tensor) -> Tensor:
         """``samples``: ``(n_images, n_wl, H_out, W_out)`` -> ``(n_images, n_wl,
         H, W)``.
         """
         number_of_images, number_of_wavelengths = samples.shape[0], samples.shape[1]
-        flat = samples.reshape(number_of_images * number_of_wavelengths, 1, -1)
-        trajectory = self._batched_trajectory(number_of_images, number_of_wavelengths)
-        image = self._kbnufft_adjoint(flat, trajectory, norm=self.norm)
-        return image.reshape(
-            number_of_images, number_of_wavelengths, *self.resolution
-        )
+        flat = samples.reshape(number_of_images, number_of_wavelengths, -1)
+        images = [
+            finufft_type1(
+                self._points(index, flat),
+                flat[:, index].contiguous(),
+                tuple(self.resolution),
+                isign=ADJOINT_SIGN,
+                modeord=CENTERED_MODES,
+                **self.nufft_kwargs,
+            )
+            for index in range(number_of_wavelengths)
+        ]
+        return torch.stack(images, dim=1) * self._normalization

@@ -17,9 +17,8 @@ from ..modules.abstract import capture_init
 class SLMCZT(SLMFourierLensModel):
     """SLM -> exact chirp-z Fourier lens with learnable focal-plane geometry.
 
-    The chirp-z counterpart of :class:`SLMNUFFTAffine`, but *without* a separate affine
-    registration stage: :class:`FourierLensCZT` carries learnable ``scale_factor`` /
-    ``shift`` / ``angle``, so the focal-plane affine map is learned inside the (exact,
+    :class:`FourierLensCZT` carries learnable ``scale_factor`` / ``shift`` /
+    ``angle``, so the focal-plane affine map is learned inside the (exact,
     power-correct) lens itself and maps directly onto the camera resolution at the
     camera pixel size. ``camera_angle`` (degrees) / ``camera_shift`` (``(x, y)``
     metres) seed those learnable parameters.

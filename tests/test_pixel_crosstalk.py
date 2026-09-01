@@ -24,7 +24,7 @@ from hologradpy.optics.modules import (
     SuperGaussianCrosstalk,
     VirtualSLM,
 )
-from hologradpy.optics.systems import SLMCZT, SLMFFT, SLMNUFFTAffine
+from hologradpy.optics.systems import SLMCZT, SLMFFT, SLMNUFFT
 from hologradpy.phase_levels import LinearResponse, LookupResponse
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
@@ -672,7 +672,7 @@ def test_the_reorder_leaves_a_system_without_crosstalk_alone() -> None:
     )
 
 
-@pytest.mark.parametrize("system_class", [SLMCZT, SLMNUFFTAffine])
+@pytest.mark.parametrize("system_class", [SLMCZT, SLMNUFFT])
 def test_the_other_lenses_take_the_sub_pixel_grid(system_class) -> None:
     system = system_class(
         input_geometry=_geometry(),
