@@ -3,7 +3,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, replace
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import torch
@@ -653,11 +653,56 @@ class ComplexAmplitude(Tensor):
         return tuple(self.shape[:COMPONENT_DIM])
 
     @property
+    def is_scalar(self) -> bool:
+        """True while this carries a single field component."""
+        return self.number_of_components == SCALAR
+
+    @property
+    def is_vector(self) -> bool:
+        """True while this carries the three components of a field vector."""
+        return self.number_of_components == VECTOR
+
+    @property
     def spatial_extent(self) -> Tensor:
         return self.geometry.spatial_extent
 
     def get_spatial_grid(self) -> tuple[Tensor, Tensor]:
         return self.geometry.get_spatial_grid()
+
+    def component(self, index: int) -> ComplexAmplitude:
+        """One field component, still a field.
+
+        Args:
+            index: Which component, ``0`` for ``E_x``, ``1`` for ``E_y`` and ``2`` for
+                ``E_z``, in the plane's own frame.
+
+        Returns:
+            ComplexAmplitude: A scalar field on the same plane. The component axis is
+                kept at length one, so the layout survives.
+        """
+        if not 0 <= index < self.number_of_components:
+            raise IndexError(
+                f"Component {index} of a field carrying "
+                f"{self.number_of_components}."
+            )
+        return self.narrow(COMPONENT_DIM, index, 1)
+
+    def at_wavelength(self, index: int) -> ComplexAmplitude:
+        """The field at one wavelength, carrying that wavelength's own pitch.
+
+        Args:
+            index: Which wavelength.
+
+        Returns:
+            ComplexAmplitude: A single-wavelength field. The wavelength axis is kept at
+                length one, so the layout survives.
+        """
+        if not 0 <= index < self.number_of_wavelengths:
+            raise IndexError(
+                f"Wavelength {index} of a field carrying "
+                f"{self.number_of_wavelengths}."
+            )
+        return self.narrow(WAVELENGTH_DIM, index, 1)
 
     def as_tensor(self) -> Tensor:
         """Return the underlying complex field as a plain ``torch.Tensor``,
@@ -750,6 +795,69 @@ class ComplexAmplitude(Tensor):
         """
         factor = _power_factor(self.power(), power, self.device)
         return self * factor.to(self.dtype_r)
+
+    def with_polarization(
+        self, jones: Sequence[complex] | Tensor
+    ) -> ComplexAmplitude:
+        """This scalar field given a polarization, as a field vector.
+
+        The scalar amplitude is shared by the three components in the ratios ``jones``
+        gives, so a field of unit Jones vector keeps the power it had.
+
+        Args:
+            jones: The Jones vector ``(J_x, J_y, J_z)`` in the plane's own frame. A
+                real or complex sequence, or a tensor of three values.
+
+        Returns:
+            ComplexAmplitude: A field vector on the same plane.
+
+        Raises:
+            ValueError: This already carries a field vector, or ``jones`` is not three
+                values.
+        """
+        if self.is_vector:
+            raise ValueError(
+                "This already carries a field vector. Build one from three scalar "
+                "fields with from_components()."
+            )
+        weights = torch.as_tensor(jones, device=self.device).to(self.dtype_c)
+        if weights.shape != (VECTOR,):
+            raise ValueError(
+                f"A Jones vector is {VECTOR} values (J_x, J_y, J_z), got shape "
+                f"{tuple(weights.shape)}."
+            )
+        return self * weights.reshape(VECTOR, 1, 1, 1)
+
+    @classmethod
+    def from_components(
+        cls,
+        x: ComplexAmplitude,
+        y: ComplexAmplitude,
+        z: ComplexAmplitude,
+    ) -> ComplexAmplitude:
+        """A field vector from its three components.
+
+        Args:
+            x: The ``E_x`` component, a scalar field.
+            y: The ``E_y`` component, on the same plane.
+            z: The ``E_z`` component, on the same plane.
+
+        Returns:
+            ComplexAmplitude: A field vector carrying all three.
+
+        Raises:
+            ValueError: One of them is not a scalar field.
+        """
+        parts = (x, y, z)
+        for axis, part in zip("xyz", parts):
+            if not part.is_scalar:
+                raise ValueError(
+                    f"The {axis} component carries "
+                    f"{part.number_of_components} components, and each one of a field "
+                    "vector is a scalar field."
+                )
+
+        return torch.cat(parts, dim=COMPONENT_DIM)
 
     def numpy(self) -> NDArray[np.complex128]:
         """The field as a numpy array, detached and on the host."""

@@ -385,6 +385,12 @@ class AngularSpectrumMethod(OpticsModule):
         """
         if finufft_type1 is None:
             raise ImportError(NUFFT_INSTALL_HINT)
+        if complex_amplitude.is_vector:
+            raise NotImplementedError(
+                "The components of a field vector are given in the plane's own frame, "
+                "and the target plane has a frame of its own, so they need rotating "
+                "into it. Propagate a scalar field."
+            )
         if not self.initialized:
             self._lazy_initialize(complex_amplitude)
         if not complex_amplitude.geometry.is_transverse:

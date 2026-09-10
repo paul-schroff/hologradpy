@@ -286,6 +286,12 @@ class RayleighSommerfeld(OpticsModule):
         Returns:
             ComplexAmplitude: The field on ``geometry``, carrying its pose.
         """
+        if complex_amplitude.is_vector:
+            raise NotImplementedError(
+                "The components of a field vector are given in the plane's own frame, "
+                "and the target plane has a frame of its own, so they need rotating "
+                "into it. Propagate a scalar field."
+            )
         if not self.initialized:
             self._lazy_initialize(complex_amplitude)
         out, spec = self._apply(complex_amplitude, conjugate=False, geometry=geometry)

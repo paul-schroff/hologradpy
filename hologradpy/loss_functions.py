@@ -3,7 +3,7 @@ from __future__ import annotations
 import operator
 from functools import reduce
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import torch
 import torch.nn as nn
@@ -369,6 +369,7 @@ class LossFidelity(LossFunction):
         Returns:
             torch.Tensor: Cost.
         """
+        _reject_field_vector(field, "LossFidelity")
         amplitude_out = field.abs()
         phase_out = field.angle()
 
@@ -432,6 +433,7 @@ class LossAbsoluteFidelity(LossFunction):
         Returns:
             torch.Tensor: Cost.
         """
+        _reject_field_vector(field, "LossAbsoluteFidelity")
         difference = (field - self.target_field) * self.signal_mask
         return (difference.real**2 + difference.imag**2).sum()
 
@@ -493,6 +495,7 @@ class LossVorticity(LossFunction):
         field: ImagePlaneField | None = None,
         target: torch.Tensor | None = None,
     ) -> Float[torch.Tensor, ""]:
+        _reject_field_vector(field, "LossVorticity")
         field = field.as_tensor() if hasattr(field, "as_tensor") else field
         intensity = field_intensity(field) + 1e-12
         _, gradient_x = torch.gradient(field.conj(), dim=(-2, -1))
@@ -502,6 +505,24 @@ class LossVorticity(LossFunction):
         return (vorticity**2).sum()
 
 
+
+
+def _reject_field_vector(field: Any, name: str) -> None:
+    """Refuse a field vector for a cost that measures against a scalar target.
+
+    Args:
+        field: The image-plane field.
+        name: The cost's name, for the message.
+
+    Raises:
+        ValueError: The field carries three components.
+    """
+    if getattr(field, "is_vector", False):
+        raise ValueError(
+            f"{name} measures a field against a target amplitude and phase, and a "
+            "field vector carries three of each. Take one component with "
+            "component(), or use an intensity cost, which sums them."
+        )
 
 
 def field_intensity(field: ImagePlaneField) -> Float[torch.Tensor, "... H W"]:

@@ -8,7 +8,7 @@ from typing import Callable, TypedDict, Any  # , Self
 import torch
 from torch import nn, Tensor
 
-from ..complex_amplitude import ComplexAmplitude, FieldGeometry
+from ..complex_amplitude import SCALAR, VECTOR, ComplexAmplitude, FieldGeometry
 from ...grids import get_spatial_grid
 from .recording import RecordingMixin
 
@@ -27,6 +27,7 @@ class SaveDict(TypedDict):
     input_geometry: FieldGeometry
     resolution_out: tuple[int, int]
     pixel_size_out: Tensor
+    number_of_components_out: int
 
 
 def capture_init(init: Callable[..., None]) -> Callable[..., None]:
@@ -159,6 +160,7 @@ class OpticsModule(RecordingMixin, nn.Module):
         self._resolution_out: tuple[int, int] | None = resolution_out
         self._input_geometry: FieldGeometry | None = None
         self._pixel_size_out: Tensor | None = None
+        self._number_of_components_out: int | None = None
         self.initialized = False
 
     def lazy_init(self, complex_amplitude: ComplexAmplitude) -> None:
@@ -176,15 +178,18 @@ class OpticsModule(RecordingMixin, nn.Module):
         self,
         resolution: tuple[int, int] | None = None,
         pixel_size: tuple[float, float] | Tensor | None = None,
+        number_of_components: int | None = None,
     ) -> None:
         """Declare the module's output-plane sampling from within lazy_init().
 
-        Call this when the module changes resolution and/or pixel size; omitted
-        arguments keep the current default (the input geometry). ``pixel_size`` may
-        be a ``(height, width)`` tuple or a tensor.
+        Call this when the module changes resolution, pixel size or the number of field
+        components. An omitted argument keeps the current default, the input geometry.
+        ``pixel_size`` may be a ``(height, width)`` tuple or a tensor.
         """
         if resolution is not None:
             self._resolution_out = resolution
+        if number_of_components is not None:
+            self._number_of_components_out = number_of_components
         if pixel_size is not None:
             if isinstance(pixel_size, Tensor):
                 self._pixel_size_out = pixel_size
@@ -209,6 +214,8 @@ class OpticsModule(RecordingMixin, nn.Module):
             )
         if self._resolution_out is None:
             self._resolution_out = self.resolution_in
+        if self._number_of_components_out is None:
+            self._number_of_components_out = self.input_geometry.number_of_components
 
     def _finalize_output_geometry(self) -> None:
         """Validate the output geometry is set and broadcast the output pixel size
@@ -219,6 +226,12 @@ class OpticsModule(RecordingMixin, nn.Module):
                 f"{type(self).__name__}: output geometry is unset after "
                 "lazy_init(). Pass pixel_size_out/resolution_out to __init__ or "
                 "call set_output_geometry() in lazy_init()."
+            )
+        if self._number_of_components_out not in (SCALAR, VECTOR):
+            raise ValueError(
+                f"{type(self).__name__}: an output carries {SCALAR} field component "
+                f"or {VECTOR}, and set_output_geometry() was given "
+                f"{self._number_of_components_out}."
             )
         if self._pixel_size_out.ndim == 1:
             self._pixel_size_out = self._pixel_size_out.unsqueeze(0)
@@ -341,6 +354,16 @@ class OpticsModule(RecordingMixin, nn.Module):
         """
         return self._resolution_out
 
+    @property
+    def number_of_components_out(self) -> int:
+        """How many field components the output carries.
+
+        Returns:
+            int: One for a scalar field and three for a field vector. A module that
+            leaves the components alone reports what it was given.
+        """
+        return self._number_of_components_out
+
     def forward(self, complex_amplitude: ComplexAmplitude) -> ComplexAmplitude:
         raise NotImplementedError(
             "Subclasses of OpticsModule must implement forward() method."
@@ -360,6 +383,7 @@ class OpticsModule(RecordingMixin, nn.Module):
             "input_geometry": self.input_geometry,
             "resolution_out": self.resolution_out,
             "pixel_size_out": self.pixel_size_out,
+            "number_of_components_out": self.number_of_components_out,
         }
         torch.save(save_dict, path)
 
