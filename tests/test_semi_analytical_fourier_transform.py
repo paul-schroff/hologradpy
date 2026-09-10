@@ -168,13 +168,13 @@ def test_the_margin_says_how_far_the_lattice_reaches() -> None:
     """Below one, every sample point is a frequency of its own."""
     transform = SemiAnalyticalFourierTransform(RESOLUTION, (0.01, 0.0, 0.005))
 
-    margin_x, margin_y = transform.sampling_margin()
+    margin_x, margin_y = transform.nyquist_ratio()
 
     assert margin_x < 1.0 and margin_y < 1.0
     # Twice the curvature is twice the reach, per axis independently.
     doubled = SemiAnalyticalFourierTransform(RESOLUTION, (0.02, 0.0, 0.005))
-    assert doubled.sampling_margin()[0] == pytest.approx(2 * margin_x)
-    assert doubled.sampling_margin()[1] == pytest.approx(margin_y)
+    assert doubled.nyquist_ratio()[0] == pytest.approx(2 * margin_x)
+    assert doubled.nyquist_ratio()[1] == pytest.approx(margin_y)
 
 
 def test_a_margin_over_one_means_the_lattice_repeats_itself() -> None:
@@ -182,12 +182,12 @@ def test_a_margin_over_one_means_the_lattice_repeats_itself() -> None:
 
     The input sits on integer samples, so the sum is ``2 pi`` periodic in ``k``. A
     lattice reaching past ``pi`` walks into the next period and takes frequencies it
-    already has, and those outputs are equal rather than merely similar.
+    already has, and those outputs are equal to floating point.
     """
     # Spacing is 2 * curvature, so points eight apart differ by exactly 2 pi.
     step = torch.pi / 8
     transform = SemiAnalyticalFourierTransform(RESOLUTION, (step, 0.0, step))
-    assert transform.sampling_margin()[0] > 1.0
+    assert transform.nyquist_ratio()[0] > 1.0
 
     got = transform(_compact_residual())
     frequencies = transform.frequencies[0].reshape(RESOLUTION)

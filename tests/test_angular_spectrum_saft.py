@@ -8,7 +8,8 @@ dominant term out of what still has to be sampled.
 The strongest statement available is against :class:`AngularSpectrumMethod`: this is
 the same method on a different output grid, so at unit zoom the two must agree to
 floating point. Against :class:`RayleighSommerfeld` the agreement is far looser, and
-deliberately so -- the angular spectrum samples the transfer function in frequency
+deliberately so, since the angular spectrum samples the transfer function in
+frequency
 while the direct integral samples the kernel in space, and those are genuinely
 different discretisations. Measured here: plain ASM and this propagator differ from the
 integral by the *same* 2.1e-1, and from each other by 1e-15.
@@ -65,7 +66,7 @@ def test_at_unit_zoom_it_is_the_angular_spectrum_method() -> None:
     The floor is the reference's, not this propagator's: AngularSpectrumMethod builds
     its transfer function on FastFourierTransform.frequencies, which comes from
     ``torch.arange`` at the default dtype, so on a float32 default the two agree to
-    4e-8 rather than the 4e-15 they reach when the grids are float64 throughout.
+    4e-8, against the 4e-15 they reach when the grids are float64 throughout.
     """
     field = _aperture()
 
@@ -95,9 +96,9 @@ def test_the_output_pitch_defaults_to_the_input_pitch() -> None:
 def test_the_zoom_is_real(zoom) -> None:
     """A finer pitch spreads the same feature over proportionally more samples.
 
-    Measured on the central lobe rather than a second moment: the window holds a
-    fixed number of samples, so a finer pitch sees less of the plane and anything
-    reaching the edge would be clipped rather than magnified.
+    The measurement is the central lobe, since the window holds a fixed number of
+    samples. A finer pitch therefore sees less of the plane, and anything reaching
+    the edge is clipped.
     """
     field = _aperture()
 
@@ -154,7 +155,7 @@ def test_the_margin_is_comfortable_when_zooming_in() -> None:
             resolution_out=RESOLUTION,
         )
         propagator(field)
-        margins.append(max(propagator.sampling_margin()))
+        margins.append(max(propagator.nyquist_ratio()))
 
     assert margins == sorted(margins, reverse=True)
     assert margins[-1] < 1.0
@@ -174,7 +175,7 @@ def test_a_coarser_pitch_is_flagged_rather_than_silently_tiled() -> None:
     with pytest.warns(RuntimeWarning, match="tiled with copies"):
         propagator(field)
 
-    assert max(propagator.sampling_margin()) > 1.0
+    assert max(propagator.nyquist_ratio()) > 1.0
 
 
 def test_a_workable_grid_says_nothing() -> None:

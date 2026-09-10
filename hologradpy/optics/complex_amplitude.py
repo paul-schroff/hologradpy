@@ -1,7 +1,7 @@
 """The electric field object, a core data structure of the optics backend."""
 
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from collections.abc import Mapping
 from typing import Any
@@ -18,6 +18,7 @@ from torch._prims_common import (
 
 import numpy as np
 from numpy.typing import NDArray
+from jaxtyping import Float
 
 from ..grids import get_spatial_grid
 from ..utils import unsqueeze_to
@@ -140,20 +141,22 @@ def _power_factor(
 
 @dataclass(frozen=True)
 class FieldGeometry:
-    wavelength: Tensor
-    pixel_size: Tensor
+    wavelength: Float[Tensor, " n_wavelengths"]
+    pixel_size: Float[Tensor, "n_wavelengths 2"]
     resolution: tuple[int, int]
+    origin: Float[Tensor, " 3"] | None = None
+    rotation: Float[Tensor, "3 3"] | None = None
 
     @property
     def number_of_wavelengths(self) -> int:
         return self.wavelength.numel()
 
     @property
-    def wavenumber(self) -> Tensor:
+    def wavenumber(self) -> Float[Tensor, " n_wavelengths"]:
         return 2 * torch.pi / self.wavelength
 
     @property
-    def spatial_extent(self) -> Tensor:
+    def spatial_extent(self) -> Float[Tensor, "n_wavelengths 2"]:
         resolution = torch.as_tensor(
             self.resolution,
             device=self.wavelength.device,
@@ -161,12 +164,137 @@ class FieldGeometry:
         )
         return self.pixel_size * resolution
 
-    def get_spatial_grid(self, index: int = 0) -> tuple[Tensor, Tensor]:
+    def get_spatial_grid(
+        self, index: int = 0
+    ) -> tuple[Float[Tensor, "H W"], Float[Tensor, "H W"]]:
         return get_spatial_grid(
             resolution=self.resolution,
-            pixel_size=self.pixel_size[index].tolist(),
+            pixel_size=self.pixel_size[index],
             device=self.wavelength.device,
         )
+
+    @property
+    def is_transverse(self) -> bool:
+        """True if the samples lie in a plane parallel to the optical axis."""
+        if self.rotation is None:
+            return True
+        normal = self.rotation[:, 2]
+        return bool(
+            torch.allclose(normal, normal.new_tensor([0.0, 0.0, 1.0]), atol=1e-9)
+        )
+
+    def positions(self, index: int = 0) -> Float[Tensor, "H W 3"]:
+        """Sample positions in metres, ``(H, W, 3)``, in world coordinates.
+
+        Args:
+            index: Wavelength index.
+
+        Returns:
+            Tensor: The ``(x, y, z)`` position of every sample.
+        """
+        grid_x, grid_y = self.get_spatial_grid(index)
+        points = torch.stack((grid_x, grid_y, torch.zeros_like(grid_x)), dim=-1)
+        if self.rotation is not None:
+            rotation = self.rotation.to(device=points.device, dtype=points.dtype)
+            points = points @ rotation.transpose(-2, -1)
+        if self.origin is not None:
+            points = points + self.origin.to(device=points.device, dtype=points.dtype)
+        return points
+
+    @classmethod
+    def cross_section(
+        cls,
+        wavelength: float | Float[Tensor, ""] | Float[Tensor, " n_wavelengths"],
+        distances: Float[Tensor, " n_z"],
+        transverse_pitch: float,
+        width: int,
+        axis: str = "x",
+        offset: float = 0.0,
+    ) -> FieldGeometry:
+        """A plane along the propagation axis, the x-z or y-z section.
+
+        Args:
+            wavelength: Wavelength(s) in metres.
+            distances: Where along ``z`` to sample, in metres.
+            transverse_pitch: Pitch along the transverse axis, in metres.
+            width: Number of samples across the transverse axis.
+            axis: Which transverse axis the section runs along, ``"x"`` or ``"y"``.
+            offset: Where the section sits on the other transverse axis, in metres.
+
+        Returns:
+            FieldGeometry: The section, posed so that ``positions()[..., 2]`` reproduces
+                ``distances`` down the rows.
+
+        Raises:
+            ValueError: ``distances`` is not evenly spaced, or ``axis`` is not ``"x"`` 
+                or ``"y"``.
+        """
+        if axis not in ("x", "y"):
+            raise ValueError(f"axis must be 'x' or 'y', not {axis!r}.")
+
+        distances = torch.as_tensor(distances)
+        if distances.ndim != 1 or distances.numel() < 1:
+            raise ValueError("distances must be a non-empty 1D tensor.")
+        if not distances.dtype.is_floating_point:
+            distances = distances.to(torch.get_default_dtype())
+
+        steps = torch.diff(distances)
+        step = steps[0] if steps.numel() else torch.zeros_like(distances[0])
+
+        tolerance = 8 * torch.finfo(distances.dtype).eps * float(
+            distances.abs().max() + step.abs()
+        )
+        if steps.numel() and float((steps - step).abs().max()) > tolerance:
+            raise ValueError(
+                "cross_section needs evenly spaced distances: the section is an "
+                "evenly spaced grid, and an uneven z spacing is not one. Use "
+                "torch.linspace, "
+                "or sample the uneven planes one propagation at a time."
+            )
+
+        device = distances.device
+        dtype = distances.dtype
+        if not isinstance(wavelength, Tensor):
+            wavelength = torch.tensor([wavelength], device=device, dtype=dtype)
+        elif wavelength.ndim == 0:
+            wavelength = wavelength.unsqueeze(0)
+
+        number_of_planes = distances.numel()
+        pixel_size = torch.tensor(
+            [[float(step), transverse_pitch]], device=device, dtype=dtype
+        )
+
+        transverse = [1.0, 0.0, 0.0] if axis == "x" else [0.0, 1.0, 0.0]
+        along_z = [0.0, 0.0, 1.0]
+        normal = [0.0, -1.0, 0.0] if axis == "x" else [1.0, 0.0, 0.0]
+        rotation = torch.tensor(
+            [transverse, along_z, normal], device=device, dtype=dtype
+        ).transpose(0, 1)
+
+        centre = [offset, 0.0] if axis == "y" else [0.0, offset]
+        origin = torch.tensor(
+            [*centre, float(distances[number_of_planes // 2])],
+            device=device,
+            dtype=dtype,
+        )
+
+        return cls(
+            wavelength=wavelength,
+            pixel_size=pixel_size,
+            resolution=(number_of_planes, width),
+            origin=origin,
+            rotation=rotation,
+        )
+
+
+def _same_pose(one: FieldGeometry, other: FieldGeometry) -> bool:
+    """Whether two geometries sit in the same place, facing the same way."""
+    for left, right in ((one.origin, other.origin), (one.rotation, other.rotation)):
+        if (left is None) != (right is None):
+            return False
+        if left is not None and not torch.allclose(left, right.to(left)):
+            return False
+    return True
 
 
 class ComplexAmplitude(Tensor):
@@ -174,8 +302,8 @@ class ComplexAmplitude(Tensor):
 
     A tensor subclass, so a field can be multiplied, propagated and differentiated like
     any other tensor, while :attr:`wavelength` and :attr:`pixel_size` travel with it.
-    That is what lets an :class:`~hologradpy.optics.modules.abstract.OpticsModule` read
-    the sampling of its input rather than being told it.
+    An :class:`~hologradpy.optics.modules.abstract.OpticsModule` therefore reads
+    the sampling off the field it is given.
 
     Operations are intercepted through ``__torch_dispatch__``, which keeps the geometry
     attached across them. The wrapper is an autograd leaf, so a field built straight
@@ -455,17 +583,22 @@ class ComplexAmplitude(Tensor):
 
         In SI this is watts when the field amplitude is in ``sqrt(W/m^2)`` and
         ``pixel_size`` in metres. The reduction is performed in float64.
+
+        Raises:
+            ValueError: The field is not sampled on a transverse plane. 
         """
+        if not self.geometry.is_transverse:
+            raise ValueError(
+                "power() is the flux through a transverse plane, and this field is "
+                "sampled on one that is tilted out of x-y"
+            )
         return self._integrate_power(self.intensity, self.pixel_size)
 
     def with_power(self, power: float | Tensor) -> ComplexAmplitude:
-        """Return this field scaled so ``power() == power``, preserving phase
-        and the autograd graph.
+        """Return this field scaled so ``power() == power``, preserving phase and the
+        autograd graph.
 
-        Like :meth:`with_geometry`, this is the graph-safe way to rescale a
-        field produced by an OpticsModule: the multiply goes through the
-        dispatch mechanism, keeping ``grad_fn`` intact. ``power`` is matched
-        per ``(*batch, wavelength)``.
+        ``power`` is matched per ``(*batch, wavelength)``.
         """
         factor = _power_factor(self.power(), power, self.ndim, self.device)
         return self * factor.to(self.dtype_r)
@@ -504,20 +637,24 @@ class ComplexAmplitude(Tensor):
         self,
         wavelength: float | Tensor | None = None,
         pixel_size: tuple[float, float] | Tensor | None = None,
+        origin: Tensor | None = None,
+        rotation: Tensor | None = None,
     ) -> ComplexAmplitude:
-        """Return this ComplexAmplitude with updated wavelength / pixel_size
-        metadata, preserving the autograd graph.
+        """Return this ComplexAmplitude with updated wavelength / pixel_size metadata,
+        preserving the autograd graph.
 
-        Only the ``geometry`` attribute (pure metadata) is replaced, so the
-        existing tensor wrapper, and therefore the ``grad_fn``, stays intact.
-        This is the preferred way to retag an intermediate result with a new
-        wavelength or pixel size.
+        Only the ``geometry`` attribute is replaced, so the existing tensor wrapper, and
+        the ``grad_fn``, stays intact.
 
         Args:
             wavelength: New wavelength(s). If *None*, the existing value is
                 kept.
             pixel_size: New pixel size(s). If *None*, the existing value is
                 kept.
+            origin: Where the grid centre sits, ``(3,)`` in metres. If
+                *None*, the existing value is kept.
+            rotation: Grid axes as the columns of a ``(3, 3)``. If *None*,
+                the existing value is kept.
 
         Returns:
             ComplexAmplitude: The same object with updated geometry.
@@ -540,7 +677,13 @@ class ComplexAmplitude(Tensor):
         elif isinstance(pixel_size, Tensor) and pixel_size.ndim == 1:
             pixel_size = pixel_size.unsqueeze(0)
 
-        new_geometry = FieldGeometry(wavelength, pixel_size, self.geometry.resolution)
+        new_geometry = FieldGeometry(
+            wavelength,
+            pixel_size,
+            self.geometry.resolution,
+            origin=self.geometry.origin if origin is None else origin,
+            rotation=self.geometry.rotation if rotation is None else rotation,
+        )
         # Use object.__setattr__ to bypass any tensor attribute-setting
         # restrictions while keeping the autograd graph intact.
         object.__setattr__(self, "geometry", new_geometry)
@@ -638,6 +781,34 @@ class ComplexAmplitude(Tensor):
         return cls.from_tensor(out, wavelength, pixel_size)
 
     @classmethod
+    def _wrap_like(
+        cls,
+        data: Tensor,
+        geometry: FieldGeometry,
+        wavelength: Tensor | None = None,
+        pixel_size: Tensor | None = None,
+    ) -> ComplexAmplitude:
+        """Wrap ``data`` with ``geometry``'s pose, taking its wavelength and pitch
+        unless a slicing operation supplied its own.
+        """
+        out = cls(
+            data,
+            geometry.wavelength if wavelength is None else wavelength,
+            geometry.pixel_size if pixel_size is None else pixel_size,
+        )
+        if geometry.origin is None and geometry.rotation is None:
+            return out
+        moved = replace(
+            out.geometry,
+            origin=None if geometry.origin is None else geometry.origin.to(out.device),
+            rotation=(
+                None if geometry.rotation is None else geometry.rotation.to(out.device)
+            ),
+        )
+        object.__setattr__(out, "geometry", moved)
+        return out
+
+    @classmethod
     def __torch_dispatch__(
         cls,
         func: OpOverload,
@@ -683,6 +854,12 @@ class ComplexAmplitude(Tensor):
                     raise ValueError(
                         "ComplexAmplitude arguments must have the same resolution."
                     )
+                if not _same_pose(field.geometry, geometry):
+                    raise ValueError(
+                        "ComplexAmplitude arguments must be sampled on the same "
+                        "plane: one carries a different origin or rotation, so a "
+                        "cross section and a transverse field cannot be combined."
+                    )
 
         def unwrap(x: Any) -> Any:
             if not isinstance(x, cls):
@@ -719,7 +896,7 @@ class ComplexAmplitude(Tensor):
                 new_wavelength = geometry.wavelength
                 new_pixel_size = geometry.pixel_size
 
-            return cls(out, new_wavelength, new_pixel_size)
+            return cls._wrap_like(out, geometry, new_wavelength, new_pixel_size)
         elif func == torch.ops.aten.select.int:
             input_tensor, dim, index = args
 
@@ -734,7 +911,7 @@ class ComplexAmplitude(Tensor):
                 new_wavelength = geometry.wavelength
                 new_pixel_size = geometry.pixel_size
 
-            return cls(out, new_wavelength, new_pixel_size)
+            return cls._wrap_like(out, geometry, new_wavelength, new_pixel_size)
         elif func in (
             torch.ops.aten.to.device,
             torch.ops.aten._to_copy.default,
@@ -742,7 +919,7 @@ class ComplexAmplitude(Tensor):
             out = func(*tree_map(unwrap, args), **kwargs)
             new_wavelength = geometry.wavelength.to(out.device)
             new_pixel_size = geometry.pixel_size.to(out.device)
-            return cls(out, new_wavelength, new_pixel_size)
+            return cls._wrap_like(out, geometry, new_wavelength, new_pixel_size)
         else:
             pass
 
@@ -762,7 +939,7 @@ class ComplexAmplitude(Tensor):
         def wrap_output(x: Any) -> Any:
             if isinstance(x, Tensor):
                 if should_wrap_tensor(x):
-                    return cls(x, geometry.wavelength, geometry.pixel_size)
+                    return cls._wrap_like(x, geometry)
                 return x
 
             if isinstance(x, tuple):

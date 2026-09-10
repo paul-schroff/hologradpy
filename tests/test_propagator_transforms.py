@@ -6,9 +6,8 @@ the ``hologradpy.fourier_transforms`` transforms.
   an x/y scale as well as the historical omega[0]<->omega[1] transpose.
 * ``FourierLensFFT`` -> ``FastFourierTransform``: forward/adjoint equal the plain
   padded FFT / cropped IFFT.
-* ``AngularSpectrumMethod``: transform-pluggable -- an explicit orthonormal FFT
-  reproduces the default, and a different transform (``ChirpZPartialAffine``) is
-  accepted.
+* ``AngularSpectrumMethod``: the forward pass equals the padded orthonormal FFT
+  multiplied by the analytic transfer function on the same frequency grid.
 """
 
 from __future__ import annotations
@@ -26,11 +25,10 @@ from hologradpy.optics.modules.propagators import (
     AngularSpectrumMethod,
 )
 from hologradpy.fourier_transforms import (
-    FastFourierTransform,
-    ChirpZPartialAffine,
     fft_2d,
     ifft_2d,
 )
+from hologradpy.grids import get_frequency_grid
 from hologradpy.utils import to_canvas
 
 
@@ -56,10 +54,10 @@ def make_field(shape, n_wl, seed=0, pixel_size=PIXEL_IN):
 
 
 def test_fourier_lens_nufft_orientation_matches_czt() -> None:
-    """The NUFFT lens shares the x/y orientation of the exact CZT lens (and a
-    plain FFT): an x-tilt deflects the focal spot along x, not y -- the regression
-    guard for the historical omega[0]<->omega[1] transpose. They also
-    agree to within the NUFFT's interpolation error.
+    """The NUFFT lens shares the x/y orientation of the exact CZT lens and of a
+    plain FFT, so an x-tilt deflects the focal spot along x. This is the regression
+    guard for the historical omega[0] to omega[1] transpose. The two also agree to
+    within the NUFFT's interpolation error.
     """
     resolution = (32, 32)
     pixel_in = (8e-6, 8e-6)
@@ -92,7 +90,7 @@ def test_fourier_lens_nufft_orientation_matches_czt() -> None:
     delta_x = flat % resolution[1] - resolution[1] // 2
     assert abs(delta_x) > abs(delta_y)
 
-    # Same orientation as -- and close to -- the exact CZT, not its transpose.
+    # The same orientation as the exact CZT, and close to it in value.
     normalized_nufft = nufft / nufft.max()
     normalized_czt = czt / czt.max()
     assert float((normalized_nufft - normalized_czt).abs().max()) < float(
@@ -114,8 +112,8 @@ def test_fourier_lens_fft_forward_is_padded_fft() -> None:
 def test_fourier_lens_fft_adjoint_is_scaled_cropped_ifft() -> None:
     """The adjoint is the conjugate transpose, so ``N`` times the cropped ifft.
 
-    ``ifft`` carries a ``1 / N`` under ``norm="backward"``, and undoing that
-    factor is what makes this the conjugate transpose rather than the inverse.
+    ``ifft`` carries a ``1 / N`` under ``norm="backward"``, and undoing that factor
+    is what makes this the conjugate transpose.
     """
     lens = FourierLensFFT(focal_length=0.1, power_normalized=False)
     field = make_field((2, H, W), 2, seed=0)
@@ -128,33 +126,35 @@ def test_fourier_lens_fft_adjoint_is_scaled_cropped_ifft() -> None:
     torch.testing.assert_close(restored, expected)
 
 
-def test_asm_explicit_fft_transform_equals_default() -> None:
-    field = make_field((2, H, W), 2, seed=0)
+def test_asm_forward_is_the_padded_fft_with_the_analytic_transfer_function() -> None:
+    """The whole propagation, written out by hand on the padded frequency grid.
 
-    default = AngularSpectrumMethod(propagation_distance=1e-3)
-    out_default = default(field)._data
-
-    transform = FastFourierTransform((2 * H, 2 * W), norm="ortho")
-    explicit = AngularSpectrumMethod(propagation_distance=1e-3, transform=transform)
-    out_explicit = explicit(field)._data
-
-    torch.testing.assert_close(out_default, out_explicit)
-
-
-def test_asm_accepts_chirpz_transform() -> None:
-    """The angular spectrum is transform-pluggable: a ``ChirpZPartialAffine`` is
-    accepted
-    and produces a finite field of the right shape (a band-limited variant -- the
-    point is that the transfer function is built on the transform's own
-    frequencies).
+    The transfer function is built here from ``get_frequency_grid``, so a change to
+    either the grid convention or the norm of the transform shows up as a
+    difference.
     """
+    distance = 1e-3
     field = make_field((2, H, W), 2, seed=0)
-    transform = ChirpZPartialAffine((2 * H, 2 * W), (2 * H, 2 * W), (1.0, 1.0))
-    asm = AngularSpectrumMethod(propagation_distance=1e-4, transform=transform)
+    propagator = AngularSpectrumMethod(propagation_distance=distance)
+    out = propagator(field)._data
 
-    out = asm(field)._data
-    assert out.shape == (2, H, W)
-    assert torch.isfinite(out).all()
+    padded_resolution = (2 * H, 2 * W)
+    frequency_x, frequency_y = get_frequency_grid(
+        padded_resolution, field.pixel_size[0], field.device
+    )
+    wavenumber = field.wavenumber.reshape(-1, 1, 1)
+    argument = (
+        wavenumber**2
+        - frequency_x.unsqueeze(0) ** 2
+        - frequency_y.unsqueeze(0) ** 2
+    )
+    transfer = torch.exp(1j * distance * torch.sqrt(argument + 0j)).to(field.dtype)
+
+    padded = to_canvas(field, padded_resolution)
+    spectrum = fft_2d(padded, norm="ortho")
+    expected = to_canvas(ifft_2d(spectrum * transfer, norm="ortho"), (H, W))._data
+
+    torch.testing.assert_close(out, expected)
 
 
 def _focal_spot_polar_angle(intensity: torch.Tensor) -> float:
@@ -241,7 +241,7 @@ def test_camera_angle_turns_the_focal_plane_the_same_way_in_both_lenses(angle) -
         % (czt_turn, nufft_turn)
     )
     assert abs(czt_turn - nufft_turn) < 0.5
-    # And both follow the requested angle rather than some scaled version of it.
+    # And both follow the requested angle itself, at its own scale.
     assert abs(czt_turn - angle) < 0.75
     assert abs(nufft_turn - angle) < 0.75
 

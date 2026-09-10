@@ -50,7 +50,7 @@ class SemiAnalyticalFourierTransform(FourierBase):
     A field with a strong wavefront curvature needs a large number of samples before its
     phase is resolved. Splitting the field as ``V = U exp(i psi_q)`` with ``psi_q = Dx
     x^2 + C xy + Dy y^2`` leaves a residual ``U`` that is smooth, and the quadratic
-    factor is carried analytically instead of being sampled at all.
+    factor is carried analytically, so the samples only have to resolve ``U``.
 
     The method is the implementation of Z. Wang, S. Zhang, O. Baladron-Zorita, C.
     Hellmann and F. Wyrowski, "Application of the semi-analytical Fourier transform to
@@ -71,10 +71,10 @@ class SemiAnalyticalFourierTransform(FourierBase):
             resolution: ``(height, width)`` of the residual field.
             curvature: ``(Dx, C, Dy)`` of the phase being carried, in radians per
                 sample squared.
-            inverse: Sum with ``exp(+i k.x)`` rather than ``exp(-i k.x)``, which is
-                the leg that comes back from a spectrum to a plane. Completing the
-                square leaves ``(x + m)`` in place of ``(x - m)``, so the same
-                convolution is read the other way up and nothing else changes.
+            inverse: Sum with ``exp(+i k.x)``, the sign of the leg that comes back
+                from a spectrum to a plane. Completing the square leaves
+                ``(x + m)`` in place of ``(x - m)``, so the same convolution is
+                read the other way up and nothing else changes.
             device: Where to build the chirp.
             dtype: Complex dtype to hold the chirp buffers in. Defaults to 
                 ``complex128``.
@@ -119,10 +119,9 @@ class SemiAnalyticalFourierTransform(FourierBase):
                 + curvature_y * grid_y**2
             )
         )
-        # Kept in the transform's own bin order rather than centred. A shift is a
-        # permutation, so it passes through the pointwise product, and doing it
-        # once here rather than twice per call leaves the two convolution
-        # transforms with no shifting to do at all.
+        # Kept in the transform's own bin order. A shift is a permutation, so it
+        # passes through the pointwise product, and doing it once here leaves the
+        # two convolution transforms with no shifting to do at all.
         chirp_spectrum = fftshift(fft_2d(chirp), dim=(-2, -1))
 
         out_x, out_y = self._lattice()
@@ -191,7 +190,8 @@ class SemiAnalyticalFourierTransform(FourierBase):
     def _build_frequencies(self) -> Tensor:
         """The sample points ``k = 2 A m``, in radians per sample.
 
-        Sheared rather than rectangular whenever the cross term is present.
+        The cross term shears the grid, so the sample points sit on a
+        parallelogram whenever it is present.
         """
         grid_x, grid_y = self._lattice()
         curvature_x, cross, curvature_y = self.curvature
@@ -203,7 +203,7 @@ class SemiAnalyticalFourierTransform(FourierBase):
             dim=0,
         )
 
-    def sampling_margin(self) -> tuple[float, float]:
+    def nyquist_ratio(self) -> tuple[float, float]:
         """How far the sample points reach, as a fraction of one period.
 
         Returns:

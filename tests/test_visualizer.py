@@ -166,7 +166,7 @@ def test_plotbuilder_line_rows_with_sharex():
 
 
 def _cell_size(layout, name):
-    """One cell's size in inches, which is what the eye actually compares.
+    """One cell's size in inches, which is the size the eye compares.
 
     The cells are placed by a Divider locator, which only resolves at draw time, so
     the position before a draw is still the full figure rect.
@@ -213,7 +213,7 @@ def test_cells_of_the_same_shape_stay_equally_wide():
 
 def test_a_colorbar_gets_room_for_its_tick_labels():
     """The labels hang off the right of the bar, into whatever comes next. Without an
-    allowance they run into the neighbouring panel, which is what the default col_gap
+    allowance they run into the neighbouring panel, which the default col_gap
     of 0.3 inches left them doing.
     """
     layout = PlotLayout()
@@ -379,7 +379,7 @@ THREE_TERMS = {
 
 
 def _loss_axes(visualizer):
-    """The convergence panel, found by its title rather than its position."""
+    """The convergence panel, found by its title."""
     figure = visualizer.render()
     axs = next(a for a in figure.axes if a.get_title() == "convergence")
     return figure, axs
@@ -517,7 +517,7 @@ def test_speckle_comparison_difference_is_symmetric_about_zero():
 
 def test_speckle_comparison_without_truth_says_why():
     """A calibration from a real bench has nothing to compare against. Asking has to
-    name what is missing rather than drawing empty axes.
+    name what is missing.
     """
     data = _fake_speckle_data(with_truth=False)
 
@@ -548,7 +548,7 @@ def test_speckle_payload_predating_the_comparison_still_renders():
 
     figure = data.visualizer().render()
 
-    # The pattern cell is simply absent rather than the whole figure failing.
+    # The pattern cell is simply absent and the rest of the figure is drawn.
     titles = [axs.get_title() for axs in figure.axes if axs.get_title()]
     assert "camera + ROI" in titles
     assert "SLM phase pattern" not in titles
@@ -557,7 +557,7 @@ def test_speckle_payload_predating_the_comparison_still_renders():
 
 def test_the_dataset_figure_needs_a_pattern_to_be_worth_drawing():
     """Without one it would be a single cell the full diagnostics already carries, so
-    it says so rather than drawing a lone camera frame.
+    it says so on the figure.
     """
     data = SpeckleVisualizationData(
         camera_image=np.zeros((8, 8)), roi_mask=np.ones((8, 8), dtype=bool)
@@ -593,7 +593,7 @@ def test_the_bounding_box_is_tight_around_the_region():
 
     assert (rows.start, rows.stop) == (20, 61)
     assert (columns.start, columns.stop) == (10, 51)
-    # Every edge of the crop lands on the region rather than outside it.
+    # Every edge of the crop lands on the region.
     cropped = region[rows, columns]
     assert cropped.all()
 
@@ -650,6 +650,33 @@ def test_image_grid_shapes_each_cell_like_its_own_image():
     assert [cell.aspect for cell in cells] == [
         image.shape[0] / image.shape[1] for image in images
     ]
+
+
+def test_image_grid_lets_a_caller_say_the_pixels_are_not_square():
+    """A cross section is millimetres one way and microns the other, so its pixel
+    shape says nothing about the shape the cell should be. Given an aspect, the cell
+    takes it and the image is stretched to fill it.
+    """
+    from hologradpy.visualizer import image_grid
+
+    section = np.zeros((64, 128))
+
+    builder = image_grid(
+        [section, section],
+        aspect=[0.4, None],
+        extent=(-2.0, 2.0, -50.0, 50.0),
+        colorbar=False,
+    )
+    cells = [cell for row in builder.layout._rows for cell in row]
+
+    assert cells[0].aspect == pytest.approx(0.4)
+    assert cells[1].aspect == pytest.approx(64 / 128)
+
+    figure = builder.build()
+
+    assert builder.layout.axes["0"].get_aspect() == "auto"
+    assert builder.layout.axes["1"].get_aspect() != "auto"
+    plt.close(figure)
 
 
 def test_image_grid_takes_rows_of_differing_length():

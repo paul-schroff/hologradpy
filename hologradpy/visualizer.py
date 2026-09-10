@@ -294,15 +294,10 @@ class PlotLayout:
         row_heights = [height for _, height in row_plans]
 
         figure_height = (
-            top
-            + bottom
-            + sum(row_heights)
-            + (len(self._rows) - 1) * self.row_gap
+            top + bottom + sum(row_heights) + (len(self._rows) - 1) * self.row_gap
         )
 
-        figure = plt.figure(
-            figsize=(figure_width, figure_height), dpi=self.dpi
-        )
+        figure = plt.figure(figsize=(figure_width, figure_height), dpi=self.dpi)
 
         # Vertical sizes are bottom-to-top: bottom margin, rows in reverse order
         # interleaved with gaps, then top margin. Shared by every row's divider, which
@@ -393,12 +388,14 @@ class BaseVisualizer:
         xticklabels: bool = True,
         yticklabels: bool = True,
         max_ticks: int | None = None,
+        aspect: float | str | None = None,
     ) -> ScalarMappable:
         """Show ``data`` as an image and return the mappable (for a colorbar).
 
         Without ``extent``, the axes carry no ticks. Supply one as ``(left, right,
         bottom, top)``, and the image is placed on those coordinates and keeps its
-        ticks.
+        ticks. ``aspect`` is matplotlib's: a data-coordinate ratio, or ``"auto"`` to
+        fill the axes.
         """
         if extent is None:
             axs.set_xticks([])
@@ -410,6 +407,7 @@ class BaseVisualizer:
             vmax=vmax,
             interpolation=interpolation,
             extent=extent,
+            aspect=aspect,
         )
         if extent is not None:
             axs.tick_params(labelbottom=xticklabels, labelleft=yticklabels)
@@ -526,8 +524,15 @@ class BaseVisualizer:
         (y grows downward).
         """
         axs.quiver(
-            x, y, u, v,
-            angles="xy", scale_units="xy", scale=scale, color=color, width=0.004,
+            x,
+            y,
+            u,
+            v,
+            angles="xy",
+            scale_units="xy",
+            scale=scale,
+            color=color,
+            width=0.004,
         )
         axs.set_aspect("equal", adjustable="datalim")
         if invert_y:
@@ -611,7 +616,6 @@ class AnimatedVisualizer(BaseVisualizer):
         # Static still: the first frame.
         return self.panels_for_frame(0)
 
-
     def _frame_indices(self, max_frames: int | None) -> np.ndarray:
         total = self.frame_count()
         if max_frames is None or max_frames >= total:
@@ -673,16 +677,12 @@ class AnimatedVisualizer(BaseVisualizer):
         for frame in frame_indices:
             self._draw_frame(layout, int(frame))
             canvas.draw()
-            rgb = Image.fromarray(
-                np.asarray(canvas.buffer_rgba()), "RGBA"
-            ).convert("RGB")
-            palette_image = rgb.quantize(
-                colors=256, method=Image.Quantize.MEDIANCUT
+            rgb = Image.fromarray(np.asarray(canvas.buffer_rgba()), "RGBA").convert(
+                "RGB"
             )
+            palette_image = rgb.quantize(colors=256, method=Image.Quantize.MEDIANCUT)
             frames.append(
-                rgb.quantize(
-                    palette=palette_image, dither=Image.Dither.FLOYDSTEINBERG
-                )
+                rgb.quantize(palette=palette_image, dither=Image.Dither.FLOYDSTEINBERG)
             )
         plt.close(figure)
 
@@ -751,8 +751,14 @@ class PlotBuilder:
         return self._add(
             cell,
             lambda axs: BaseVisualizer.draw_line(
-                axs, curves, hlines=hlines, xlabel=xlabel, ylabel=ylabel,
-                title=title, yscale=yscale, legend=legend,
+                axs,
+                curves,
+                hlines=hlines,
+                xlabel=xlabel,
+                ylabel=ylabel,
+                title=title,
+                yscale=yscale,
+                legend=legend,
             ),
         )
 
@@ -783,8 +789,17 @@ class PlotBuilder:
         return self._add(
             cell,
             lambda axs: BaseVisualizer.draw_quiver(
-                axs, x, y, u, v, scale=scale, color=color, xlabel=xlabel,
-                ylabel=ylabel, title=title, invert_y=invert_y,
+                axs,
+                x,
+                y,
+                u,
+                v,
+                scale=scale,
+                color=color,
+                xlabel=xlabel,
+                ylabel=ylabel,
+                title=title,
+                invert_y=invert_y,
             ),
         )
 
@@ -809,7 +824,7 @@ class PlotBuilder:
 
 
 def _is_image(value: Any) -> bool:
-    """Whether ``value`` is a single 2D image rather than a collection of them."""
+    """Whether ``value`` is a single 2D image."""
     return getattr(value, "ndim", None) == 2
 
 
@@ -837,7 +852,7 @@ def _per_panel(value: Any, count: int, label: str) -> list[Any]:
 
 
 def _is_extent(value: Any) -> bool:
-    """Whether ``value`` is a single extent rather than one per panel."""
+    """Whether ``value`` is one extent shared by every panel."""
     return (
         value is not None
         and not isinstance(value, str)
@@ -880,6 +895,7 @@ def image_grid(
     merge_colorbars: bool = False,
     colorbar_label: Any = None,
     extent: Any = None,
+    aspect: Any = None,
     xlabel: Any = None,
     ylabel: Any = None,
     max_ticks: int = 5,
@@ -910,12 +926,14 @@ def image_grid(
             space back to the images. Panels that auto scale keep their own bars.
         colorbar_label: Single label naming what the values are, or one per image.
         extent: ``(left, right, bottom, top)`` in data coordinates, or one per image.
+        aspect: Cell height-to-width ratio, or one per image. Defaults to the image's
+            pixel shape, which is right for square pixels.
         xlabel: Axis label for the bottom row, naming the horizontal coordinate.
             Needs ``extent``.
         ylabel: Axis label for the leftmost column. Needs ``extent``.
         max_ticks: Most ticks either axis of a panel may carry. Both axes get
             the same budget, so ones over the same range come out on the same
-            spacing instead of matplotlib fitting about twice as many on y.
+            spacing.
         column_width: Width of one grid column in inches.
         dpi: Dots per inch of the figure. None keeps matplotlib's default.
         names: Cell names to address panels by. Defaults to ``"0"``, ``"1"``, and so on.
@@ -947,9 +965,7 @@ def image_grid(
     count = len(flat)
     cell_names = list(names) if names is not None else [str(i) for i in range(count)]
     if len(cell_names) != count:
-        raise ValueError(
-            f"Got {len(cell_names)} names for {count} images."
-        )
+        raise ValueError(f"Got {len(cell_names)} names for {count} images.")
     per_title = _per_panel(titles, count, "titles")
     per_cmap = _per_panel(cmap, count, "cmap")
     per_vmin = _per_panel(vmin, count, "vmin")
@@ -961,6 +977,7 @@ def image_grid(
         if _is_extent(extent)
         else _per_panel(extent, count, "extent")
     )
+    per_aspect = _per_panel(aspect, count, "aspect")
     per_xlabel = _per_panel(xlabel, count, "xlabel")
     per_ylabel = _per_panel(ylabel, count, "ylabel")
     if merge_colorbars:
@@ -988,18 +1005,20 @@ def image_grid(
     layout = PlotLayout(column_width=column_width, dpi=dpi, **layout_kwargs)
     index = 0
     for row in rows:
-        layout.add_row(
-            [
-                GridCell(
-                    cell_names[index + offset],
-                    # The whole point: the cell is shaped like the array going into it.
-                    aspect=image.shape[0] / image.shape[1],
-                    colorbar=per_colorbar[index + offset],
-                    colorbar_label=per_colorbar_label[index + offset],
-                )
-                for offset, image in enumerate(row)
-            ]
-        )
+        layout.add_row([
+            GridCell(
+                cell_names[index + offset],
+                # The whole point: the cell is shaped like the array going into it.
+                aspect=(
+                    per_aspect[index + offset]
+                    if per_aspect[index + offset] is not None
+                    else image.shape[0] / image.shape[1]
+                ),
+                colorbar=per_colorbar[index + offset],
+                colorbar_label=per_colorbar_label[index + offset],
+            )
+            for offset, image in enumerate(row)
+        ])
         index += len(row)
 
     builder = PlotBuilder(layout)
@@ -1017,6 +1036,7 @@ def image_grid(
             xticklabels=on_bottom_row[position],
             yticklabels=in_first_column[position],
             max_ticks=max_ticks,
+            aspect="auto" if per_aspect[position] is not None else None,
         )
     return builder
 
@@ -1034,9 +1054,12 @@ def _fit_right_margin(figure: Figure, margin: float) -> None:
 def _warn_on_aspect_mismatch(
     layout: PlotLayout, name: str, mappable: Any, tolerance: float = 0.02
 ) -> None:
-    """Warn when a cell is shaped unlike the image drawn into it."""
+    """Warn when a cell and the image drawn into it have different shapes."""
     cell = layout.cell(name)
     if cell is None or not isinstance(cell.aspect, (int, float)):
+        return
+    axes = getattr(mappable, "axes", None)
+    if axes is not None and axes.get_aspect() == "auto":
         return
     data = getattr(mappable, "get_array", lambda: None)()
     if data is None or getattr(data, "ndim", 0) != 2 or data.shape[1] == 0:

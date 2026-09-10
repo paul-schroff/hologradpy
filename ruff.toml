@@ -7,6 +7,7 @@ ignore = [
     "D1",
     "D205", # Docstring summaries wrapping 
     "D212", # Avoids breaking sphinx napoleon extension
+    "F722", # jaxtyping shape strings such as "H W 3" are not forward references
 ]
 
 [lint.per-file-ignores]

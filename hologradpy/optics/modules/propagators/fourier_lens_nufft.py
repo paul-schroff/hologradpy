@@ -88,7 +88,7 @@ class FourierLensNUFFT(OpticsModule):
         # pixel_size / padded resolution and flipped once here into the (x, y)
         # focal-plane convention the transform and the learnable params share. This is
         # the single boundary between the array-axis and focal-plane conventions.
-        self._scale: Float[Tensor, "n_wavelengths 2"] = (  # noqa: F722
+        self._scale: Float[Tensor, "n_wavelengths 2"] = (
             fourier_lens_magnification(
                 complex_amplitude.wavelength.unsqueeze(-1),
                 self.focal_length,
@@ -141,7 +141,7 @@ class FourierLensNUFFT(OpticsModule):
         transform, so they combine directly with no axis swap. The base sample grid
         has bin spacing
         ``2*pi / padded_resolution`` (rad/sample on the padded grid), divided by
-        the scale -- which is exactly ``get_zoom_frequency_grid`` with
+        the scale, which is exactly ``get_zoom_frequency_grid`` with
         ``resolution = padded_resolution`` and ``magnification = scale``. The
         in-pixel ``shift`` becomes the window offset ``-2*pi * shift / (padded *
         scale)`` (the rotation then mixes the axes identically for grid and

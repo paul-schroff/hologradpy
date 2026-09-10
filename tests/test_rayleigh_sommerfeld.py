@@ -1,8 +1,8 @@
 """Tests for the Rayleigh-Sommerfeld propagator.
 
-This one exists to be the reference the fast propagators are judged against, so it is
-itself judged against a closed-form solution rather than against another propagator. A
-uniformly lit circular aperture has an exact on-axis field,
+This one exists to be the reference the fast propagators are judged against, so it
+is itself judged against a closed-form solution. A uniformly lit circular aperture
+has an exact on-axis field,
 ``exp(ikz) - (z / sqrt(a^2 + z^2)) exp(ik sqrt(a^2 + z^2))``, and that is what these
 compare with.
 """
@@ -125,7 +125,7 @@ def test_the_convolution_route_is_the_summed_one() -> None:
     """The fast route has to be the same integral, not an approximation of it.
 
     The kernel depends on the two points only through their separation, so when both
-    planes sample one lattice the sum is a convolution exactly. What is left between
+    planes sample one grid the sum is a convolution exactly. What is left between
     them is the order the terms are added in.
     """
     field = _aperture(2e-6, 64)
@@ -137,7 +137,7 @@ def test_the_convolution_route_is_the_summed_one() -> None:
 
 
 def test_the_routes_agree_on_a_smaller_output_window() -> None:
-    """A cropped output plane still shares the lattice, so it still convolves."""
+    """A cropped output plane still shares the grid, so it still convolves."""
     field = _aperture(2e-6, 64)
     options = dict(resolution_out=(20, 12))
 
@@ -151,21 +151,21 @@ def test_the_routes_agree_on_a_smaller_output_window() -> None:
 
 
 def test_a_different_pitch_falls_back_to_summing() -> None:
-    """The convolution needs one lattice. A different output pitch is not one."""
+    """The convolution needs one grid. A different output pitch is not one."""
     field = _aperture(2e-6, 32)
     same = RayleighSommerfeld(DISTANCE)
     different = RayleighSommerfeld(DISTANCE, pixel_size_out=(1e-6, 1e-6))
     # The output geometry is lazy, so both have to have run before it can be asked
-    # what lattice they land on.
+    # what grid they land on.
     same(field)
     different(field)
 
-    assert same._shares_a_lattice(field)
-    assert not different._shares_a_lattice(field)
+    assert same._shares_a_grid(field)
+    assert not different._shares_a_grid(field)
 
 
 def test_the_adjoint_of_the_convolution_route_is_its_transpose() -> None:
-    """The fast route needs its own check: it correlates rather than convolving."""
+    """The fast route correlates, so its transpose needs its own check."""
     geometry = FieldGeometry(
         resolution=(24, 24),
         pixel_size=torch.tensor([2e-6, 2e-6], dtype=torch.float64),

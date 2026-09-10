@@ -124,36 +124,36 @@ class AngularSpectrumSAFT(OpticsModule):
         )
         return transfer * torch.exp(-1j * extracted).unsqueeze(0)
 
-    def sampling_margin(self) -> tuple[float, float]:
+    def nyquist_ratio(self) -> tuple[float, float]:
         """How hard the residual transfer function is to sample, per axis.
 
         Returns:
-            tuple[float, float]: The margin along ``x`` and along ``y``.
+            tuple[float, float]: The ratio along ``x`` and along ``y``.
         """
-        lattice_x, lattice_y = self._transform.sampling_margin()
+        grid_x, grid_y = self._transform.nyquist_ratio()
         return (
-            max(self._transfer_margin[0], lattice_x),
-            max(self._transfer_margin[1], lattice_y),
+            max(self._transfer_margin[0], grid_x),
+            max(self._transfer_margin[1], grid_y),
         )
 
     def _warn_if_aliased(self) -> None:
         if self._warned:
             return
         self._warned = True
-        margin_x, margin_y = self.sampling_margin()
-        if max(margin_x, margin_y) <= 1.0:
+        ratio_x, ratio_y = self.nyquist_ratio()
+        if max(ratio_x, ratio_y) <= 1.0:
             return
         pitch = self.pixel_size_out.reshape(-1, 2)[0]
-        lattice = max(self._transform.sampling_margin())
+        grid_ratio = max(self._transform.nyquist_ratio())
         cause = (
-            "the output lattice reaches past one period, so the plane comes back "
+            "the output grid reaches past one period, so the plane comes back "
             "tiled with copies of itself"
-            if lattice > 1.0
+            if grid_ratio > 1.0
             else "the transfer function outruns its samples"
         )
         warnings.warn(
             f"This propagation is not resolved on the grid it was given: {cause}. "
-            f"Sampling margin ({margin_x:.2f}, {margin_y:.2f}), which has to be at "
+            f"Nyquist ratio ({ratio_x:.2f}, {ratio_y:.2f}), which has to be at "
             f"most 1. Propagating {float(self.propagation_distance) * 1e3:.3f} mm "
             f"onto a pitch of {float(pitch[0]) * 1e6:.3f} x "
             f"{float(pitch[1]) * 1e6:.3f} um asks for more than it holds. Ask for a "
