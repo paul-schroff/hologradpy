@@ -21,7 +21,15 @@ from numpy.typing import NDArray
 from jaxtyping import Float
 
 from ..grids import get_spatial_grid
-from ..utils import unsqueeze_to
+
+
+# The two reserved axes. A field is always ``(*batch, component, wavelength, H, W)``.
+COMPONENT_DIM = -4
+WAVELENGTH_DIM = -3
+
+# Allowed lengths of the component axis.
+SCALAR = 1
+VECTOR = 3
 
 
 def _real_dtype(dtype: torch.dtype) -> torch.dtype:
@@ -53,46 +61,106 @@ def _slice_arguments(
     return tuple(values)
 
 
-def broadcast_wavelength_operand(operand: Tensor, field_ndim: int) -> Tensor:
-    """Align a per-wavelength operand to a field of the given rank.
+def _to_canonical_layout(data: Tensor, number_of_wavelengths: int) -> Tensor:
+    """``data`` in the canonical ``(*batch, component, wavelength, H, W)`` layout.
 
-    The operand is laid out as ``(n_wavelengths, H, W)``. A 2D field carries no
-    wavelength axis (it is single-wavelength), so the singleton wavelength axis
-    is dropped. Otherwise leading singleton batch axes are added so it
-    broadcasts against ``(*batch, n_wavelengths, H, W)`` without changing rank.
+    ``(H, W)`` is one component of one wavelength, and ``(n_wavelengths, H, W)`` is
+    one component of each. Rank four or more is expected to be canonical already.
+
+    Args:
+        data: The field values.
+        number_of_wavelengths: How many wavelengths the geometry carries.
+
+    Returns:
+        Tensor: A view of ``data`` with both reserved axes present.
+
+    Raises:
+        ValueError: The layout cannot be read as a field.
     """
-    if field_ndim == 2:
-        return operand.squeeze(0)
-    return unsqueeze_to(operand, field_ndim)
+    if data.ndim < 2:
+        raise ValueError(
+            f"A field needs at least the two spatial axes (H, W), got shape "
+            f"{tuple(data.shape)}."
+        )
+    if data.ndim == 2:
+        if number_of_wavelengths != 1:
+            raise ValueError(
+                f"A plane of shape {tuple(data.shape)} carries one wavelength, but the "
+                f"geometry carries {number_of_wavelengths}. Add a wavelength axis: "
+                "(n_wavelengths, H, W)."
+            )
+        return data.reshape(1, 1, *data.shape)
+    if data.ndim == 3:
+        if data.shape[0] != number_of_wavelengths:
+            raise ValueError(
+                f"A field of rank 3 is read as (n_wavelengths, H, W), but "
+                f"{tuple(data.shape)} does not start with the "
+                f"{number_of_wavelengths} wavelengths of its geometry."
+            )
+        return data.reshape(1, *data.shape)
+    if data.shape[WAVELENGTH_DIM] != number_of_wavelengths:
+        raise ValueError(
+            f"The wavelength axis of {tuple(data.shape)} does not match the "
+            f"{number_of_wavelengths} wavelengths of its geometry. The layout is "
+            "(*batch, component, wavelength, H, W)."
+        )
+    if data.shape[COMPONENT_DIM] not in (SCALAR, VECTOR):
+        raise ValueError(
+            f"The component axis of {tuple(data.shape)} has length "
+            f"{data.shape[COMPONENT_DIM]}, and only {SCALAR} (a scalar field) or "
+            f"{VECTOR} (a field vector) are meaningful. The layout is "
+            "(*batch, component, wavelength, H, W), so a batch of fields needs a "
+            "component axis of its own."
+        )
+    return data
+
+
+def broadcast_wavelength_operand(operand: Tensor, field_ndim: int) -> Tensor:
+    """Align a per-wavelength operand to a field.
+
+    The operand is laid out as ``(n_wavelengths, H, W)`` or ``(H, W)``, and a field as
+    ``(*batch, component, n_wavelengths, H, W)``.
+
+    Args:
+        operand: The per-wavelength values.
+        field_ndim: Rank of the field the operand multiplies.
+
+    Returns:
+        Tensor: The operand, ready to broadcast.
+    """
+    if operand.ndim > 3:
+        raise ValueError(
+            f"A per-wavelength operand is (n_wavelengths, H, W) or (H, W), got "
+            f"{tuple(operand.shape)}."
+        )
+    return operand
 
 
 @dataclass(frozen=True)
 class BatchSpec:
-    """Records the leading-dimension layout of a :class:`ComplexAmplitude`.
+    """Records the leading layout of a :class:`ComplexAmplitude`.
 
-    A field is canonically laid out as ``(*batch, wavelength, H, W)`` where the
-    wavelength axis is always at ``dim=-3`` and everything before it is batch.
-    To run a fixed-rank operation (e.g. kornia ``warp_perspective`` or
-    the NUFFT) the batch dimensions are collapsed into a single leading
-    axis, giving canonical ``(N, n_wavelengths, H, W)``. ``BatchSpec`` captures
-    enough information to restore the original rank afterwards.
+    A field is canonically laid out as ``(*batch, component, wavelength, H, W)``. The
+    component axis is always at ``dim=-4`` and holds one value for a scalar field or
+    three for a field vector, the wavelength axis is always at ``dim=-3``, and
+    everything before them is batch.
     """
 
-    leading_shape: tuple[int, ...]
+    batch_shape: tuple[int, ...]
+    number_of_components: int
     original_ndim: int
 
 
 class _WrapperToTensor(torch.autograd.Function):
     """Convert a :class:`ComplexAmplitude` to a plain ``Tensor`` on-graph.
 
-    When a field is produced by an ``OpticsModule`` (i.e. via
-    ``__torch_dispatch__``), the autograd graph lives on the outer wrapper
-    while the inner ``_data`` tensor is detached. Reading ``_data`` directly
-    would therefore silently break gradient flow. This ``Function`` returns
-    the inner values as a plain tensor in forward and routes the incoming
-    gradient back through the wrapper (re-wrapped with the field geometry) in
-    backward, so the result is a genuine real/complex tensor that still
-    participates in optimization.
+    When a field is produced by an ``OpticsModule`` (i.e. via ``__torch_dispatch__``),
+    the autograd graph lives on the outer wrapper while the inner ``_data`` tensor is
+    detached. Reading ``_data`` directly would therefore silently break gradient flow.
+    This ``Function`` returns the inner values as a plain tensor in forward and routes
+    the incoming gradient back through the wrapper (re-wrapped with the field geometry)
+    in backward, so the result is a genuine real/complex tensor that still participates
+    in optimization.
     """
 
     @staticmethod
@@ -111,14 +179,14 @@ class _TensorToWrapper(torch.autograd.Function):
 
     The mirror image of :class:`_WrapperToTensor`, and the reason it is needed:
     ``_make_wrapper_subclass`` produces an autograd **leaf**. Building a wrapper
-    straight from a graph-carrying tensor therefore creates a wrapper with no
-    edge back to it, so a module that goes on to work through
-    ``__torch_dispatch__`` records its own gradients against that leaf and the
-    gradient never reaches the tensor the field was built from.
+    straight from a graph-carrying tensor therefore creates a wrapper with no edge back
+    to it, so a module that goes on to work through ``__torch_dispatch__`` records its
+    own gradients against that leaf and the gradient never reaches the tensor the field
+    was built from.
 
-    Routing the crossing through this ``Function`` supplies the missing edge, so
-    the graph survives in both directions. This is the pattern PyTorch's own
-    wrapper subclasses use (compare ``DTensor._FromTorchTensor``).
+    Routing the crossing through this ``Function`` supplies the missing edge, so the
+    graph survives in both directions. This is the pattern PyTorch's own wrapper
+    subclasses use (compare ``DTensor._FromTorchTensor``).
     """
 
     @staticmethod
@@ -128,6 +196,9 @@ class _TensorToWrapper(torch.autograd.Function):
         wavelength: Tensor,
         pixel_size: Tensor,
     ) -> ComplexAmplitude:
+        # The field is built in the canonical layout, which may add axes that ``data``
+        # does not have, so the gradient is reshaped back to what came in.
+        ctx.input_shape = tuple(data.shape)
         # The inner tensor is detached: the graph belongs on the wrapper, which
         # autograd links back to ``data`` through this Function.
         return ComplexAmplitude(data.detach(), wavelength, pixel_size)
@@ -136,7 +207,7 @@ class _TensorToWrapper(torch.autograd.Function):
     def backward(ctx: FunctionCtx, grad: ComplexAmplitude) -> tuple[Tensor, None, None]:
         inner = grad._data if isinstance(grad, ComplexAmplitude) else grad
         # wavelength / pixel_size are geometry metadata and never differentiable.
-        return inner, None, None
+        return inner.reshape(ctx.input_shape), None, None
 
 
 def pixel_area(pixel_size: Tensor) -> Tensor:
@@ -147,12 +218,17 @@ def pixel_area(pixel_size: Tensor) -> Tensor:
 
 
 def _power_factor(
-    current_power: Tensor, power: float | Tensor, ndim: int, device: torch.device
+    current_power: Tensor, power: float | Tensor, device: torch.device
 ) -> Tensor:
-    """The amplitude scale taking a field of ``current_power`` to ``power``."""
+    """The amplitude scale taking a field of ``current_power`` to ``power``.
+
+    ``current_power`` is one value per ``(*batch, wavelength)``, and the scale
+    multiplies a field laid out as ``(*batch, component, wavelength, H, W)``, so the
+    component and spatial axes are inserted.
+    """
     target_power = torch.as_tensor(power, dtype=torch.float64, device=device)
     factor = torch.sqrt(target_power / current_power)
-    return factor[..., None, None] if ndim > 2 else factor
+    return factor[..., None, :, None, None]
 
 
 @dataclass(frozen=True)
@@ -161,6 +237,11 @@ class FieldGeometry:
 
     ``wavelength`` is stored as ``(n_wavelengths,)`` and ``pixel_size`` as
     ``(n_wavelengths, 2)`` in ``(height, width)`` order.
+
+    ``number_of_components`` says how many field components the plane carries, one for
+    a scalar field and three for a field vector. On a field it is read from the data,
+    so the two cannot disagree. On a bare geometry it is a declaration, and a module
+    probe and :meth:`ComplexAmplitude.from_geometry` build from it.
     """
 
     wavelength: Float[Tensor, ""] | Float[Tensor, " n_wavelengths"]
@@ -170,10 +251,16 @@ class FieldGeometry:
     resolution: tuple[int, int]
     origin: Float[Tensor, " 3"] | None = None
     rotation: Float[Tensor, "3 3"] | None = None
+    number_of_components: int = SCALAR
 
     def __post_init__(self) -> None:
         wavelength = self.wavelength.reshape(-1)
         pixel_size = self.pixel_size.reshape(-1, 2)
+        if self.number_of_components not in (SCALAR, VECTOR):
+            raise ValueError(
+                f"number_of_components must be {SCALAR} for a scalar field or "
+                f"{VECTOR} for a field vector, got {self.number_of_components}."
+            )
         if pixel_size.shape[0] not in (1, wavelength.numel()):
             raise ValueError(
                 "pixel_size must have shape (2,), (1, 2) or (n_wavelengths, 2), got "
@@ -327,6 +414,28 @@ class FieldGeometry:
         )
 
 
+# Reductions that take a dim and can therefore remove a reserved axis.
+_REDUCTIONS = (
+    torch.ops.aten.sum.dim_IntList,
+    torch.ops.aten.mean.dim,
+    torch.ops.aten.amax.default,
+    torch.ops.aten.amin.default,
+    torch.ops.aten.prod.dim_int,
+)
+
+
+def _touches_reserved_axis(reduced: Any, ndim: int) -> bool:
+    """Whether a reduction over ``reduced`` removes the component or wavelength axis."""
+    if reduced is None:
+        # Reducing every axis at once.
+        return True
+    axes = (reduced,) if isinstance(reduced, int) else tuple(reduced)
+    if not axes:
+        return True
+    normalized = {axis if axis >= 0 else axis + ndim for axis in axes}
+    return bool(normalized & {ndim + COMPONENT_DIM, ndim + WAVELENGTH_DIM})
+
+
 def _same_pose(one: FieldGeometry, other: FieldGeometry) -> bool:
     """Whether two geometries sit in the same place, facing the same way."""
     for left, right in ((one.origin, other.origin), (one.rotation, other.rotation)):
@@ -375,7 +484,9 @@ class ComplexAmplitude(Tensor):
             inner = data
             requires_grad = inner.requires_grad
 
-        wavelength, pixel_size = cls._sanitize_inputs(inner, wavelength, pixel_size)
+        inner, wavelength, pixel_size = cls._sanitize_inputs(
+            inner, wavelength, pixel_size
+        )
 
         return Tensor._make_wrapper_subclass(
             cls,
@@ -412,7 +523,9 @@ class ComplexAmplitude(Tensor):
         elif not isinstance(data, Tensor):
             data = torch.as_tensor(data)
 
-        wavelength, pixel_size = self._sanitize_inputs(data, wavelength, pixel_size)
+        data, wavelength, pixel_size = self._sanitize_inputs(
+            data, wavelength, pixel_size
+        )
 
         # Optionally scale the field to an absolute power (watts) at construction.
         if power is not None:
@@ -420,7 +533,10 @@ class ComplexAmplitude(Tensor):
 
         self._data: Tensor = data
         self.geometry: FieldGeometry = FieldGeometry(
-            wavelength, pixel_size, data.shape[-2:]
+            wavelength,
+            pixel_size,
+            data.shape[-2:],
+            number_of_components=data.shape[COMPONENT_DIM],
         )
 
     @staticmethod
@@ -428,7 +544,8 @@ class ComplexAmplitude(Tensor):
         data: Tensor,
         wavelength: float | Tensor,
         pixel_size: tuple[float, float] | Tensor,
-    ) -> tuple[Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        """The data in the canonical layout, with the geometry metadata normalized."""
         geometry_dtype = _real_dtype(data.dtype)
         if isinstance(wavelength, float):
             wavelength = torch.tensor(
@@ -464,18 +581,7 @@ class ComplexAmplitude(Tensor):
         if pixel_size.shape[0] == 1 and wavelength.shape[0] > 1:
             pixel_size = pixel_size.expand(wavelength.shape[0], 2)
 
-        if data.ndim < 2:
-            raise ValueError("Data must have at least 2 dimensions (H, W).")
-        elif data.ndim == 2:
-            if wavelength.numel() > 1:
-                raise ValueError("If data is 2D, wavelength must be a single value.")
-        else:
-            if data.shape[-3] != wavelength.shape[-1]:
-                raise ValueError(
-                    "The third-last dimension of data must match the number "
-                    "of wavelengths: (..., wavelength, H, W)."
-                )
-        return wavelength, pixel_size
+        return _to_canonical_layout(data, wavelength.numel()), wavelength, pixel_size
 
     @classmethod
     def from_geometry(
@@ -489,10 +595,9 @@ class ComplexAmplitude(Tensor):
 
         Args:
             geometry: Target geometry (wavelength, pixel size, resolution).
-            data: Field values ``(..., H, W)``. If ``None``, a uniform
-                unit-amplitude field (ones) is created at the geometry's
-                resolution, with a leading wavelength axis when there is more
-                than one wavelength.
+            data: Field values ``(..., H, W)``, promoted to the canonical layout. If
+                ``None``, a uniform unit-amplitude field (ones) is created at the
+                geometry's resolution, carrying its component and wavelength count.
             dtype: Dtype of the default field when ``data`` is ``None``.
             power: If given, scale the field to this absolute power (watts).
 
@@ -501,14 +606,12 @@ class ComplexAmplitude(Tensor):
             pixel size.
         """
         if data is None:
-            number_of_wavelengths = geometry.number_of_wavelengths
-            shape = (
-                geometry.resolution
-                if number_of_wavelengths == 1
-                else (number_of_wavelengths, *geometry.resolution)
-            )
             data = torch.ones(
-                shape,
+                (
+                    geometry.number_of_components,
+                    geometry.number_of_wavelengths,
+                    *geometry.resolution,
+                ),
                 dtype=dtype,
                 device=geometry.wavelength.device,
             )
@@ -535,15 +638,19 @@ class ComplexAmplitude(Tensor):
         return self.geometry.resolution
 
     @property
-    def batch_shape(self) -> tuple[int, ...]:
-        """Leading batch dimensions preceding ``(wavelength, H, W)``.
-
-        Returns an empty tuple for 2D ``(H, W)`` and 3D ``(wavelength, H, W)``
-        fields, which carry no batch dimensions.
+    def number_of_components(self) -> int:
+        """How many field components this carries, one for a scalar field and three for
+        a field vector ``(E_x, E_y, E_z)``.
         """
-        if self.ndim <= 3:
-            return ()
-        return tuple(self.shape[:-3])
+        return self.geometry.number_of_components
+
+    @property
+    def batch_shape(self) -> tuple[int, ...]:
+        """Leading batch dimensions, before ``(component, wavelength, H, W)``.
+
+        An empty tuple for a single unbatched field.
+        """
+        return tuple(self.shape[:COMPONENT_DIM])
 
     @property
     def spatial_extent(self) -> Tensor:
@@ -581,28 +688,29 @@ class ComplexAmplitude(Tensor):
 
     @property
     def intensity(self) -> Tensor:
-        """Real-valued intensity ``|E|**2``, differentiable and on-graph.
+        """Real-valued intensity, differentiable and on-graph.
 
-        Computed as ``real**2 + imag**2`` to avoid the gradient singularity of
-        ``abs()`` at zero field.
+        The components are summed, so this is the irradiance ``sum_c |E_c|**2`` that a
+        detector responds to, shaped ``(*batch, n_wavelengths, H, W)``. Use
+        :attr:`amplitude` for the per-component magnitudes.
+
+        Computed as ``real**2 + imag**2`` to avoid the gradient singularity of ``abs()``
+        at zero field.
         """
         field = self.as_tensor()
-        return field.real**2 + field.imag**2
+        return (field.real**2 + field.imag**2).sum(dim=COMPONENT_DIM)
 
     @staticmethod
     def _integrate_power(intensity: Tensor, pixel_size: Tensor) -> Tensor:
-        """Integrate intensity over area -> optical power per
-        ``(*batch, wavelength)`` (a scalar for a 2D field).
+        """Integrate intensity over area, giving optical power per
+        ``(*batch, wavelength)``.
 
-        Reduces over ``(H, W)`` in float64 for precision (the per-pixel values
-        are fine in float32, but summing ~1e6 of them is not). ``pixel_size`` is
-        ``(n_wavelengths, 2)``.
+        ``intensity`` has already been summed over the components, so the power is that
+        of the whole field. Reduces over ``(H, W)`` in float64 for precision.
+        ``pixel_size`` is ``(n_wavelengths, 2)``.
         """
         area = pixel_area(pixel_size)
-        summed = intensity.to(torch.float64).sum(dim=(-2, -1))
-        if intensity.ndim == 2:
-            return summed * area.squeeze(0)
-        return summed * area
+        return intensity.to(torch.float64).sum(dim=(-2, -1)) * area
 
     @classmethod
     def _scale_to_power(
@@ -611,15 +719,15 @@ class ComplexAmplitude(Tensor):
         """Return ``data`` scaled so its integrated power equals ``power`` (W),
         preserving phase. The scale ratio is computed in float64.
         """
-        intensity = data.real**2 + data.imag**2
+        intensity = (data.real**2 + data.imag**2).sum(dim=COMPONENT_DIM)
         current_power = cls._integrate_power(intensity, pixel_size)
-        factor = _power_factor(current_power, power, data.ndim, data.device)
+        factor = _power_factor(current_power, power, data.device)
         return data * factor.to(corresponding_real_dtype(data.dtype))
 
     def power(self) -> Tensor:
         """Total optical power = integral of intensity over area
-        (``sum(|E|^2) * pixel_area``), returned per ``(*batch, wavelength)`` (a
-        scalar for a 2D field).
+        (``sum(|E|^2) * pixel_area``), returned per ``(*batch, wavelength)``. The
+        components are summed, so a field vector reports the power it carries in total.
 
         In SI this is watts when the field amplitude is in ``sqrt(W/m^2)`` and
         ``pixel_size`` in metres. The reduction is performed in float64.
@@ -638,9 +746,9 @@ class ComplexAmplitude(Tensor):
         """Return this field scaled so ``power() == power``, preserving phase and the
         autograd graph.
 
-        ``power`` is matched per ``(*batch, wavelength)``.
+        ``power`` is matched per ``(*batch, wavelength)``, summed over the components.
         """
-        factor = _power_factor(self.power(), power, self.ndim, self.device)
+        factor = _power_factor(self.power(), power, self.device)
         return self * factor.to(self.dtype_r)
 
     def numpy(self) -> NDArray[np.complex128]:
@@ -668,6 +776,7 @@ class ComplexAmplitude(Tensor):
     def __repr__(self) -> str:
         return (
             f"ComplexAmplitude(shape={tuple(self._data.shape)}, "
+            f"number_of_components={self.number_of_components}, "
             f"dtype={self._data.dtype}, "
             f"wavelength={self.wavelength}, "
             f"pixel_size={self.pixel_size})"
@@ -729,30 +838,44 @@ class ComplexAmplitude(Tensor):
         object.__setattr__(self, "geometry", new_geometry)
         return self
 
-    def flatten_batch(self) -> tuple[Tensor, BatchSpec]:
-        """Collapse all batch dimensions into a single leading axis.
+    def flatten_batch(self, fold_components: bool = True) -> tuple[Tensor, BatchSpec]:
+        """Collapse the leading axes into one, for a fixed-rank operation.
 
-        Returns the underlying tensor reshaped to canonical
-        ``(N, n_wavelengths, H, W)`` form together with a :class:`BatchSpec`
-        describing the original layout. This is the entry point for ND batch
-        support in fixed-rank ``OpticsModule`` implementations: flatten, run
-        the fixed-rank operation, then restore with :meth:`unflatten_batch`.
+        This is the entry point for ND batch support in an
+        :class:`~hologradpy.optics.modules.abstract.OpticsModule`: flatten, run the
+        fixed-rank operation, then restore with :meth:`unflatten_batch`.
+
+        By default, the component axis is folded into the leading axis along with the
+        batch, giving ``(N, n_wavelengths, H, W)`` with
+        ``N = prod(batch) * n_components``. A module that acts on each component
+        independently, which is every propagator and every scalar phase or amplitude
+        mask, therefore needs no knowledge of components at all.
+
+        Args:
+            fold_components: Fold the component axis into the leading axis. Pass
+                False to keep it, giving ``(N, n_components, n_wavelengths, H, W)``.
 
         Returns:
-            tuple[Tensor, BatchSpec]: The ``(N, n_wavelengths, H, W)`` tensor
-            (sharing storage with ``self._data``) and the spec needed to
-            restore rank.
+            tuple[Tensor, BatchSpec]: The flattened tensor, sharing storage with the
+            field wherever the layout allows, and the spec needed to restore the rank.
         """
         height, width = self.resolution
         n_wavelengths = self.number_of_wavelengths
+        spec = BatchSpec(
+            batch_shape=self.batch_shape,
+            number_of_components=self.number_of_components,
+            original_ndim=self.ndim,
+        )
         data = self.as_tensor()
 
-        if self.ndim == 2:
-            spec = BatchSpec(leading_shape=(), original_ndim=2)
-            return data.reshape(1, 1, height, width), spec
-
-        spec = BatchSpec(leading_shape=tuple(self.shape[:-3]), original_ndim=self.ndim)
-        return data.reshape(-1, n_wavelengths, height, width), spec
+        if fold_components:
+            return data.reshape(-1, n_wavelengths, height, width), spec
+        return (
+            data.reshape(
+                -1, self.number_of_components, n_wavelengths, height, width
+            ),
+            spec,
+        )
 
     @classmethod
     def from_tensor(
@@ -773,7 +896,9 @@ class ComplexAmplitude(Tensor):
         For a graph-free tensor this is exactly the constructor.
         """
         if isinstance(data, Tensor) and data.requires_grad:
-            wavelength, pixel_size = cls._sanitize_inputs(
+            # Sanitized for the metadata alone. The data itself is passed through as it
+            # came.
+            _, wavelength, pixel_size = cls._sanitize_inputs(
                 data, wavelength, pixel_size
             )
             return _TensorToWrapper.apply(data, wavelength, pixel_size)
@@ -786,35 +911,41 @@ class ComplexAmplitude(Tensor):
         spec: BatchSpec,
         wavelength: float | Tensor,
         pixel_size: tuple[float, float] | Tensor,
+        number_of_components: int | None = None,
     ) -> ComplexAmplitude:
-        """Restore a canonical ``(N, n_wavelengths, H, W)`` tensor to the rank
-        recorded in ``spec`` and wrap it as a :class:`ComplexAmplitude`.
+        """Restore a flattened tensor to the rank recorded in ``spec``.
 
-        Inverse of :meth:`flatten_batch`. The output spatial resolution is
-        taken from ``data`` so it may differ from the input (e.g. after a
-        resampling propagator), while batch and wavelength dimensions are
-        preserved.
+        Inverse of :meth:`flatten_batch`, and it accepts either of that method's two
+        layouts since both hold the same values in the same order. The output spatial
+        resolution is taken from ``data``, so it may differ from the input after a
+        resampling propagator, while the batch, component and wavelength axes are
+        restored as they were.
 
         Args:
-            data: Tensor shaped ``(N, n_wavelengths, H_out, W_out)``.
+            data: The flattened tensor, ``(N, n_wavelengths, H_out, W_out)`` or
+                ``(N, n_components, n_wavelengths, H_out, W_out)``.
             spec: Layout captured by :meth:`flatten_batch`.
             wavelength: Output wavelength(s).
             pixel_size: Output pixel size(s).
+            number_of_components: How many components the result carries, for a
+                module that changes their number. Defaults to what the spec
+                recorded.
 
         Returns:
             ComplexAmplitude: Field with the same rank as the original input.
         """
-        n_wavelengths = data.shape[1]
+        n_wavelengths = data.shape[WAVELENGTH_DIM]
         height_out, width_out = data.shape[-2:]
+        if number_of_components is None:
+            number_of_components = spec.number_of_components
 
-        if spec.original_ndim == 2:
-            out = data.reshape(height_out, width_out)
-        elif spec.original_ndim == 3:
-            out = data.reshape(n_wavelengths, height_out, width_out)
-        else:
-            out = data.reshape(
-                *spec.leading_shape, n_wavelengths, height_out, width_out
-            )
+        out = data.reshape(
+            *spec.batch_shape,
+            number_of_components,
+            n_wavelengths,
+            height_out,
+            width_out,
+        )
 
         # from_tensor, not the constructor: a resampling module reaches here with
         # an on-graph tensor, and the constructor would strand it on a leaf.
@@ -915,7 +1046,7 @@ class ComplexAmplitude(Tensor):
                 inner = inner.resolve_neg()
             return inner
 
-        # Special handling for slicing to update wavelength
+        # Slicing the wavelength axis carries the metadata with it.
         if func == torch.ops.aten.slice.Tensor:
             input_tensor, dim, start, end, step = _slice_arguments(args, kwargs)
 
@@ -923,8 +1054,12 @@ class ComplexAmplitude(Tensor):
 
             out = func(*tree_map(unwrap, args), **tree_map(unwrap, kwargs))
 
-            # Wavelength dimension
-            if dim == input_tensor.ndim - 3:
+            if dim == input_tensor.ndim + COMPONENT_DIM:
+                if out.shape[COMPONENT_DIM] not in (SCALAR, VECTOR):
+                    return out
+                new_wavelength = geometry.wavelength
+                new_pixel_size = geometry.pixel_size
+            elif dim == input_tensor.ndim + WAVELENGTH_DIM:
                 new_wavelength = geometry.wavelength[start:end:step]
                 new_pixel_size = geometry.pixel_size[start:end:step]
             else:
@@ -933,24 +1068,33 @@ class ComplexAmplitude(Tensor):
 
             return cls._wrap_like(out, geometry, new_wavelength, new_pixel_size)
         elif func == torch.ops.aten.select.int:
-            input_tensor, dim, index = args
+            input_tensor, dim, _ = args
 
             dim = dim if dim >= 0 else dim + input_tensor.ndim
 
             out = func(*tree_map(unwrap, args), **kwargs)
 
-            if dim == input_tensor.ndim - 3:
-                # Selecting a wavelength removes the axis the layout keys on, so the
-                # result is a field only in the bare 2-D single-wavelength form.
-                if out.ndim != 2:
-                    return out
-                new_wavelength = geometry.wavelength[index].unsqueeze(0)
-                new_pixel_size = geometry.pixel_size[index].unsqueeze(0)
-            else:
-                new_wavelength = geometry.wavelength
-                new_pixel_size = geometry.pixel_size
+            # Selecting along a reserved axis drops it, which leaves the layout, so the
+            # result is plain values. Use narrow (a slice) to keep the field.
+            if dim in (
+                input_tensor.ndim + COMPONENT_DIM,
+                input_tensor.ndim + WAVELENGTH_DIM,
+            ):
+                return out
 
-            return cls._wrap_like(out, geometry, new_wavelength, new_pixel_size)
+            return cls._wrap_like(out, geometry)
+        elif func in _REDUCTIONS:
+            input_tensor = args[0]
+            reduced = args[1] if len(args) > 1 else kwargs.get("dim")
+            keepdim = args[2] if len(args) > 2 else kwargs.get("keepdim", False)
+
+            out = func(*tree_map(unwrap, args), **tree_map(unwrap, kwargs))
+
+            # Reducing a reserved axis away leaves the layout behind, whatever the
+            # resulting shape happens to look like.
+            if not keepdim and _touches_reserved_axis(reduced, input_tensor.ndim):
+                return out
+            return cls._wrap_like(out, geometry) if isinstance(out, Tensor) else out
         elif func in (
             torch.ops.aten.to.device,
             torch.ops.aten._to_copy.default,
@@ -967,13 +1111,15 @@ class ComplexAmplitude(Tensor):
         n_wavelength = geometry.wavelength.shape[0]
 
         def should_wrap_tensor(x: Tensor) -> bool:
+            """Whether a result still has the layout of a field."""
             if isinstance(x, cls):
                 return False
-            if x.ndim < 2:
+            if x.ndim < 4:
                 return False
-            if x.ndim == 2:
-                return n_wavelength == 1
-            return x.shape[-3] == n_wavelength
+            return (
+                x.shape[WAVELENGTH_DIM] == n_wavelength
+                and x.shape[COMPONENT_DIM] in (SCALAR, VECTOR)
+            )
 
         def wrap_output(x: Any) -> Any:
             if isinstance(x, Tensor):

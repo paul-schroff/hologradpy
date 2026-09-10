@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import torch
@@ -11,7 +12,7 @@ from torch.nn import Parameter
 
 from .abstract import SLMField
 from ..abstract import capture_init
-from ...complex_amplitude import ComplexAmplitude
+from ...complex_amplitude import SCALAR, ComplexAmplitude
 
 if TYPE_CHECKING:
     from ....calibration.wavefront.abstract import WavefrontCalibrationData
@@ -38,7 +39,8 @@ class PixelwiseSLMField(SLMField):
     def lazy_init(self: PixelwiseSLMField, complex_amplitude: ComplexAmplitude) -> None:
         if self.init_field is None:
             self.init_field = ComplexAmplitude.from_geometry(
-                complex_amplitude.geometry, dtype=complex_amplitude.dtype
+                replace(complex_amplitude.geometry, number_of_components=SCALAR),
+                dtype=complex_amplitude.dtype,
             )
 
         wavefront = self._stored_wavefront(self.init_field).to(
@@ -47,7 +49,9 @@ class PixelwiseSLMField(SLMField):
         self.phase = Parameter(
             torch.angle(wavefront).detach().clone(), requires_grad=False
         )
-        self.amplitude = Parameter(wavefront.abs().detach().clone(), requires_grad=False)
+        self.amplitude = Parameter(
+            wavefront.abs().detach().clone(), requires_grad=False
+        )
 
     @staticmethod
     def _stored_wavefront(

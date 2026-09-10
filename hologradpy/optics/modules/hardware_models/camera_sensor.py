@@ -65,7 +65,7 @@ class CameraSensor(OpticsModule):
         return self.add_noise and self.noise_level != 0.0
 
     def forward(self, complex_amplitude: ComplexAmplitude) -> Tensor:
-        intensity = complex_amplitude.intensity  # |E|^2, real, on-graph
+        intensity = complex_amplitude.intensity
 
         area = pixel_area(complex_amplitude.pixel_size)  # (n_wl,)
         photon_energy = (
@@ -77,11 +77,8 @@ class CameraSensor(OpticsModule):
         # sensor. Back to the field's precision, since a frame is compared against
         # camera counts.
         photon_factor = (area / photon_energy).to(intensity.dtype)  # (n_wl,)
-
-        if intensity.ndim == 2:
-            photons = intensity * photon_factor[0]
-        else:
-            photons = (intensity * photon_factor.reshape(-1, 1, 1)).sum(dim=-3)
+        
+        photons = (intensity * photon_factor.reshape(-1, 1, 1)).sum(dim=-3)
 
         # The ND filter attenuates the signal (not the read noise).
         photons = (

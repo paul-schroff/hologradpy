@@ -28,7 +28,9 @@ from hologradpy.optics.complex_amplitude import ComplexAmplitude
 from hologradpy.phase_levels import LinearResponse
 from hologradpy.roi import ROI
 from hologradpy.serialization import (
+    NAMESPACE,
     RECORD_TYPES,
+    ComplexAmplitudeConverter,
     SaveableRecord,
     record_type,
     registered_as,
@@ -401,3 +403,84 @@ def test_a_mapping_leaves_its_frames_behind(tmp_path) -> None:
     assert lean.stat().st_size < 0.1 * full.stat().st_size
     # lean() must not consume the mapping it was called on.
     assert mapping.visualization_data is not None
+
+
+# --- the field layout, across the version that changed it ---------------------------
+
+
+def test_a_field_written_before_the_component_axis_still_loads() -> None:
+    """Version 1 wrote ``(*batch, wavelength, H, W)``. Read under the current layout,
+    the batch is taken for the components, so the axis is inserted on the way in.
+    """
+    node = {
+        "data": np.zeros((3, 2, 4, 4), dtype=np.complex64),
+        "wavelength": np.array([800e-9, 900e-9]),
+        "pixel_size": np.array([[1e-5, 1e-5], [1e-5, 1e-5]]),
+    }
+
+    field = ComplexAmplitudeConverter().from_yaml_tree(
+        node, f"{NAMESPACE}/tags/complex_amplitude-1.0.0", None
+    )
+
+    assert field.batch_shape == (3,)
+    assert field.number_of_components == 1
+    assert field.number_of_wavelengths == 2
+
+
+def test_a_plane_written_before_the_component_axis_still_loads() -> None:
+    """The unbatched forms were unambiguous, so they promote as any array does."""
+    node = {
+        "data": np.zeros((4, 4), dtype=np.complex64),
+        "wavelength": np.array([800e-9]),
+        "pixel_size": np.array([[1e-5, 1e-5]]),
+    }
+
+    field = ComplexAmplitudeConverter().from_yaml_tree(
+        node, f"{NAMESPACE}/tags/complex_amplitude-1.0.0", None
+    )
+
+    assert field.shape == (1, 1, 4, 4)
+
+
+def test_a_posed_field_keeps_its_plane(tmp_path) -> None:
+    """A cross section is a field on a tilted plane, and losing the pose turns it back
+    into a transverse one.
+    """
+    section = ComplexAmplitude(
+        torch.zeros(1, 1, 4, 4, dtype=torch.complex64),
+        wavelength=torch.tensor(800e-9),
+        pixel_size=torch.tensor([1e-5, 1e-5]),
+    ).with_geometry(
+        origin=torch.tensor([0.0, 0.0, 2e-3]),
+        rotation=torch.eye(3),
+    )
+    record = _shapes()
+    record.field_ = section
+
+    path = tmp_path / "posed.asdf"
+    record.save(path)
+    reloaded = Shapes.load(path)
+
+    assert reloaded.field_.geometry.origin is not None
+    torch.testing.assert_close(
+        reloaded.field_.geometry.origin, section.geometry.origin
+    )
+    torch.testing.assert_close(
+        reloaded.field_.geometry.rotation, section.geometry.rotation
+    )
+
+
+def test_a_field_vector_survives(tmp_path) -> None:
+    record = _shapes()
+    record.field_ = ComplexAmplitude(
+        torch.ones(3, 1, 4, 4, dtype=torch.complex64),
+        wavelength=torch.tensor(800e-9),
+        pixel_size=torch.tensor([1e-5, 1e-5]),
+    )
+
+    path = tmp_path / "vector.asdf"
+    record.save(path)
+    reloaded = Shapes.load(path)
+
+    assert reloaded.field_.number_of_components == 3
+    assert reloaded.field_.shape == (3, 1, 4, 4)

@@ -1,9 +1,13 @@
 """Shared fixtures and registries for the OpticsModule test suite.
 
-The canonical field layout is ``(*batch, wavelength, H, W)``: the wavelength
-axis is always at ``dim=-3`` and every dimension before it is batch. The ND
-contract suite exercises each concrete :class:`OpticsModule` across a range of
-batch ranks using the registries defined here.
+The canonical field layout is ``(*batch, component, wavelength, H, W)``. The component
+axis is always at ``dim=-4`` and holds one value for a scalar field or three for a field
+vector. The wavelength axis is always at ``dim=-3``, and everything before them is
+batch. A plane ``(H, W)`` and a stack ``(n_wavelengths, H, W)`` are promoted at
+construction, so every field has rank four or more.
+
+The ND contract suite exercises each concrete :class:`OpticsModule` across a range of
+ranks and component counts using the registries defined here.
 """
 
 from __future__ import annotations
@@ -103,16 +107,27 @@ MODULE_FACTORIES: dict[str, callable] = {
 }
 
 
-# label -> (full data shape, number_of_wavelengths). Covers: bare 2D, 3D with a
-# wavelength axis, 4D batch, the singleton-wavelength batch that the old NUFFT
-# squeeze() silently mangled, and a multi-axis 5D batch.
+# label -> (data shape as constructed, number_of_wavelengths). Covers both promoted
+# forms, a scalar and a vector field with no batch, a batched scalar, the
+# singleton-wavelength batch that the old NUFFT squeeze() silently mangled, a batched
+# vector, and a multi-axis batch.
 RANK_CASES: dict[str, tuple[tuple[int, ...], int]] = {
     "2d": ((16, 16), 1),
     "3d": ((2, 16, 16), 2),
-    "4d": ((3, 2, 16, 16), 2),
-    "4d_single_wl": ((4, 1, 16, 16), 1),
-    "5d": ((2, 3, 2, 16, 16), 2),
+    "4d_scalar": ((1, 2, 16, 16), 2),
+    "4d_vector": ((3, 2, 16, 16), 2),
+    "5d": ((3, 1, 2, 16, 16), 2),
+    "5d_single_wl": ((4, 1, 1, 16, 16), 1),
+    "5d_vector": ((2, 3, 2, 16, 16), 2),
+    "6d": ((2, 3, 1, 2, 16, 16), 2),
 }
+
+# The cases that carry a batch axis, so that a per-element comparison has something to
+# iterate. The others describe a single field.
+BATCHED_IDS: list[str] = ["5d", "5d_single_wl", "5d_vector", "6d"]
+
+# The cases carrying a field vector, for the checks that components stay independent.
+VECTOR_IDS: list[str] = ["4d_vector", "5d_vector"]
 
 
 def make_wavelength(number_of_wavelengths: int) -> torch.Tensor:

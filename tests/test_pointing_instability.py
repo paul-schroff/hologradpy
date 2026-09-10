@@ -38,7 +38,7 @@ def test_tilt_is_zero_mean_gaussian():
 def test_preserves_type_and_geometry():
     out = PointingInstability(1e-3, seed=1)(_spot())
     assert isinstance(out, ComplexAmplitude)
-    assert out.shape == (8, 8)
+    assert out.shape == (1, 1, 8, 8)
     assert torch.allclose(out.pixel_size, GEOMETRY.pixel_size.reshape(1, 2))
 
 

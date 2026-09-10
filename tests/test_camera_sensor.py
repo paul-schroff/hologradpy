@@ -227,3 +227,25 @@ def test_autoexpose_never_accepts_a_saturated_frame() -> None:
     image = np.asarray(camera.get_image(), dtype=float)
     assert exposure < 1.0                                  # it actually reduced
     assert image.max() < camera.adu_levels - 1             # and is no longer clipped
+
+
+def test_a_field_vector_reads_as_the_sum_of_its_components() -> None:
+    """A sensor measures irradiance, so the three components of a field vector land in
+    one frame and add. Nothing about the frame says the field was a vector.
+    """
+    generator = torch.Generator().manual_seed(3)
+    data = (0.1 * torch.rand(3, 1, 6, 6, generator=generator)).to(torch.complex64)
+    sensor = CameraSensor(0.4, 1e6, 1e-3, add_noise=False, quantize=False)
+
+    together = sensor(ComplexAmplitude(data, torch.tensor(WAVELENGTH), PIXEL))
+    apart = sum(
+        sensor(
+            ComplexAmplitude(
+                data[component : component + 1], torch.tensor(WAVELENGTH), PIXEL
+            )
+        )
+        for component in range(3)
+    )
+
+    assert together.shape == (6, 6)
+    torch.testing.assert_close(together, apart, rtol=1e-4, atol=1e-4)

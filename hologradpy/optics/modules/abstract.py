@@ -260,11 +260,10 @@ class OpticsModule(RecordingMixin, nn.Module):
         if self.initialized:
             return
 
-        number_of_wavelengths = geometry.number_of_wavelengths
         shape = (
-            geometry.resolution
-            if number_of_wavelengths == 1
-            else (number_of_wavelengths, *geometry.resolution)
+            geometry.number_of_components,
+            geometry.number_of_wavelengths,
+            *geometry.resolution,
         )
         # Probe carries only geometry/dtype/device into lazy_init, which never
         # reads field values, so the (uninitialized) contents are unused.

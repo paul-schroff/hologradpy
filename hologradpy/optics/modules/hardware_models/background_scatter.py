@@ -62,6 +62,12 @@ class BackgroundScatter(OpticsModule):
     def forward(
         self: BackgroundScatter, complex_amplitude: ComplexAmplitude
     ) -> ComplexAmplitude:
+        if complex_amplitude.number_of_components != 1:
+            raise NotImplementedError(
+                "BackgroundScatter adds an unpolarized background, and how its power "
+                "divides between the components of a field vector is a modelling "
+                "choice this module does not make. Apply it to a scalar field."
+            )
         field = complex_amplitude.as_tensor()
         intensity = field.real**2 + field.imag**2 + self.background
         out = ComplexAmplitude(

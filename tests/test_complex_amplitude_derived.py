@@ -32,7 +32,11 @@ def test_returns_plain_real_tensor(name: str) -> None:
     # Exactly a torch.Tensor, not the ComplexAmplitude subclass.
     assert type(value) is torch.Tensor
     assert not value.is_complex()
-    assert value.shape == field.shape
+    if name == "intensity":
+        # The components are summed, so that axis is gone.
+        assert value.shape == (*field.batch_shape, field.number_of_wavelengths, 16, 16)
+    else:
+        assert value.shape == field.shape
 
 
 def test_values_match_reference() -> None:
@@ -40,8 +44,26 @@ def test_values_match_reference() -> None:
     raw = field._data
 
     torch.testing.assert_close(field.amplitude, raw.abs())
-    torch.testing.assert_close(field.intensity, raw.abs() ** 2)
+    torch.testing.assert_close(field.intensity, (raw.abs() ** 2).sum(dim=-4))
     torch.testing.assert_close(field.phase, torch.angle(raw))
+
+
+def test_intensity_sums_the_components() -> None:
+    """A detector responds to the total irradiance, so the components add."""
+    field = make_field((3, 2, 16, 16), 2)
+
+    parts = [field[component : component + 1].intensity for component in range(3)]
+
+    torch.testing.assert_close(field.intensity, parts[0] + parts[1] + parts[2])
+
+
+def test_power_adds_the_components() -> None:
+    field = make_field((3, 2, 16, 16), 2)
+
+    parts = sum(field[component : component + 1].power() for component in range(3))
+
+    assert field.power().shape == (2,)
+    torch.testing.assert_close(field.power(), parts)
 
 
 def test_gradient_flows_when_data_carries_graph() -> None:
@@ -127,6 +149,6 @@ def test_gradient_matches_plain_torch_through_complex_multiply() -> None:
 def test_numpy_is_detached_copy() -> None:
     field = make_field((16, 16), 1)
     array = field.numpy()
-    assert array.shape == (16, 16)
+    assert array.shape == (1, 1, 16, 16)
     # numpy() must not require a grad-enabled tensor.
     assert not isinstance(array, torch.Tensor)

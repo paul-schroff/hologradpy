@@ -108,7 +108,7 @@ def test_the_zoom_is_real(zoom) -> None:
             pixel_size_out=(pitch_out, pitch_out),
             resolution_out=RESOLUTION,
         )(field)
-        row = (_plain(out).abs() ** 2)[RESOLUTION[0] // 2]
+        row = (_plain(out).abs() ** 2)[..., RESOLUTION[0] // 2, :]
         return float((row > 0.5 * row.max()).sum())
 
     assert lobe_width(PITCH / zoom) == pytest.approx(

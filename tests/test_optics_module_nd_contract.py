@@ -27,7 +27,13 @@ from hologradpy.optics.complex_amplitude import (
     FieldGeometry,
 )
 
-from .registry import MODULE_FACTORIES, RANK_CASES, make_field
+from .registry import (
+    BATCHED_IDS,
+    MODULE_FACTORIES,
+    RANK_CASES,
+    VECTOR_IDS,
+    make_field,
+)
 
 
 # Lazy-init copy-constructs parameters from tensors, which torch warns about;
@@ -64,6 +70,8 @@ def test_rank_preserved(module_name: str, rank: str) -> None:
     assert output.ndim == field.ndim
     # Leading batch dimensions are passed through unchanged.
     assert output.batch_shape == field.batch_shape
+    # So is the number of field components.
+    assert output.number_of_components == field.number_of_components
 
 
 @pytest.mark.parametrize("module_name", MODULE_IDS)
@@ -81,7 +89,7 @@ def test_output_geometry(module_name: str, rank: str) -> None:
 
 
 @pytest.mark.parametrize("module_name", MODULE_IDS)
-@pytest.mark.parametrize("rank", ["4d", "5d"])
+@pytest.mark.parametrize("rank", BATCHED_IDS)
 def test_batch_independence(module_name: str, rank: str) -> None:
     """Each element of a batched forward equals that element processed alone.
 
@@ -97,13 +105,38 @@ def test_batch_independence(module_name: str, rank: str) -> None:
 
     # Iterate the leading batch axis only; the remaining batch dims (if any)
     # stay attached to each element.
-    for index in range(shape[0]):
+    for index in range(field.batch_shape[0]):
         element = field[index]
         single_output = MODULE_FACTORIES[module_name]()(element)
 
         torch.testing.assert_close(
             batched_output._data[index],
             single_output._data,
+            rtol=1e-4,
+            atol=1e-4,
+        )
+
+
+@pytest.mark.parametrize("module_name", MODULE_IDS)
+@pytest.mark.parametrize("rank", VECTOR_IDS)
+def test_components_are_independent(module_name: str, rank: str) -> None:
+    """Every registered module acts on each field component on its own.
+
+    None of them mixes components, so a field vector through one module must equal three
+    scalar fields through it. The component axis can therefore be folded into the batch.
+    """
+    shape, n_wavelengths = RANK_CASES[rank]
+    field = make_field(shape, n_wavelengths)
+
+    together = MODULE_FACTORIES[module_name]()(field)
+
+    for component in range(field.number_of_components):
+        alone = MODULE_FACTORIES[module_name]()(
+            field[..., component : component + 1, :, :, :]
+        )
+        torch.testing.assert_close(
+            together._data[..., component : component + 1, :, :, :],
+            alone._data,
             rtol=1e-4,
             atol=1e-4,
         )
@@ -131,7 +164,7 @@ def test_forward_is_repeatable(module_name: str) -> None:
     yields the same result as the first.
     """
     module = MODULE_FACTORIES[module_name]()
-    field = make_field(*RANK_CASES["4d"])
+    field = make_field(*RANK_CASES["5d"])
 
     first = module(field)
     second = module(field)
@@ -141,17 +174,17 @@ def test_forward_is_repeatable(module_name: str) -> None:
 
 def test_nufft_singleton_wavelength_batch_not_squeezed() -> None:
     """Explicit regression test for the historical NUFFT ``squeeze`` bug:
-    a ``(B, 1, H, W)`` batch must not collapse to ``(B, H, W)`` and then be
-    misread as ``B`` wavelengths.
+    a ``(B, 1, 1, H, W)`` batch must not collapse and then be misread as ``B``
+    wavelengths.
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        field = make_field(*RANK_CASES["4d_single_wl"])
+        field = make_field(*RANK_CASES["5d_single_wl"])
         output = MODULE_FACTORIES["FourierLensNUFFT"]()(field)
 
-    assert output.ndim == 4
+    assert output.ndim == 5
     assert output.shape[0] == field.shape[0]
-    assert output.shape[1] == 1
+    assert output.shape[2] == 1
     assert output.number_of_wavelengths == 1
 
 

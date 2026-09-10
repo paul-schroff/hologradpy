@@ -11,7 +11,6 @@ import torch.nn as nn
 
 from ....grids import get_spatial_grid
 from ....phase_levels import PhaseResponse, PhaseResponseModule, LinearResponse
-from ....utils import unsqueeze_to
 from ..abstract import OpticsModule
 from ..pixel_crosstalk import PixelCrosstalk
 from ...complex_amplitude import ComplexAmplitude, FieldGeometry
@@ -301,12 +300,16 @@ class VirtualSLM(OpticsModule):
         return self.pixel_crosstalk(phase)
 
     def align_phase(self, phase: torch.Tensor, field_ndim: int) -> torch.Tensor:
-        """Give the phase the rank the field expects, so it broadcasts."""
+        """Give the phase the rank the field expects, so it broadcasts.
+
+        A single pattern ``(H, W)`` already aligns with the spatial axes of a field. A
+        batch of patterns ``(N, H, W)`` needs the two reserved axes inserted after the
+        batch, giving ``(N, 1, 1, H, W)``, so that each pattern meets its own field and
+        applies to every component and wavelength of it.
+        """
         if phase.ndim >= 3:
-            # A batch of patterns (N, H, W). Insert the wavelength axis to get
-            # (N, 1, H, W).
-            return phase.unsqueeze(-3)
-        return unsqueeze_to(phase, field_ndim)
+            return phase[..., None, None, :, :]
+        return phase
 
     def forward(
         self: VirtualSLM, complex_amplitude: ComplexAmplitude

@@ -129,5 +129,5 @@ def test_from_slm_constructs() -> None:
         _FakeSLM(), number_of_radial_orders=ZERNIKE_RADIAL_ORDERS
     )
     output = module(_field((16, 16), 1))
-    assert output.shape == (16, 16)
+    assert output.shape == (1, 1, 16, 16)
     assert module.phase_scaling == _FakeSLM.phase_scaling

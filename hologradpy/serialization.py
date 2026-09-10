@@ -43,7 +43,7 @@ import numpy as np
 import torch
 from asdf.extension import Converter, Extension, SerializationContext
 
-from .optics.complex_amplitude import ComplexAmplitude
+from .optics.complex_amplitude import COMPONENT_DIM, ComplexAmplitude
 from .phase_levels import LinearResponse, LookupResponse
 
 NAMESPACE = "asdf://hologradpy.org"
@@ -189,27 +189,62 @@ class TensorConverter(Converter):
 
 
 class ComplexAmplitudeConverter(Converter):
-    tags: list[str] = [f"{NAMESPACE}/tags/complex_amplitude-1.0.0"]
+    """Fields on disk.
+
+    A version 1 file holds ``(*batch, wavelength, H, W)`` data with no component axis
+    and no pose.
+    """
+
+    tags: list[str] = [
+        f"{NAMESPACE}/tags/complex_amplitude-2.0.0",
+        f"{NAMESPACE}/tags/complex_amplitude-1.0.0",
+    ]
     types: list[type] = [ComplexAmplitude]
+
+    def select_tag(
+        self, obj: ComplexAmplitude, tags: list[str], ctx: SerializationContext
+    ) -> str:
+        return self.tags[0]
 
     def to_yaml_tree(
         self, obj: ComplexAmplitude, tag: str, ctx: SerializationContext
     ) -> dict:
         # Power is not stored: it is the integral of the intensity, so the data carries
         # it already.
-        return {
+        geometry = obj.geometry
+        tree = {
             "data": obj.as_tensor().detach().cpu().numpy(),
             "wavelength": obj.wavelength.detach().cpu().numpy(),
             "pixel_size": obj.pixel_size.detach().cpu().numpy(),
         }
+        if geometry.origin is not None:
+            tree["origin"] = geometry.origin.detach().cpu().numpy()
+        if geometry.rotation is not None:
+            tree["rotation"] = geometry.rotation.detach().cpu().numpy()
+        return tree
 
     def from_yaml_tree(
         self, node: dict, tag: str, ctx: SerializationContext
     ) -> ComplexAmplitude:
-        return ComplexAmplitude(
-            torch.from_numpy(np.asarray(node["data"])),
-            wavelength=torch.from_numpy(np.asarray(node["wavelength"])),
+        data = torch.from_numpy(np.asarray(node["data"]))
+        wavelength = torch.from_numpy(np.asarray(node["wavelength"]))
+        if tag.endswith("-1.0.0") and data.ndim > 3:
+            # A version 1 file has no component axis, so every leading axis is batch.
+            data = data.unsqueeze(COMPONENT_DIM)
+        field = ComplexAmplitude(
+            data,
+            wavelength=wavelength,
             pixel_size=torch.from_numpy(np.asarray(node["pixel_size"])),
+        )
+        origin = node.get("origin")
+        rotation = node.get("rotation")
+        if origin is None and rotation is None:
+            return field
+        return field.with_geometry(
+            origin=None if origin is None else torch.from_numpy(np.asarray(origin)),
+            rotation=(
+                None if rotation is None else torch.from_numpy(np.asarray(rotation))
+            ),
         )
 
 

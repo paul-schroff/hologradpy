@@ -19,6 +19,7 @@ import pytest
 import torch
 
 from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch
+from hologradpy.utils import as_image
 from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
     FieldGeometry,
@@ -365,7 +366,7 @@ def test_a_real_camera_falls_back_to_the_recovered_beam(tmp_path, monkeypatch) -
     result = _calibrate(tmp_path)
     data = result.visualization_data
 
-    intensity = np.abs(result.complex_amplitude.as_tensor().numpy()) ** 2
+    intensity = np.abs(as_image(result.complex_amplitude).numpy()) ** 2
     intensity /= intensity.max()
     expected = intensity > result.metadata["beam_mask_threshold"]
 
@@ -871,7 +872,7 @@ def test_speckle_calibrator_recovers_injected_wavefront(tmp_path) -> None:
         verbose=False,
     )
 
-    recovered = result.complex_amplitude.as_tensor().detach().cpu().numpy()
+    recovered = as_image(result.complex_amplitude).detach().cpu().numpy()
     intensity = np.abs(recovered) ** 2
     mask = intensity > 0.1 * intensity.max()
 

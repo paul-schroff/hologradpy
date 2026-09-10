@@ -21,7 +21,7 @@ from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.systems import SLMCZT, SLMFFT
 from hologradpy.profiles.phase import linear_phase
-from hologradpy.utils import gpu_to_numpy
+from hologradpy.utils import as_image, gpu_to_numpy
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -79,7 +79,7 @@ def _fft_pixel(fft_model) -> float:
 
 
 def _assert_peak_at_target(model, pixel_size: float) -> None:
-    image = gpu_to_numpy(model().intensity)
+    image = gpu_to_numpy(as_image(model().intensity))
     row, column = np.unravel_index(int(np.argmax(image)), image.shape)
     x = (column - image.shape[1] // 2) * pixel_size
     y = (row - image.shape[0] // 2) * pixel_size

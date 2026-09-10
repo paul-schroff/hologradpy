@@ -68,3 +68,17 @@ def test_background_scatter_preserves_geometry_and_phase():
     # Phase is preserved where the field is non-zero.
     signal = field.amplitude > 0
     assert torch.allclose(out.phase[signal], field.phase[signal], atol=1e-5)
+
+
+def test_a_field_vector_is_refused() -> None:
+    """How the power of an unpolarized background divides between the components is a
+    modelling choice, so the module says it does not make one.
+    """
+    vector = ComplexAmplitude(
+        torch.ones(3, 1, 24, 32, dtype=torch.complex64, device=DEVICE),
+        wavelength=WAVELENGTH,
+        pixel_size=(PITCH, PITCH),
+    )
+
+    with pytest.raises(NotImplementedError, match="scalar field"):
+        BackgroundScatter(power=1e-6, seed=0)(vector)

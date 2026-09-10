@@ -44,7 +44,7 @@ def test_scales_power_by_factor():
 def test_preserves_type_and_geometry():
     out = PowerInstability(0.1, seed=1)(_uniform_field())
     assert isinstance(out, ComplexAmplitude)
-    assert out.shape == (8, 8)
+    assert out.shape == (1, 1, 8, 8)
     assert torch.allclose(out.pixel_size, GEOMETRY.pixel_size.reshape(1, 2))
 
 

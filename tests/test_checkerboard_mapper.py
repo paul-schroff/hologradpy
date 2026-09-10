@@ -111,7 +111,8 @@ def _build_setup(
     )
     background_power = None
     if background_power_ratio > 0.0:
-        pixel_area = float(slm_geometry.pixel_size[0, 0] * slm_geometry.pixel_size[0, 1])
+        pitch = slm_geometry.pixel_size[0]
+        pixel_area = float(pitch[0] * pitch[1])
         total_beam_power = float(gaussian_intensity.sum()) * pixel_area
         background_power = background_power_ratio * total_beam_power
     camera = SimulatedCameraTorch(

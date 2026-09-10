@@ -35,9 +35,9 @@ def test_power_shape_per_batch_and_wavelength() -> None:
     wavelengths = torch.tensor([0.6e-6, 0.7e-6, 0.8e-6])
     pixel_size = torch.tensor([[10e-6, 10e-6]] * 3)
     field = ComplexAmplitude(
-        torch.ones(2, 3, 4, 5, dtype=torch.complex64), wavelengths, pixel_size
+        torch.ones(2, 1, 3, 4, 5, dtype=torch.complex64), wavelengths, pixel_size
     )
-    # One value per (*batch, wavelength).
+    # One value per (*batch, wavelength), the components summed into it.
     assert tuple(field.power().shape) == (2, 3)
 
 

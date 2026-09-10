@@ -89,7 +89,11 @@ class OpticalSystem(nn.Module):
             geometry = self.input_geometry
             self._init_field_cache = ComplexAmplitude(
                 data=torch.ones(
-                    geometry.resolution,
+                    (
+                        geometry.number_of_components,
+                        geometry.number_of_wavelengths,
+                        *geometry.resolution,
+                    ),
                     dtype=torch.complex64,
                     device=self.device,
                 ),
