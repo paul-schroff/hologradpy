@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import torch
 import torch.nn as nn
+from jaxtyping import Complex, Float
 
 from .vector_fields import forward_difference
 
@@ -15,6 +16,9 @@ if TYPE_CHECKING:
 
 
 INTENSITY_MSE_SCALE = 1e12
+
+# A field at the image plane, complex or, for an amplitude-only field, real.
+ImagePlaneField = Complex[torch.Tensor, "... H W"] | Float[torch.Tensor, "... H W"]
 
 
 def smallest_divisor(tensor: torch.Tensor) -> float:
@@ -35,11 +39,11 @@ def normalize_single_to_unit_sum(image: torch.Tensor) -> torch.Tensor:
 
 
 def masked_intensity_mse(
-    field: torch.Tensor,
-    target_intensity: torch.Tensor,
+    field: ImagePlaneField,
+    target_intensity: Float[torch.Tensor, "... H W"],
     mask: torch.Tensor,
     region_pixel_count: float,
-) -> torch.Tensor:
+) -> Float[torch.Tensor, ""]:
     """Squared error between a predicted and a measured intensity over a region.
 
     Both are masked and normalized to unit sum first, so the comparison is of intensity
@@ -55,7 +59,7 @@ def masked_intensity_mse(
         torch.Tensor: The mismatch, averaged over the batch.
     """
     number_of_targets = target_intensity.shape[-3]
-    intensity = field.abs() ** 2 * mask
+    intensity = field_intensity(field) * mask
 
     target_intensity = target_intensity * mask
     return (
@@ -84,13 +88,17 @@ class LossFunction:
     scale: float = 1.0
 
     def __call__(
-        self, field: torch.Tensor | None = None, target: torch.Tensor | None = None
-    ) -> torch.Tensor:
+        self,
+        field: ImagePlaneField | None = None,
+        target: torch.Tensor | None = None,
+    ) -> Float[torch.Tensor, ""]:
         return self.scale * self.evaluate(field, target)
 
     def evaluate(
-        self, field: torch.Tensor | None = None, target: torch.Tensor | None = None
-    ) -> torch.Tensor:
+        self,
+        field: ImagePlaneField | None = None,
+        target: torch.Tensor | None = None,
+    ) -> Float[torch.Tensor, ""]:
         """The unweighted cost, which ``__call__`` scales. Implemented by every term."""
         raise NotImplementedError(
             f"evaluate has not been implemented for {type(self).__name__}."
@@ -139,8 +147,10 @@ class SumOfLosses(LossFunction):
         return {label: self.scale * value for label, value in parts.items()}
 
     def evaluate(
-        self, field: torch.Tensor | None = None, target: torch.Tensor | None = None
-    ) -> torch.Tensor:
+        self,
+        field: ImagePlaneField | None = None,
+        target: torch.Tensor | None = None,
+    ) -> Float[torch.Tensor, ""]:
         return reduce(operator.add, self._term_components(field, target).values())
 
     def __add__(self, other: LossFunction) -> SumOfLosses:
@@ -180,8 +190,10 @@ class MaskedIntensityMSE(LossFunction):
         self.scale: float = scale
 
     def evaluate(
-        self, field: torch.Tensor | None = None, target: torch.Tensor | None = None
-    ) -> torch.Tensor:
+        self,
+        field: ImagePlaneField | None = None,
+        target: torch.Tensor | None = None,
+    ) -> Float[torch.Tensor, ""]:
         return masked_intensity_mse(
             field, target, self.mask, self.region_pixel_count
         )
@@ -211,8 +223,10 @@ class PhaseSmoothness(LossFunction):
         self.scale: float = scale
 
     def evaluate(
-        self, field: torch.Tensor | None = None, target: torch.Tensor | None = None
-    ) -> torch.Tensor:
+        self,
+        field: ImagePlaneField | None = None,
+        target: torch.Tensor | None = None,
+    ) -> Float[torch.Tensor, ""]:
         return gradient_loss(self.slm_field.phase)
 
 
@@ -236,8 +250,10 @@ class AmplitudeSmoothness(LossFunction):
         self.scale: float = scale
 
     def evaluate(
-        self, field: torch.Tensor | None = None, target: torch.Tensor | None = None
-    ) -> torch.Tensor:
+        self,
+        field: ImagePlaneField | None = None,
+        target: torch.Tensor | None = None,
+    ) -> Float[torch.Tensor, ""]:
         # Scale-free, so the weight means the same thing at any beam brightness.
         unit_amplitude = self.slm_field.amplitude.abs()
         mean_amplitude = unit_amplitude.mean()
@@ -282,7 +298,6 @@ class LossIntensityMSE(LossFunction):
             signal_mask: Binary mask containing signal region.
             scale: Weight of this term, by default 1e12.
         """
-        self.mse = nn.MSELoss(reduction="sum")
         self.signal_mask = signal_mask
         self.scale: float = scale
 
@@ -291,8 +306,10 @@ class LossIntensityMSE(LossFunction):
         )
 
     def evaluate(
-        self, field: torch.Tensor | None = None, target: torch.Tensor | None = None
-    ) -> torch.Tensor:
+        self,
+        field: ImagePlaneField | None = None,
+        target: torch.Tensor | None = None,
+    ) -> Float[torch.Tensor, ""]:
         """Calculate the loss based on the complex amplitude at the image plane.
 
         Args:
@@ -302,9 +319,9 @@ class LossIntensityMSE(LossFunction):
         Returns:
             torch.Tensor: Cost.
         """
-        intensity_out = field.abs() ** 2 * self.signal_mask
+        intensity_out = field_intensity(field) * self.signal_mask
         intensity_out = normalize_single_to_unit_sum(intensity_out)
-        return self.mse(intensity_out, self.target_intensity)
+        return ((intensity_out - self.target_intensity) ** 2).sum()
 
 
 class LossFidelity(LossFunction):
@@ -339,8 +356,10 @@ class LossFidelity(LossFunction):
         self.target_phase = target_phase * signal_mask
 
     def evaluate(
-        self, field: torch.Tensor | None = None, target: torch.Tensor | None = None
-    ) -> torch.Tensor:
+        self,
+        field: ImagePlaneField | None = None,
+        target: torch.Tensor | None = None,
+    ) -> Float[torch.Tensor, ""]:
         """Calculate the loss based on the electric field.
 
         Args:
@@ -400,8 +419,10 @@ class LossAbsoluteFidelity(LossFunction):
         )
 
     def evaluate(
-        self, field: torch.Tensor | None = None, target: torch.Tensor | None = None
-    ) -> torch.Tensor:
+        self,
+        field: ImagePlaneField | None = None,
+        target: torch.Tensor | None = None,
+    ) -> Float[torch.Tensor, ""]:
         """Calculate the loss based on the electric field.
 
         Args:
@@ -440,8 +461,10 @@ class LossEfficiency(LossFunction):
         self.scale: float = scale
 
     def evaluate(
-        self, field: torch.Tensor | None = None, target: torch.Tensor | None = None
-    ) -> torch.Tensor:
+        self,
+        field: ImagePlaneField | None = None,
+        target: torch.Tensor | None = None,
+    ) -> Float[torch.Tensor, ""]:
         """Calculate the loss based on the electric field.
 
         Args:
@@ -451,7 +474,7 @@ class LossEfficiency(LossFunction):
         Returns:
             torch.Tensor: Cost.
         """
-        intensity = torch.abs(field) ** 2
+        intensity = field_intensity(field)
         efficiency = (intensity * self.signal_mask).sum() / self.total_power
         return (1 - efficiency)
 
@@ -466,19 +489,22 @@ class LossVorticity(LossFunction):
         self.target_intensity = target_intensity
 
     def evaluate(
-        self, field: torch.Tensor | None = None, target: torch.Tensor | None = None
-    ) -> torch.Tensor:
-        intensity = field.abs() ** 2 + 1e-12
-        _, grad_x = torch.gradient(field.conj())
-        grad_y, _ = torch.gradient(field)
-        vorticity = 1 / (2 * torch.pi) * (grad_x * grad_y).imag / intensity
+        self,
+        field: ImagePlaneField | None = None,
+        target: torch.Tensor | None = None,
+    ) -> Float[torch.Tensor, ""]:
+        field = field.as_tensor() if hasattr(field, "as_tensor") else field
+        intensity = field_intensity(field) + 1e-12
+        _, gradient_x = torch.gradient(field.conj(), dim=(-2, -1))
+        gradient_y, _ = torch.gradient(field, dim=(-2, -1))
+        vorticity = 1 / (2 * torch.pi) * (gradient_x * gradient_y).imag / intensity
         vorticity = vorticity * self.target_intensity
         return (vorticity**2).sum()
 
 
 
 
-def field_intensity(field: torch.Tensor) -> torch.Tensor:
+def field_intensity(field: ImagePlaneField) -> Float[torch.Tensor, "... H W"]:
     """``|E|**2``, taken from the field's own intensity when it has one.
 
     A :class:`~hologradpy.optics.complex_amplitude.ComplexAmplitude` computes it as
@@ -519,7 +545,6 @@ class LossAbsoluteIntensityMSE(LossFunction):
                 carries the same magnitude as :class:`LossIntensityMSE` at the point
                 where the produced power matches the target's.
         """
-        self.mse = nn.MSELoss(reduction="sum")
         self.signal_mask = signal_mask
         self.target_intensity = target_intensity * signal_mask
 
@@ -531,8 +556,10 @@ class LossAbsoluteIntensityMSE(LossFunction):
         )
 
     def evaluate(
-        self, field: torch.Tensor | None = None, target: torch.Tensor | None = None
-    ) -> torch.Tensor:
+        self,
+        field: ImagePlaneField | None = None,
+        target: torch.Tensor | None = None,
+    ) -> Float[torch.Tensor, ""]:
         """Calculate the loss based on the electric field.
 
         Args:
@@ -543,4 +570,4 @@ class LossAbsoluteIntensityMSE(LossFunction):
             torch.Tensor: Cost.
         """
         intensity_out = field_intensity(field) * self.signal_mask
-        return self.mse(intensity_out, self.target_intensity)
+        return ((intensity_out - self.target_intensity) ** 2).sum()

@@ -34,6 +34,7 @@ from hologradpy.calibration.camera_mapping import (
 from hologradpy.calibration.wavefront.raster_calibration import (
     SuperpixelSlicer,
 )
+from hologradpy.utils import as_image
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -401,13 +402,13 @@ def test_calibration_returns_a_complex_amplitude_its_consumers_accept():
     )
 
     assert isinstance(record.complex_amplitude, ComplexAmplitude)
-    assert tuple(record.complex_amplitude.shape) == tuple(slm.resolution)
+    assert record.complex_amplitude.resolution == tuple(slm.resolution)
     assert torch.isfinite(record.complex_amplitude.as_tensor()).all()
 
     # The two paths that a bare array broke.
     field_module = PixelwiseSLMField.from_calibration_data(record)
     assert field_module.init_field is record.complex_amplitude
-    assert record.complex_amplitude.as_tensor().shape == tuple(slm.resolution)
+    assert as_image(record.complex_amplitude).shape == tuple(slm.resolution)
 
 
 def test_a_supplied_model_must_match_the_calibrator_focal_length() -> None:

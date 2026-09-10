@@ -31,6 +31,7 @@ from hologradpy.optics.modules.propagators.angular_spectrum_method import (
     QUANTILE_BUCKETS,
     _phase_step_quantile,
 )
+from hologradpy.utils import as_image
 
 pytest.importorskip("pytorch_finufft")
 
@@ -130,10 +131,10 @@ def test_every_row_of_a_section_is_what_propagating_to_that_plane_gives() -> Non
 
     middle = field.resolution[0] // 2
     for index, distance in enumerate(distances):
-        plane = AngularSpectrumMethod(
-            float(distance), padded_resolution=PADDED
-        )(field).as_tensor()[middle]
-        error = (sampled.as_tensor()[index] - plane).abs().max() / plane.abs().max()
+        plane = as_image(
+            AngularSpectrumMethod(float(distance), padded_resolution=PADDED)(field)
+        )[middle]
+        error = (as_image(sampled)[index] - plane).abs().max() / plane.abs().max()
         assert float(error) < 1e-5
 
 
@@ -152,8 +153,8 @@ def test_the_two_routes_agree_where_both_are_valid() -> None:
     direct = RayleighSommerfeld(0.0, convolution=False).propagate_to(field, section)
 
     middle = slice(48, 80)
-    a = spectrum.as_tensor()[:, middle]
-    b = direct.as_tensor()[:, middle]
+    a = as_image(spectrum)[:, middle]
+    b = as_image(direct)[:, middle]
     assert float((a - b).abs().max() / b.abs().max()) < 0.06
 
 
@@ -170,7 +171,7 @@ def test_a_zoomed_section_lands_where_it_says_it_does() -> None:
     )
     direct = RayleighSommerfeld(0.0, convolution=False).propagate_to(field, section)
 
-    assert tuple(spectrum.shape) == (5, 64)
+    assert spectrum.resolution == (5, 64)
     a, b = spectrum.as_tensor(), direct.as_tensor()
     assert float((a - b).abs().max() / b.abs().max()) < 0.06
 

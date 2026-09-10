@@ -15,6 +15,7 @@ from numpy.typing import NDArray
 from ... import phase_levels
 from ...grids import get_spatial_grid as _spatial_grid
 from ...serialization import SaveableRecord, record_type
+from ...utils import as_image
 
 if TYPE_CHECKING:
     # Imported for type annotations only.
@@ -280,7 +281,7 @@ def _phase_of(source: WavefrontSource) -> NDArray:
     """Extracts the per-pixel phase in radians inside ``source``."""
     phase = getattr(source, "complex_amplitude", source)
     if hasattr(phase, "as_tensor"):
-        phase = phase.as_tensor()
+        phase = as_image(phase)
     if torch.is_tensor(phase):
         phase = phase.detach().cpu()
         if phase.is_complex():

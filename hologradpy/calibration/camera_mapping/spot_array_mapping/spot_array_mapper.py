@@ -15,7 +15,7 @@ from ....optics.systems import SLMFourierLensModel
 from ....grids import get_spatial_grid, metres_to_pixel, pixel_to_metres, plane_center
 from ....fourier_optics import get_focal_spot_radius
 from ....analysis.fitting import fit_gaussian_beam_intensity
-from ....utils import gpu_to_numpy
+from ....utils import as_image, gpu_to_numpy
 from ....roi import ROI
 from ....holography.phase_retrieval import LinearSuperpositionPhaseRetriever
 
@@ -257,7 +257,7 @@ class SpotArrayMapper(CameraMapper):
 
         # Simulated image (for the record / visualizer).
         self.slm_camera_model.virtual_slm.set_phase(slm_phase)
-        simulated_image = gpu_to_numpy(self.slm_camera_model().intensity)
+        simulated_image = gpu_to_numpy(as_image(self.slm_camera_model().intensity))
 
         # Display the array and expose for it.
         self.slm.set_phase(gpu_to_numpy(slm_phase))

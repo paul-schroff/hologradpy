@@ -37,6 +37,22 @@ def _real_dtype(dtype: torch.dtype) -> torch.dtype:
     return torch.get_default_dtype()
 
 
+def _slice_arguments(
+    args: tuple, kwargs: dict
+) -> tuple[Tensor, int, int | None, int | None, int]:
+    """The five arguments of ``aten.slice.Tensor`` with the defaults filled in.
+
+    The schema is ``slice.Tensor(self, dim=0, start=None, end=None, step=1)`` and a
+    caller such as ``torch.gradient`` passes only the first three.
+    """
+    names = ("self", "dim", "start", "end", "step")
+    defaults = (None, 0, None, None, 1)
+    values = list(args)
+    for name, default in zip(names[len(args) :], defaults[len(args) :]):
+        values.append(kwargs.get(name, default))
+    return tuple(values)
+
+
 def broadcast_wavelength_operand(operand: Tensor, field_ndim: int) -> Tensor:
     """Align a per-wavelength operand to a field of the given rank.
 
@@ -141,11 +157,35 @@ def _power_factor(
 
 @dataclass(frozen=True)
 class FieldGeometry:
-    wavelength: Float[Tensor, " n_wavelengths"]
-    pixel_size: Float[Tensor, "n_wavelengths 2"]
+    """The sampling of a field: its wavelengths, pixel pitch, resolution and pose.
+
+    ``wavelength`` is stored as ``(n_wavelengths,)`` and ``pixel_size`` as
+    ``(n_wavelengths, 2)`` in ``(height, width)`` order.
+    """
+
+    wavelength: Float[Tensor, ""] | Float[Tensor, " n_wavelengths"]
+    pixel_size: (
+        Float[Tensor, " 2"] | Float[Tensor, "1 2"] | Float[Tensor, "n_wavelengths 2"]
+    )
     resolution: tuple[int, int]
     origin: Float[Tensor, " 3"] | None = None
     rotation: Float[Tensor, "3 3"] | None = None
+
+    def __post_init__(self) -> None:
+        wavelength = self.wavelength.reshape(-1)
+        pixel_size = self.pixel_size.reshape(-1, 2)
+        if pixel_size.shape[0] not in (1, wavelength.numel()):
+            raise ValueError(
+                "pixel_size must have shape (2,), (1, 2) or (n_wavelengths, 2), got "
+                f"{tuple(self.pixel_size.shape)} for {wavelength.numel()} wavelengths."
+            )
+        if pixel_size.shape[0] == 1 and wavelength.numel() > 1:
+            pixel_size = pixel_size.expand(wavelength.numel(), 2)
+        object.__setattr__(self, "wavelength", wavelength)
+        object.__setattr__(self, "pixel_size", pixel_size)
+        object.__setattr__(
+            self, "resolution", tuple(int(length) for length in self.resolution)
+        )
 
     @property
     def number_of_wavelengths(self) -> int:
@@ -677,10 +717,10 @@ class ComplexAmplitude(Tensor):
         elif isinstance(pixel_size, Tensor) and pixel_size.ndim == 1:
             pixel_size = pixel_size.unsqueeze(0)
 
-        new_geometry = FieldGeometry(
-            wavelength,
-            pixel_size,
-            self.geometry.resolution,
+        new_geometry = replace(
+            self.geometry,
+            wavelength=wavelength,
+            pixel_size=pixel_size,
             origin=self.geometry.origin if origin is None else origin,
             rotation=self.geometry.rotation if rotation is None else rotation,
         )
@@ -877,16 +917,11 @@ class ComplexAmplitude(Tensor):
 
         # Special handling for slicing to update wavelength
         if func == torch.ops.aten.slice.Tensor:
-            # Handling when step is not provided (defaults to None)
-            if len(args) < 5:
-                input_tensor, dim, start, end = args
-                step = None
-            else:
-                input_tensor, dim, start, end, step = args
+            input_tensor, dim, start, end, step = _slice_arguments(args, kwargs)
 
             dim = dim if dim >= 0 else dim + input_tensor.ndim
 
-            out = func(*tree_map(unwrap, args), **kwargs)
+            out = func(*tree_map(unwrap, args), **tree_map(unwrap, kwargs))
 
             # Wavelength dimension
             if dim == input_tensor.ndim - 3:
@@ -905,6 +940,10 @@ class ComplexAmplitude(Tensor):
             out = func(*tree_map(unwrap, args), **kwargs)
 
             if dim == input_tensor.ndim - 3:
+                # Selecting a wavelength removes the axis the layout keys on, so the
+                # result is a field only in the bare 2-D single-wavelength form.
+                if out.ndim != 2:
+                    return out
                 new_wavelength = geometry.wavelength[index].unsqueeze(0)
                 new_pixel_size = geometry.pixel_size[index].unsqueeze(0)
             else:

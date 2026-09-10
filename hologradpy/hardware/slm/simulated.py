@@ -29,7 +29,7 @@ class SimulatedSLMTorch(SLM):
         wav_design_um: float | None = None,
         settle_time_s: float = 0.3,
     ) -> None:
-        if input_geometry.wavelength.ndim != 0:
+        if input_geometry.number_of_wavelengths != 1:
             raise ValueError("Only single-wavelength is supported.")
 
         self.input_geometry = input_geometry
@@ -39,6 +39,7 @@ class SimulatedSLMTorch(SLM):
         )
         self._pixel_size = (
             torch.as_tensor(input_geometry.pixel_size)
+            .reshape(2)
             .detach()
             .cpu()
             .numpy()

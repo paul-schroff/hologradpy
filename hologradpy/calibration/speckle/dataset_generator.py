@@ -26,7 +26,7 @@ from ...profiles.phase import band_limited_random_phase
 from ...roi import ROI
 from ...fourier_optics import fourier_lens_pixel_size
 from ...grids import get_pixel_grid, get_spatial_grid, pixel_to_metres
-from ...utils import progress
+from ...utils import as_image, progress
 
 
 class DatasetGenerator:
@@ -179,7 +179,7 @@ class DatasetGenerator:
             benchmark_phase = np.zeros(self.slm.resolution)
         else:
             benchmark_phase = np.angle(
-                self.benchmark_calibration.complex_amplitude.as_tensor()
+                as_image(self.benchmark_calibration.complex_amplitude)
                 .detach()
                 .cpu()
                 .numpy()

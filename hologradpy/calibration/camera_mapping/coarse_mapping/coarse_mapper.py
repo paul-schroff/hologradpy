@@ -18,7 +18,7 @@ from ....grids import get_spatial_grid, metres_to_pixel, pixel_to_metres, plane_
 from ....fourier_optics import get_focal_spot_radius
 from ....holography.phase_retrieval import LinearSuperpositionPhaseRetriever
 from ....analysis.fitting import fit_gaussian_beam_intensity
-from ....utils import gpu_to_numpy
+from ....utils import as_image, gpu_to_numpy
 from ....roi import ROI
 
 from ...spot_detection import (
@@ -546,7 +546,7 @@ class CoarseMapper(CameraMapper):
                     focal_length=focal_length,
                 )
                 self.slm_camera_model.virtual_slm.set_phase(phase)
-                simulated = gpu_to_numpy(self.slm_camera_model().intensity)
+                simulated = gpu_to_numpy(as_image(self.slm_camera_model().intensity))
                 centroid = self._peak_centroid(simulated)
                 simulated_points.append(
                     (

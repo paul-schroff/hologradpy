@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import replace
 
 import torch
+from jaxtyping import Complex
 from scipy.fft import next_fast_len
 from torch import Tensor
 
 from ..abstract import OpticsModule, capture_init
-from ...complex_amplitude import ComplexAmplitude, FieldGeometry
+from ...complex_amplitude import BatchSpec, ComplexAmplitude, FieldGeometry
 
 DEFAULT_BLOCK = 2**22
 
@@ -136,16 +137,17 @@ class RayleighSommerfeld(OpticsModule):
 
     def _by_convolution(
         self, complex_amplitude: ComplexAmplitude, conjugate: bool
-    ) -> Tensor:
+    ) -> tuple[Complex[Tensor, "N n_wavelengths H_out W_out"], BatchSpec]:
         """The same sum, evaluated as a convolution.
 
         Args:
             complex_amplitude: The field to propagate.
-            conjugate: Correlate with the conjugate kernel instead, which is the
-                conjugate transpose of the forward convolution.
+            conjugate: Correlate with the conjugate kernel, which is the conjugate
+                transpose of the forward convolution.
 
         Returns:
-            Tensor: The propagated field.
+            tuple[Tensor, BatchSpec]: The propagated fields, ``(N, n_wavelengths,
+            H_out, W_out)``, and the spec that restores the input rank.
         """
         resolution_in = tuple(complex_amplitude.resolution)
         resolution_out = tuple(self.resolution_out)
@@ -170,18 +172,8 @@ class RayleighSommerfeld(OpticsModule):
         distance = self._distance(device)
         separation = torch.sqrt(grid_x**2 + grid_y**2 + distance**2)
 
-        field = complex_amplitude.as_tensor()
-        original = field.shape
-        points = original[-2] * original[-1]
-        if field.ndim == 2:
-            flat = field.reshape(1, 1, points)
-        elif field.ndim == 3:
-            flat = field.reshape(1, original[0], points)
-        else:
-            flat = field.reshape(-1, original[-3], points)
-        flat = flat.to(torch.complex128).reshape(
-            flat.shape[0], flat.shape[1], *original[-2:]
-        )
+        flat, spec = complex_amplitude.flatten_batch()  # (N, n_wavelengths, H, W)
+        flat = flat.to(torch.complex128)
 
         wavenumber = complex_amplitude.wavenumber.reshape(-1).to(torch.float64)
         top = resolution_in[0] - 1
@@ -213,14 +205,14 @@ class RayleighSommerfeld(OpticsModule):
             )
 
         stacked = torch.stack(outputs, dim=1)
-        return stacked.reshape(*original[:-2], *resolution_out).to(field.dtype)
+        return stacked.to(complex_amplitude.dtype), spec
 
     def _apply(
         self,
         complex_amplitude: ComplexAmplitude,
         conjugate: bool,
         geometry: FieldGeometry | None = None,
-    ) -> Tensor:
+    ) -> tuple[Complex[Tensor, "N n_wavelengths H_out W_out"], BatchSpec]:
         """Sum the integral, in blocks of output points.
 
         Args:
@@ -230,7 +222,9 @@ class RayleighSommerfeld(OpticsModule):
             geometry: Where to sample the result. Defaults to the output plane.
 
         Returns:
-            Tensor: The propagated field, shaped like the input but on the output grid.
+            tuple[Tensor, BatchSpec]: The propagated fields on the output grid,
+            ``(N, n_wavelengths, H_out, W_out)``, and the spec that restores the input
+            rank.
         """
         source, target = self._sample_points(complex_amplitude, geometry)
         if conjugate:
@@ -240,18 +234,12 @@ class RayleighSommerfeld(OpticsModule):
         area = pixel_in[0] * pixel_in[1]
         wavenumber = complex_amplitude.wavenumber.reshape(-1).to(torch.float64)
 
-        field = complex_amplitude.as_tensor()
-        original = field.shape
-        # A field may arrive as (H, W), (wavelengths, H, W) or with batches in front.
-        # Normalizing to (batch, wavelengths, points) keeps one product below.
-        points = original[-2] * original[-1]
-        if field.ndim == 2:
-            flat = field.reshape(1, 1, points)
-        elif field.ndim == 3:
-            flat = field.reshape(1, original[0], points)
-        else:
-            flat = field.reshape(-1, original[-3], points)
-        flat = flat.to(torch.complex128)
+        flat, spec = complex_amplitude.flatten_batch()  # (N, n_wavelengths, H, W)
+        number_of_fields, number_of_wavelengths = flat.shape[:2]
+        
+        flat = flat.reshape(number_of_fields, number_of_wavelengths, -1).to(
+            torch.complex128
+        )
 
         rows_out = len(target)
         # As many output points as keep one block within the budget.
@@ -283,7 +271,8 @@ class RayleighSommerfeld(OpticsModule):
             shape = tuple(geometry.resolution)
         else:
             shape = tuple(self.resolution_out)
-        return propagated.reshape(*original[:-2], *shape).to(field.dtype)
+        propagated = propagated.reshape(number_of_fields, number_of_wavelengths, *shape)
+        return propagated.to(complex_amplitude.dtype), spec
 
     def propagate_to(
         self, complex_amplitude: ComplexAmplitude, geometry: FieldGeometry
@@ -299,27 +288,27 @@ class RayleighSommerfeld(OpticsModule):
         """
         if not self.initialized:
             self._lazy_initialize(complex_amplitude)
-        out = self._apply(complex_amplitude, conjugate=False, geometry=geometry)
-        return ComplexAmplitude.from_tensor(
-            out, wavelength=complex_amplitude.wavelength, pixel_size=geometry.pixel_size
+        out, spec = self._apply(complex_amplitude, conjugate=False, geometry=geometry)
+        return ComplexAmplitude.unflatten_batch(
+            out, spec, complex_amplitude.wavelength, geometry.pixel_size
         ).with_geometry(origin=geometry.origin, rotation=geometry.rotation)
 
     def forward(self, complex_amplitude: ComplexAmplitude) -> ComplexAmplitude:
         """Propagate the field forward by ``propagation_distance``."""
         if self.convolution and self._shares_a_grid(complex_amplitude):
-            out = self._by_convolution(complex_amplitude, conjugate=False)
+            out, spec = self._by_convolution(complex_amplitude, conjugate=False)
         else:
-            out = self._apply(complex_amplitude, conjugate=False)
-        return ComplexAmplitude(
-            out, wavelength=complex_amplitude.wavelength, pixel_size=self.pixel_size_out
+            out, spec = self._apply(complex_amplitude, conjugate=False)
+        return ComplexAmplitude.unflatten_batch(
+            out, spec, complex_amplitude.wavelength, self.pixel_size_out
         )
 
     def adjoint(self, complex_amplitude: ComplexAmplitude) -> ComplexAmplitude:
         """The conjugate transpose of :meth:`forward`."""
         if self.convolution and self._shares_a_grid(complex_amplitude):
-            out = self._by_convolution(complex_amplitude, conjugate=True)
+            out, spec = self._by_convolution(complex_amplitude, conjugate=True)
         else:
-            out = self._apply(complex_amplitude, conjugate=True)
-        return ComplexAmplitude(
-            out, wavelength=complex_amplitude.wavelength, pixel_size=self.pixel_size_in
+            out, spec = self._apply(complex_amplitude, conjugate=True)
+        return ComplexAmplitude.unflatten_batch(
+            out, spec, complex_amplitude.wavelength, self.pixel_size_in
         )

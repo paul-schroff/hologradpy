@@ -11,7 +11,7 @@ from ...analysis.error_metrics import IntensityMetric, evaluate_metrics
 from ...datasets import RetrievalStepStore
 from ...optics.complex_amplitude import ComplexAmplitude
 from ...optics.systems import SLMFourierLensModel
-from ...utils import ProgressBar, gpu_to_numpy
+from ...utils import ProgressBar, as_image, gpu_to_numpy
 
 # The model the steps were taken from. Always stored with them, so the simulated
 # output can be reconstructed.
@@ -141,7 +141,7 @@ class RetrievalRun:
                 self._metrics,
                 self._signal_region,
                 self._target,
-                field.intensity.detach(),
+                as_image(field.intensity).detach(),
                 history=self.metric_history,
             )
 

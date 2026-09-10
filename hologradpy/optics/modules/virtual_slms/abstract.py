@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -115,12 +116,10 @@ class VirtualSLM(OpticsModule):
         """
         factor = self.upscale_factor
         if factor > 1:
-            geometry = FieldGeometry(
-                wavelength=geometry.wavelength,
+            geometry = replace(
+                geometry,
                 pixel_size=geometry.pixel_size / factor,
-                resolution=tuple(
-                    length * factor for length in geometry.resolution
-                ),
+                resolution=tuple(length * factor for length in geometry.resolution),
             )
         self.initialize_from_geometry(geometry)
 

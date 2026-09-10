@@ -1,14 +1,19 @@
-"""The progress helpers in :mod:`hologradpy.utils`.
+"""The helpers in :mod:`hologradpy.utils`.
 
-Both exist so a long loop can show a bar without the loop having to know whether one is
-wanted, so what matters is that turning the bar off changes nothing except the output.
+The two progress helpers exist so a long loop can show a bar without the loop having to
+know whether one is wanted, so what matters is that turning the bar off changes nothing
+except the output. ``as_image`` is the one way the package turns a field into a 2-D
+image, so it has to refuse to drop anything but a singleton axis.
 """
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
+import torch
 
-from hologradpy.utils import ProgressBar, progress
+from hologradpy.optics.complex_amplitude import ComplexAmplitude
+from hologradpy.utils import ProgressBar, as_image, progress
 
 
 def test_progress_yields_every_element_either_way() -> None:
@@ -82,3 +87,28 @@ def test_bars_are_left_for_tqdm_to_suppress() -> None:
     """
     with ProgressBar(total=2, verbose=True) as bar:
         assert bar._bar.disable is not None
+
+
+def test_as_image_drops_singleton_leading_axes() -> None:
+    image = torch.arange(6.0).reshape(1, 1, 2, 3)
+    assert as_image(image).shape == (2, 3)
+    assert as_image(image).data_ptr() == image.data_ptr()
+    assert as_image(np.zeros((1, 2, 3))).shape == (2, 3)
+    assert as_image(torch.zeros(2, 3)).shape == (2, 3)
+
+
+def test_as_image_refuses_to_drop_data() -> None:
+    with pytest.raises(ValueError, match="length one"):
+        as_image(torch.zeros(2, 4, 4))
+    # The suite's runtime shape checks refuse a 1-D input before the function does.
+    with pytest.raises((ValueError, TypeError)):
+        as_image(torch.zeros(4))
+
+
+def test_as_image_reads_a_field_as_a_plain_tensor() -> None:
+    field = ComplexAmplitude(
+        torch.ones(4, 4, dtype=torch.complex64), 800e-9, (1e-5, 1e-5)
+    )
+    image = as_image(field)
+    assert type(image) is torch.Tensor
+    assert image.shape == (4, 4)

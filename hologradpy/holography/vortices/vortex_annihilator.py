@@ -7,6 +7,7 @@ from .vortex_detection import VortexDetector
 from .visualizer import VortexAnnihilationData
 
 from ..phase_retrieval.abstract import GradientPhaseRetriever
+from ...utils import as_image
 
 
 class VortexAnnihilator:
@@ -36,8 +37,8 @@ class VortexAnnihilator:
         complex_amplitude = self.phase_retriever.slm_camera_model()
         positions, charges = self._charged_vortices()
         return (
-            complex_amplitude.intensity.detach().cpu().numpy(),
-            complex_amplitude.phase.detach().cpu().numpy(),
+            as_image(complex_amplitude.intensity).detach().cpu().numpy(),
+            as_image(complex_amplitude.phase).detach().cpu().numpy(),
             positions,
             charges,
         )
@@ -110,11 +111,11 @@ class VortexAnnihilator:
 
                 corrected_field = complex_amplitude * anti_vortex_field
 
-                corrected_slm_phase = (
+                corrected_slm_phase = as_image(
                     self.phase_retriever.slm_camera_model.fourier_lens.adjoint(
                         corrected_field
-                    )
-                ).phase
+                    ).phase
+                )
 
                 self.phase_retriever.slm_camera_model.virtual_slm.set_phase(
                     corrected_slm_phase

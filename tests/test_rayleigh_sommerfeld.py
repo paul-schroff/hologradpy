@@ -17,6 +17,7 @@ from hologradpy.optics.modules.propagators import (
     AngularSpectrumMethod,
     RayleighSommerfeld,
 )
+from hologradpy.utils import as_image
 
 WAVELENGTH = 633e-9
 APERTURE = 100e-6
@@ -80,8 +81,8 @@ def test_it_agrees_with_the_angular_spectrum_where_both_are_valid() -> None:
     """Two independent routes to the same field, which is the point of a benchmark."""
     field = _aperture(2e-6, 128)
 
-    direct = torch.as_tensor(RayleighSommerfeld(DISTANCE)(field))
-    spectrum = torch.as_tensor(
+    direct = as_image(RayleighSommerfeld(DISTANCE)(field))
+    spectrum = as_image(
         AngularSpectrumMethod(DISTANCE, padded_resolution=(512, 512))(field)
     )
 

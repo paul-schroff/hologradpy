@@ -16,7 +16,7 @@ from ....profiles.amplitude import checkerboard
 from ..coarse_mapping.coarse_mapper import CoarseMapper
 
 from ....optics.systems import SLMFFT
-from ....utils import gpu_to_numpy
+from ....utils import as_image, gpu_to_numpy
 from ....profiles.phase import analytic_phase_guess
 from ....profiles.masks import rectangular_mask
 from ....grids import get_spatial_grid, pixel_to_metres, plane_center
@@ -213,7 +213,9 @@ class CheckerboardMapper(CameraMapper):
 
             slm_phase = phase_retriever.retrieve_phase(number_of_cg_iterations)
 
-        simulated_camera_image = gpu_to_numpy(self.slm_camera_model().intensity)
+        simulated_camera_image = gpu_to_numpy(
+            as_image(self.slm_camera_model().intensity)
+        )
 
         self.slm.set_phase(gpu_to_numpy(slm_phase))
         if exposure_time is not None:

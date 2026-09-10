@@ -21,6 +21,7 @@ from hologradpy.analysis.unwrapping import wrap
 from hologradpy.profiles.masks import rectangular_mask
 from hologradpy.roi import ROI
 from hologradpy.utils import (
+    as_image,
     get_device,
     gpu_to_numpy,
 )
@@ -129,7 +130,7 @@ slm_camera_model.virtual_slm.set_phase(init_slm_phase)
 # Initial simulated output
 # ------------------------
 init_electric_field = slm_camera_model()
-init_intensity = init_electric_field.intensity
+init_intensity = as_image(init_electric_field.intensity)
 
 slm_power = slm_camera_model.slm_field.amplitude**2
 image_power = init_intensity.sum()

@@ -8,6 +8,7 @@ from typing import Iterable, TypeVar
 import numpy as np
 import torch
 from array_api_compat import is_torch_array
+from jaxtyping import Shaped
 from numpy.typing import NDArray
 
 if importlib.util.find_spec("ipywidgets") is not None:
@@ -94,6 +95,41 @@ def gpu_to_numpy(array: ArrayLike) -> NDArray:
     if not is_torch_array(array):
         return np.asarray(array)
     return array.clone().cpu().detach().numpy()
+
+
+def as_image(
+    array: Shaped[torch.Tensor, "... H W"] | Shaped[np.ndarray, "... H W"],
+) -> Shaped[torch.Tensor, "H W"] | Shaped[np.ndarray, "H W"]:
+    """The ``(height, width)`` image inside an array whose other axes are singleton.
+
+    A :class:`~hologradpy.optics.complex_amplitude.ComplexAmplitude` is read as a plain
+    tensor, so the result is a tensor or a numpy array in either case.
+
+    Args:
+        array: A tensor or numpy array shaped ``(*leading, height, width)`` with every
+            leading axis of length one.
+
+    Returns:
+        The same values reshaped to ``(height, width)``, sharing memory with ``array``
+        where the layout allows it.
+
+    Raises:
+        ValueError: If a leading axis is longer than one, since dropping it discards a
+            batch element, a wavelength or a field component.
+    """
+    if hasattr(array, "as_tensor"):
+        array = array.as_tensor()
+    if array.ndim < 2:
+        raise ValueError(
+            f"as_image needs at least two axes, got shape {tuple(array.shape)}."
+        )
+    height, width = array.shape[-2:]
+    if any(length != 1 for length in array.shape[:-2]):
+        raise ValueError(
+            "as_image needs every leading axis to have length one, got shape "
+            f"{tuple(array.shape)}. Index the batch, wavelength or component first."
+        )
+    return array.reshape(height, width)
 
 
 def unsqueeze_to(input: torch.Tensor, max_dim: int, dim: int = 0) -> torch.Tensor:

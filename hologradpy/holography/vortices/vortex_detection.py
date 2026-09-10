@@ -9,7 +9,7 @@ from scipy.ndimage import label
 
 from ...optics.complex_amplitude import ComplexAmplitude
 from ...grids import get_spatial_grid
-from ...utils import gpu_to_numpy
+from ...utils import as_image, gpu_to_numpy
 
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 
@@ -129,8 +129,9 @@ def find_zero_crossing_intersections(
         ArrayLike: Boolean array marking the zero crossing intersections
             that pass the intensity threshold.
     """
-    zero_crossings_real = find_zero_crossings(complex_amplitude.real)
-    zero_crossings_imag = find_zero_crossings(complex_amplitude.imag)
+    field = as_image(complex_amplitude)
+    zero_crossings_real = find_zero_crossings(field.real)
+    zero_crossings_imag = find_zero_crossings(field.imag)
     zero_crossings = zero_crossings_real & zero_crossings_imag
     return zero_crossings * (target_intensity > threshold)
 
@@ -210,16 +211,17 @@ def find_vortex_charge(
     charges = torch.zeros(
         len(center_indices), dtype=torch.int, device=complex_amplitude.device
     )
+    field = as_image(complex_amplitude)
 
     for i in range(len(center_indices)):
         center_index = center_indices[i]
 
-        roi: ComplexAmplitude = complex_amplitude[
+        roi = field[
             center_index[0] - pad : center_index[0] + pad + 1,
             center_index[1] - pad : center_index[1] + pad + 1,
         ]
 
-        roi_phase = roi.phase
+        roi_phase = torch.angle(roi)
 
         phase_square_path = torch.cat(
             (

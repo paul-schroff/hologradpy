@@ -8,7 +8,19 @@ line beneath it.
 
 from __future__ import annotations
 
+import os
+
 import matplotlib
+from jaxtyping import install_import_hook
+
+import tests.array_shape_checks  # noqa: F401  The hook imports the checker by name.
+
+# Every function and dataclass in the package checks its jaxtyping array annotations
+# while the suite runs. The hook transforms modules as they load, so it is installed
+# before the first hologradpy import. Set HOLOGRADPY_SHAPE_CHECKS=0 to run without it,
+# for timing a test or for a debugger that trips over the wrapped functions.
+if os.environ.get("HOLOGRADPY_SHAPE_CHECKS", "1") != "0":
+    install_import_hook("hologradpy", "tests.array_shape_checks.check_array_shapes")
 
 # Headless, once for the suite. A test that opens a window blocks a CI run forever, and
 # a dozen of these draw figures.

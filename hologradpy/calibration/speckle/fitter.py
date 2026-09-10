@@ -11,6 +11,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 import torch
+from jaxtyping import Complex, Shaped
 from torch.utils.data import DataLoader, Subset
 
 from .records import SpeckleCaptureData
@@ -231,25 +232,25 @@ class SpeckleFitter(ABC):
             self.trainable_parameters(), lr=self.learning_rate, amsgrad=True
         )
 
-    def _predict_roi_fields(self, patterns: torch.Tensor) -> torch.Tensor:
+    def _predict_roi_fields(
+        self, patterns: Shaped[torch.Tensor, "... H_slm W_slm"]
+    ) -> Complex[torch.Tensor, "N H_roi W_roi"]:
         """Predict the camera-plane field for a batch of SLM phase patterns, cropped to
         the ROI.
 
         The whole batch is imprinted at once (:meth:`VirtualSLM.set_phase` takes ``(N,
         H, W)``) and the model runs a single forward pass, giving a field of rank ``(N,
-        n_wavelengths, H, W)``.
+        n_wavelengths, H, W)``. A single pattern gives ``N = 1``.
         """
         self.slm_camera_model.virtual_slm.set_levels(patterns, self.phase_bitdepth)
-        field = self.slm_camera_model().as_tensor()
-
-        if field.ndim == 4:
-            # Single-wavelength setup: drop the length-1 wavelength axis.
-            field = field[:, 0]
-        elif field.ndim == 3:
-            # A single pattern was passed in, so there is no batch axis yet.
-            field = field[0].unsqueeze(0)
-
-        return self.roi.crop(field)
+        field = self.slm_camera_model()
+        if field.number_of_wavelengths != 1:
+            raise ValueError(
+                "The speckle fit compares one camera image per pattern, so the model "
+                f"must carry a single wavelength, not {field.number_of_wavelengths}."
+            )
+        flat, _ = field.flatten_batch()  # (N, 1, H, W)
+        return self.roi.crop(flat[:, 0])
 
     def measured_and_predicted_roi(
         self, sample_index: int = 0

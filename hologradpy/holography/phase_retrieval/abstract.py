@@ -25,7 +25,7 @@ from ...loss_functions import (
 )
 from ...optics.systems import SLMFourierLensModel, load_optical_system
 from ...serialization import SaveableRecord, record_type
-from ...utils import ProgressBar, Timer, gpu_to_numpy
+from ...utils import ProgressBar, Timer, as_image, gpu_to_numpy
 from ...visualizer import VisualizationData
 from .visualizer import (
     PhaseRetrievalVisualizationData,
@@ -150,7 +150,7 @@ class PhaseRetrievalData(SaveableRecord):
                 fraction, dtype=restore.dtype, device=model.device
             )
             with torch.no_grad():
-                return fraction, gpu_to_numpy(model().intensity)
+                return fraction, gpu_to_numpy(as_image(model().intensity))
         finally:
             model.virtual_slm.levels.data = restore
 
@@ -212,7 +212,7 @@ class PhaseRetrieverBase:
 
     def predicted_intensity(self) -> NDArray:
         with torch.no_grad():
-            return gpu_to_numpy(self.slm_camera_model().intensity)
+            return gpu_to_numpy(as_image(self.slm_camera_model().intensity))
 
     def predicted_field(self) -> tuple[NDArray, NDArray]:
         """The intensity and the phase the current SLM phase produces.
@@ -222,7 +222,10 @@ class PhaseRetrieverBase:
         """
         with torch.no_grad():
             field = self.slm_camera_model()
-            return gpu_to_numpy(field.intensity), gpu_to_numpy(field.phase)
+            return (
+                gpu_to_numpy(as_image(field.intensity)),
+                gpu_to_numpy(as_image(field.phase)),
+            )
 
     def retrieve(
         self,
