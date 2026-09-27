@@ -162,21 +162,6 @@ def detect_spot(
 
     return int(row), int(column)
 
-# TODO: Should go to profiles/maks.py
-def disc_mask(
-    shape: tuple[int, int], center: tuple[float, float], radius: float
-) -> NDArray:
-    """Boolean pixel mask, True inside the disc of ``radius`` around ``center``.
-
-    Args:
-        shape: Image shape ``(height, width)``.
-        center: Disc center ``(x, y)`` in pixels.
-        radius: Disc radius in pixels.
-    """
-    rows, columns = np.indices(shape)
-    return (columns - center[0]) ** 2 + (rows - center[1]) ** 2 <= radius**2
-
-
 def get_diffraction_spot_position(
     slm: SLM,
     camera: Camera,

@@ -7,8 +7,10 @@ import torch
 
 from scipy.ndimage import label
 
+from ...analysis.unwrapping import unwrap_phase_1D
 from ...optics.complex_amplitude import ComplexAmplitude
-from ...grids import get_spatial_grid
+from ...grids import coordinates_to_indices, get_spatial_grid
+from ...profiles.phase import vortex_field
 from ...utils import as_image, gpu_to_numpy
 
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
@@ -77,36 +79,6 @@ def find_zero_crossings(input: torch.Tensor) -> torch.Tensor:
         zero_crossings_x & zero_crossings_y, (0, 1, 0, 1)
     )
     return padded_mask
-
-# TODO: This might already exist in grids.py
-def coordinates_to_indices(
-    x: torch.Tensor,
-    y: torch.Tensor,
-    coordinates: torch.Tensor,
-) -> list[tuple[int, int]]:
-    """Convert coordinates to pixel indices.
-
-    Args:
-        x: The x-coordinates of the spatial grid.
-        y: The y-coordinates of the spatial grid.
-        coordinates: The coordinates to convert. x-coordinates are in
-            ``coordinates[:, 0]`` and y-coordinates are in
-            ``coordinates[:, 1]``.
-
-    Returns:
-        list[tuple[int, int]]: The indices of the coordinates.
-    """
-    indices: list[tuple[int, int]] = []
-    for i in range(coordinates.shape[0]):
-        indices.append(
-            torch.unravel_index(
-                torch.argmin(
-                    (x - coordinates[i, 0]).abs() + (y - coordinates[i, 1]).abs()
-                ),
-                x.shape,
-            )
-        )
-    return indices
 
 
 def find_zero_crossing_intersections(
@@ -242,78 +214,3 @@ def find_vortex_charge(
         else:
             charges[i] = 0
     return charges
-
-# TODO: Move to analysis/unwrapping.py
-def unwrap_phase_1D(phase: torch.Tensor) -> torch.Tensor:
-    """Unwrap a 1D phase array.
-
-    Args:
-        phase: 1D phase tensor.
-
-    Returns:
-        torch.Tensor: Unwrapped 1D phase tensor.
-    """
-    unwrapped_phase = phase.clone()
-    for i in range(1, phase.shape[0]):
-        delta = phase[i] - phase[i - 1]
-        if delta > torch.pi:
-            unwrapped_phase[i:] -= 2 * torch.pi
-        elif delta < -torch.pi:
-            unwrapped_phase[i:] += 2 * torch.pi
-    return unwrapped_phase
-
-# TODO: Move to profiles/phase.py
-def vortex_phase(
-    x: torch.Tensor,
-    y: torch.Tensor,
-    center_coordinates: torch.Tensor,
-    charge: torch.Tensor,
-) -> torch.Tensor:
-    """Calculate the phase of an optical vortex at given
-    ``center_coordinates`` with a given ``charge``.
-
-    Args:
-        x: x-coordinates of the spatial grid.
-        y: y-coordinates of the spatial grid.
-        center_coordinates: Coordinates of the vortex center. The
-            x-coordinate is in ``center_coordinates[0]`` and the
-            y-coordinate is in ``center_coordinates[1]``.
-        charge: Charge of the vortex.
-
-    Returns:
-        torch.Tensor: The phase of the vortex.
-    """
-    phase = charge * torch.angle(
-        x - center_coordinates[0] + 1j * (y - center_coordinates[1])
-    )
-    return phase
-
-# TODO: Move to profiles/phase.py
-def vortex_field(
-    x: torch.Tensor,
-    y: torch.Tensor,
-    vortex_coordinates: torch.Tensor,
-    charges: torch.Tensor,
-) -> torch.Tensor:
-    """Calculate the electric field of multiple vortices at given
-    ``vortex_coordinates`` with given ``charges``.
-
-    Args:
-        x: x-coordinates of the spatial grid.
-        y: y-coordinates of the spatial grid.
-        vortex_coordinates: Coordinates of the vortex centers.
-            x-coordinates are in ``vortex_coordinates[:, 0]`` and
-            y-coordinates are in ``vortex_coordinates[:, 1]``.
-        charges: Charges of the vortices.
-
-    Returns:
-        torch.Tensor: The resulting electric field with vortices.
-    """
-    for i in range(vortex_coordinates.shape[0]):
-        charge = charges[i]
-        center = vortex_coordinates[i, :]
-        if i == 0:
-            field = torch.exp(1j * vortex_phase(x, y, center, charge))
-        else:
-            field *= torch.exp(1j * vortex_phase(x, y, center, charge))
-    return field

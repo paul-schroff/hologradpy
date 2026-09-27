@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TypeVar
 
+import numpy as np
 import torch
 from numpy.typing import NDArray
 
@@ -83,3 +84,17 @@ def circular_mask(
         ArrayLike: Binary mask.
     """
     return ((x - shift_x) ** 2 + (y - shift_y) ** 2) ** 0.5 < radius
+
+
+def disc_mask(
+    shape: tuple[int, int], center: tuple[float, float], radius: float
+) -> NDArray:
+    """Boolean pixel mask, True inside the disc of ``radius`` around ``center``.
+
+    Args:
+        shape: Image shape ``(height, width)``.
+        center: Disc center ``(x, y)`` in pixels.
+        radius: Disc radius in pixels.
+    """
+    rows, columns = np.indices(shape)
+    return (columns - center[0]) ** 2 + (rows - center[1]) ** 2 <= radius**2

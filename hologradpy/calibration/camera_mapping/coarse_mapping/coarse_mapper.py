@@ -20,11 +20,11 @@ from ....holography.phase_retrieval import LinearSuperpositionPhaseRetriever
 from ....analysis.fitting import fit_gaussian_beam_intensity
 from ....utils import as_image, gpu_to_numpy
 from ....roi import ROI
+from ....profiles.masks import disc_mask
 
 from ...spot_detection import (
     _WINDOW_SPOT_RADII,
     detect_spot,
-    disc_mask,
     get_diffraction_spot_position,
     has_prominent_peak,
 )

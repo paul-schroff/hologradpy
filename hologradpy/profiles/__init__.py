@@ -23,6 +23,7 @@ from .amplitude import (
 from .masks import (
     rectangular_mask,
     circular_mask,
+    disc_mask,
 )
 from .phase import (
     tilt_to_angle,
@@ -34,6 +35,8 @@ from .phase import (
     analytic_phase_guess,
     gaussian_phase_guess,
     binary_phase_grating,
+    vortex_phase,
+    vortex_field,
 )
 from .zernike import (
     ZernikeConventionHandler,
@@ -53,6 +56,7 @@ __all__ = [
     "top_hat_2D",
     "rectangular_mask",
     "circular_mask",
+    "disc_mask",
     "gaussian_blur",
     "laser_speckle_intensity",
     "checkerboard",
@@ -65,6 +69,8 @@ __all__ = [
     "analytic_phase_guess",
     "gaussian_phase_guess",
     "binary_phase_grating",
+    "vortex_phase",
+    "vortex_field",
     "ZernikeConventionHandler",
     "Zernike",
     "Conventions",

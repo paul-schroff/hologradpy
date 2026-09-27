@@ -20,8 +20,8 @@ if TYPE_CHECKING:
 class GeometricTransform(ABC):
     """A 2D coordinate transform from a source plane to a destination plane.
 
-    Subclasses constrain the degrees of freedom (partial affine, affine, and later
-    perspective) and supply a type-specific :meth:`fit`. Everything else (applying to
+    Subclasses constrain the degrees of freedom (partial affine, affine) and supply a
+    type-specific :meth:`fit`. Everything else (applying to
     points, inverting, composing) is shared and works on the 3x3 matrix.
     """
 
@@ -115,7 +115,7 @@ def _more_general_type(
     first: type[GeometricTransform], second: type[GeometricTransform]
 ) -> type[GeometricTransform]:
     """The more general of two related transform types (the superclass in the
-    partial-affine < affine < perspective chain).
+    partial-affine < affine chain).
     """
     if issubclass(first, second):
         return second

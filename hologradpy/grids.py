@@ -144,3 +144,33 @@ def get_frequency_grid(
     frequency_grid_y = pixel_grid_y / resolution[0] * frequency_extent[0]
 
     return frequency_grid_x, frequency_grid_y
+
+
+def coordinates_to_indices(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    coordinates: torch.Tensor,
+) -> list[tuple[int, int]]:
+    """Convert coordinates to pixel indices.
+
+    Args:
+        x: The x-coordinates of the spatial grid.
+        y: The y-coordinates of the spatial grid.
+        coordinates: The coordinates to convert. x-coordinates are in
+            ``coordinates[:, 0]`` and y-coordinates are in
+            ``coordinates[:, 1]``.
+
+    Returns:
+        list[tuple[int, int]]: The indices of the coordinates.
+    """
+    indices: list[tuple[int, int]] = []
+    for i in range(coordinates.shape[0]):
+        indices.append(
+            torch.unravel_index(
+                torch.argmin(
+                    (x - coordinates[i, 0]).abs() + (y - coordinates[i, 1]).abs()
+                ),
+                x.shape,
+            )
+        )
+    return indices

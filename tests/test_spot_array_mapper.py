@@ -38,7 +38,7 @@ from hologradpy.calibration.camera_mapping import (
     MappingFit,
     SpotArrayMapper,
 )
-from hologradpy.calibration.spot_detection import disc_mask
+from hologradpy.profiles.masks import disc_mask
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 

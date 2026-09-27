@@ -18,11 +18,11 @@ from ....analysis.fitting import fit_gaussian_beam_intensity
 from ....utils import as_image, gpu_to_numpy
 from ....roi import ROI
 from ....holography.phase_retrieval import LinearSuperpositionPhaseRetriever
+from ....profiles.masks import disc_mask
 
 from ...spot_detection import (
     _WINDOW_SPOT_RADII,
     background_noise,
-    disc_mask,
 )
 from ..coarse_mapping.coarse_mapper import CoarseMapper
 

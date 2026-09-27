@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import torch
 from numpy.typing import NDArray
 
 from scipy.fft import dctn, idctn
@@ -286,3 +287,22 @@ def unwrap_nonuniform(
 
     phi, *_ = lsqr(A.tocsr(), b)
     return phi
+
+
+def unwrap_phase_1D(phase: torch.Tensor) -> torch.Tensor:
+    """Unwrap a 1D phase array.
+
+    Args:
+        phase: 1D phase tensor.
+
+    Returns:
+        torch.Tensor: Unwrapped 1D phase tensor.
+    """
+    unwrapped_phase = phase.clone()
+    for i in range(1, phase.shape[0]):
+        delta = phase[i] - phase[i - 1]
+        if delta > torch.pi:
+            unwrapped_phase[i:] -= 2 * torch.pi
+        elif delta < -torch.pi:
+            unwrapped_phase[i:] += 2 * torch.pi
+    return unwrapped_phase

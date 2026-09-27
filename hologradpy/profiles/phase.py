@@ -402,3 +402,59 @@ def band_limited_random_phase(
 
     lowest = field.min()
     return (field - lowest) / (field.max() - lowest) * 2 * torch.pi
+
+
+def vortex_phase(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    center_coordinates: torch.Tensor,
+    charge: torch.Tensor,
+) -> torch.Tensor:
+    """Calculate the phase of an optical vortex at given
+    ``center_coordinates`` with a given ``charge``.
+
+    Args:
+        x: x-coordinates of the spatial grid.
+        y: y-coordinates of the spatial grid.
+        center_coordinates: Coordinates of the vortex center. The
+            x-coordinate is in ``center_coordinates[0]`` and the
+            y-coordinate is in ``center_coordinates[1]``.
+        charge: Charge of the vortex.
+
+    Returns:
+        torch.Tensor: The phase of the vortex.
+    """
+    phase = charge * torch.angle(
+        x - center_coordinates[0] + 1j * (y - center_coordinates[1])
+    )
+    return phase
+
+
+def vortex_field(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    vortex_coordinates: torch.Tensor,
+    charges: torch.Tensor,
+) -> torch.Tensor:
+    """Calculate the electric field of multiple vortices at given
+    ``vortex_coordinates`` with given ``charges``.
+
+    Args:
+        x: x-coordinates of the spatial grid.
+        y: y-coordinates of the spatial grid.
+        vortex_coordinates: Coordinates of the vortex centers.
+            x-coordinates are in ``vortex_coordinates[:, 0]`` and
+            y-coordinates are in ``vortex_coordinates[:, 1]``.
+        charges: Charges of the vortices.
+
+    Returns:
+        torch.Tensor: The resulting electric field with vortices.
+    """
+    for i in range(vortex_coordinates.shape[0]):
+        charge = charges[i]
+        center = vortex_coordinates[i, :]
+        if i == 0:
+            field = torch.exp(1j * vortex_phase(x, y, center, charge))
+        else:
+            field *= torch.exp(1j * vortex_phase(x, y, center, charge))
+    return field
