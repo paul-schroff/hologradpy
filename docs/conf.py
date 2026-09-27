@@ -5,11 +5,8 @@
 
 import os
 import pathlib
-import re
 import sys
 import warnings
-
-from sphinx_gallery.sorting import ExplicitOrder, NumberOfCodeLinesSortKey
 
 # ---- Project information -------------------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
@@ -36,7 +33,6 @@ extensions = [
     "sphinx.ext.inheritance_diagram",
     "myst_parser",
     "sphinx_design",
-    "sphinx_gallery.gen_gallery",
     "sphinx_copybutton",
 ]
 
@@ -118,68 +114,11 @@ intersphinx_mapping = {
     "matplotlib": ("https://matplotlib.org/stable/", None),
     "torch": ("https://docs.pytorch.org/docs/stable/", None),
     "slmsuite": ("https://slmsuite.readthedocs.io/en/latest/", None),
-}
-
-
-# ---- Example gallery -----------------------------------------------------------------
-# Examples run only when asked. Several take minutes and need a GPU, so a Read the
-# Docs build leaves them unexecuted and shows the source alone. Set
-# HOLOGRADPY_RUN_EXAMPLES=1 to run them and capture their figures.
-RUN_EXAMPLES = os.environ.get("HOLOGRADPY_RUN_EXAMPLES") == "1"
-
-# Re-run only selected examples for faster iteration.
-#
-#   HOLOGRADPY_RUN_EXAMPLES=1 HOLOGRADPY_EXAMPLES=hardware_interface
-#   HOLOGRADPY_RUN_EXAMPLES=1 HOLOGRADPY_EXAMPLES='camera_mapping|top_hat'
-EXAMPLE_FILTER = os.environ.get("HOLOGRADPY_EXAMPLES", "")
-
-if RUN_EXAMPLES and EXAMPLE_FILTER:
-    # Editing library code leaves every example's md5 untouched.
-    _gallery_root = pathlib.Path(__file__).parent / "auto_examples"
-    for _stamp in _gallery_root.glob("**/*.py.md5"):
-        if re.search(EXAMPLE_FILTER, _stamp.as_posix()):
-            _stamp.unlink()
-
-class WithinSectionOrder(NumberOfCodeLinesSortKey):
-    EXPLICIT = (
-        "top_hat_beam_shaping.py",
-        "gradient_phase_retrieval.py",
-        "optimal_transport_phase_guess.py",
-        "vortex_annihilation.py",
-    )
-
-    def __call__(self, filename: str) -> tuple[int, int]:
-        if filename in self.EXPLICIT:
-            return (0, self.EXPLICIT.index(filename))
-        return (1, super().__call__(filename))
-
-
-sphinx_gallery_conf = {
-    "examples_dirs": [
-        "../examples/hardware_interface",
-        "../examples/phase_retrieval",
-        "../examples/camera_feedback",
-        "../examples/calibration",
-    ],
-    "gallery_dirs": [
-        "auto_examples/hardware_interface",
-        "auto_examples/phase_retrieval",
-        "auto_examples/camera_feedback",
-        "auto_examples/calibration",
-    ],
-    "within_subsection_order": WithinSectionOrder,
-    "reference_url": {"hologradpy": None},
-    "filename_pattern": (EXAMPLE_FILTER or r".*") if RUN_EXAMPLES else "(?!.*)",
-    "ignore_pattern": r"(__init__|.*[\\/]dev_scripts[\\/].*)\.py",
-    "plot_gallery": RUN_EXAMPLES,
-    "only_warn_on_example_error": True,
-    "image_srcset": ["2x"],
-    "subsection_order": ExplicitOrder(
-        [
-            "../examples/calibration/camera_mapping",
-            "../examples/calibration/wavefront_calibration",
-            "../examples/calibration/pixel_crosstalk_calibration",
-        ]
+    # The example gallery, a Read the Docs subproject. A docstring cites an example by
+    # its sphx_glr_ label.
+    "examples": (
+        "https://hologradpy.readthedocs.io/projects/examples/en/latest/",
+        None,
     ),
 }
 

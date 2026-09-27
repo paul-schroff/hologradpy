@@ -11,3 +11,7 @@ To run PyTorch on a GPU, you'll need to install CUDA first and the appropriate P
 distribution.
 The `PyTorch install selector <https://pytorch.org/get-started/locally/>`_ gives the
 right command for your platform and CUDA version.
+
+The example scripts are in the
+`hologradpy-examples <https://github.com/paul-schroff/hologradpy-examples>`_ repository.
+Its ``requirements.txt`` installs the HoloGradPy commit the gallery was rendered against.

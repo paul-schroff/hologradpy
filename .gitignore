@@ -6,18 +6,11 @@
 docs/_build/
 
 docs/autoapi/
-docs/sg_execution_times.rst
 
 hologradpy.egg-info/
-
-examples/dev_scripts/
-examples/data/
-examples/calibration/data/
 
 # Coverage and pytest artefacts
 .coverage
 .coverage.*
 htmlcov/
 .pytest_cache/
-docs/auto_examples/*/searchindex.*
-examples/**/*.gif
