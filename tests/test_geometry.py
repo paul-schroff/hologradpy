@@ -2,11 +2,14 @@
 
 import numpy as np
 import pytest
+import torch
 
 from hologradpy.geometry import (
     GeometricTransform,
     AffineTransform,
     PartialAffineTransform,
+    homogeneous_matrix,
+    rotation_matrix_from_angle,
 )
 
 POINTS = np.array([[1.0, 0.0], [0.0, 1.0], [2.0, -3.0], [-4.0, 5.0]])
@@ -107,3 +110,72 @@ def test_reprojection_error():
 def test_geometric_transform_is_abstract():
     with pytest.raises(TypeError):
         GeometricTransform(np.eye(3))
+
+
+def test_rotation_turns_the_x_axis_towards_the_y_axis():
+    quarter_turn = rotation_matrix_from_angle(np.asarray(90.0))
+    np.testing.assert_allclose(quarter_turn, [[0.0, -1.0], [1.0, 0.0]], atol=1e-15)
+
+
+def test_homogeneous_matrix_keeps_the_center_fixed_before_the_shift():
+    linear = rotation_matrix_from_angle(np.asarray(30.0)) @ np.diag([1.5, 0.5])
+    shift, center = np.array([4.0, -2.0]), np.array([10.0, 6.0])
+    matrix = homogeneous_matrix(linear, shift, center)
+    point = np.array([3.0, 7.0])
+    expected = linear @ (point - center) + center + shift
+    np.testing.assert_allclose(matrix @ np.append(point, 1.0), np.append(expected, 1.0))
+    np.testing.assert_array_equal(matrix[2], [0.0, 0.0, 1.0])
+
+
+def test_partial_affine_components_use_the_matrix_builders():
+    transform = PartialAffineTransform.from_components(
+        scale=1.3, angle_deg=25.0, shift=(3.0, -2.0), center=(5.0, 1.0)
+    )
+    expected = homogeneous_matrix(
+        1.3 * rotation_matrix_from_angle(np.asarray(25.0)),
+        np.array([3.0, -2.0]),
+        np.array([5.0, 1.0]),
+    )
+    np.testing.assert_array_equal(transform.matrix, expected)
+
+
+@pytest.mark.parametrize(
+    ("dtype", "tolerance"), [(torch.float64, 1e-10), (torch.float32, 1e-4)]
+)
+def test_matrix_builders_agree_between_numpy_and_torch(dtype, tolerance):
+    generator = np.random.default_rng(0)
+    angles = generator.uniform(-180.0, 180.0, 4)
+    scales = generator.uniform(0.5, 2.0, (4, 1, 2))
+    shifts = generator.normal(0.0, 10.0, (4, 2))
+    centers = generator.uniform(0.0, 100.0, (4, 2))
+    expected = homogeneous_matrix(
+        rotation_matrix_from_angle(angles) * scales, shifts, centers
+    )
+
+    def as_tensor(array):
+        return torch.as_tensor(array, dtype=dtype)
+
+    matrices = homogeneous_matrix(
+        rotation_matrix_from_angle(as_tensor(angles)) * as_tensor(scales),
+        as_tensor(shifts),
+        as_tensor(centers),
+    )
+    assert matrices.dtype == dtype
+    assert matrices.shape == (4, 3, 3)
+    np.testing.assert_allclose(matrices.numpy(), expected, atol=tolerance)
+
+
+def test_matrix_builders_are_differentiable_in_torch():
+    def build(angle, scale, shift, center):
+        linear = rotation_matrix_from_angle(angle) * scale[..., None, :]
+        return homogeneous_matrix(linear, shift, center)
+
+    inputs = (
+        torch.tensor([20.0, -35.0], dtype=torch.float64),
+        torch.tensor([[1.2, 0.8], [0.9, 1.1]], dtype=torch.float64),
+        torch.tensor([[3.0, -1.0], [0.5, 2.0]], dtype=torch.float64),
+        torch.tensor([[10.0, 4.0], [-3.0, 7.0]], dtype=torch.float64),
+    )
+    for tensor in inputs:
+        tensor.requires_grad_(True)
+    assert torch.autograd.gradcheck(build, inputs)

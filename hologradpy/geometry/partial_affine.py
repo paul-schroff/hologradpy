@@ -7,7 +7,8 @@ from typing import Protocol
 import numpy as np
 from numpy.typing import ArrayLike
 
-from .affine import AffineTransform, _matrix_from_linear, _rotation_matrix
+from .affine import AffineTransform
+from .matrices import homogeneous_matrix, rotation_matrix_from_angle
 
 
 class PartialAffineTransform(AffineTransform):
@@ -47,8 +48,15 @@ class PartialAffineTransform(AffineTransform):
         """Build a similarity transform from a uniform ``scale``, ``angle_deg`` and
         ``shift``, keeping ``center`` fixed before the shift.
         """
-        linear = scale * _rotation_matrix(angle_deg)
-        return cls(_matrix_from_linear(linear, shift, center))
+        angle = np.asarray(angle_deg, dtype=np.float64)
+        linear = scale * rotation_matrix_from_angle(angle)
+        return cls(
+            homogeneous_matrix(
+                linear,
+                np.asarray(shift, dtype=np.float64),
+                np.asarray(center, dtype=np.float64),
+            )
+        )
 
     @property
     def scale(self) -> float:

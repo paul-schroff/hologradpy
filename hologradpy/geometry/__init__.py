@@ -6,10 +6,15 @@ chain of increasing generality (a perspective transform, to be added later, sits
 above affine):
 
     PartialAffineTransform (4 DOF)  <  AffineTransform (6 DOF)
+
+The value objects hold NumPy matrices. The matrix builders in :mod:`.matrices` take
+NumPy or torch arrays, so a torch module such as the field warp builds its matrices in
+the same convention.
 """
 
 from .abstract import GeometricTransform
 from .affine import AffineTransform
+from .matrices import homogeneous_matrix, rotation_matrix_from_angle
 from .partial_affine import (
     PartialAffineTransform,
     SupportsPartialAffine,
@@ -22,4 +27,6 @@ __all__ = [
     "PartialAffineTransform",
     "SupportsPartialAffine",
     "recalibrated_partial_affine",
+    "homogeneous_matrix",
+    "rotation_matrix_from_angle",
 ]

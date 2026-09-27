@@ -6,6 +6,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 from .abstract import GeometricTransform
+from .matrices import homogeneous_matrix, rotation_matrix_from_angle
 
 
 class AffineTransform(GeometricTransform):
@@ -63,12 +64,18 @@ class AffineTransform(GeometricTransform):
         scalar (isotropic) or ``(scale_x, scale_y)``.
         """
         scale_x, scale_y = (scale, scale) if np.isscalar(scale) else scale
-        rotation = _rotation_matrix(angle_deg)
+        rotation = rotation_matrix_from_angle(np.asarray(angle_deg, dtype=np.float64))
         shear_matrix = np.array([[1.0, shear], [0.0, 1.0]])
         scale_matrix = np.diag([scale_x, scale_y])
         mirror_matrix = np.diag([1.0, -1.0]) if mirror else np.eye(2)
         linear = rotation @ shear_matrix @ scale_matrix @ mirror_matrix
-        return cls(_matrix_from_linear(linear, shift, center))
+        return cls(
+            homogeneous_matrix(
+                linear,
+                np.asarray(shift, dtype=np.float64),
+                np.asarray(center, dtype=np.float64),
+            )
+        )
 
     @property
     def linear(self) -> NDArray:
@@ -109,21 +116,3 @@ class AffineTransform(GeometricTransform):
         """The scale factors (singular values of the linear part, major then minor)."""
         singular_values = np.linalg.svd(self.linear, compute_uv=False)
         return (float(singular_values[0]), float(singular_values[1]))
-
-
-# TODO: Move these to a utils.py or make static methods?
-def _rotation_matrix(angle_deg: float) -> NDArray:
-    theta = np.radians(angle_deg)
-    cos, sin = np.cos(theta), np.sin(theta)
-    return np.array([[cos, -sin], [sin, cos]])
-
-
-def _matrix_from_linear(
-    linear: NDArray, shift: tuple[float, float], center: tuple[float, float]
-) -> NDArray:
-    center = np.asarray(center, dtype=np.float64)
-    translation = np.asarray(shift, dtype=np.float64) + center - linear @ center
-    matrix = np.eye(3)
-    matrix[:2, :2] = linear
-    matrix[:2, 2] = translation
-    return matrix

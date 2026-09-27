@@ -25,7 +25,6 @@ requirements = [
     "einops",
     "array_api_compat",
     "jaxtyping",
-    "kornia", # TODO: We can probably do without kornia.
 ]
 
 extras = {
