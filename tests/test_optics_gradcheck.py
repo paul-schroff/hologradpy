@@ -227,14 +227,14 @@ def test_nufft_geometry_parameters_are_learnable() -> None:
             pixel_size_out=(5e-6, 5e-6),
             nufft_kwargs=dict(eps=1e-14),
         )
-        lens(field)  # lazily initialize, so the parameters exist
+        lens(field)  # lazily initialize, on the device and dtype of the field
         return lens
 
     def cost(lens):
         return lens(field).as_tensor().abs().pow(2).sum()
 
     lens = build()
-    parameters = [getattr(lens, name) for name in names]
+    parameters = [getattr(lens.focal_plane_partial_affine, name) for name in names]
     for parameter in parameters:
         parameter.requires_grad_(True)
     analytic = torch.autograd.grad(cost(lens), parameters, allow_unused=True)
@@ -249,7 +249,8 @@ def test_nufft_geometry_parameters_are_learnable() -> None:
             for sign in (+1, -1):
                 probe = build()
                 with torch.no_grad():
-                    getattr(probe, name).reshape(-1)[index] += sign * step
+                    probed = getattr(probe.focal_plane_partial_affine, name)
+                    probed.reshape(-1)[index] += sign * step
                 shifted.append(float(cost(probe)))
             numeric = (shifted[0] - shifted[1]) / (2 * step)
             torch.testing.assert_close(
@@ -278,8 +279,8 @@ def test_nufft_and_czt_agree_on_the_scale_and_shift_gradients() -> None:
     names = ("scale_factor", "shift")
 
     def geometry_gradient(lens):
-        lens(field)  # lazily initialize, so the parameters exist
-        parameters = [getattr(lens, name) for name in names]
+        lens(field)  # lazily initialize, on the device and dtype of the field
+        parameters = [getattr(lens.focal_plane_partial_affine, name) for name in names]
         for parameter in parameters:
             parameter.requires_grad_(True)
         return torch.autograd.grad(

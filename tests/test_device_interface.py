@@ -8,12 +8,19 @@ an axis swap in any conversion would show.
 
 from __future__ import annotations
 
+import copy
+import gc
+import time
+import weakref
+
 import numpy as np
 import pytest
 import torch
 
 from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch
 from hologradpy.hardware import Camera, CameraOrientation, SLM
+from hologradpy.hardware.camera import reorient_pixels
+from hologradpy.hardware.slm import SLMData
 from hologradpy.hardware.slmsuite.conversions import (
     pixel_size_from_pitch_um,
     pitch_um_from_pixel_size,
@@ -23,6 +30,7 @@ from hologradpy.hardware.slmsuite.conversions import (
     roi_to_woi,
 )
 from hologradpy.phase_levels import (
+    LinearResponse,
     LookupResponse,
     PhaseResponseModule,
 )
@@ -45,9 +53,11 @@ from hologradpy.optics.complex_amplitude import (
 )
 from hologradpy.optics.systems import SLMCZT
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
+from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.profiles.amplitude import (
     gaussian_beam_intensity,
 )
+from tests.native_camera_fakes import CroppingCamera
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -189,7 +199,7 @@ def test_slm_native_properties():
 # --- Grayscale levels ---------------------------------------------------
 
 
-def _slm_at(bitdepth: int, wav_design_um: float | None = None) -> SLM:
+def _slm_at(bitdepth: int, wav_design_um: float | None = None, **options) -> SLM:
     geometry = FieldGeometry(
         resolution=(32, 48),
         pixel_size=torch.tensor([SLM_PITCH, SLM_PITCH]),
@@ -200,6 +210,7 @@ def _slm_at(bitdepth: int, wav_design_um: float | None = None) -> SLM:
         input_geometry=geometry,
         bitdepth=bitdepth,
         wav_design_um=wav_design_um,
+        **options,
     )
 
 
@@ -425,16 +436,19 @@ def test_levels_at_the_wrong_depth_are_refused() -> None:
         slm.virtual_slm.set_levels(np.zeros(slm.resolution, dtype=np.uint16), 12)
 
 
+class _BareSlm(SLM):
+    """A native SLM with no bit depth, which converts phases itself."""
+
+    pixel_size = np.array([SLM_PITCH, SLM_PITCH])
+    resolution = (4, 4)
+    wavelength = WAVELENGTH
+
+    def set_phase(self, phase) -> None:
+        pass
+
+
 def test_a_device_without_a_bitdepth_says_so() -> None:
-    class Bare(SLM):
-        pixel_size = np.array([SLM_PITCH, SLM_PITCH])
-        resolution = (4, 4)
-        wavelength = WAVELENGTH
-
-        def set_phase(self, phase) -> None:
-            pass
-
-    device = Bare()
+    device = _BareSlm()
     assert device.bitdepth is None
     with pytest.raises(ValueError, match="no bitdepth"):
         device.phase_to_levels(np.zeros((4, 4)))
@@ -444,48 +458,105 @@ def test_a_device_without_a_bitdepth_says_so() -> None:
 
 
 class _RawCamera(SLMSuiteCamera):
-    """A minimal slmsuite camera with no native HoloGradPy properties (stands in for
-    real hardware, which is only reachable through the adapter).
+    """A minimal slmsuite camera with no native HoloGradPy properties.
+
+    It stands in for real hardware, which is only reachable through the adapter, and
+    it behaves as a driver does. The sensor holds fixed counts, modulo
+    ``2 ** bitdepth`` in ``uint16``, and a frame is the part inside the window of
+    interest. The exposure reads back as it was set. ``set_woi(None)`` opens the
+    window to the whole sensor, and every window brings ``shape`` in line, as
+    ``ThorCam.set_woi`` does.
+
+    ``capture_calls`` counts the captures. The next ``missing_frames`` captures return
+    None, as a driver does when a frame does not arrive in time. Both counters start
+    at zero after slmsuite's own capture at construction. The driver holds no frames,
+    so ``flush`` captures nothing.
     """
 
-    def __init__(self, resolution, bitdepth, pitch_um, name="raw"):
+    def __init__(self, resolution, bitdepth, pitch_um, name="raw", **kwargs):
+        width, height = resolution
+        self._sensor = (
+            np.arange(height * width).reshape(height, width) % 2**bitdepth
+        ).astype(np.uint16)
+        self._exposure_s = 1e-3
+        self.capture_calls = 0
+        self.missing_frames = 0
         super().__init__(
-            resolution=resolution, bitdepth=bitdepth, pitch_um=pitch_um, name=name
+            resolution=resolution,
+            bitdepth=bitdepth,
+            pitch_um=pitch_um,
+            name=name,
+            **kwargs,
         )
+        self.capture_calls = 0
+        self.missing_frames = 0
 
     def _get_image_hw(self, timeout_s=None):
-        return np.zeros(self.shape)
+        self.capture_calls += 1
+        if self.missing_frames > 0:
+            self.missing_frames -= 1
+            return None
+        x0, width, y0, height = self.woi
+        return self._sensor[y0 : y0 + height, x0 : x0 + width].copy()
 
-    def _get_exposure_hw(self):
-        return 1.0
-
-    def _set_exposure_hw(self, exposure_s):
+    def flush(self, timeout_s=1):
         pass
 
+    def _get_exposure_hw(self):
+        return self._exposure_s
+
+    def _set_exposure_hw(self, exposure_s):
+        self._exposure_s = float(exposure_s)
+
     def set_woi(self, woi=None):
-        self.woi = woi
+        if woi is None:
+            height, width = self._sensor.shape
+            woi = (0, width, 0, height)
+        self.woi = tuple(int(value) for value in woi)
+        self.shape = np.shape(self.transform(np.zeros((self.woi[3], self.woi[1]))))
+        return self.woi
 
     def close(self):
         pass
 
 
 class _RawSlm(SLMSuiteSLM):
-    """A minimal slmsuite SLM with no native HoloGradPy properties."""
+    """A minimal slmsuite SLM with no native HoloGradPy properties.
 
-    def __init__(self, resolution, bitdepth, wav_um, pitch_um, name="raw"):
+    ``written`` holds the last array passed from slmsuite to the hardware, and it stays
+    None until the first write. The settle time defaults to zero, so a write never
+    sleeps unless a test asks for it.
+    """
+
+    def __init__(
+        self, resolution, bitdepth, wav_um, pitch_um, name="raw", settle_time_s=0.0,
+        **kwargs,
+    ):
         super().__init__(
             resolution=resolution,
             bitdepth=bitdepth,
             wav_um=wav_um,
             pitch_um=pitch_um,
             name=name,
+            settle_time_s=settle_time_s,
+            **kwargs,
         )
+        self.written = None
 
-    def _set_phase_hw(self, phase):
-        pass
+    def _set_phase_hw(self, display):
+        self.written = display.copy()
 
     def close(self):
         pass
+
+
+def _raw_slm(**options) -> _RawSlm:
+    """A raw 8-bit slmsuite SLM of shape (4, 6), with ``options`` overriding any
+    constructor argument.
+    """
+    arguments = dict(resolution=(6, 4), bitdepth=8, wav_um=0.5, pitch_um=(12.5, 12.5))
+    arguments.update(options)
+    return _RawSlm(**arguments)
 
 
 def test_as_camera_wraps_slmsuite_and_is_idempotent():
@@ -501,13 +572,16 @@ def test_as_camera_wraps_slmsuite_and_is_idempotent():
     # axis swap would show.
     np.testing.assert_allclose(wrapped_raw.pixel_size, (7e-6, 5e-6))
     assert wrapped_raw.resolution == (30, 20)
-    # ROI round-trips through the slmsuite woi (corner) convention on real hardware.
+    # The region crops each frame in software, so the driver keeps its whole-sensor
+    # window. Every adapter of the camera reads the same region.
+    whole_sensor_window = raw.woi
     roi = ROI(3, 5, 4, 8)
     wrapped_raw.set_roi(roi)
-    assert raw.woi == roi_to_woi(roi)
+    assert raw.woi == whole_sensor_window
     assert wrapped_raw.roi == roi
-    # Non-native attributes / methods delegate to the wrapped slmsuite device.
-    assert wrapped_raw.bitdepth == raw.bitdepth
+    assert as_camera(raw).roi == roi
+    assert wrapped_raw.get_image().shape == (4, 8)
+    assert wrapped_raw.max_pixel_value == 2**raw.bitdepth - 1
 
 
 def test_as_slm_wraps_slmsuite_and_is_idempotent():
@@ -655,7 +729,7 @@ def test_available_backends_list_registered_names():
 # --- autoexpose: discrete exposure steps ----------------------------------------
 
 
-class _QuantizedCamera(Camera):
+class _QuantizedCamera(CroppingCamera):
     """A native camera whose exposure snaps to a coarse grid, to exercise the discrete
     step guard in ``autoexpose``. The response is linear (``peak = gain * exposure``),
     saturating at the top of the range. The grid is chosen so no achievable exposure
@@ -664,50 +738,25 @@ class _QuantizedCamera(Camera):
     """
 
     def __init__(self, step: float = 1e-3, gain: float = 55e3, adu_levels: int = 256):
+        super().__init__(
+            (4, 4),
+            max_pixel_value=adu_levels - 1,
+            exposure_bounds=(step, 100 * step),
+            exposure_s=step,
+        )
         self._step = step
         self._gain = gain
-        self._adu = adu_levels
-        self._exposure = step
-        self._roi = ROI(0, 0, 4, 4)
         self.set_exposure_calls = 0
-
-    @property
-    def pixel_size(self):
-        return np.array([1e-6, 1e-6])
-
-    @property
-    def resolution(self):
-        return (4, 4)
-
-    @property
-    def max_pixel_value(self):
-        return self._adu - 1
-
-    @property
-    def exposure_bounds(self):
-        return (self._step, 100 * self._step)
-
-    @property
-    def roi(self):
-        return self._roi
-
-    def set_roi(self, roi):
-        self._roi = ROI(0, 0, 4, 4) if roi is None else roi
-
-    def get_exposure(self):
-        return self._exposure
 
     def set_exposure(self, exposure_s):
         self.set_exposure_calls += 1
         lo, hi = self.exposure_bounds
         snapped = round(exposure_s / self._step) * self._step
-        self._exposure = float(min(max(snapped, lo), hi))
+        self._exposure_s = float(min(max(snapped, lo), hi))
 
-    def get_image(self, exposure_s=None, averaging=1):
-        if exposure_s is not None:
-            self.set_exposure(exposure_s)
-        peak = min(self._adu - 1, round(self._gain * self._exposure))
-        return np.full(self.resolution, peak, dtype=float)
+    def render_sensor_frame(self):
+        peak = min(self.max_pixel_value, round(self._gain * self.get_exposure()))
+        return np.full(self.sensor_resolution, peak, dtype=float)
 
 
 def test_autoexpose_settles_on_best_discrete_step():
@@ -731,57 +780,31 @@ def test_autoexpose_settles_on_best_discrete_step():
 # --- autoexpose: hot pixels -----------------------------------------------------
 
 
-class _HotPixelCamera(Camera):
+class _HotPixelCamera(CroppingCamera):
     """A camera imaging a broad blob that peaks well below saturation, plus one stuck
     pixel pinned at the top of the range. The stuck pixel makes the raw peak read as
     permanent saturation, so autoexpose only reaches the real signal if it ignores it.
     """
 
     def __init__(self, adu_levels: int = 256):
-        self._adu = adu_levels
-        self._exposure = 1e-3
-        self._roi = ROI(0, 0, 32, 32)
+        super().__init__(
+            (32, 32),
+            max_pixel_value=adu_levels - 1,
+            exposure_bounds=(1e-4, 1.0),
+            exposure_s=1e-3,
+        )
         yy, xx = np.mgrid[0:32, 0:32] - 16
         self._blob = np.exp(-(xx**2 + yy**2) / (2 * 5.0**2))  # broad, peak 1 at center
 
-    @property
-    def pixel_size(self):
-        return np.array([1e-6, 1e-6])
-
-    @property
-    def resolution(self):
-        return (32, 32)
-
-    @property
-    def max_pixel_value(self):
-        return self._adu - 1
-
-    @property
-    def exposure_bounds(self):
-        return (1e-4, 1.0)
-
-    @property
-    def roi(self):
-        return self._roi
-
-    def set_roi(self, roi):
-        self._roi = ROI(0, 0, 32, 32) if roi is None else roi
-
-    def get_exposure(self):
-        return self._exposure
-
-    def set_exposure(self, exposure_s):
-        lo, hi = self.exposure_bounds
-        self._exposure = float(min(max(exposure_s, lo), hi))
-
-    def get_image(self, exposure_s=None, averaging=1):
-        if exposure_s is not None:
-            self.set_exposure(exposure_s)
+    def render_sensor_frame(self):
         # Blob peaks at 0.4 of full scale at the initial 1e-3 s exposure.
-        gain = 0.4 * (self._adu - 1) / 1e-3
-        frame = np.clip(np.round(self._blob * gain * self._exposure), 0, self._adu - 1)
+        full_scale = self.max_pixel_value
+        gain = 0.4 * full_scale / 1e-3
+        frame = np.clip(
+            np.round(self._blob * gain * self.get_exposure()), 0, full_scale
+        )
         frame = frame.astype(float)
-        frame[0, 0] = self._adu - 1  # lone stuck pixel at saturation
+        frame[0, 0] = full_scale  # lone stuck pixel at saturation
         return frame
 
 
@@ -835,7 +858,7 @@ _DARK_STUCK_HIGH = (28, 28)
 _DARK_STUCK_LOW = (2, 2)
 
 
-class _SceneCamera(Camera):
+class _SceneCamera(CroppingCamera):
     """A central illuminated disk on a dark surround, with additive read noise on every
     frame and several pixels stuck at fixed values (see the module-level constants).
 
@@ -844,9 +867,12 @@ class _SceneCamera(Camera):
     """
 
     def __init__(self, adu_levels=256, saturating=False, seed=0):
-        self._adu = adu_levels
-        self._exposure = 1e-3
-        self._roi = ROI(0, 0, 32, 32)
+        super().__init__(
+            (32, 32),
+            max_pixel_value=adu_levels - 1,
+            exposure_bounds=(1e-4, 1.0),
+            exposure_s=1e-3,
+        )
         self._saturating = saturating
         self._noise = np.random.default_rng(seed)
         yy, xx = np.mgrid[0:32, 0:32] - 16
@@ -858,46 +884,19 @@ class _SceneCamera(Camera):
         self._stuck[_DARK_STUCK_HIGH] = 200
         self._stuck[_DARK_STUCK_LOW] = 10  # below the noise floor, indistinguishable
 
-    @property
-    def pixel_size(self):
-        return np.array([1e-6, 1e-6])
-
-    @property
-    def resolution(self):
-        return (32, 32)
-
-    @property
-    def max_pixel_value(self):
-        return self._adu - 1
-
-    @property
-    def exposure_bounds(self):
-        return (1e-4, 1.0)
-
-    @property
-    def roi(self):
-        return self._roi
-
-    def set_roi(self, roi):
-        self._roi = ROI(0, 0, 32, 32) if roi is None else roi
-
-    def get_exposure(self):
-        return self._exposure
-
-    def set_exposure(self, exposure_s):
-        lo, hi = self.exposure_bounds
-        self._exposure = float(min(max(exposure_s, lo), hi))
-
-    def get_image(self, exposure_s=None, averaging=1):
-        if exposure_s is not None:
-            self.set_exposure(exposure_s)
+    def render_sensor_frame(self):
         if self._saturating:
-            signal = 2.0 * self._adu  # well above the ceiling, so it clamps to max
+            signal = 2.0 * self.adu_levels  # above the ceiling, so it clamps to max
         else:
-            signal = 2e5 * self._exposure  # unsaturated when dim, saturates when bright
+            # Unsaturated when dim, saturates when bright.
+            signal = 2e5 * self.get_exposure()
         field = np.where(self._disk, signal, 0.0)
         frame = np.round(
-            np.clip(field + self._noise.normal(0, 4.0, field.shape), 0, self._adu - 1)
+            np.clip(
+                field + self._noise.normal(0, 4.0, field.shape),
+                0,
+                self.max_pixel_value,
+            )
         )
         for (row, col), stuck_value in self._stuck.items():
             frame[row, col] = float(stuck_value)  # stuck: exact value, no noise
@@ -925,54 +924,26 @@ def test_find_stuck_pixels_warns_on_overexposed_blob():
     assert (10, 10) not in found  # a plain saturated disk pixel is overexposure
 
 
-class _AutoDetectCamera(Camera):
+class _AutoDetectCamera(CroppingCamera):
     """A uniform field that saturates at the initial exposure, so autoexpose sweeps it
     down toward the target, capturing a wide exposure range, plus one dead pixel to find
     from those frames.
     """
 
     def __init__(self, adu_levels=256, seed=0):
-        self._adu = adu_levels
-        self._exposure = 1e-3  # starts saturated, autoexpose sweeps it down
-        self._roi = ROI(0, 0, 16, 16)
+        super().__init__(
+            (16, 16),
+            max_pixel_value=adu_levels - 1,
+            exposure_bounds=(1e-5, 1.0),
+            exposure_s=1e-3,  # starts saturated, autoexpose sweeps it down
+        )
         self._noise = np.random.default_rng(seed)
 
-    @property
-    def pixel_size(self):
-        return np.array([1e-6, 1e-6])
-
-    @property
-    def resolution(self):
-        return (16, 16)
-
-    @property
-    def max_pixel_value(self):
-        return self._adu - 1
-
-    @property
-    def exposure_bounds(self):
-        return (1e-5, 1.0)
-
-    @property
-    def roi(self):
-        return self._roi
-
-    def set_roi(self, roi):
-        self._roi = ROI(0, 0, 16, 16) if roi is None else roi
-
-    def get_exposure(self):
-        return self._exposure
-
-    def set_exposure(self, exposure_s):
-        lo, hi = self.exposure_bounds
-        self._exposure = float(min(max(exposure_s, lo), hi))
-
-    def get_image(self, exposure_s=None, averaging=1):
-        if exposure_s is not None:
-            self.set_exposure(exposure_s)
-        field = 5e5 * self._exposure  # saturates at 1e-3, unsaturated when swept down
-        noise = self._noise.normal(0, 3.0, self.resolution)
-        frame = np.round(np.clip(field + noise, 0, self._adu - 1))
+    def render_sensor_frame(self):
+        # Saturates at 1e-3, unsaturated when swept down.
+        field = 5e5 * self.get_exposure()
+        noise = self._noise.normal(0, 3.0, self.sensor_resolution)
+        frame = np.round(np.clip(field + noise, 0, self.max_pixel_value))
         frame[8, 8] = 0.0  # dead pixel
         return frame
 
@@ -1006,6 +977,25 @@ def test_find_stuck_pixels_needs_two_in_bounds_exposures():
     camera = _SceneCamera()
     with pytest.raises(ValueError, match="at least two exposures"):
         camera.find_stuck_pixels(exposures=[1e-3, 5.0])
+
+
+def test_detect_stuck_pixels_ignores_repeated_exposures():
+    """Two frames at one exposure have an exposure ratio of 1, so a stuck pixel keeps
+    its count and passes as responding. The repeat is dropped, and the pair at 100 us
+    and 100 ms finds every stuck pixel. Exposures closer than the response tolerance
+    cannot be compared at all.
+    """
+    camera = _SceneCamera()
+    exposures = [1e-4, 1e-4, 1e-1]
+    frames = np.stack(
+        [np.asarray(camera.get_image(exposure), dtype=float) for exposure in exposures]
+    )
+
+    found = set(camera._detect_stuck_pixels(frames, exposures))
+
+    assert found == _DISK_STUCK | {_DARK_STUCK_HIGH}
+    with pytest.raises(ValueError, match="two or more exposures"):
+        camera._detect_stuck_pixels(frames[:2], [1e-3, 1.1e-3])
 
 
 # --- CameraOrientation ----------------------------------------------------------
@@ -1071,6 +1061,38 @@ def test_a_camera_reports_the_orientation_it_was_built_with():
     assert rotated.orientation == CameraOrientation("90", fliplr=True)
 
 
+def test_orientation_matrix_maps_raw_pixels_to_the_displayed_frame():
+    """The matrix maps a pixel of the raw 240 x 320 sensor to its position in the
+    displayed frame. This holds in all eight orientations, the quarter turns included.
+    """
+    _, camera = _build()
+    raw_shape = (240, 320)
+    raw_pixels = [(0, 0), (17, 250), (239, 319), (100, 3), (239, 0)]
+    for orientation in CameraOrientation.dihedral():
+        camera.set_orientation(orientation)
+        matrix = camera.orientation_matrix()
+        for row, col in raw_pixels:
+            one_hot = np.zeros(raw_shape)
+            one_hot[row, col] = 1.0
+            ((shown_row, shown_col),) = np.argwhere(camera.transform(one_hot))
+            np.testing.assert_allclose(
+                matrix @ [col, row, 1.0], [shown_col, shown_row], atol=1e-9
+            )
+        assert camera.orientation == orientation
+
+
+def test_orientation_records_probed_on_either_shape_decode_alike():
+    """A matrix probed on the displayed shape and one probed on the raw shape name the
+    same orientation, so snapshots probed either way decode alike.
+    """
+    for orientation in CameraOrientation.dihedral():
+        for probed_shape in [(240, 320), (320, 240)]:
+            matrix = orientation.matrix(probed_shape)
+            for decoding_shape in [(240, 320), (320, 240)]:
+                decoded = CameraOrientation.from_matrix(matrix, decoding_shape)
+                assert decoded == orientation
+
+
 def test_set_orientation_swaps_the_displayed_shape_for_a_quarter_turn():
     """What the constructor does for a rotated mount, done later: the frame comes back
     transposed and the geometry follows it.
@@ -1082,7 +1104,7 @@ def test_set_orientation_swaps_the_displayed_shape_for_a_quarter_turn():
     camera.set_orientation(CameraOrientation("90"))
     assert camera.resolution == (320, 240)
     assert camera.shape == (320, 240)
-    assert camera.default_shape == (320, 240)
+    assert camera.sensor_resolution == (320, 240)
     assert camera.get_image().shape == (320, 240)
 
     # And back, which is the case a suggestion being adopted then undone would hit.
@@ -1102,7 +1124,7 @@ def test_a_snapshot_records_the_panel_and_derives_the_frame():
     camera.set_roi(ROI(10, 20, 60, 80))
     recorded = CameraData.from_camera(camera)
 
-    assert recorded.sensor_shape == (240, 320)
+    assert recorded.sensor_resolution == (240, 320)
     assert recorded.resolution == (60, 80)
     assert recorded.orientation_flags == CameraOrientation()
 
@@ -1126,10 +1148,81 @@ def test_set_orientation_resets_a_crop_from_the_old_frame():
     assert camera.roi == ROI(0, 0, 320, 240)
 
 
+def test_the_simulator_moves_excluded_pixels_with_the_sensor():
+    """An excluded pixel names a sensor pixel, so it is remapped to the position of
+    that pixel under the new mounting. The slmsuite adapter does the same.
+    """
+    _, camera = _build()
+    stuck = (17, 250)
+    camera.excluded_pixels = [stuck]
+
+    for orientation in [CameraOrientation("90"), CameraOrientation("180", True)]:
+        camera.set_orientation(orientation)
+        one_hot = np.zeros((240, 320))
+        one_hot[stuck] = 1.0
+        ((shown_row, shown_col),) = np.argwhere(orientation.transformation()(one_hot))
+        assert camera.excluded_pixels == [(int(shown_row), int(shown_col))]
+    camera.set_orientation(CameraOrientation())
+    assert camera.excluded_pixels == [stuck]
+
+
+def test_the_simulator_exchanges_its_pixel_pitch_under_a_quarter_turn():
+    _, camera = _build()
+
+    camera.set_orientation(CameraOrientation("90"))
+    np.testing.assert_allclose(camera.pixel_size, CAMERA_PIXEL_SIZE[::-1], rtol=1e-6)
+    x_grid, _ = camera.get_spatial_grid()
+    assert tuple(x_grid.shape) == (320, 240)
+
+    camera.set_orientation(CameraOrientation("180"))
+    np.testing.assert_allclose(camera.pixel_size, CAMERA_PIXEL_SIZE, rtol=1e-6)
+
+
+def test_the_simulated_camera_reports_overexposure_on_either_path():
+    _, camera = _build()
+    exposure = camera.autoexpose(raise_on_rail=False)
+
+    camera.get_image_tensor()
+    assert not camera.overexposed
+
+    camera.set_exposure(10 * exposure)
+    camera.get_image_tensor()
+    assert camera.overexposed
+    camera.get_image()
+    assert camera.overexposed
+    camera.get_image_tensor(mask=np.zeros(camera.resolution, dtype=bool))
+    assert not camera.overexposed
+
+
+def test_simulated_camera_clips_exposure_to_its_bounds():
+    """Into the default bounds of (0, 1) s, with a warning, as slmsuite's cameras do."""
+    _, camera = _build()
+
+    with pytest.warns(UserWarning, match="outside the camera's bounds"):
+        camera.set_exposure(2.0)
+    assert camera.get_exposure() == 1.0
+
+    with pytest.warns(UserWarning, match="outside the camera's bounds"):
+        camera.set_exposure(-1.0)
+    assert camera.get_exposure() == 0.0
+
+
+def test_simulated_camera_rejects_an_off_frame_roi():
+    _, camera = _build()
+    kept = ROI(10, 20, 30, 40)
+    camera.set_roi(kept)
+
+    for region in [ROI(-1, 0, 4, 4), ROI(0, 0, 241, 320), ROI(0, 0, 0, 4)]:
+        with pytest.raises(ValueError, match="does not lie inside"):
+            camera.set_roi(region)
+        assert camera.roi == kept
+
+
 def test_a_camera_that_cannot_be_reoriented_says_so():
     class _Fixed(Camera):
         pixel_size = np.array([1.0, 1.0])
         resolution = (4, 4)
+        sensor_resolution = (4, 4)
         max_pixel_value = 255
         exposure_bounds = None
         roi = ROI(0, 0, 4, 4)
@@ -1137,7 +1230,7 @@ def test_a_camera_that_cannot_be_reoriented_says_so():
         def set_roi(self, roi): ...
         def get_exposure(self): return 0.0
         def set_exposure(self, exposure_s): ...
-        def get_image(self, exposure_s=None, averaging=1):
+        def _get_image(self, exposure=None, averaging=1):
             return np.zeros((4, 4))
 
     camera = _Fixed()
@@ -1270,13 +1363,15 @@ def test_only_the_phase_of_a_measurement_is_kept() -> None:
     )
 
 
-def test_a_vendor_correction_moves_the_level_it_says() -> None:
-    """Vendors ship gray levels, calibrated against their own curve, so it is added
-    after the conversion. Converting it through our response first would re-interpret
-    their numbers, and under a measured curve would land somewhere else entirely.
+def test_a_vendor_correction_moves_the_phase_it_says() -> None:
+    """A vendor correction is read on the nominal scale, where 256 levels make one
+    cycle. It is added as a phase before the response converts the phase to a level.
+    Under a measured curve, the corrected level therefore comes from the curve and
+    differs from the uncorrected level plus the same number of levels.
     """
+    response = _s_curve()
     slm = _slm_at(8)
-    slm.virtual_slm.phase_response = PhaseResponseModule(_s_curve())
+    slm.load_phase_response(response)
     phase = np.full(slm.resolution, -2.0)
 
     slm.set_phase(phase)
@@ -1284,7 +1379,10 @@ def test_a_vendor_correction_moves_the_level_it_says() -> None:
     slm.load_vendor_correction(np.full(slm.resolution, 7, dtype=np.uint8))
     slm.set_phase(phase, apply_vendor_correction=True)
 
-    assert int(slm.display[0, 0]) == (plain + 7) % 256
+    corrected = response.display_levels(np.array([-2.0 - 2 * np.pi * 7 / 256]))
+    assert int(slm.display[0, 0]) == int(corrected[0])
+    # On this curve, seven nominal levels of phase move the level by five.
+    assert int(slm.display[0, 0]) != (plain + 7) % 256
 
 
 def test_a_vendor_correction_wraps_rather_than_clipping() -> None:
@@ -1304,8 +1402,6 @@ def test_a_capture_carries_the_corrections_themselves() -> None:
     """Not a name for them. A dataset is reinterpreted long after the file a name points
     at has moved, and by then only the numbers are any use.
     """
-    from hologradpy.hardware.slm.abstract import SLMData
-
     slm, aberration, measured = _aberrated_slm()
     assert SLMData.from_slm(slm).phase_correction is None
 
@@ -1318,3 +1414,827 @@ def test_a_capture_carries_the_corrections_themselves() -> None:
         recorded.phase_correction, -np.asarray(aberration), atol=1e-5
     )
     np.testing.assert_array_equal(recorded.vendor_correction, vendor)
+
+
+def test_a_vendor_correction_wraps_at_the_slms_full_cycle() -> None:
+    """An SLM reaching one cycle at level 200 wraps a corrected phase there, not at
+    256. Level 180 is 0.9 cycle, a correction of 100 nominal levels adds 0.39 cycle,
+    and the sum wraps to 0.29 cycle, which is level 58.
+    """
+    raw = _raw_slm()
+    slm = as_slm(raw)
+    slm.load_phase_response(LinearResponse(bitdepth=8, phase_scaling=256 / 200))
+    slm.load_vendor_correction(np.full(slm.resolution, 100, dtype=np.uint8))
+    phase = np.full(slm.resolution, -2 * np.pi * 0.9)
+
+    slm.set_phase(phase, apply_vendor_correction=False)
+    assert np.all(raw.written == 180)
+    slm.set_phase(phase)
+    assert np.all(raw.written == 58)
+
+
+def test_a_vendor_correction_adds_whole_levels_under_the_nominal_response() -> None:
+    """Where 256 levels make one cycle, a correction of ``V`` levels moves every pixel
+    by ``V`` levels, wrapped at 256.
+    """
+    raw = _raw_slm()
+    slm = as_slm(raw)
+    rng = np.random.default_rng(7)
+    phase = rng.uniform(-20.0, 20.0, slm.resolution)
+    vendor = rng.integers(0, 256, slm.resolution, dtype=np.uint8)
+
+    slm.set_phase(phase)
+    plain = raw.written.astype(np.int64)
+    slm.load_vendor_correction(vendor)
+    slm.set_phase(phase)
+
+    np.testing.assert_array_equal(raw.written, (plain + vendor) % 256)
+
+
+def test_a_loaded_vendor_correction_applies_by_default() -> None:
+    """A vendor correction describes the SLM, so once loaded it reaches every phase
+    unless a caller turns it off.
+    """
+    raw = _raw_slm()
+    slm = as_slm(raw)
+    phase = np.random.default_rng(8).uniform(-20.0, 20.0, slm.resolution)
+    slm.set_phase(phase)
+    plain = raw.written.astype(np.int64)
+
+    slm.load_vendor_correction(np.full(slm.resolution, 7, dtype=np.uint8))
+    slm.set_phase(phase)
+    np.testing.assert_array_equal(raw.written, (plain + 7) % 256)
+
+    slm.set_phase(phase, apply_vendor_correction=False)
+    np.testing.assert_array_equal(raw.written, plain)
+
+
+def test_a_phase_that_is_not_finite_or_real_is_refused() -> None:
+    """A NaN or infinite phase has no level, and a complex array is a field, so each
+    raises before anything reaches the SLM.
+    """
+    slm = _slm_at(8)
+    slm.set_phase(np.full(slm.resolution, 1.0))
+    before = slm.display.copy()
+
+    for bad_value in (np.nan, np.inf):
+        phase = np.zeros(slm.resolution)
+        phase[3, 4] = bad_value
+        with pytest.raises(ValueError, match="NaN or infinite at 1 of"):
+            slm.set_phase(phase)
+        np.testing.assert_array_equal(slm.display, before)
+
+    field = np.exp(1j * np.ones(slm.resolution))
+    with pytest.raises(TypeError, match="real phase"):
+        slm.set_phase(field)
+    np.testing.assert_array_equal(slm.display, before)
+
+
+def test_a_complex_array_correction_keeps_only_its_phase() -> None:
+    angle = np.random.default_rng(9).uniform(-3.0, 3.0, (32, 48))
+    slm = _slm_at(8)
+
+    slm.load_phase_correction(np.exp(1j * angle))
+    assert np.isrealobj(slm.phase_correction)
+    np.testing.assert_allclose(slm.phase_correction, angle)
+
+    slm.load_measured_wavefront(np.exp(1j * angle))
+    assert np.isrealobj(slm.phase_correction)
+    np.testing.assert_allclose(slm.phase_correction, -angle)
+
+
+def test_a_correction_that_is_not_finite_or_whole_is_refused() -> None:
+    slm = _slm_at(8)
+    correction = np.zeros(slm.resolution)
+    correction[3, 4] = np.nan
+
+    with pytest.raises(ValueError, match="NaN or infinite at 1 of"):
+        slm.load_phase_correction(correction)
+    with pytest.raises(TypeError, match="whole gray levels"):
+        slm.load_vendor_correction(np.full(slm.resolution, 7.0))
+    assert slm.phase_correction is None
+    assert slm.vendor_correction is None
+
+
+# --- The SLM contract: settle and display ---------------------------------------
+
+
+def test_the_adapter_waits_settle_time_after_each_write(virtual_clock) -> None:
+    """The wrapped SLM sleeps only for a write made with ``settle=True``. Its own
+    ``settle`` flag is off, so the adapter passes ``settle=True`` on every write.
+    """
+    raw = _raw_slm()
+    slm = as_slm(raw)
+    slm.settle_time = 0.05
+    assert raw.settle is False
+
+    slm.set_phase(np.zeros(slm.resolution))
+    assert virtual_clock.now == pytest.approx(0.05)
+    slm.set_levels(np.zeros(slm.resolution, dtype=np.uint8))
+    assert virtual_clock.now == pytest.approx(0.10)
+
+    assert raw.settle_time_s == 0.05
+    assert "settle_time" not in vars(slm)
+    assert SLMData.from_slm(slm).settle_time == 0.05
+
+
+def test_settle_time_comes_from_the_driver() -> None:
+    slm = open_slm(
+        _RawSlm,
+        resolution=(6, 4),
+        bitdepth=8,
+        wav_um=0.5,
+        pitch_um=(12.5, 12.5),
+        settle_time_s=0.2,
+    )
+    assert slm.settle_time == 0.2
+    assert SLMData.from_slm(slm).settle_time == 0.2
+
+
+@pytest.mark.parametrize("seconds", [-0.1, float("nan"), float("inf")])
+def test_a_settle_time_below_zero_is_refused(seconds: float) -> None:
+    """A negative or non-finite wait is refused before it reaches slmsuite, which
+    sleeps only after the SLM has already changed.
+    """
+    raw = _raw_slm(settle_time_s=0.2)
+    slm = as_slm(raw)
+
+    with pytest.raises(ValueError, match="finite number of zero or more"):
+        slm.settle_time = seconds
+    assert raw.settle_time_s == 0.2
+
+
+def test_the_simulator_never_sleeps(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The simulated SLM shows a pattern at once and only records its settle time."""
+    sleeps: list[float] = []
+    monkeypatch.setattr(time, "sleep", sleeps.append)
+    sim = _slm_at(8, settle_time=0.3)
+
+    sim.set_phase(np.zeros(sim.resolution))
+
+    assert sleeps == []
+    assert SLMData.from_slm(sim).settle_time == 0.3
+
+
+def test_the_adapters_report_the_name_of_the_device() -> None:
+    """The records of an SLM and a camera take the name the driver was opened with."""
+    from hologradpy.hardware.camera.abstract import CameraData
+
+    slm = as_slm(_raw_slm(name="bench slm"))
+    camera = as_camera(_raw_camera(name="bench camera"))
+
+    assert slm.name == "bench slm"
+    assert SLMData.from_slm(slm).name == "bench slm"
+    assert camera.name == "bench camera"
+    assert CameraData.from_camera(camera).name == "bench camera"
+
+
+def test_closing_the_adapter_closes_the_slm(monkeypatch: pytest.MonkeyPatch) -> None:
+    raw = _raw_slm()
+    closes: list[bool] = []
+    monkeypatch.setattr(raw, "close", lambda: closes.append(True))
+
+    as_slm(raw).close()
+
+    assert closes == [True]
+
+
+def test_the_adapter_reports_what_the_slm_shows() -> None:
+    raw = _raw_slm()
+    slm = as_slm(raw)
+    levels = np.random.default_rng(10).integers(0, 256, slm.resolution, dtype=np.uint8)
+
+    slm.set_levels(levels)
+
+    assert slm.display is raw.display
+    np.testing.assert_array_equal(slm.display, levels)
+
+
+def test_a_native_slm_has_settle_and_display_defaults() -> None:
+    device = _BareSlm()
+    assert device.settle_time == 0.0
+    assert device.display is None
+    assert SLMData.from_slm(device).settle_time == 0.0
+
+
+# --- The SLM contract: levels ---------------------------------------------------
+
+
+_LEVEL_TYPES = {
+    "int64": lambda values: values.astype(np.int64),
+    "uint16": lambda values: values.astype(np.uint16),
+    "torch int64": lambda values: torch.as_tensor(values, dtype=torch.int64),
+    "cuda int64": lambda values: torch.as_tensor(
+        values, dtype=torch.int64, device="cuda"
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "level_type",
+    [
+        pytest.param(
+            name,
+            marks=pytest.mark.skipif(
+                name.startswith("cuda") and not torch.cuda.is_available(),
+                reason="No CUDA device.",
+            ),
+        )
+        for name in _LEVEL_TYPES
+    ],
+)
+def test_the_adapter_hands_slmsuite_its_display_dtype(level_type: str) -> None:
+    """The integer path of slmsuite takes only its own dtype, so whole levels of any
+    integer type are cast to it.
+    """
+    raw = _raw_slm()
+    slm = as_slm(raw)
+    values = np.random.default_rng(11).integers(0, 256, slm.resolution)
+
+    slm.set_levels(_LEVEL_TYPES[level_type](values))
+
+    assert raw.written.dtype == np.uint8
+    np.testing.assert_array_equal(raw.written, values)
+
+
+_REFUSED_LEVELS = {
+    "256 as uint16": (lambda shape: np.full(shape, 256, dtype=np.uint16), ValueError),
+    "-1 as int64": (lambda shape: np.full(shape, -1, dtype=np.int64), ValueError),
+    "floats": (lambda shape: np.full(shape, 10.0), TypeError),
+    "larger": (
+        lambda shape: np.zeros((shape[0] + 1, shape[1] + 1), dtype=np.uint8),
+        ValueError,
+    ),
+    "smaller": (
+        lambda shape: np.zeros((shape[0] - 1, shape[1]), dtype=np.uint8),
+        ValueError,
+    ),
+}
+
+
+@pytest.mark.parametrize("case", list(_REFUSED_LEVELS))
+@pytest.mark.parametrize("device", ["adapter", "simulator"])
+def test_levels_the_slm_cannot_show_are_refused(device: str, case: str) -> None:
+    """The hardware and the simulator refuse the same levels, before anything is
+    written.
+    """
+    raw = _raw_slm()
+    slm = as_slm(raw) if device == "adapter" else _slm_at(8)
+    slm.set_levels(np.full(slm.resolution, 5, dtype=np.uint8))
+    before = slm.display.copy()
+    raw.written = None
+
+    make_levels, error = _REFUSED_LEVELS[case]
+    with pytest.raises(error):
+        slm.set_levels(make_levels(slm.resolution))
+
+    np.testing.assert_array_equal(slm.display, before)
+    assert raw.written is None
+
+
+def test_the_adapter_and_the_simulator_show_the_same_levels() -> None:
+    sim = _slm_at(8)
+    height, width = sim.resolution
+    slm = as_slm(
+        _RawSlm(
+            resolution=(width, height),
+            bitdepth=8,
+            wav_um=WAVELENGTH * 1e6,
+            pitch_um=(SLM_PITCH * 1e6, SLM_PITCH * 1e6),
+        )
+    )
+    phase = np.random.default_rng(12).uniform(-20.0, 20.0, sim.resolution)
+
+    sim.set_phase(phase)
+    slm.set_phase(phase)
+
+    np.testing.assert_array_equal(slm.display, sim.display)
+
+
+# --- The SLM contract: phase response -------------------------------------------
+
+
+def test_the_adapter_reads_the_design_wavelength() -> None:
+    """An SLM used below its design wavelength reaches more than one cycle. The number
+    of cycles is the reciprocal of slmsuite's own ``phase_scaling``.
+    """
+    raw = _raw_slm(wav_um=0.5, wav_design_um=0.7)
+    slm = as_slm(raw)
+
+    assert slm.phase_response.bitdepth == 8
+    assert slm.phase_scaling == pytest.approx(1.4)
+    assert slm.phase_scaling == pytest.approx(1 / raw.phase_scaling)
+    assert as_slm(_raw_slm(wav_um=0.5)).phase_response == LinearResponse(bitdepth=8)
+
+
+def test_a_loaded_phase_response_drives_the_levels() -> None:
+    """A response reaching one cycle at level 200 converts every later phase, and every
+    record or model built afterwards carries it.
+    """
+    raw = _raw_slm()
+    slm = as_slm(raw)
+    response = LinearResponse(bitdepth=8, phase_scaling=256 / 200)
+
+    slm.load_phase_response(response)
+    slm.set_phase(np.full(slm.resolution, -2 * np.pi * 0.75))
+
+    assert np.all(raw.written == 150)
+    assert SLMData.from_slm(slm).phase_response == response
+    assert VirtualSLM.from_slm(slm).phase_scaling == pytest.approx(1.28)
+
+    slm.load_phase_response(None)
+    assert slm.phase_response == LinearResponse(bitdepth=8)
+
+
+def test_a_phase_response_the_slm_cannot_use_is_refused() -> None:
+    for slm in (as_slm(_raw_slm()), _slm_at(8)):
+        with pytest.raises(ValueError, match="12-bit"):
+            slm.load_phase_response(LinearResponse(bitdepth=12))
+        with pytest.raises(TypeError, match="PhaseResponseModule"):
+            slm.load_phase_response(PhaseResponseModule(LinearResponse(bitdepth=8)))
+        assert slm.phase_response == LinearResponse(bitdepth=8)
+
+    with pytest.raises(ValueError, match="no bitdepth"):
+        _BareSlm().load_phase_response(LinearResponse(bitdepth=8))
+
+
+def test_loading_a_response_on_the_simulator_keeps_its_levels() -> None:
+    """A hardware SLM keeps showing its levels when a new response is loaded, so the
+    simulated SLM does too. The phase of those levels follows the new response.
+    """
+    sim = _slm_at(8)
+    sim.set_levels(np.full(sim.resolution, 100, dtype=np.uint8))
+    curve = _s_curve()
+
+    sim.load_phase_response(curve)
+
+    assert np.all(sim.display == 100)
+    assert float(sim.virtual_slm.get_phase()[0, 0]) == pytest.approx(curve.phases[100])
+    assert sim.phase_response is curve
+
+
+# --- The SLM contract: state shared on the device -------------------------------
+
+
+def test_every_adapter_of_one_slm_shares_what_was_loaded() -> None:
+    """Each consumer coerces the SLM passed to it into an adapter of its own, so
+    everything loaded is kept on the SLM itself.
+    """
+    raw = _raw_slm()
+    vendor = np.full(raw.shape, 3, dtype=np.uint8)
+    response = LinearResponse(bitdepth=8, phase_scaling=256 / 200)
+
+    as_slm(raw).load_vendor_correction(vendor)
+    as_slm(raw).load_phase_response(response)
+
+    np.testing.assert_array_equal(as_slm(raw).vendor_correction, vendor)
+    assert SLMSuiteSLMAdapter(raw).phase_response == response
+    copied = copy.copy(as_slm(raw))
+    assert copied.vendor_correction is as_slm(raw).vendor_correction
+
+
+def test_dropping_the_slm_closes_it_at_once() -> None:
+    """Nothing on the SLM refers back to an adapter, so dropping the last reference
+    closes it without the garbage collector. A driver whose SDK holds one device at a
+    time can then open it again straight away.
+    """
+    closed: list[bool] = []
+
+    class _ClosingSlm(_RawSlm):
+        def close(self):
+            closed.append(True)
+
+    gc.disable()
+    try:
+        raw = _ClosingSlm(
+            resolution=(6, 4), bitdepth=8, wav_um=0.5, pitch_um=(12.5, 12.5)
+        )
+        as_slm(raw).load_vendor_correction(np.zeros(raw.shape, dtype=np.uint8))
+        as_slm(raw).set_phase(np.zeros(raw.shape))
+        reference = weakref.ref(raw)
+        del raw
+
+        assert reference() is None
+        assert closed == [True]
+    finally:
+        gc.enable()
+
+
+# --- set_resolution: an SLM smaller than the wrapped SLM ------------------------
+
+
+def test_a_smaller_resolution_pads_each_pattern_at_the_top_left() -> None:
+    """The SLM is the top left of the wrapped SLM, and the rows and columns past it
+    show level zero.
+    """
+    raw = _raw_slm()
+    slm = as_slm(raw)
+    slm.set_resolution((3, 4))
+    levels = np.random.default_rng(13).integers(1, 256, (3, 4), dtype=np.uint8)
+
+    slm.set_levels(levels)
+
+    assert slm.resolution == (3, 4)
+    assert raw.written.shape == (4, 6)
+    np.testing.assert_array_equal(raw.written[:3, :4], levels)
+    assert not raw.written[3:, :].any()
+    assert not raw.written[:, 4:].any()
+    np.testing.assert_array_equal(slm.display, levels)
+
+    slm.set_resolution(None)
+    assert slm.resolution == (4, 6)
+    assert slm.display is raw.display
+
+
+def test_a_resolution_larger_than_the_frame_is_refused() -> None:
+    slm = as_slm(_raw_slm())
+
+    for resolution in [(5, 6), (4, 7)]:
+        with pytest.raises(ValueError, match="does not fit"):
+            slm.set_resolution(resolution)
+    with pytest.raises(ValueError, match="two positive sizes"):
+        slm.set_resolution((0, 6))
+    assert slm.resolution == (4, 6)
+
+
+def test_a_correction_at_another_shape_blocks_a_new_resolution() -> None:
+    """A correction is per pixel, so a loaded correction holds the resolution at its
+    own shape.
+    """
+    slm = as_slm(_raw_slm())
+    slm.set_resolution((3, 4))
+    slm.load_vendor_correction(np.zeros((3, 4), dtype=np.uint8))
+    for resolution in [(2, 4), None]:
+        with pytest.raises(ValueError, match="vendor correction"):
+            slm.set_resolution(resolution)
+    assert slm.resolution == (3, 4)
+
+    whole = as_slm(_raw_slm())
+    whole.load_phase_correction(np.zeros((4, 6)))
+    with pytest.raises(ValueError, match="phase correction"):
+        whole.set_resolution((3, 4))
+    whole.set_resolution((4, 6))
+    assert whole.resolution == (4, 6)
+
+
+def test_a_phase_is_converted_at_the_set_resolution() -> None:
+    """Everything that reads the SLM's shape reads the set resolution: the conversion,
+    the grid, the record and a model built from the SLM.
+    """
+    raw = _raw_slm(resolution=(8, 5))
+    slm = as_slm(raw)
+    slm.set_resolution((4, 6))
+    phase = np.random.default_rng(14).uniform(-20.0, 20.0, (4, 6))
+
+    slm.set_phase(phase)
+    np.testing.assert_array_equal(slm.display, slm.phase_to_levels(phase))
+    with pytest.raises(ValueError, match="per pixel"):
+        slm.set_phase(np.zeros(raw.shape))
+
+    grid_x, grid_y = slm.get_spatial_grid()
+    assert tuple(grid_x.shape) == tuple(grid_y.shape) == (4, 6)
+    assert SLMData.from_slm(slm).resolution == (4, 6)
+
+    virtual = VirtualSLM.from_slm(slm)
+    virtual.initialize_for_slm_plane(
+        FieldGeometry(
+            resolution=slm.resolution,
+            pixel_size=torch.tensor(slm.pixel_size.tolist()),
+            wavelength=torch.tensor(slm.wavelength),
+        )
+    )
+    virtual.set_levels(slm.display, slm.bitdepth)
+    assert virtual.slm_resolution == (4, 6)
+    np.testing.assert_array_equal(
+        virtual.phase_to_levels(virtual.get_phase(), slm.bitdepth), slm.display
+    )
+
+
+def test_every_adapter_of_one_slm_shares_its_resolution() -> None:
+    raw = _raw_slm()
+    as_slm(raw).set_resolution((3, 4))
+
+    assert as_slm(raw).resolution == (3, 4)
+    assert SLMSuiteSLMAdapter(raw).resolution == (3, 4)
+    as_slm(raw).set_levels(np.ones((3, 4), dtype=np.uint8))
+    assert raw.written.shape == (4, 6)
+
+
+# --- The slmsuite camera adapter ------------------------------------------------
+
+# A non-square raw sensor of (height, width) = (5, 8) with a distinct count at every
+# pixel, so a flip, a turn or a crop in the wrong place changes the frame. Its pitch is
+# (x, y) = (5, 7) um, so a swap of the pixel size shows.
+_RAW_SENSOR_RESOLUTION = (5, 8)
+
+
+def _raw_camera(**options) -> _RawCamera:
+    """A raw 8-bit slmsuite camera with a (5, 8) sensor, with ``options`` overriding
+    any constructor argument.
+    """
+    arguments = dict(resolution=(8, 5), bitdepth=8, pitch_um=(5.0, 7.0))
+    arguments.update(options)
+    return _RawCamera(**arguments)
+
+
+def _raw_orientation_id(orientation: CameraOrientation) -> str:
+    return f"rot{orientation.rot}" + ("-fliplr" if orientation.fliplr else "")
+
+
+def test_every_adapter_of_one_camera_shares_its_settings() -> None:
+    """Each consumer coerces the camera passed to it into an adapter of its own, so
+    the settings are kept on the camera itself.
+    """
+    raw = _raw_camera()
+    assert as_camera(raw).frame_timeout_s == 1.0
+
+    as_camera(raw).set_roi(ROI(1, 2, 3, 4))
+    as_camera(raw).excluded_pixels = [(0, 1)]
+    as_camera(raw).frame_timeout_s = 2.5
+
+    assert as_camera(raw).roi == ROI(1, 2, 3, 4)
+    assert SLMSuiteCameraAdapter(raw).excluded_pixels == [(0, 1)]
+    assert as_camera(raw).frame_timeout_s == 2.5
+    copied = copy.copy(as_camera(raw))
+    assert copied.roi == ROI(1, 2, 3, 4)
+    assert as_camera(_raw_camera()).roi == ROI(0, 0, *_RAW_SENSOR_RESOLUTION)
+
+
+def test_dropping_the_camera_closes_it_at_once() -> None:
+    """Nothing on the camera refers back to an adapter, so dropping the last reference
+    closes it without the garbage collector, and the SDK can open it again straight
+    away.
+    """
+    closed: list[bool] = []
+
+    class _ClosingCamera(_RawCamera):
+        def close(self):
+            closed.append(True)
+
+    gc.disable()
+    try:
+        raw = _ClosingCamera(resolution=(8, 5), bitdepth=8, pitch_um=(5.0, 7.0))
+        as_camera(raw).set_roi(ROI(0, 0, 2, 2))
+        as_camera(raw).excluded_pixels = [(1, 1)]
+        as_camera(raw).get_image()
+        reference = weakref.ref(raw)
+        del raw
+
+        assert reference() is None
+        assert closed == [True]
+    finally:
+        gc.enable()
+
+
+def test_max_pixel_value_ignores_slmsuite_averaging() -> None:
+    """The ``bitresolution`` of slmsuite grows with its ``averaging`` setting, which
+    the frames of the adapter do not use.
+    """
+    raw = _raw_camera(bitdepth=10)
+    raw.averaging = 4
+
+    assert as_camera(raw).max_pixel_value == 1023
+    assert as_camera(raw).adu_levels == 1024
+
+
+def test_get_image_takes_single_frames_whatever_slmsuite_defaults_say() -> None:
+    raw = _raw_camera()
+    raw.averaging = 4
+    raw.hdr = 2
+
+    frame = as_camera(raw).get_image()
+
+    assert raw.capture_calls == 1
+    assert frame.dtype == np.uint16
+    np.testing.assert_array_equal(frame, raw._sensor)
+
+
+def test_averaging_sums_frames_inside_a_region_of_interest() -> None:
+    raw = _RawCamera(resolution=(20, 30), bitdepth=8, pitch_um=(5.0, 7.0))
+    whole_sensor_window = raw.woi
+    camera = as_camera(raw)
+    region = ROI(3, 5, 4, 8)
+    camera.set_roi(region)
+
+    summed = camera.get_image(averaging=3)
+
+    assert summed.shape == (4, 8)
+    assert summed.dtype == np.float64
+    np.testing.assert_array_equal(summed, 3.0 * region.crop(raw._sensor))
+    assert raw.capture_calls == 3
+    assert raw.woi == whole_sensor_window
+
+
+@pytest.mark.parametrize(
+    "orientation", CameraOrientation.dihedral(), ids=_raw_orientation_id
+)
+def test_every_orientation_reports_the_frame_it_returns(
+    orientation: CameraOrientation,
+) -> None:
+    """The frame, the resolution, the sensor resolution and the pixel size all follow
+    the orientation, and returning to the identity restores them.
+    """
+    raw = _raw_camera()
+    camera = as_camera(raw)
+
+    camera.set_orientation(orientation)
+
+    shown = orientation.transformation()(raw._sensor)
+    np.testing.assert_array_equal(camera.get_image(), shown)
+    assert camera.resolution == shown.shape
+    assert camera.sensor_resolution == shown.shape
+    assert camera.get_image(averaging=2).shape == shown.shape
+    assert camera.orientation == orientation
+    expected_pixel_size = (5e-6, 7e-6) if orientation.swaps_axes() else (7e-6, 5e-6)
+    np.testing.assert_allclose(camera.pixel_size, expected_pixel_size)
+
+    camera.set_orientation(CameraOrientation())
+    np.testing.assert_array_equal(camera.get_image(), raw._sensor)
+    assert camera.resolution == _RAW_SENSOR_RESOLUTION
+    np.testing.assert_allclose(camera.pixel_size, (7e-6, 5e-6))
+
+
+def test_a_region_of_interest_crops_the_displayed_frame() -> None:
+    raw = _raw_camera()
+    camera = as_camera(raw)
+    orientation = CameraOrientation("90", fliplr=True)
+    camera.set_orientation(orientation)
+    region = ROI(2, 1, 5, 4)
+
+    camera.set_roi(region)
+
+    np.testing.assert_array_equal(
+        camera.get_image(), region.crop(orientation.transformation()(raw._sensor))
+    )
+    assert camera.resolution == (5, 4)
+
+
+def test_a_region_off_the_frame_is_refused() -> None:
+    camera = as_camera(_raw_camera())
+    height, width = _RAW_SENSOR_RESOLUTION
+    kept = ROI(1, 1, 2, 2)
+    camera.set_roi(kept)
+
+    for region in [
+        ROI(-1, 0, 2, 2),
+        ROI(0, -1, 2, 2),
+        ROI(0, 0, height + 1, width),
+        ROI(0, 1, height, width),
+        ROI(0, 0, 0, 4),
+    ]:
+        with pytest.raises(ValueError, match="does not lie inside"):
+            camera.set_roi(region)
+        assert camera.roi == kept
+
+    camera.set_roi(ROI(0, 0, height, width))
+    assert camera.roi == ROI(0, 0, height, width)
+
+
+def test_a_driver_without_a_readout_window_can_be_reoriented() -> None:
+    """The base ``set_woi`` of slmsuite raises ``NotImplementedError``, and the
+    adapter never calls it.
+    """
+
+    class _WindowlessCamera(_RawCamera):
+        def set_woi(self, woi=None):
+            raise NotImplementedError()
+
+    raw = _WindowlessCamera(resolution=(8, 5), bitdepth=8, pitch_um=(5.0, 7.0))
+    camera = as_camera(raw)
+
+    camera.set_orientation(CameraOrientation("90"))
+
+    assert tuple(raw.shape) == tuple(raw.default_shape) == (8, 5)
+    assert camera.orientation == CameraOrientation("90")
+    assert camera.resolution == (8, 5)
+    assert camera.get_image().shape == (8, 5)
+
+
+def test_excluded_pixels_follow_the_sensor_when_reoriented() -> None:
+    """A stuck pixel belongs to the sensor, so it stays excluded at its position in the
+    new frame. Autoexposure indexes the new frame without running off it.
+    """
+    raw = _raw_camera()
+    camera = as_camera(raw)
+    stuck = (4, 7)
+    camera.excluded_pixels = [stuck]
+    stuck_count = camera.get_image()[stuck]
+
+    camera.set_orientation(CameraOrientation("90"))
+
+    (moved,) = camera.excluded_pixels
+    assert moved != stuck
+    assert camera.get_image()[moved] == stuck_count
+    camera.autoexpose(raise_on_rail=False, max_iterations=1)
+
+
+def test_reorient_pixels_follows_every_sensor_pixel() -> None:
+    """For every pair of the eight orientations, each pixel maps to the position of the
+    same sensor pixel in the target frame. Mapping back returns the original pixel.
+    """
+    raw_shape = (3, 5)
+    sensor = np.arange(15).reshape(raw_shape)
+    every = CameraOrientation.dihedral()
+    for source in every:
+        shown_by_source = source.transformation()(sensor)
+        pixels = [tuple(index) for index in np.ndindex(shown_by_source.shape)]
+        for target in every:
+            shown_by_target = target.transformation()(sensor)
+            mapped = reorient_pixels(pixels, raw_shape, source, target)
+            for pixel, mapped_pixel in zip(pixels, mapped):
+                assert shown_by_target[mapped_pixel] == shown_by_source[pixel]
+            assert reorient_pixels(mapped, raw_shape, target, source) == pixels
+    assert reorient_pixels([], raw_shape, every[0], every[1]) == []
+
+
+@pytest.mark.parametrize(
+    "orientation",
+    [CameraOrientation(), CameraOrientation("180")],
+    ids=["rot0", "rot180"],
+)
+def test_a_missing_frame_raises_timeout(orientation: CameraOrientation) -> None:
+    """A driver returns None for a frame that did not arrive. The adapter raises
+    ``TimeoutError`` once every attempt has returned None, and it never passes None to
+    the transform.
+    """
+    raw = _raw_camera()
+    camera = as_camera(raw)
+    camera.set_orientation(orientation)
+    raw.capture_attempts = 3
+    raw.missing_frames = 10
+
+    with pytest.raises(TimeoutError, match="no frame in 3 attempt"):
+        camera.get_image()
+    assert raw.capture_calls == 3
+
+
+def test_a_late_frame_is_captured_again_with_a_warning() -> None:
+    raw = _raw_camera()
+    camera = as_camera(raw)
+    raw.missing_frames = 2
+
+    with pytest.warns(UserWarning, match="returned no frame 2 time"):
+        frame = camera.get_image()
+
+    np.testing.assert_array_equal(frame, raw._sensor)
+    assert raw.capture_calls == 3
+
+
+def test_each_capture_flushes_the_driver_before_its_first_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The driver's own ``flush`` drops the held frames. Every frame returned or summed
+    by a call was therefore exposed after the call.
+    """
+    raw = _raw_camera()
+    captures_at_flush: list[int] = []
+    monkeypatch.setattr(
+        raw, "flush", lambda timeout_s=1: captures_at_flush.append(raw.capture_calls)
+    )
+    camera = as_camera(raw)
+
+    camera.get_image()
+    camera.get_image(averaging=3)
+
+    assert captures_at_flush == [0, 1]
+    assert raw.capture_calls == 4
+
+
+def test_a_frame_of_another_shape_raises() -> None:
+    """A readout window or a binning set directly on the driver changes the frame
+    under the adapter. The adapter crops the whole frame.
+    """
+    raw = _raw_camera()
+    camera = as_camera(raw)
+    raw.set_woi((0, 4, 0, 3))
+    with pytest.raises(RuntimeError, match="readout window"):
+        camera.get_image()
+
+    class _BinningCamera(_RawCamera):
+        def _get_image_hw(self, timeout_s=None):
+            return super()._get_image_hw(timeout_s)[::2, ::2]
+
+    binned = as_camera(
+        _BinningCamera(resolution=(8, 5), bitdepth=8, pitch_um=(5.0, 7.0))
+    )
+    with pytest.raises(RuntimeError, match="Binning"):
+        binned.get_image()
+
+
+def test_a_camera_without_a_pixel_pitch_says_so() -> None:
+    with pytest.raises(ValueError, match="pixel pitch"):
+        pixel_size_from_pitch_um(None)
+    with pytest.raises(ValueError, match="pixel pitch"):
+        as_camera(_raw_camera(pitch_um=None)).pixel_size
+
+
+def test_closing_the_adapter_closes_the_camera(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = _raw_camera()
+    closes: list[dict[str, object]] = []
+    monkeypatch.setattr(raw, "close", lambda *args, **kwargs: closes.append(kwargs))
+
+    as_camera(raw).close(close_sdk=True)
+
+    assert closes == [{"close_sdk": True}]

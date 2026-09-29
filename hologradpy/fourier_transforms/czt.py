@@ -5,6 +5,7 @@ from torch import Tensor
 
 from scipy.fft import next_fast_len
 
+from ..utils import resolve_device
 from .abstract import FourierBase
 from .sampling import get_zoom_frequency_grid
 from .shear import fft_shear
@@ -90,8 +91,9 @@ class ChirpZPartialAffine(FourierBase):
         magnification: tuple[float, float],
         shift: tuple[float, float] = (0.0, 0.0),
         angle: float | Tensor = 0.0,
-        device: torch.device = "cpu",
+        device: torch.device | None = None,
     ) -> None:
+        device = resolve_device(device)
         omega_x, omega_y = get_zoom_frequency_grid(
             resolution, resolution_out, magnification, shift, device
         )

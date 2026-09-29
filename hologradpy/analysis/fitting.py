@@ -105,20 +105,50 @@ def fit_gaussian_beam_intensity(
     data: NDArray,
     beam_radius_guess: float,
     blur_sigma: float = 10,
+    mask: NDArray[np.bool_] | None = None,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Fit a Gaussian beam intensity with a constant offset to ``data``.
 
-    data_blurred = gaussian_filter(data, blur_sigma)
-    index = np.unravel_index(np.argmax(data_blurred), data.shape)
-    p0 = (beam_radius_guess, x[index], y[index], np.max(data), 0)
+    The fit starts at the peak of ``data`` after a Gaussian blur of ``blur_sigma``
+    pixels, with ``beam_radius_guess`` as the radius. With a ``mask``, only the pixels
+    where it is True enter the fit.
 
-    popt, pcov = curve_fit_2d(
-        x,
-        y,
-        data,
-        gaussian_beam_intensity,
-        p0=p0,
+    Args:
+        x: The x coordinate of every pixel of ``data``.
+        y: The y coordinate of every pixel of ``data``.
+        data: The measured intensity.
+        beam_radius_guess: The starting 1/e^2 intensity radius, in the units of ``x``
+            and ``y``.
+        blur_sigma: The standard deviation of the Gaussian blur, in pixels. The
+            starting peak is located on the blurred data.
+        mask: True at the pixels to fit, in the shape of ``data``. Every pixel is
+            fitted when None.
+
+    Returns:
+        tuple[NDArray[np.float64], NDArray[np.float64]]: The fitted ``(beam_radius,
+        shift_x, shift_y, intensity, offset)`` of
+        :func:`~hologradpy.profiles.amplitude.gaussian_beam_intensity`, and their
+        covariance.
+    """
+    if mask is None:
+        data_blurred = gaussian_filter(data, blur_sigma)
+        index = np.unravel_index(np.argmax(data_blurred), data.shape)
+        p0 = (beam_radius_guess, x[index], y[index], np.max(data), 0)
+        return curve_fit_2d(x, y, data, gaussian_beam_intensity, p0=p0)
+
+    mask = np.asarray(mask, dtype=bool)
+    x, y, data = np.asarray(x), np.asarray(y), np.asarray(data, dtype=np.float64)
+    blurred_mask = gaussian_filter(mask.astype(np.float64), blur_sigma)
+    data_blurred = gaussian_filter(np.where(mask, data, 0.0), blur_sigma) / np.maximum(
+        blurred_mask, np.finfo(np.float64).tiny
     )
-    return popt, pcov
+    index = np.unravel_index(
+        np.argmax(np.where(mask, data_blurred, -np.inf)), data.shape
+    )
+    p0 = (beam_radius_guess, x[index], y[index], np.max(data[mask]), 0)
+    return curve_fit_2d(
+        x[mask], y[mask], data[mask], gaussian_beam_intensity, p0=p0
+    )
 
 
 def fit_interferometric_fringes(

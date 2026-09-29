@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Protocol
-
 import numpy as np
 from numpy.typing import ArrayLike
 
@@ -69,37 +67,25 @@ class PartialAffineTransform(AffineTransform):
         return self.rotation_degrees
 
 
-class SupportsPartialAffine(Protocol):
-    """An object that can absorb a :class:`PartialAffineTransform` as a residual on its
-    own learnable ``(scale, angle, shift)``, so a coarse fitted transform can warm-start
-    a differentiable registration (for example the field warp or a Fourier lens).
-    """
-
-    def apply_partial_affine(self, transform: PartialAffineTransform) -> None: ...
-
-
-def recalibrated_partial_affine(
-    scale: float,
-    angle_deg: float,
-    shift_xy: tuple[float, float],
-    residual: PartialAffineTransform,
-    center_xy: tuple[float, float],
+def inverse_partial_affine_parameters(
+    transform: PartialAffineTransform, center_xy: tuple[float, float]
 ) -> tuple[float, float, tuple[float, float]]:
-    """Compose a fitted residual similarity onto a current ``(scale, angle, shift)``.
+    """The ``(scale, angle_deg, shift_xy)`` of the inverse of a fitted camera -> model
+    similarity, the model -> camera map that a focal-plane partial affine applies.
 
-    Used to warm-start a differentiable focal-plane registration from a coarse camera
-    mapping: ``residual`` is the camera -> model similarity (as fit by the camera
-    mappers), and its inverse (the model -> camera map) composes on the left of the
-    current focal-plane similarity. All quantities are in (x, y) output pixels about
-    ``center_xy``. Returns the new uniform ``scale``, ``angle_deg`` and ``shift_xy``.
+    The scale and the rotation keep ``center_xy`` fixed. All quantities are in
+    ``(x, y)`` output pixels.
+
+    Args:
+        transform: The camera -> model similarity fitted by the camera mappers.
+        center_xy: The point that the scale and the rotation keep fixed.
+
+    Returns:
+        tuple[float, float, tuple[float, float]]: The uniform scale, the angle in
+        degrees and the shift.
     """
-    current = PartialAffineTransform.from_components(
-        scale=scale, angle_deg=angle_deg, shift=shift_xy, center=center_xy
-    )
-    updated: PartialAffineTransform = PartialAffineTransform.from_matrix(
-        residual.inverse().matrix @ current.matrix
-    )
-    # Recover the shift about ``center_xy`` (inverse of from_components' translation).
+    inverse = PartialAffineTransform.from_matrix(transform.inverse().matrix)
+    # The shift about center_xy, inverting the translation of from_components.
     center = np.asarray(center_xy, dtype=np.float64)
-    shift = updated.translation - (center - updated.linear @ center)
-    return updated.scale, updated.angle_degrees, (float(shift[0]), float(shift[1]))
+    shift = inverse.translation - (center - inverse.linear @ center)
+    return inverse.scale, inverse.angle_degrees, (float(shift[0]), float(shift[1]))

@@ -11,21 +11,24 @@ from torch import Tensor
 from ..hardware import Camera, SLM, as_camera, as_slm
 from ..grids import get_spatial_grid
 from ..analysis.fitting import fit_gaussian_beam_intensity
+from ..utils import resolve_device
 
 
 class CalibratorBase(ABC):
     """Devices normalized to the native interfaces, and the SLM-plane grid."""
 
-    def __init__(self, slm: SLM, camera: Camera, device: torch.device = "cpu") -> None:
+    def __init__(
+        self, slm: SLM, camera: Camera, device: torch.device | None = None
+    ) -> None:
         """
         Args:
             slm: The SLM being driven, coerced to the native interface.
             camera: The camera watching it, likewise.
-            device: Torch device the calculations run on.
+            device: Torch device the calculations run on, the CPU for None.
         """
         self.camera: Camera = as_camera(camera)
         self.slm: SLM = as_slm(slm)
-        self.device: torch.device = device
+        self.device: torch.device = resolve_device(device)
 
     @property
     def spatial_grid_slm(self) -> tuple[Tensor, Tensor]:

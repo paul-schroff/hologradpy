@@ -12,7 +12,7 @@ import torch
 
 from .records import SpeckleCaptureData
 
-from ...hardware import Camera, SLM
+from ...hardware import Camera, SLM, as_camera, as_slm
 from ...hardware.camera import CameraData
 from ...hardware.slm import SLMData
 
@@ -28,9 +28,17 @@ from ...fourier_optics import fourier_lens_pixel_size
 from ...grids import get_pixel_grid, get_spatial_grid, pixel_to_metres
 from ...utils import as_image, progress
 
+# The largest number of exposure steps when autoexposing on the first pattern.
+_AUTOEXPOSURE_MAX_ITERATIONS = 10
+
 
 class DatasetGenerator:
-    """Generate random SLM phase patterns and capture their camera speckle images."""
+    """Generate random SLM phase patterns and capture their camera speckle images.
+
+    The patterns and the region of interest are defined on the whole sensor,
+    independent of the camera's region of interest. Every frame is captured from the
+    whole sensor.
+    """
 
     def __init__(
         self,
@@ -41,8 +49,20 @@ class DatasetGenerator:
         dataset_path: str | os.PathLike,
         number_of_random_patterns: int = 1,
     ) -> None:
-        self.slm: SLM = slm
-        self.camera: Camera = camera
+        """
+        Args:
+            slm: The SLM displaying the patterns, or a driver that
+                :func:`~hologradpy.hardware.as_native.as_slm` wraps.
+            camera: The camera capturing the speckle, or a driver that
+                :func:`~hologradpy.hardware.as_native.as_camera` wraps.
+            camera_mapping: How the camera sits relative to the model. It places the
+                zeroth order on the sensor.
+            focal_length: The focal length of the Fourier lens in metres.
+            dataset_path: The dataset file holding the frames.
+            number_of_random_patterns: How many patterns to generate and capture.
+        """
+        self.slm: SLM = as_slm(slm)
+        self.camera: Camera = as_camera(camera)
         self.camera_mapping: CameraMapping = camera_mapping
         self.focal_length: float = focal_length
         self.dataset_path: Path = Path(dataset_path)
@@ -66,29 +86,32 @@ class DatasetGenerator:
         benchmark_calibration: WavefrontCalibrationData | None = None,
         seed: int | None = None,
         pattern: Literal["band_limited", "uniform"] = "band_limited",
+        set_fraction: float = 0.75,
     ) -> SpeckleCaptureData:
         """Generate the patterns and capture their frames into one dataset file.
 
         The whole capture in one call. :meth:`generate_phase_patterns` and
-        :meth:`capture_camera_images` remain separately callable for the cases that need
-        to do something between the two, for example inspecting the patterns before they
-        reach the SLM.
+        :meth:`capture_camera_images` remain separately callable, so a step can run
+        between the two. For example, the patterns can be inspected before they reach
+        the SLM.
 
         Args:
-            extent: Full width ``(y, x)`` of the speckle at the camera, in metres,
-                setting both the pattern band limit and the region of interest. A width
-                rather than a radius, so it compares directly against the sensor size.
-                Defaults to the largest speckle that fits on the sensor.
+            extent: Full width ``(y, x)`` of the speckle at the camera, in metres. It
+                sets both the pattern band limit and the region of interest. As a full
+                width, it compares directly against the sensor size. Defaults to the
+                largest speckle that fits on the sensor.
             benchmark_calibration: An existing calibration to add to every pattern, for
                 measuring the residual of a previous fit.
             seed: Seed for the pattern noise. Leave as None to seed from the system
                 entropy, which makes the dataset irreproducible.
             pattern: How each pattern is drawn, passed to
                 :meth:`generate_phase_patterns`.
+            set_fraction: The brightest speckle of the first pattern is exposed to this
+                fraction of full scale. Passed to :meth:`capture_camera_images`.
 
         Returns:
-            SpeckleCaptureData: What describes the capture, which is also written inside
-            the dataset file so it can be reopened without it.
+            SpeckleCaptureData: The record of the capture. A copy is written inside the
+            dataset file, so the file can be reopened on its own.
         """
         self.generate_phase_patterns(
             extent,
@@ -96,7 +119,7 @@ class DatasetGenerator:
             seed=seed,
             pattern=pattern,
         )
-        return self.capture_camera_images()
+        return self.capture_camera_images(set_fraction=set_fraction)
 
     def largest_extent_on_sensor(self) -> tuple[float, float]:
         """The widest speckle ``(y, x)``, in metres, that still fits on the sensor.
@@ -112,16 +135,17 @@ class DatasetGenerator:
         # In camera pixels, stored (y, x). Coarse mapping extrapolates it through the
         # affine transform, so it can land off the sensor entirely.
         zeroth = self.camera_mapping.zeroth_order_position
+        sensor_resolution = tuple(self.camera.sensor_resolution)
 
         margins = tuple(
-            min(float(zeroth[i]), self.camera.resolution[i] - float(zeroth[i]))
+            min(float(zeroth[i]), sensor_resolution[i] - float(zeroth[i]))
             for i in range(2)
         )
         if any(margin <= 0 for margin in margins):
             raise ValueError(
                 f"The zeroth order sits at {tuple(float(z) for z in zeroth)} on a "
-                f"{tuple(self.camera.resolution)} sensor, so no speckle centered on it "
-                "fits. Pass an extent explicitly."
+                f"{sensor_resolution} sensor, so no speckle centered on it fits. Pass "
+                "an extent explicitly."
             )
 
         return tuple(
@@ -240,19 +264,21 @@ class DatasetGenerator:
 
             self.phase_patterns.append(phase)
 
-        camera_grid = get_spatial_grid(self.camera.resolution, self.camera.pixel_size)
+        # Every frame is taken from the whole sensor, so the region is laid out on it.
+        sensor_resolution = tuple(self.camera.sensor_resolution)
+        camera_grid = get_spatial_grid(sensor_resolution, self.camera.pixel_size)
 
         zeroth = self.camera_mapping.zeroth_order_position
         # (row, col) to the (x, y) the conversion takes, and back to (y, x) shifts.
         shift_x, shift_y = pixel_to_metres(
-            (zeroth[1], zeroth[0]), self.camera.pixel_size, self.camera.resolution
+            (zeroth[1], zeroth[0]), self.camera.pixel_size, sensor_resolution
         )
 
         if uniform:
             # The light fills everything the SLM can reach, so the only thing to keep
             # out of the region is the undiffracted spot.
             speckle_mask = torch.ones(
-                tuple(self.camera.resolution),
+                sensor_resolution,
                 dtype=torch.bool,
                 device=camera_grid[0].device,
             )
@@ -274,19 +300,40 @@ class DatasetGenerator:
 
         self.roi_mask = (speckle_mask & ~zeroth_order_mask).cpu().numpy()
 
-    def capture_camera_images(self, verbose: bool = True) -> SpeckleCaptureData:
+    def capture_camera_images(
+        self,
+        verbose: bool = True,
+        set_fraction: float = 0.75,
+    ) -> SpeckleCaptureData:
         """Display every generated phase pattern and capture the camera speckle.
 
-        Call :meth:`generate_phase_patterns` first: it generates the patterns and the
-        region-of-interest needed for the autoexposure.
+        Call :meth:`generate_phase_patterns` first. It generates the patterns and the
+        region of interest for the autoexposure.
 
-        The frames stream into the dataset file as they are captured, so a run that dies
-        partway leaves the frames it took. The exposure is set before the file is
-        opened, because everything but the streamed frames goes into the tree first.
+        The exposure is metered on the first pattern (:meth:`_expose_for_patterns`) and
+        held for the whole capture. The frames stream into the dataset file as they are
+        captured, so an interrupted run keeps its captured frames. The exposure is set
+        before the file is opened, because everything but the streamed frames goes into
+        the tree first.
+
+        The whole sensor is read out for the capture, and the camera's exposure and
+        region of interest are put back afterwards
+        (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_and_roi`). Frames
+        are stored raw. The metadata records the exposure and how it was metered, so a
+        fit can subtract a background measured at that exposure.
+
+        Args:
+            verbose: Show a progress bar while the frames are captured.
+            set_fraction: The brightest speckle of the first pattern is exposed to this
+                fraction of full scale, leaving headroom for brighter speckle in later
+                patterns.
 
         Returns:
-            SpeckleCaptureData: What describes the capture, also written inside
+            SpeckleCaptureData: The record of the capture. A copy is also written inside
             the file.
+
+        Raises:
+            RuntimeError: The patterns have not been generated.
         """
         if self.roi_mask is None:
             raise RuntimeError(
@@ -294,36 +341,58 @@ class DatasetGenerator:
                 "before capture_camera_images()."
             )
 
-        # Exposed on the first pattern, ahead of the capture proper: the exposure goes
-        # into the record, and the record is written before the first frame.
-        self.slm.set_phase(self.phase_patterns[0])
-        roi = ROI.detect(self.roi_mask, pad=0)
-        self.metadata["exposure_time"] = self.camera.autoexpose(
-            set_fraction=0.95, roi=roi, mask=roi.crop(self.roi_mask)
-        )
-
         bitdepth = self.slm.bitdepth
         patterns = [
             self.slm.phase_to_levels(pattern) for pattern in self.phase_patterns
         ]
 
-        capture_data = self._capture_data()
-        with CaptureStore.capture(
-            self.dataset_path,
-            capture_data,
-            frame_shape=tuple(self.camera.resolution),
-            slm_levels=patterns,
-            phase_bitdepth=bitdepth,
-        ) as store:
-            for pattern in progress(
-                self.phase_patterns,
-                description="Capturing camera images",
-                verbose=verbose,
-            ):
-                self.slm.set_phase(pattern)
-                store.append(self.camera.get_image())
+        with self.camera.preserve_exposure_and_roi(full_sensor=True):
+            # The exposure is metered before the capture, since it goes into the
+            # record. The record is written before the first frame.
+            self.metadata["exposure_time"] = self._expose_for_patterns(set_fraction)
+            self.metadata["exposure_set_fraction"] = float(set_fraction)
+
+            capture_data = self._capture_data()
+            with CaptureStore.capture(
+                self.dataset_path,
+                capture_data,
+                frame_shape=tuple(self.camera.sensor_resolution),
+                slm_levels=patterns,
+                phase_bitdepth=bitdepth,
+            ) as store:
+                for pattern in progress(
+                    self.phase_patterns,
+                    description="Capturing camera images",
+                    verbose=verbose,
+                ):
+                    self.slm.set_phase(pattern)
+                    store.append(self.camera.get_image())
 
         return capture_data
+
+    def _expose_for_patterns(self, set_fraction: float) -> float:
+        """Meter the exposure on the first pattern.
+
+        The camera autoexposes on the region of interest of the first pattern, in up
+        to ``_AUTOEXPOSURE_MAX_ITERATIONS`` steps, and stays at the final exposure.
+
+        Args:
+            set_fraction: The peak of the first pattern is exposed to this fraction of
+                full scale.
+
+        Returns:
+            float: The exposure in seconds, as read back from the camera.
+        """
+        roi = ROI.detect(self.roi_mask, pad=0)
+        mask = roi.crop(self.roi_mask)
+
+        self.slm.set_phase(self.phase_patterns[0])
+        return self.camera.autoexpose(
+            set_fraction=set_fraction,
+            roi=roi,
+            mask=mask,
+            max_iterations=_AUTOEXPOSURE_MAX_ITERATIONS,
+        )
 
     def _capture_data(self) -> SpeckleCaptureData:
         return SpeckleCaptureData(

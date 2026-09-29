@@ -7,8 +7,6 @@ positioned so the zeroth order misses the sensor entirely.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import numpy as np
 import pytest
 import torch
@@ -24,6 +22,10 @@ from hologradpy.optics.complex_amplitude import (
     FieldGeometry,
 )
 from hologradpy.optics.systems import SLMFFT, SLMCZT
+from hologradpy.optics.modules.pixel_crosstalk import (
+    PixelCrosstalk,
+    SuperGaussianCrosstalk,
+)
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.profiles.phase import (
@@ -31,6 +33,7 @@ from hologradpy.profiles.phase import (
 )
 from hologradpy.fourier_optics import get_focal_spot_radius
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
+from hologradpy.roi import ROI
 from hologradpy.calibration.camera_mapping import (
     CameraMapping,
     FocalSpotFit,
@@ -46,7 +49,11 @@ from hologradpy.calibration.spot_detection import (
     _WINDOW_SPOT_RADII,
     background_noise,
     detect_spot,
+    get_diffraction_spot_position,
+    has_prominent_peak,
+    peak_prominence,
 )
+from tests.native_camera_fakes import CroppingCamera
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -62,7 +69,7 @@ def _build_setup(
     pointing_focal_shift_std: float | None = None,
     background_scatter_power: float | None = None,
     background_scatter_grain_radius: float = 5e-6,
-    crosstalk_upscale_factor: int | None = None,
+    pixel_crosstalk: PixelCrosstalk | None = None,
 ):
     torch.manual_seed(0)
     geometry = FieldGeometry(
@@ -70,7 +77,9 @@ def _build_setup(
         pixel_size=torch.tensor([12.5e-6, 12.5e-6], device=DEVICE),
         wavelength=torch.tensor(0.630e-6, device=DEVICE),
     )
-    slm = SimulatedSLMTorch(input_geometry=geometry, bitdepth=8)
+    slm = SimulatedSLMTorch(
+        input_geometry=geometry, bitdepth=8, pixel_crosstalk=pixel_crosstalk
+    )
     intensity = gaussian_beam_intensity(*geometry.get_spatial_grid(), beam_radius=1e-3)
     beam = ComplexAmplitude(
         intensity.sqrt() + 0j,
@@ -99,7 +108,6 @@ def _build_setup(
         background_scatter_power=background_scatter_power,
         background_scatter_grain_radius=background_scatter_grain_radius,
         background_scatter_seed=0,
-        crosstalk_upscale_factor=crosstalk_upscale_factor,
     )
     camera.set_exposure(1e-3)
     camera.get_image()
@@ -115,14 +123,16 @@ def _build_setup(
 
 def test_the_zeroth_order_is_confirmed_through_an_overexposed_camera():
     """The probe that locates the zeroth order stops as soon as it is detectable, which
-    a saturated frame already is, so it leaves the camera far over-exposed.
+    a saturated frame already is, so it leaves the camera far overexposed.
 
-    An SLM that leaves light undiffracted then reads the same clipped peak under the
+    An SLM that leaves light undiffracted then reads the same overexposed peak under the
     suppressing grating as without it, and its real zeroth order is dismissed as stray
-    light. Pixel crosstalk leaves about a tenth of it, which is plenty to clip. The
-    confirmation therefore has to make its own unclipped measurement.
+    light. Pixel crosstalk leaves about a tenth of it, which is plenty to overexpose the
+    sensor. The confirmation therefore has to make its own measurement below full scale.
     """
-    slm, camera, model = _build_setup(crosstalk_upscale_factor=3)
+    slm, camera, model = _build_setup(
+        pixel_crosstalk=SuperGaussianCrosstalk(upscale_factor=3, order=2.0, width=1.0)
+    )
     mapper = CoarseMapper(slm, camera, model)
     spot_radius = 2.0 * float(min(camera.pixel_size))
 
@@ -135,7 +145,8 @@ def test_the_zeroth_order_is_confirmed_through_an_overexposed_camera():
     located = np.asarray(camera.get_image())
     assert located.max() < camera.max_pixel_value
 
-    # The exposure the probe hands over, where the zeroth order clips by a wide margin.
+    # The exposure handed over by the probe. It overexposes the zeroth order by a wide
+    # margin.
     camera.set_exposure(1e-3)
     assert np.asarray(camera.get_image()).max() >= camera.max_pixel_value
     slm.set_phase(binary_phase_grating(slm.resolution))
@@ -210,6 +221,25 @@ def test_background_noise_recovers_gaussian_sigma():
     assert background_noise(sample) == pytest.approx(3.0, rel=0.03)
 
 
+def test_background_noise_is_estimated_from_the_masked_pixels_only():
+    """One half of the frame holds saturated pixels, and the mask leaves that half
+    out. The estimate is the sigma of the other half, and a mask that keeps nothing is
+    refused.
+    """
+    rng = np.random.default_rng(1)
+    sample = rng.normal(10.0, 3.0, size=(400, 400))
+    sample[:, 200:] = 1023.0
+    kept = np.zeros(sample.shape, dtype=bool)
+    kept[:, :200] = True
+
+    assert background_noise(sample, kept) == pytest.approx(3.0, rel=0.03)
+    assert peak_prominence(sample, kept) == pytest.approx(
+        sample[:, :200].max() - np.median(sample[:, :200])
+    )
+    with pytest.raises(ValueError, match="keeps no pixel"):
+        background_noise(sample, np.zeros(sample.shape, dtype=bool))
+
+
 # --- detect_spot ----------------------------------------------------------------
 
 PIXEL_UM = 3.45
@@ -217,13 +247,27 @@ SPOT_RADIUS = 10e-6           # 1/e^2 radius -> ~2.9 px at 3.45 um pitch
 BITRESOLUTION = 1024
 
 
+class _PitchCamera(CroppingCamera):
+    """A native camera that gives detect_spot its pitch and its full scale.
+
+    detect_spot reads a frame passed to it, so this camera never captures one.
+    """
+
+    def __init__(self, pixel_um: float, bitresolution: int) -> None:
+        super().__init__((80, 120), max_pixel_value=bitresolution - 1)
+        self._pitch_m = pixel_um * 1e-6
+
+    @property
+    def pixel_size(self) -> np.ndarray:
+        return np.array([self._pitch_m, self._pitch_m])
+
+    def render_sensor_frame(self) -> np.ndarray:
+        raise AssertionError("detect_spot reads the frame it is given.")
+
+
 def _fake_camera(pixel_um=PIXEL_UM, bitresolution=BITRESOLUTION):
     # detect_spot reads native .pixel_size (y, x) metres and .max_pixel_value.
-    pitch_m = pixel_um * 1e-6
-    return SimpleNamespace(
-        pixel_size=np.array([pitch_m, pitch_m]),
-        max_pixel_value=bitresolution - 1,
-    )
+    return _PitchCamera(pixel_um, bitresolution)
 
 
 def _gaussian_frame(shape, center, amplitude, sigma_px, *, background=5.0,
@@ -235,6 +279,35 @@ def _gaussian_frame(shape, center, amplitude, sigma_px, *, background=5.0,
         -((columns - column0) ** 2 + (rows - row0) ** 2) / (2 * sigma_px**2)
     )
     return frame + rng.normal(0.0, noise, shape)
+
+
+def test_a_weak_peak_stays_weak_beside_a_large_mask():
+    """A bump of 4 noise sigma is no prominent peak at the default 8 sigma. This holds
+    with or without a mask over two thirds of the frame, since the masked pixels are
+    left out of the noise estimate. Setting them to the frame median shrinks the
+    median absolute deviation to zero, and the same bump then passes.
+    """
+    sigma_px = (SPOT_RADIUS / (PIXEL_UM * 1e-6)) / 2
+    frame = _gaussian_frame(
+        (80, 120), (30, 40), amplitude=160.0, sigma_px=sigma_px, noise=40.0
+    )
+    kept = np.zeros(frame.shape, dtype=bool)
+    kept[:, :40] = True
+    filled = np.where(kept, frame, np.median(frame))
+
+    assert not has_prominent_peak(frame, _fake_camera())
+    assert not has_prominent_peak(frame, _fake_camera(), mask=kept)
+    assert has_prominent_peak(filled, _fake_camera())
+
+
+def test_a_bright_masked_spot_is_no_prominent_peak():
+    sigma_px = (SPOT_RADIUS / (PIXEL_UM * 1e-6)) / 2
+    frame = _gaussian_frame((80, 120), (90, 40), amplitude=800.0, sigma_px=sigma_px)
+    kept = np.ones(frame.shape, dtype=bool)
+    kept[:, 60:] = False
+
+    assert has_prominent_peak(frame, _fake_camera())
+    assert not has_prominent_peak(frame, _fake_camera(), mask=kept)
 
 
 def test_detect_spot_finds_clean_gaussian():
@@ -403,6 +476,74 @@ def test_coarse_mapping_initial_tilt_without_spot_raises():
     )
     with pytest.raises(ValueError):
         CoarseMapper(slm, camera, model).map_camera(initial_tilt=(0.0, 0.0))
+
+
+def test_a_diffraction_spot_that_misses_the_sensor_raises_after_autoexposure():
+    """A camera that sees only read noise rails at its longest exposure. The rail is
+    not an error on its own, but the final frame holds no prominent peak.
+    """
+
+    class _DarkCamera(CroppingCamera):
+        def __init__(self) -> None:
+            super().__init__((60, 80), exposure_bounds=(1e-4, 1.0))
+            self._noise = np.random.default_rng(0)
+
+        def render_sensor_frame(self) -> np.ndarray:
+            counts = self._noise.normal(10.0, 2.0, self.sensor_resolution)
+            return np.clip(np.rint(counts), 0, 255).astype(np.uint16)
+
+    slm, _, _ = _build_setup()
+    camera = _DarkCamera()
+
+    with pytest.warns(UserWarning, match="railed"):
+        with pytest.raises(RuntimeError, match="No spot on the sensor"):
+            get_diffraction_spot_position(
+                slm, camera, (0.0, 0.0), focal_length=0.25, verbose=False
+            )
+
+
+def test_map_camera_leaves_the_camera_as_it_found_it():
+    """The whole sensor is mapped for any window held by the camera, and the window and
+    the exposure are put back afterwards.
+    """
+    slm, camera, model = _build_setup(
+        camera_angle=10.0, camera_shift=(60, 100), camera_resolution=(120, 160)
+    )
+    window = ROI(10, 20, 50, 60)
+    camera.set_roi(window)
+    camera.set_exposure(2e-3)
+
+    coarse = CoarseMapper(slm, camera, model).map_camera()
+
+    assert camera.roi == window
+    assert camera.get_exposure() == 2e-3
+    assert coarse.camera_data.roi == ROI(0, 0, 120, 160)
+    assert coarse.rotation_degrees == pytest.approx(-10.0, abs=0.5)
+    assert coarse.fit.reprojection_rms < 1.0
+
+
+def test_no_exposure_request_leaves_the_camera_bounds(monkeypatch):
+    """Every exposure requested by the mapping lies inside the bounds stated by the
+    camera. This includes the cuts in the search for a main order and a spot.
+    """
+    slm, camera, model = _build_setup(
+        camera_angle=10.0, camera_shift=(60, 100), camera_resolution=(120, 160)
+    )
+    camera._exposure_bounds = (1e-8, 1.0)
+    requested = []
+    set_exposure = camera.set_exposure
+
+    def record_and_set(exposure_s):
+        requested.append(float(exposure_s))
+        set_exposure(exposure_s)
+
+    monkeypatch.setattr(camera, "set_exposure", record_and_set)
+
+    CoarseMapper(slm, camera, model).map_camera()
+
+    assert requested
+    assert min(requested) >= 1e-8
+    assert max(requested) <= 1.0
 
 
 def test_coarse_mapping_with_zeroth_order_off_sensor():

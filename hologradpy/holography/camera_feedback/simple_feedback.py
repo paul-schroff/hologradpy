@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Sequence
@@ -21,6 +22,7 @@ from ...analysis.error_metrics import (
     normalize,
 )
 from ...datasets import CaptureStore
+from ...hardware.camera import Background, background_at
 from ...profiles.amplitude import gaussian_blur
 from ...utils import ProgressBar, gpu_to_numpy
 
@@ -44,6 +46,7 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
         exposure: float | None = None,
         autoexpose: bool = True,
         averages: int = 10,
+        background: Background | None = None,
         blur: float = 0.0,
         metrics: Sequence[IntensityMetric] = DEFAULT_INTENSITY_METRICS,
         step_stride: int | None = None,
@@ -62,11 +65,21 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
                 decreasing sequence often converges in less total time.
             gain: How much of the discrepancy to apply, per iteration or once for all.
                 One is the textbook choice. Lower it if the loop oscillates.
-            exposure: Camera exposure in seconds, or None to leave it as set.
-            autoexpose: Expose on the first hologram before measuring it. On by default
-                because a camera mapping runs its own exposure loop against a spot
-                array, which is far brighter than the potential that follows.
-            averages: Camera frames to average per measurement.
+            exposure: Camera exposure in seconds while ``autoexpose`` is off, or None to
+                leave it as set.
+            autoexpose: Autoexpose on the signal region of every hologram before it is
+                measured. The potential's peak moves as the corrections change it, so
+                each frame is metered on its own. The exposures are recorded in the
+                result's metadata.
+            averages: Camera frames to average per measurement. Each frame is
+                captured on its own. A measurement counts as overexposed when a pixel
+                of the signal region reaches full scale in any of its frames
+                (:attr:`~hologradpy.hardware.camera.Camera.overexposed`).
+            background: The counts subtracted from every measurement before it is
+                compared with the target. It is one level for every pixel, a
+                whole-sensor frame, or a function of the exposure in seconds
+                returning either. A function is evaluated at the exposure of each
+                measurement. None, the default, subtracts nothing.
             blur: Gaussian blur applied to the corrected target, in pixels. Smooths the
                 correction so the retriever is not asked to reproduce measurement noise
                 smaller than the diffraction limit.
@@ -81,16 +94,20 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
             dataset_path: Write the full sensor frame and the SLM phase of every
                 iteration into a sample store. None, the default, writes nothing.
             retrieve_options: Extra keyword arguments for the retriever's
-                ``retrieve_phase``, such as ``method``, which differs between retrievers
-                and is not retriever state.
+                ``retrieve_phase``, such as ``method``. These options differ between
+                retrievers and are not retriever state.
             name: Label stored on the record.
             verbose: Show a progress bar carrying the error metrics.
 
         Returns:
             CameraFeedbackData: The corrected hologram, and the whole run behind it.
+            Its metadata holds the exposure of every measurement under ``"exposures"``.
+            The iterations with an overexposed measurement inside the signal region are
+            listed under ``"overexposed_iterations"``. The measured images are raw, and
+            the background subtracted from each is kept in ``background_images``.
         """
         self._check_grids_match()
-        self.register(verbose=verbose)
+        self.apply_camera_mapping(verbose=verbose)
         self.place_target()
 
         retriever_steps = self._retriever_steps(retriever_iterations)
@@ -106,12 +123,16 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
         initial_guess = self.phase_retriever.predicted_intensity()
 
         signal_roi = self._signal_roi
+        region_mask = signal_region.astype(bool)
 
         history: dict[str, list[float]] = {}
         retrievals: list[PhaseRetrievalData] = []
         corrected_targets: list[NDArray] = []
         measured_frames: list[NDArray] = []
+        background_images: list[NDArray] = []
         full_frames: list[NDArray] = []
+        exposures: list[float] = []
+        overexposed_iterations: list[int] = []
         final_camera_image: NDArray | None = None
 
         retriever_bar = ProgressBar(
@@ -121,12 +142,18 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
             position=1,
             leave=False,
         )
-        with ProgressBar(
-            total=iterations,
-            description="Camera feedback",
-            verbose=verbose,
-            position=0,
-        ) as bar, retriever_bar:
+        # The whole sensor is read out, since the model predicts all of it. The
+        # camera's exposure and region of interest are put back when the loop ends.
+        with (
+            self.camera.preserve_exposure_and_roi(full_sensor=True),
+            ProgressBar(
+                total=iterations,
+                description="Camera feedback",
+                verbose=verbose,
+                position=0,
+            ) as bar,
+            retriever_bar,
+        ):
             for iteration in range(iterations):
                 corrected = self._corrected_target_for(
                     corrected, discrepancy, gains[iteration], signal_region, blur
@@ -149,21 +176,40 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
                     progress_bar=retriever_bar,
                     **options,
                 )
-                
+
                 # .lean() removes target and signal region
                 retrievals.append(retrieval.lean())
                 self.slm.set_phase(retrieval.phase)
 
-                # Exposed on the signal region after the first iteration.
-                if autoexpose and iteration == 0:
+                # Exposed on the signal region of every hologram.
+                if autoexpose:
                     exposure = self.camera.autoexpose(
                         roi=signal_roi,
-                        mask=signal_roi.crop(signal_region.astype(bool)),
+                        mask=signal_roi.crop(region_mask),
                         raise_on_rail=False,
                     )
 
-                measured = self.camera.get_averaged_image(exposure, averages)
-                measured_normalized = normalize(measured, signal_region)
+                measured, overexposed = self._capture_mean_and_overexposure(
+                    exposure, averages, region_mask
+                )
+                exposures.append(float(self.camera.get_exposure()))
+                if overexposed:
+                    overexposed_iterations.append(iteration)
+
+                # The background carries no signal, so it is taken off before the frame
+                # is compared with the target.
+                signal = measured
+                if background is not None:
+                    background_counts = background_at(
+                        background, exposures[-1], measured.shape
+                    )
+                    signal = measured - background_counts
+                    background_images.append(
+                        signal_roi.crop(
+                            np.broadcast_to(background_counts, measured.shape)
+                        ).copy()
+                    )
+                measured_normalized = normalize(signal, signal_region)
 
                 # Against the original target, not the corrected one.
                 discrepancy = target - measured_normalized
@@ -172,9 +218,18 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
                 measured_frames.append(signal_roi.crop(measured))
                 full_frames.append(measured)
                 final_camera_image = measured
-                evaluate_metrics(metrics, signal_region, target, measured, history)
+                evaluate_metrics(metrics, signal_region, target, signal, history)
 
                 bar.update(**{label: values[-1] for label, values in history.items()})
+
+        if overexposed_iterations:
+            warnings.warn(
+                f"The measurements of iterations {overexposed_iterations} are "
+                "overexposed inside the signal region. An overexposed pixel reads "
+                "below the light it receives, which the loop takes for too little "
+                "light. Autoexpose, or lower the exposure.",
+                stacklevel=2,
+            )
 
         data = CameraFeedbackData(
             timestamp=datetime.now(),
@@ -183,6 +238,7 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
             signal_region=signal_region,
             corrected_targets=corrected_targets,
             measured_images=measured_frames,
+            background_images=background_images if background is not None else None,
             final_camera_image=final_camera_image,
             initial_guess=initial_guess,
             camera_mapping=self._mapping.lean(),
@@ -190,6 +246,10 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
             metrics=history,
             lower_is_better={
                 metric.name: metric.lower_is_better for metric in metrics
+            },
+            metadata={
+                "exposures": exposures,
+                "overexposed_iterations": overexposed_iterations,
             },
         )
         if dataset_path is not None:
@@ -206,6 +266,36 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
                 slm_levels=patterns,
             )
         return data
+
+    def _capture_mean_and_overexposure(
+        self, exposure: float | None, averages: int, region: NDArray[np.bool_]
+    ) -> tuple[NDArray[np.float64], bool]:
+        """Capture ``averages`` single frames, and return the mean and the overexposure.
+
+        The frames are captured one at a time, and each frame is checked for
+        overexposure inside ``region``
+        (:attr:`~hologradpy.hardware.camera.Camera.overexposed`). The check catches a
+        few overexposed pixels in one frame, even when the mean of the frames stays
+        below full scale.
+
+        Args:
+            exposure: The exposure in seconds to set first, or None to leave it as set.
+            averages: The number of frames.
+            region: True at the pixels to check for overexposure.
+
+        Returns:
+            tuple[NDArray[np.float64], bool]: The mean frame, and whether any frame was
+            overexposed inside ``region``.
+        """
+        if exposure is not None:
+            self.camera.set_exposure(exposure)
+        frame_count = max(1, int(averages))
+        total = np.asarray(self.camera.get_image(mask=region), dtype=np.float64)
+        overexposed = self.camera.overexposed
+        for _ in range(frame_count - 1):
+            total += np.asarray(self.camera.get_image(mask=region), dtype=np.float64)
+            overexposed = overexposed or self.camera.overexposed
+        return total / frame_count, overexposed
 
     @staticmethod
     def _step_subdirectory(

@@ -6,9 +6,9 @@ from typing import Iterable
 
 import torch
 
-from ....calibration.speckle.fitter import SpeckleFitter, region_of_interest
+from ....calibration.speckle.fitter import SpeckleFitter
 
-__all__ = ["WavefrontFitter", "region_of_interest"]
+__all__ = ["WavefrontFitter"]
 
 
 class WavefrontFitter(SpeckleFitter):
@@ -17,9 +17,15 @@ class WavefrontFitter(SpeckleFitter):
     description = "Fitting wavefront"
 
     def trainable_parameters(self) -> Iterable[torch.nn.Parameter]:
-        """The SLM-plane field, plus anything the model already had enabled."""
+        """The SLM-plane field and the parameters already enabled on the model, except
+        the focal-plane partial affine. The affine is frozen, so it keeps the values
+        calibrated from the camera mapping.
+        """
         for parameter in self.slm_camera_model.slm_field.parameters():
             parameter.requires_grad_(True)
+        partial_affine = self.slm_camera_model.focal_plane_partial_affine
+        if partial_affine is not None:
+            partial_affine.requires_grad_(False)
         return self.enabled_parameters()
 
     def get_wavefront(self) -> torch.Tensor:

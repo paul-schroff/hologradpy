@@ -23,6 +23,7 @@ from hologradpy.calibration.camera_mapping import (
     CameraMappingVisualizationData,
     FocalSpotFit,
 )
+from hologradpy.hardware.camera import CameraData
 from hologradpy.hardware.slm import SLMData
 from hologradpy.optics.complex_amplitude import ComplexAmplitude
 from hologradpy.phase_levels import LinearResponse
@@ -195,7 +196,7 @@ def test_a_snapshot_carrying_arrays_compares_and_hashes() -> None:
             resolution=(4, 4),
             pixel_size=(1e-5, 1e-5),
             wavelength=1.039e-6,
-            settle_time_s=0.0,
+            settle_time=0.0,
             phase_response=response,
             phase_correction=correction.copy(),
         )
@@ -352,6 +353,82 @@ def test_a_renamed_field_needs_a_migration(tmp_path) -> None:
 
     with registered_as("test_rename", Migrated):
         assert Migrated.load(path).new_name == "value"
+
+
+def test_a_version_1_camera_record_loads_its_sensor_resolution(tmp_path) -> None:
+    """A version 1 camera record holds the sensor resolution under ``sensor_shape``,
+    and it loads under ``sensor_resolution``.
+    """
+    path = tmp_path / "camera.asdf"
+
+    @dataclass
+    class CameraDataVersion1(SaveableRecord):
+        name: str
+        sensor_shape: tuple[int, int]
+        pixel_size: tuple[float, float]
+        adu_levels: int
+        exposure: float
+        exposure_bounds: tuple[float, float] | None
+        roi: ROI
+        orientation: np.ndarray
+
+    CameraDataVersion1.RECORD_TYPE = "camera_data"
+    CameraDataVersion1.RECORD_VERSION = 1
+
+    with registered_as("camera_data", CameraDataVersion1):
+        CameraDataVersion1(
+            name="zelux",
+            sensor_shape=(1080, 1440),
+            pixel_size=(3.45e-6, 3.45e-6),
+            adu_levels=1024,
+            exposure=1e-3,
+            exposure_bounds=(4e-5, 1.0),
+            roi=ROI(0, 0, 1080, 1440),
+            orientation=np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+        ).save(path)
+
+    reloaded = CameraData.load(path)
+
+    assert reloaded.sensor_resolution == (1080, 1440)
+    assert reloaded.exposure_bounds == (4e-5, 1.0)
+
+
+def test_a_version_1_slm_record_loads_its_settle_time(tmp_path) -> None:
+    """A version 1 SLM record holds the settling time under ``settle_time_s``, and it
+    loads under ``settle_time``.
+    """
+    path = tmp_path / "slm.asdf"
+    response = LinearResponse(bitdepth=8, phase_scaling=1.25)
+
+    @dataclass
+    class SLMDataVersion1(SaveableRecord):
+        name: str
+        resolution: tuple[int, int]
+        pixel_size: tuple[float, float]
+        wavelength: float
+        settle_time_s: float
+        phase_response: LinearResponse | None = None
+        phase_correction: np.ndarray | None = None
+        vendor_correction: np.ndarray | None = None
+
+    SLMDataVersion1.RECORD_TYPE = "slm_data"
+    SLMDataVersion1.RECORD_VERSION = 1
+
+    with registered_as("slm_data", SLMDataVersion1):
+        SLMDataVersion1(
+            name="x13138",
+            resolution=(1024, 1272),
+            pixel_size=(12.5e-6, 12.5e-6),
+            wavelength=7.8e-7,
+            settle_time_s=0.1,
+            phase_response=response,
+        ).save(path)
+
+    reloaded = SLMData.load(path)
+
+    assert reloaded.settle_time == 0.1
+    assert reloaded.resolution == (1024, 1272)
+    assert reloaded.phase_response == response
 
 
 def test_a_record_from_a_newer_version_says_so(tmp_path) -> None:

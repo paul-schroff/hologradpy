@@ -328,7 +328,7 @@ def test_region_of_interest_reads_back_the_geometry_nodes(camera):
     device, _ = camera
     assert device.roi == ROI(0, 0, SENSOR_HEIGHT, SENSOR_WIDTH)
     assert device.resolution == (SENSOR_HEIGHT, SENSOR_WIDTH)
-    assert device.sensor_shape == (SENSOR_HEIGHT, SENSOR_WIDTH)
+    assert device.sensor_resolution == (SENSOR_HEIGHT, SENSOR_WIDTH)
 
 
 def test_setting_a_region_writes_offsets_last(camera):
@@ -387,7 +387,7 @@ def test_capture_triggers_once_and_returns_the_frame(camera):
 
 def test_capture_sets_the_exposure_first(camera):
     device, harvester = camera
-    device.get_image(exposure_s=1e-3)
+    device.get_image(exposure=1e-3)
     assert harvester.node_map.ExposureTime.value == pytest.approx(1000.0)
 
 
@@ -467,5 +467,5 @@ def test_autoexpose_runs_through_the_base_class(camera):
     """The inherited template methods work against a real driver."""
     device, _ = camera
     device.autoexpose(set_fraction=0.5)
-    low, high = device.exposure_limits
+    low, high = device.exposure_search_bounds
     assert low <= device.get_exposure() <= high

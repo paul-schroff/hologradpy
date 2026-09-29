@@ -4,7 +4,6 @@ from jaxtyping import Float
 
 import torch
 from torch import Tensor
-from torch.nn import Parameter
 
 from ....fourier_optics import (
     fourier_lens_magnification,
@@ -15,20 +14,20 @@ from ....fourier_transforms import (
     window_offset_from_pixels,
 )
 
-from ....geometry import PartialAffineTransform, recalibrated_partial_affine
-from ....grids import plane_center
 from ..abstract import OpticsModule
+from ..learnable_partial_affine import LearnablePartialAffine
 from ...complex_amplitude import ComplexAmplitude, pixel_area
 
 
 class FourierLensNUFFT(OpticsModule):
-    """Fourier lens via the non-uniform FFT, with learnable focal-plane affine
-    parameters (scale, shift, angle).
+    """Fourier lens via the non-uniform FFT, with a learnable focal-plane partial
+    affine.
 
-    It holds ``scale_factor`` (per-axis zoom, ``(x, y)``), ``shift`` (focal-plane offset
-    in output pixels, ``(x, y)``) and ``angle`` (degrees) as ``nn.Parameter`` s
-    (``requires_grad=learnable``) and hands all three to its transform. The NUFFT takes
-    the rotation as a rotation of its k-space trajectory.
+    The partial affine is :attr:`focal_plane_partial_affine`, a
+    :class:`~hologradpy.optics.modules.learnable_partial_affine.LearnablePartialAffine`.
+    Its zoom, shift and rotation go to the transform, and the NUFFT takes the rotation
+    as a rotation of its k-space trajectory. Its parameters require a gradient when
+    ``learnable`` is set.
     """
 
     def __init__(
@@ -47,9 +46,10 @@ class FourierLensNUFFT(OpticsModule):
 
         self.focal_length: float = focal_length
         self._padded_resolution_init: tuple[int, int] | None = padded_resolution
-        self.shift_init: tuple[float, float] = shift
-        self.angle_init: float = angle
         self.learnable: bool = learnable
+        self.focal_plane_partial_affine = LearnablePartialAffine(
+            resolution_out, shift=shift, angle=angle, learnable=learnable
+        )
         self.nufft_kwargs = nufft_kwargs
         self.power_normalized: bool = power_normalized
 
@@ -100,33 +100,8 @@ class FourierLensNUFFT(OpticsModule):
 
         # scale_factor and shift are (x, y), matching the geometry / GeometricWarp
         # convention and the (x, y) internal scale, so they combine directly.
-        self.scale_factor: Float[Tensor, "2"] = Parameter(
-            torch.ones(
-                2,
-                dtype=complex_amplitude.dtype_r,
-                device=complex_amplitude.device,
-            ),
-            requires_grad=self.learnable,
-        )
-
-        # Shift of the focal plane in output pixels, (x, y).
-        self.shift: Float[Tensor, "2"] = Parameter(
-            torch.tensor(
-                self.shift_init,
-                dtype=complex_amplitude.dtype_r,
-                device=complex_amplitude.device,
-            ),
-            requires_grad=self.learnable,
-        )
-
-        # Rotation angle in degrees
-        self.angle: Float[Tensor, "1"] = Parameter(
-            torch.tensor(
-                self.angle_init,
-                dtype=complex_amplitude.dtype_r,
-                device=complex_amplitude.device,
-            ),
-            requires_grad=self.learnable,
+        self.focal_plane_partial_affine.to(
+            device=complex_amplitude.device, dtype=complex_amplitude.dtype_r
         )
 
         self._transform = self._build_transform(complex_amplitude)
@@ -147,19 +122,20 @@ class FourierLensNUFFT(OpticsModule):
         scale)`` (the rotation then mixes the axes identically for grid and
         offset, matching the legacy ``scale -> rotate -> shift`` ordering).
         """
+        partial_affine = self.focal_plane_partial_affine
         scale: Tensor = (
-            self.scale_factor.abs().unsqueeze(0) * self._scale
+            partial_affine.scale_factor.abs().unsqueeze(0) * self._scale
         )  # (n_wl, 2): (x, y)
 
         magnification = scale  # (x, y)
 
         shift_x, shift_y = window_offset_from_pixels(
-            self.shift, self._padded_resolution, (scale[:, 0], scale[:, 1])
+            partial_affine.shift, self._padded_resolution, (scale[:, 0], scale[:, 1])
         )
         shift = torch.stack((shift_x, shift_y), dim=-1)  # (n_wl, 2): (x, y)
 
         # Negated on purpose to be consistent with the other modules.
-        angle_radians = -torch.deg2rad(self.angle)
+        angle_radians = -torch.deg2rad(partial_affine.angle)
         if not self.learnable:
             angle_radians = float(angle_radians)
 
@@ -182,42 +158,6 @@ class FourierLensNUFFT(OpticsModule):
     @property
     def resolution_out(self: FourierLensNUFFT) -> tuple[int, int]:
         return self._resolution_out
-
-    def apply_partial_affine(self, transform: PartialAffineTransform) -> None:
-        """Seed the learnable ``scale_factor`` / ``shift`` / ``angle`` from a fitted
-        camera -> model similarity, composing it as a residual onto the current
-        values (see :func:`~hologradpy.geometry.partial_affine\
-        .recalibrated_partial_affine`).
-        """
-        if not hasattr(self, "scale_factor"):
-            raise RuntimeError(
-                "FourierLensNUFFT must be initialized before apply_partial_affine "
-                "(run the system once)."
-            )
-        center = plane_center(self.resolution_out)
-        scale, angle_deg, shift = recalibrated_partial_affine(
-            float(self.scale_factor.mean()),
-            float(self.angle),
-            (float(self.shift[0]), float(self.shift[1])),
-            transform,
-            center,
-        )
-        with torch.no_grad():
-            self.scale_factor.copy_(
-                torch.tensor(
-                    [scale, scale],
-                    dtype=self.scale_factor.dtype,
-                    device=self.scale_factor.device,
-                )
-            )
-            self.shift.copy_(
-                torch.tensor(
-                    [shift[0], shift[1]],
-                    dtype=self.shift.dtype,
-                    device=self.shift.device,
-                )
-            )
-            self.angle.copy_(torch.as_tensor(angle_deg, dtype=self.angle.dtype))
 
     def _power_prefactor(self: FourierLensNUFFT) -> Tensor:
         """Fourier-lens amplitude prefactor ``(du*dv) / (lambda*f)`` per
@@ -244,8 +184,7 @@ class FourierLensNUFFT(OpticsModule):
         shifted + rotated NUFFT is delegated to :class:`NUFFTPartialAffine`, then the
         original rank is restored.
 
-        The transform is rebuilt from ``scale_factor`` / ``shift`` / ``angle`` on every
-        call.
+        The transform is rebuilt from :attr:`focal_plane_partial_affine` on every call.
         """
         flat_field, batch_spec = complex_amplitude.flatten_batch()
         output_field = self._build_transform(complex_amplitude).forward(flat_field)

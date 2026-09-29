@@ -6,6 +6,7 @@ from typing import Any
 import torch
 from torch import Tensor
 
+from ..utils import resolve_device
 from .abstract import FourierBase
 
 try:
@@ -123,7 +124,7 @@ class NUFFTPartialAffine(FourierBase):
         angle: float | Tensor = 0.0,
         grid_size: tuple[int, int] | None = None,
         dtype: torch.dtype = torch.float32,
-        device: torch.device = "cpu",
+        device: torch.device | None = None,
         norm: str | None = None,
         **nufft_kwargs: Any,
     ) -> None:
@@ -140,6 +141,7 @@ class NUFFTPartialAffine(FourierBase):
         if grid_size is None:
             grid_size = resolution
 
+        device = resolve_device(device)
         magnification = _as_per_wavelength(magnification, device, dtype)
         shift = _as_per_wavelength(shift, device, dtype)
         frequencies = _build_rotated_trajectory(

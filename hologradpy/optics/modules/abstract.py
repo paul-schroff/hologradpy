@@ -10,6 +10,7 @@ from torch import nn, Tensor
 
 from ..complex_amplitude import SCALAR, VECTOR, ComplexAmplitude, FieldGeometry
 from ...grids import get_spatial_grid
+from ...utils import resolve_device
 from .recording import RecordingMixin
 
 
@@ -398,18 +399,25 @@ class OpticsModule(RecordingMixin, nn.Module):
         self.load_state_dict(state["state_dict"])
 
     @classmethod
-    def from_file(cls, path: str, device: torch.device = "cpu") -> OpticsModule:
+    def from_file(
+        cls, path: str, device: torch.device | None = None
+    ) -> OpticsModule:
         """Rebuild a module saved by :meth:`save`.
 
-        The constructor arguments are replayed, the module is initialized from the input
-        geometry the checkpoint recorded (so its lazily built state exists), and the
-        weights are loaded on top.
+        The constructor arguments are replayed first. The module is then initialized
+        from the input geometry in the checkpoint, so its lazily built state exists.
+        Finally, the weights are loaded on top.
+
+        Args:
+            path: The file written by :meth:`save`.
+            device: The device to rebuild the module on, the CPU for None.
 
         Raises:
             TypeError: The checkpoint was written by a different class.
-            NotImplementedError: The checkpoint holds no constructor arguments, because
-                the class does not wear :func:`capture_init`.
+            NotImplementedError: The checkpoint holds no constructor arguments, since
+                the class is not decorated with :func:`capture_init`.
         """
+        device = resolve_device(device)
         state: SaveDict = torch.load(path, map_location=device, weights_only=False)
         _check_checkpoint_class(state, cls, path)
 

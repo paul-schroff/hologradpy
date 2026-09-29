@@ -35,6 +35,7 @@ from hologradpy.optics.modules.slm_fields import (
     kernel_size_from_waist,
     waist_from_camera_mapping,
 )
+from hologradpy.optics.modules.pixel_crosstalk import SuperGaussianCrosstalk
 from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
 from hologradpy.analysis.fitting import remove_tilt
@@ -49,6 +50,7 @@ from hologradpy.calibration.wavefront.speckle_calibration import (
     SpeckleCalibratorVisualizer,
     SpeckleVisualizationData,
 )
+from hologradpy.calibration import CrosstalkSpeckleCalibrator
 from hologradpy.calibration.speckle.records import (
     SpeckleCaptureData,
 )
@@ -56,6 +58,9 @@ from hologradpy.datasets import CaptureStore
 from hologradpy.calibration.speckle.dataset_generator import (
     DatasetGenerator,
 )
+from hologradpy.calibration.speckle.dataset_transforms import PrepareSample
+from hologradpy.roi import ROI
+from hologradpy.holography.camera_feedback import SimpleFeedbackCorrector
 from hologradpy.loss_functions import (
     gradient_loss,
     normalize_to_unit_sum,
@@ -111,7 +116,9 @@ def _build_hardware():
     return slm, camera
 
 
-def _build_model(slm, camera, focal_length=FOCAL_LENGTH, slm_field=None) -> SLMCZT:
+def _build_model(
+    slm, camera, focal_length=FOCAL_LENGTH, slm_field=None, pixel_crosstalk=None
+) -> SLMCZT:
     """The model a calibrator fits, on the devices' own geometry.
 
     Shared by the speckle test modules, which all need one and none of which is about
@@ -133,7 +140,7 @@ def _build_model(slm, camera, focal_length=FOCAL_LENGTH, slm_field=None) -> SLMC
 
     return SLMCZT(
         input_geometry=geometry,
-        virtual_slm=VirtualSLM.from_slm(slm),
+        virtual_slm=VirtualSLM.from_slm(slm, pixel_crosstalk=pixel_crosstalk),
         camera_resolution=tuple(camera.resolution),
         camera_pixel_size=tuple(camera.pixel_size),
         focal_length=focal_length,
@@ -673,6 +680,112 @@ def test_a_supplied_mapping_skips_the_coarse_mapping(tmp_path) -> None:
     assert calibrator.camera_mapping is mapping
 
 
+def _refuse_to_map(*arguments, **options):
+    raise AssertionError("a camera mapping was measured although one was supplied")
+
+
+def test_the_wavefront_fit_holds_the_partial_affine(tmp_path) -> None:
+    """The focal-plane partial affine is calibrated from the camera mapping alone, so
+    the wavefront fit leaves it frozen, where the mapping put it.
+    """
+    slm, camera = _build_hardware()
+    calibrator = PixelwiseSpeckleCalibrator(
+        slm=slm,
+        camera=camera,
+        camera_mapping=_synthetic_mapping(),
+        slm_camera_model=_build_model(slm, camera, FOCAL_LENGTH),
+        dataset_path=tmp_path / "dataset.asdf",
+        number_of_random_patterns=3,
+    )
+    lens = calibrator.slm_camera_model.fourier_lens
+    calibrated = {
+        name: value.detach().clone() for name, value in lens.state_dict().items()
+    }
+
+    capture_data = calibrator.dataset_generator.generate_dataset((5e-4, 5e-4))
+    calibrator.fit_wavefront(
+        number_of_epochs=2, batch_size=1, capture_data=capture_data, verbose=False
+    )
+
+    for name, value in lens.state_dict().items():
+        assert torch.equal(value, calibrated[name]), name
+    assert not any(parameter.requires_grad for parameter in lens.parameters())
+
+
+def test_the_crosstalk_fit_holds_the_partial_affine(tmp_path) -> None:
+    """The crosstalk fit also leaves the focal-plane affine frozen, where the camera
+    mapping put it.
+    """
+    slm, camera = _build_hardware()
+    model = _build_model(
+        slm, camera, pixel_crosstalk=SuperGaussianCrosstalk(upscale_factor=3)
+    )
+    calibrator = CrosstalkSpeckleCalibrator(
+        slm=slm,
+        camera=camera,
+        camera_mapping=_synthetic_mapping(),
+        slm_camera_model=model,
+        dataset_path=tmp_path / "dataset.asdf",
+        number_of_random_patterns=3,
+    )
+    lens = model.fourier_lens
+    calibrated = {
+        name: value.detach().clone() for name, value in lens.state_dict().items()
+    }
+
+    capture_data = calibrator.dataset_generator.generate_dataset((5e-4, 5e-4))
+    calibrator.fit_crosstalk(
+        number_of_epochs=2, batch_size=1, capture_data=capture_data, verbose=False
+    )
+
+    for name, value in lens.state_dict().items():
+        assert torch.equal(value, calibrated[name]), name
+    assert not any(parameter.requires_grad for parameter in lens.parameters())
+
+
+def test_feedback_keeps_the_partial_affine_of_a_calibration(
+    tmp_path, monkeypatch
+) -> None:
+    """A PSF calibration sets the focal-plane partial affine of the model from its
+    camera mapping. Camera feedback handed that mapping leaves the affine where it was.
+
+    The camera is rotated, so an affine that differs from the calibration's shows in
+    the angle.
+    """
+    from .test_coarse_mapper import _build_setup
+
+    slm, camera, _ = _build_setup(camera_angle=4.0, camera_shift=(-12, 7))
+    calibrator = PSFSpeckleCalibrator(
+        slm=slm,
+        camera=camera,
+        slm_camera_model=_plain_model(slm, camera),
+        dataset_path=tmp_path / "dataset.asdf",
+        number_of_random_patterns=2,
+    )
+    model = calibrator.slm_camera_model
+    calibrated = {
+        name: value.detach().clone()
+        for name, value in model.fourier_lens.state_dict().items()
+    }
+    monkeypatch.setattr(
+        "hologradpy.holography.camera_feedback.abstract.SpotArrayMapper",
+        _refuse_to_map,
+    )
+
+    feedback = SimpleFeedbackCorrector(
+        slm=slm,
+        camera=camera,
+        slm_camera_model=model,
+        target=torch.ones(8, 8),
+        target_position=(6e-4, 0.0),
+        camera_mapping=calibrator.camera_mapping,
+    )
+    feedback.apply_camera_mapping()
+
+    for name, value in model.fourier_lens.state_dict().items():
+        assert torch.equal(value, calibrated[name]), name
+
+
 def test_dataset_manifest_rejects_the_wrong_record_type(tmp_path) -> None:
     """The versioned envelope makes a mismatched file a clear error."""
     mapping = _synthetic_mapping()
@@ -773,6 +886,127 @@ def test_a_zeroth_order_off_the_sensor_refuses_to_pick_an_extent(tmp_path) -> No
 
     with pytest.raises(ValueError, match="Pass an extent explicitly"):
         generator.largest_extent_on_sensor()
+
+
+# --- Metering, overexposure, the background and the camera's state ------------------
+
+
+def _masked_peaks(generator: DatasetGenerator) -> list[float]:
+    """The brightest count inside the region of interest of every stored frame."""
+    with CaptureStore.open(generator.dataset_path) as store:
+        return [
+            float(np.max(np.asarray(store.read(index)["camera_image"])[
+                generator.roi_mask
+            ]))
+            for index in range(len(store))
+        ]
+
+
+def _speckle_generator(
+    slm, camera, tmp_path, number_of_random_patterns: int
+) -> DatasetGenerator:
+    return DatasetGenerator(
+        slm=slm,
+        camera=camera,
+        camera_mapping=_synthetic_mapping(),
+        focal_length=FOCAL_LENGTH,
+        dataset_path=tmp_path / "dataset.asdf",
+        number_of_random_patterns=number_of_random_patterns,
+    )
+
+
+def test_capture_meters_the_first_pattern(tmp_path) -> None:
+    """The capture is metered on the first pattern and holds that exposure for every
+    frame. The first frame therefore sits at the default set fraction of 0.75, and the
+    record holds the exposure of the captured frames.
+    """
+    slm, camera = _build_hardware()
+    entry_exposure = camera.get_exposure()
+    generator = _speckle_generator(slm, camera, tmp_path, 8)
+
+    capture = generator.generate_dataset((5e-4, 5e-4), seed=0)
+
+    full_scale = camera.max_pixel_value
+    first_peak = _masked_peaks(generator)[0]
+    assert first_peak == pytest.approx(0.75 * full_scale, abs=0.05 * full_scale)
+    assert capture.metadata["exposure_time"] == capture.camera_data.exposure
+    assert capture.metadata["exposure_set_fraction"] == 0.75
+    assert camera.get_exposure() == entry_exposure
+
+
+def test_capture_reads_out_the_whole_sensor_with_a_window_left_on_the_camera(
+    tmp_path,
+) -> None:
+    slm, camera = _build_hardware()
+    window = ROI(4, 6, 20, 24)
+    camera.set_roi(window)
+    generator = _speckle_generator(slm, camera, tmp_path, 2)
+
+    capture = generator.generate_dataset((5e-4, 5e-4), seed=0)
+
+    assert generator.roi_mask.shape == CAMERA_RESOLUTION
+    assert capture.camera_data.roi == ROI(0, 0, *CAMERA_RESOLUTION)
+    with CaptureStore.open(generator.dataset_path) as store:
+        assert store.read(0)["camera_image"].shape == CAMERA_RESOLUTION
+    assert camera.roi == window
+
+
+def test_the_fit_subtracts_a_background_evaluated_at_the_capture_exposure(
+    tmp_path,
+) -> None:
+    """Frames are stored raw. A background passed to the fit is evaluated at the
+    exposure recorded by the dataset. It is taken off every frame before the frame is
+    normalized.
+    """
+    slm, camera = _build_hardware()
+    calibrator = PixelwiseSpeckleCalibrator(
+        slm=slm,
+        camera=camera,
+        camera_mapping=_synthetic_mapping(),
+        slm_camera_model=_build_model(slm, camera, FOCAL_LENGTH),
+        dataset_path=tmp_path / "dataset.asdf",
+        number_of_random_patterns=3,
+    )
+
+    capture = calibrator.dataset_generator.generate_dataset((5e-4, 5e-4), seed=0)
+    evaluated_at: list[float] = []
+
+    def background(exposure: float) -> float:
+        evaluated_at.append(exposure)
+        return 7.0
+
+    calibrator.fit_wavefront(
+        number_of_epochs=1,
+        batch_size=1,
+        capture_data=capture,
+        background=background,
+        verbose=False,
+    )
+
+    assert evaluated_at == [capture.metadata["exposure_time"]]
+    calibration = calibrator.generate_slm_beam_calibration()
+    assert calibration.metadata["background_level"] == 7.0
+    fitter = calibrator.fitter
+    raw = fitter.store.read(0)
+    prepared = PrepareSample(
+        fitter.roi, fitter.roi_mask, fitter.device, fitter.dtype, background=7.0
+    )
+    assert torch.equal(
+        fitter.dataset[0]["camera_image"], prepared(raw)["camera_image"]
+    )
+
+    # A frame lifted by 7 counts and prepared with the background matches the raw
+    # frame prepared without one.
+    lifted = {**raw, "camera_image": np.asarray(raw["camera_image"]) + 7.0}
+    plain = PrepareSample(fitter.roi, fitter.roi_mask, fitter.device, fitter.dtype)
+    assert torch.allclose(
+        prepared(lifted)["camera_image"], plain(raw)["camera_image"], atol=1e-7
+    )
+
+    calibrator.release_dataset()
+    calibrator.fit_wavefront(number_of_epochs=1, batch_size=1, verbose=False)
+    assert calibrator.fitter.background_level is None
+    calibrator.release_dataset()
 
 
 # The recovery test runs on its own, larger geometry. The smoke geometry above is
@@ -885,7 +1119,7 @@ def test_speckle_calibrator_recovers_injected_wavefront(tmp_path) -> None:
     # This bar used to sit at 0.12, because the fit only reached about 0.19 here
     # and the geometry was assumed too small to do better. It was not the
     # geometry: autoexposure was accepting a fully saturated frame as correctly
-    # exposed, so the fit was being handed clipped speckle. With that fixed it
+    # exposed, so the fit was being handed overexposed speckle. With that fixed it
     # reaches 0.9994 to 0.9995 across seeds, so the bar can mean something.
     assert abs(correlation) > 0.95
 

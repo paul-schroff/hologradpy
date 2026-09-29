@@ -7,11 +7,10 @@ import torch.nn.functional as F
 from jaxtyping import Float
 from torch.nn import Parameter
 
-from ...geometry import PartialAffineTransform
 from ...geometry import homogeneous_matrix, rotation_matrix_from_angle
 from .abstract import capture_init, OpticsModule
+from .learnable_partial_affine import LearnablePartialAffine
 from ..complex_amplitude import ComplexAmplitude
-from ...geometry import recalibrated_partial_affine
 
 
 class GeometricWarp(OpticsModule):
@@ -19,8 +18,8 @@ class GeometricWarp(OpticsModule):
 
     Resamples the field through an affine pixel matrix with bilinear interpolation.
     Output pixels that map outside the input are zero. The map is parameterized by
-    learnable ``scale_factor`` / ``shift`` / ``angle`` (a partial affine), which the
-    affine optical systems calibrate.
+    :attr:`focal_plane_partial_affine`, which the affine optical systems calibrate.
+    ``rotation_center_shift`` moves the centre of the rotation and is not part of it.
     """
 
     @capture_init
@@ -38,52 +37,23 @@ class GeometricWarp(OpticsModule):
 
         self.verbose = verbose
 
-        self.init_scale_factor = scale_factor
-        self.init_shift = shift
-        self.init_angle = angle
         self.init_rotation_center_shift = rotation_center_shift
+        self.focal_plane_partial_affine = LearnablePartialAffine(
+            resolution_out,
+            scale_factor=scale_factor,
+            shift=shift,
+            angle=angle,
+            learnable=False,
+        )
 
-        self.register_parameter("scale_factor", None)
-        self.register_parameter("shift", None)
-        self.register_parameter("angle", None)
         self.register_parameter("rotation_center_shift", None)
-
-        self.scale_factor: Parameter | None
-        self.shift: Parameter | None
-        self.angle: Parameter | None
         self.rotation_center_shift: Parameter | None
 
     def lazy_init(self, complex_amplitude: ComplexAmplitude) -> None:
         number_of_wavelengths = complex_amplitude.wavelength.numel()
 
-        # Scaling factor
-        self.scale_factor = Parameter(
-            torch.tensor(
-                self.init_scale_factor,
-                dtype=complex_amplitude.dtype_r,
-                device=complex_amplitude.device,
-            ),
-            requires_grad=False,
-        )
-
-        # Shift from the center in pixels
-        self.shift = Parameter(
-            torch.tensor(
-                self.init_shift,
-                dtype=complex_amplitude.dtype_r,
-                device=complex_amplitude.device,
-            ),
-            requires_grad=False,
-        )
-
-        # Rotation angle in degrees
-        self.angle = Parameter(
-            torch.tensor(
-                [self.init_angle] * number_of_wavelengths,
-                dtype=complex_amplitude.dtype_r,
-                device=complex_amplitude.device,
-            ),
-            requires_grad=False,
+        self.focal_plane_partial_affine.to(
+            device=complex_amplitude.device, dtype=complex_amplitude.dtype_r
         )
 
         # Shift of the rotation center relative to the shift_center
@@ -127,43 +97,6 @@ class GeometricWarp(OpticsModule):
 
         self.affine_matrix = self.get_affine_matrix()
 
-    def apply_partial_affine(self, transform: PartialAffineTransform) -> None:
-        """Seed the learnable ``scale_factor`` / ``shift`` / ``angle`` from a fitted
-        camera -> model similarity, composing it as a residual onto the current
-        values (see :func:`~hologradpy.geometry.partial_affine\
-        .recalibrated_partial_affine`).
-
-        The warp's ``shift`` and ``scale_factor`` are (x, y), matching the transform's
-        point convention, so no axis swap is needed here.
-        """
-        if self.scale_factor is None:
-            raise RuntimeError(
-                "GeometricWarp must be initialized before apply_partial_affine "
-                "(run the system once)."
-            )
-        center = (self.resolution_out[1] // 2, self.resolution_out[0] // 2)
-        scale, angle_deg, shift = recalibrated_partial_affine(
-            float(self.scale_factor.mean()),
-            float(self.angle[0]),
-            (float(self.shift[0]), float(self.shift[1])),
-            transform,
-            center,
-        )
-        with torch.no_grad():
-            self.scale_factor.copy_(
-                torch.tensor(
-                    [scale, scale],
-                    dtype=self.scale_factor.dtype,
-                    device=self.scale_factor.device,
-                )
-            )
-            self.shift.copy_(
-                torch.tensor(
-                    list(shift), dtype=self.shift.dtype, device=self.shift.device
-                )
-            )
-            self.angle.copy_(torch.full_like(self.angle, angle_deg))
-
     def get_affine_matrix(self) -> Float[torch.Tensor, "n_wavelengths 3 3"]:
         """The matrix mapping input ``(x, y)`` pixels to output pixels, per wavelength.
 
@@ -171,11 +104,12 @@ class GeometricWarp(OpticsModule):
         by ``angle``, both about the rotation centre, then shifted by ``shift_center +
         shift``.
         """
-        scale = self.scale * self.scale_factor
-        linear = rotation_matrix_from_angle(self.angle) * scale[..., None, :]
+        partial_affine = self.focal_plane_partial_affine
+        scale = self.scale * partial_affine.scale_factor
+        linear = rotation_matrix_from_angle(partial_affine.angle) * scale[..., None, :]
         return homogeneous_matrix(
             linear,
-            self.shift_center + self.shift,
+            self.shift_center + partial_affine.shift,
             self.rotation_center + self.rotation_center_shift,
         )
 
@@ -191,8 +125,8 @@ class GeometricWarp(OpticsModule):
         """
         if self.verbose:
             print("Scale:", self.scale.data)
-            print("Shift:", self.shift.data)
-            print("Angle:", self.angle.data)
+            print("Shift:", self.focal_plane_partial_affine.shift.data)
+            print("Angle:", self.focal_plane_partial_affine.angle.data)
 
         number_of_wavelengths = complex_amplitude.number_of_wavelengths
 

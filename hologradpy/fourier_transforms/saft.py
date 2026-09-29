@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 from torch.fft import fftshift
 
-from ..utils import to_canvas
+from ..utils import resolve_device, to_canvas
 from .abstract import FourierBase
 from .fft import fft_2d, ifft_2d
 
@@ -63,7 +63,7 @@ class SemiAnalyticalFourierTransform(FourierBase):
         resolution: tuple[int, int],
         curvature: tuple[float, float, float],
         inverse: bool = False,
-        device: torch.device = "cpu",
+        device: torch.device | None = None,
         dtype: torch.dtype | None = None,
     ) -> None:
         """
@@ -75,7 +75,7 @@ class SemiAnalyticalFourierTransform(FourierBase):
                 from a spectrum to a plane. Completing the square leaves
                 ``(x + m)`` in place of ``(x - m)``, so the same convolution is
                 read the other way up and nothing else changes.
-            device: Where to build the chirp.
+            device: Where to build the chirp, the CPU for None.
             dtype: Complex dtype to hold the chirp buffers in. Defaults to 
                 ``complex128``.
 
@@ -83,6 +83,7 @@ class SemiAnalyticalFourierTransform(FourierBase):
             ValueError: The curvature is degenerate. See :func:`transformed_curvature`.
         """
         transformed_curvature(curvature)  # Refuses a degenerate form up front.
+        device = resolve_device(device)
 
         super().__init__(
             resolution,

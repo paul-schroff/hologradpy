@@ -58,7 +58,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         slm: SLM,
         camera: Camera,
         focal_length: float,
-        device: str = "cpu",
+        device: torch.device | None = None,
         autoexposure_max_iterations: int = 5,
     ) -> None:
         super().__init__(slm, camera, device)
@@ -197,7 +197,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         so both sit at the same angle.
         """
         zeroth = np.asarray(self.camera_mapping.zeroth_order_xy)
-        height, width = self.camera.sensor_shape
+        height, width = self.camera.sensor_resolution
         center = np.array(plane_center((height, width)), dtype=float)
         signs = np.sign(center - zeroth)
         signs[signs == 0] = 1.0  # tie (DC on a center line) -> positive diagonal
@@ -217,7 +217,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         """
         mapping = self.camera_mapping
         zeroth = np.asarray(mapping.zeroth_order_xy)
-        height, width = self.camera.sensor_shape
+        height, width = self.camera.sensor_resolution
         center = np.array(plane_center((height, width)), dtype=float)
         camera_pitch = np.asarray(
             [self.camera.pixel_size[1], self.camera.pixel_size[0]]
@@ -374,13 +374,13 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
 
         center_x, center_y = int(spot_center_pixels[0]), int(spot_center_pixels[1])
-        sensor_height, sensor_width = self.camera.sensor_shape
+        sensor_height, sensor_width = self.camera.sensor_resolution
         # TODO: Remove hardcoded 4x window size
         window_width = min(4 * roi_size[1], sensor_width)
         window_height = min(4 * roi_size[0], sensor_height)
         window = ROI.centered(
             (center_y, center_x), (window_height, window_width)
-        ).moved_inside(self.camera.sensor_shape)
+        ).moved_inside(self.camera.sensor_resolution)
         window_y0, window_x0 = window.top_row, window.left_column
         self.camera.set_roi(window)
 
@@ -647,8 +647,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
             if (
                 woi_x0 < 0
                 or woi_y0 < 0
-                or woi_x0 + woi_width > self.camera.sensor_shape[1]
-                or woi_y0 + woi_height > self.camera.sensor_shape[0]
+                or woi_x0 + woi_width > self.camera.sensor_resolution[1]
+                or woi_y0 + woi_height > self.camera.sensor_resolution[0]
             ):
                 raise ValueError(
                     "The main and reference spots do not both fit on the sensor; "
@@ -713,7 +713,6 @@ class RasterCalibrator(WavefrontCalibratorBase):
             autoexposure_fraction = _AUTOEXPOSURE_SET_FRACTION
         exposure_time = self.camera.autoexpose(
             set_fraction=autoexposure_fraction,
-            exposure_bounds=(0, 1),
             roi=autoexposure_roi,
             max_iterations=self.autoexposure_max_iterations,
         )
@@ -1028,8 +1027,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
             if (
                 woi_x0 < 0
                 or woi_y0 < 0
-                or woi_x0 + woi_width > self.camera.sensor_shape[1]
-                or woi_y0 + woi_height > self.camera.sensor_shape[0]
+                or woi_x0 + woi_width > self.camera.sensor_resolution[1]
+                or woi_y0 + woi_height > self.camera.sensor_resolution[0]
             ):
                 raise ValueError(
                     "The main and lattice spots do not both fit on the sensor; "
@@ -1077,7 +1076,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
         # Find camera exposure time.
         exposure_time = self.camera.autoexpose(
-            set_fraction=0.9, exposure_bounds=(0, 1),
+            set_fraction=0.9,
             roi=ROI.centered(
                 (main_center[1], main_center[0]),
                 (camera_roi_size[0], camera_roi_size[1]),

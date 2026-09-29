@@ -1,9 +1,10 @@
 """The native region-of-interest value object.
 
 ``ROI`` is the ``(row, col)`` rectangular region of interest and the single abstraction
-for ROI handling with named constructors :meth:`ROI.centered`, :meth:`ROI.from_bounds`
-and :meth:`ROI.detect`, and methods :meth:`crop`, :meth:`pad`. It works on numpy and
-torch arrays.
+for ROI handling. Its named constructors are :meth:`ROI.centered`,
+:meth:`ROI.from_bounds` and :meth:`ROI.detect`, and its methods include :meth:`crop` and
+:meth:`pad`. :meth:`lies_inside`, :meth:`moved_inside` and :meth:`trimmed_to` relate a
+region to the bounds of a frame. It works on numpy and torch arrays.
 """
 
 from __future__ import annotations
@@ -78,6 +79,54 @@ class ROI:
             self.width,
         )
 
+    def trimmed_to(self, bounds: tuple[int, int]) -> ROI:
+        """Trims the ROI to the part of it inside ``bounds``, keeping its position.
+
+        Args:
+            bounds: The ``(height, width)`` to stay within, usually a sensor.
+
+        Returns:
+            The part of the region inside ``bounds``, which is the region itself when
+            it lies inside already.
+
+        Raises:
+            ValueError: No part of the region lies inside ``bounds``.
+        """
+        height_bound, width_bound = int(bounds[0]), int(bounds[1])
+        top, bottom, left, right = self.to_bounds()
+        trimmed = ROI.from_bounds(
+            max(top, 0),
+            min(bottom, height_bound),
+            max(left, 0),
+            min(right, width_bound),
+        )
+        if trimmed.height <= 0 or trimmed.width <= 0:
+            raise ValueError(
+                f"No part of {self} lies inside {height_bound} x {width_bound}."
+            )
+        return trimmed
+
+    def lies_inside(self, bounds: tuple[int, int]) -> bool:
+        """Whether the ROI holds at least one pixel, and every pixel of it lies inside
+        ``bounds``.
+
+        Args:
+            bounds: The ``(height, width)`` to lie within, usually a frame.
+
+        Returns:
+            True for a nonempty region inside ``bounds``.
+        """
+        height_bound, width_bound = int(bounds[0]), int(bounds[1])
+        top, bottom, left, right = self.to_bounds()
+        return (
+            self.height >= 1
+            and self.width >= 1
+            and top >= 0
+            and left >= 0
+            and bottom <= height_bound
+            and right <= width_bound
+        )
+
     @classmethod
     def from_bounds(cls, top: int, bottom: int, left: int, right: int) -> ROI:
         """From ``(top, bottom, left, right)`` pixel indices, the convention returned by
@@ -87,13 +136,32 @@ class ROI:
 
     @classmethod
     def detect(
-        cls, image: ArrayLike, threshold: float = 0.5, pad: int = 10
+        cls,
+        image: ArrayLike,
+        threshold: float = 0.5,
+        pad: int = 10,
+        mask: ArrayLike | None = None,
     ) -> ROI:
         """The ROI bounding pixels above ``threshold * max(image)``, padded by ``pad``
-        pixels per side and clipped to the image extent.
+        pixels per side and trimmed to the image extent.
+
+        Args:
+            image: The image to search, with two spatial axes.
+            threshold: The fraction of the maximum a pixel has to exceed.
+            pad: The pixels added on each side of the bounding box.
+            mask: True at the pixels to consider, in the shape of ``image``. The
+                maximum is taken over these pixels, and only these pixels can exceed
+                the threshold. Every pixel is considered when None.
+
+        Returns:
+            The padded bounding box of the pixels above the threshold.
         """
         xp = array_namespace(image)
-        rows, cols = xp.nonzero(image > threshold * xp.max(image))
+        if mask is None:
+            above = image > threshold * xp.max(image)
+        else:
+            above = mask & (image > threshold * xp.max(image[mask]))
+        rows, cols = xp.nonzero(above)
         top = int(xp.clip(xp.min(rows) - pad, 0, image.shape[0]))
         bottom = int(xp.clip(xp.max(rows) + pad + 1, 0, image.shape[0]))
         left = int(xp.clip(xp.min(cols) - pad, 0, image.shape[1]))

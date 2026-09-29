@@ -21,7 +21,7 @@ from hologradpy.optics.systems import (
     SLMNUFFT,
     SLMCZT,
 )
-from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
+from hologradpy.optics.modules.slm_fields import PSFSLMField, PixelwiseSLMField
 from hologradpy.optics.modules.virtual_slms.abstract import VirtualSLM
 
 
@@ -310,3 +310,41 @@ def test_checkpoint_preserves_pointing_instability(tmp_path) -> None:
     assert restored_params.keys() == expected_params.keys()
     for key in expected_params:
         torch.testing.assert_close(restored_params[key], expected_params[key])
+
+
+def test_a_plain_dict_checkpoint_loads(tmp_path) -> None:
+    """The older plain-dict checkpoint format loads as a checkpoint object does."""
+    model = _make_slm_czt()
+    expected = model().intensity.detach().clone()
+
+    dict_path = str(tmp_path / "dict.pt")
+    torch.save(
+        {
+            "class_name": type(model).__name__,
+            "spec": model.get_checkpoint_spec(),
+            "state_dict": model.state_dict(),
+        },
+        dict_path,
+    )
+    restored = type(model).load(dict_path)
+
+    torch.testing.assert_close(restored().intensity, expected)
+
+
+def test_a_swapped_layer_survives_save_and_load(tmp_path) -> None:
+    """A PSF calibration replaces the SLM-plane field after construction. A layer
+    replaced in this way is saved and rebuilt as the replacement.
+    """
+    model = _make_slm_czt()
+    model()
+    model.slm_field = PSFSLMField(
+        focal_length=0.1, camera_pixel_size=CAMERA_PIXEL_SIZE, psf_kernel_size=7
+    )
+    expected = model().intensity.detach().clone()
+
+    path = str(tmp_path / "swapped.pt")
+    model.save(path)
+    restored = SLMCZT.load(path)
+
+    assert isinstance(restored.slm_field, PSFSLMField)
+    torch.testing.assert_close(restored().intensity, expected)

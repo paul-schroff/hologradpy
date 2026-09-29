@@ -9,11 +9,16 @@ line beneath it.
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 
 import matplotlib
+import pytest
 from jaxtyping import install_import_hook
 
 import tests.array_shape_checks  # noqa: F401  The hook imports the checker by name.
+
+if TYPE_CHECKING:
+    from tests.virtual_clock import VirtualClock
 
 # Every function and dataclass in the package checks its jaxtyping array annotations
 # while the suite runs. The hook transforms modules as they load, so it is installed
@@ -30,3 +35,22 @@ matplotlib.use("Agg")
 # rather than moving here. It is autouse in both, and autouse in conftest would put the
 # whole suite in float64: slower everywhere, and a silent change to what the other
 # tests measure.
+
+
+# The fixture below imports inside its body, so the package loads after the
+# shape-check hook above.
+
+
+@pytest.fixture
+def virtual_clock(monkeypatch: pytest.MonkeyPatch) -> VirtualClock:
+    """A virtual clock in place of the time module inside the slmsuite drivers.
+
+    Time moves only when a driver reads the clock or sleeps on it. A wait for a frame,
+    a timeout and a settle wait therefore take no real time (see
+    ``tests/virtual_clock.py``).
+    """
+    from tests.virtual_clock import VirtualClock, install_virtual_clock
+
+    clock = VirtualClock()
+    install_virtual_clock(monkeypatch, clock)
+    return clock

@@ -6,6 +6,7 @@ import torch
 from torch import Tensor
 from torch.fft import fftn, ifftn, fftshift, ifftshift
 
+from ..utils import resolve_device
 from .abstract import FourierBase
 from .sampling import get_zoom_frequency_grid
 
@@ -48,10 +49,11 @@ class FastFourierTransform(FourierBase):
     def __init__(
         self,
         resolution: tuple[int, int],
-        device: torch.device = "cpu",
+        device: torch.device | None = None,
         norm: Literal["backward", "forward", "ortho"] = "backward",
         fft_shift: bool = True,
     ) -> None:
+        device = resolve_device(device)
         omega_x, omega_y = get_zoom_frequency_grid(
             resolution, resolution, (1.0, 1.0), (0.0, 0.0), device
         )

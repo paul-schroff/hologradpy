@@ -86,7 +86,7 @@ class GenTLCamera(Camera):
         # Before the first start, since the sizes are not writable while streaming.
         self._write_roi(roi)
 
-        self._sensor_shape: tuple[int, int] = (
+        self._sensor_resolution: tuple[int, int] = (
             int(self._read("HeightMax", self._read("Height", 0))),
             int(self._read("WidthMax", self._read("Width", 0))),
         )
@@ -172,9 +172,9 @@ class GenTLCamera(Camera):
         return self._pixel_size
 
     @property
-    def default_shape(self) -> tuple[int, int]:
+    def sensor_resolution(self) -> tuple[int, int]:
         """The whole sensor's ``(height, width)``, whatever the region of interest."""
-        return self._sensor_shape
+        return self._sensor_resolution
 
     @property
     def max_pixel_value(self) -> int:
@@ -196,8 +196,8 @@ class GenTLCamera(Camera):
         return ROI(
             top_row=int(self._read("OffsetY", 0)),
             left_column=int(self._read("OffsetX", 0)),
-            height=int(self._read("Height", self._sensor_shape[0])),
-            width=int(self._read("Width", self._sensor_shape[1])),
+            height=int(self._read("Height", self._sensor_resolution[0])),
+            width=int(self._read("Width", self._sensor_resolution[1])),
         )
 
     def set_roi(self, roi: ROI | None) -> None:
@@ -252,16 +252,28 @@ class GenTLCamera(Camera):
     def set_exposure(self, exposure_s: float) -> None:
         self._write("ExposureTime", float(exposure_s) * MICROSECONDS_PER_SECOND)
 
-    def get_image(
-        self, exposure_s: float | None = None, averaging: int = 1
+    def _get_image(
+        self, exposure: float | None = None, averaging: int = 1
     ) -> NDArray:
-        if exposure_s is not None:
-            self.set_exposure(exposure_s)
+        """Capture a frame as a ``(height, width)`` array of digital counts.
+
+        Each frame is triggered on its own, and several frames are summed.
+
+        Args:
+            exposure: The exposure in seconds, set before the capture when given.
+            averaging: The number of frames to sum.
+
+        Returns:
+            NDArray: One frame in the streamed pixel format, or the float64 sum of
+            ``averaging`` frames.
+        """
+        if exposure is not None:
+            self.set_exposure(exposure)
 
         frames = [self._fetch_frame() for _ in range(max(int(averaging), 1))]
         if len(frames) == 1:
             return frames[0]
-        return np.sum(frames, axis=0)
+        return np.sum(np.stack(frames).astype(np.float64), axis=0)
 
     def _fetch_frame(self) -> NDArray:
         """Trigger one exposure and copy the frame out of the transport buffer."""

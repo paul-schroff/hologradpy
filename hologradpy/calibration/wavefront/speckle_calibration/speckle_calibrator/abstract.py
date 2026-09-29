@@ -13,6 +13,7 @@ from .....calibration.speckle import SpeckleCaptureData
 from .....calibration.speckle.calibrator import FitSettings, SpeckleCalibrator
 
 from .....datasets import CaptureStore
+from .....hardware.camera import Background
 from ..visualizer import SpeckleVisualizationData
 
 from ...abstract import WavefrontCalibrationData
@@ -247,6 +248,7 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
                 "focal_length": self.focal_length,
                 "number_of_random_patterns": self.number_of_random_patterns,
                 "beam_mask_threshold": beam_mask_threshold,
+                "background_level": self.fitter.background_level,
                 **self._residual_metrics(phase_no_tilt, comparison_mask),
             },
             visualization_data=self._build_visualization_data(
@@ -264,6 +266,7 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
         seed: int | None = None,
         verbose: bool = True,
         beam_mask_threshold: float = BEAM_MASK_THRESHOLD_DEFAULT,
+        background: Background | None = None,
     ) -> WavefrontCalibrationData:
         """Capture a dataset, fit the model to it, and return the wavefront.
 
@@ -288,6 +291,10 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
             beam_mask_threshold: Fraction of the peak intensity above which a pixel
                 counts as illuminated, passed to
                 :meth:`generate_slm_beam_calibration`. Defaults to 1/e^4 (~0.0183).
+            background: The counts subtracted from every frame before the fit, as
+                one level for every pixel, a whole-sensor frame, or a function of the
+                exposure in seconds returning either, evaluated at the exposure the
+                dataset was captured at. None, the default, subtracts nothing.
 
         Returns:
             WavefrontCalibrationData: The fitted SLM-plane complex amplitude.
@@ -307,6 +314,7 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
             subset_indices=subset_indices,
             verbose=verbose,
             capture_data=capture_data,
+            background=background,
         )
 
         return self.generate_slm_beam_calibration(

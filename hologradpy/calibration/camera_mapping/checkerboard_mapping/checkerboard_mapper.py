@@ -67,7 +67,14 @@ class CheckerboardMapper(CameraMapper):
         displayed. The checkerboard corners are detected sub-pixel in both the captured
         and simulated images and fitted with an affine transform. The board is placed
         via a coarse mapping so it lands on the sensor, clears the zeroth order, and
-        stays within a quarter of the SLM's Nyquist adressable extent.
+        stays within a quarter of the SLM's Nyquist-addressable extent.
+
+        The mapping is measured with the model's focal-plane affine at identity (see
+        :meth:`~hologradpy.optics.systems.SLMFourierLensModel.bypass_partial_affine`),
+        so it describes the camera against the model without its partial affine. The
+        whole sensor is read out while the camera is mapped, and its exposure and
+        region of interest are put back afterwards
+        (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_and_roi`).
 
         Args:
             number_of_squares: Squares in (rows, columns). Defaults to (7, 9).
@@ -89,216 +96,225 @@ class CheckerboardMapper(CameraMapper):
         Returns:
             CameraMapping with the affine transform and corner correspondences.
         """
-        number_of_corners = tuple([i - 1 for i in number_of_squares])
+        with (
+            self.camera.preserve_exposure_and_roi(full_sensor=True),
+            self.slm_camera_model.bypass_partial_affine(),
+        ):
+            number_of_corners = tuple([i - 1 for i in number_of_squares])
 
-        if coarse_mapping is None:
-            coarse_mapping = CoarseMapper(
-                self.slm, self.camera, self.slm_camera_model
-            ).map_camera()
+            if coarse_mapping is None:
+                coarse_mapping = CoarseMapper(
+                    self.slm, self.camera, self.slm_camera_model
+                ).map_camera()
 
-        lens = self.slm_camera_model.fourier_lens
-        simulation_pixel_size = lens.pixel_size_out.tolist()[0]  # (y, x) metres
-        resolution_out = tuple(lens.resolution_out)  # (height, width)
-        focal_length = float(lens.focal_length)
-        pitch = self.camera.pixel_size[::-1]  # (x, y) for Cartesian geometry
-        camera_shape = tuple(self.camera.resolution)  # (height, width)
-        focal_spot_radius = float(abs(coarse_mapping.spot_fit.waist))
+            lens = self.slm_camera_model.fourier_lens
+            simulation_pixel_size = lens.pixel_size_out.tolist()[0]  # (y, x) metres
+            resolution_out = tuple(lens.resolution_out)  # (height, width)
+            focal_length = float(lens.focal_length)
+            pitch = self.camera.pixel_size[::-1]  # (x, y) for Cartesian geometry
+            camera_shape = tuple(self.camera.resolution)  # (height, width)
+            focal_spot_radius = float(abs(coarse_mapping.spot_fit.waist))
 
-        # Choose the board center (model-pixel shift), the square size, and the
-        # camera-pixel center the board lands on from the coarse transform.
-        board_shift, square_size, center_camera = self._place_checkerboard(
-            number_of_squares,
-            square_size,
-            coarse_mapping,
-            focal_length,
-            simulation_pixel_size,
-            resolution_out,
-            camera_shape,
-        )
-
-        # Generating checkerboard target and signal region (model plane).
-        target = checkerboard(
-            resolution_out,
-            number_of_squares=number_of_squares,
-            square_size=square_size,
-            dark_square_brightness=0.0,
-            light_square_brightness=1.0,
-            shift_x=board_shift[0],
-            shift_y=board_shift[1],
-        )
-        target = torch.tensor(
-            gaussian_filter(target, target_blur_width),
-            device=self.device,
-            dtype=torch.float32,
-        )
-        signal_region_roi = ROI.detect(target, pad=square_size * 2)
-        signal_region = torch.zeros_like(target, device=self.device) > 1
-        signal_region[signal_region_roi.rows, signal_region_roi.columns] = True
-
-        board_shift_metres = (
-            board_shift[0] * simulation_pixel_size[1],
-            board_shift[1] * simulation_pixel_size[0],
-        )
-
-        # ROI for corner detection: The model plane is centered on the board, and the 
-        # camera plane is centered where the board lands.
-        roi_width = simulation_pixel_size[1] * square_size * (number_of_squares[1] + 1)
-        roi_height = simulation_pixel_size[0] * square_size * (number_of_squares[0] + 1)
-        roi_mask_simulation = rectangular_mask(
-            *lens.get_spatial_grid_output(),
-            width=torch.tensor(roi_width),
-            height=torch.tensor(roi_height),
-            shift_x=board_shift_metres[0],
-            shift_y=board_shift_metres[1],
-        )
-
-        inverse = np.asarray(coarse_mapping.inverse_transform, dtype=np.float64)
-        magnification = float(np.sqrt(abs(np.linalg.det(inverse[:, :2]))))
-        squares_plus = (number_of_squares[1] + 1, number_of_squares[0] + 1)
-        center_metres = pixel_to_metres(
-            center_camera, self.camera.pixel_size, camera_shape
-        )
-        camera_grid = get_spatial_grid(
-            self.camera.resolution, self.camera.pixel_size, device=self.device
-        )
-        roi_mask_camera = rectangular_mask(
-            *camera_grid,
-            width=square_size * squares_plus[0] * magnification * pitch[0],
-            height=square_size * squares_plus[1] * magnification * pitch[1],
-            shift_x=center_metres[0],
-            shift_y=center_metres[1],
-        )
-
-        # Calculating SLM phase guess to seed conjugate gradient minimization
-        # if phase_guess is not provided
-        if phase_guess is None:
-            aspect_ratio = 1 / (1 + number_of_squares[1] / number_of_squares[0])
-            curvature = (
-                1.8e-6
-                * square_size
-                * (number_of_squares[0] ** 2 + number_of_squares[1] ** 2) ** 0.5
+            # Choose the board center (model-pixel shift), the square size, and the
+            # camera-pixel center the board lands on from the coarse transform.
+            board_shift, square_size, center_camera = self._place_checkerboard(
+                number_of_squares,
+                square_size,
+                coarse_mapping,
+                focal_length,
+                simulation_pixel_size,
+                resolution_out,
+                camera_shape,
             )
 
-            phase_guess = analytic_phase_guess(
-                *self.slm_camera_model.virtual_slm.get_slm_grid(),
-                tilt_x=board_shift_metres[0],
-                tilt_y=board_shift_metres[1],
-                curvature=curvature,
-                aspect_ratio=aspect_ratio,
-                focal_length=self.slm_camera_model.fourier_lens.focal_length,
-                wavenumber=self.slm_camera_model.init_field.wavenumber,
-                tilt_units="metres",
-                curvature_units="radians_per_pixel_squared",
+            # Generating checkerboard target and signal region (model plane).
+            target = checkerboard(
+                resolution_out,
+                number_of_squares=number_of_squares,
+                square_size=square_size,
+                dark_square_brightness=0.0,
+                light_square_brightness=1.0,
+                shift_x=board_shift[0],
+                shift_y=board_shift[1],
+            )
+            target = torch.tensor(
+                gaussian_filter(target, target_blur_width),
+                device=self.device,
+                dtype=torch.float32,
+            )
+            signal_region_roi = ROI.detect(target, pad=square_size * 2)
+            signal_region = torch.zeros_like(target, device=self.device) > 1
+            signal_region[signal_region_roi.rows, signal_region_roi.columns] = True
+
+            board_shift_metres = (
+                board_shift[0] * simulation_pixel_size[1],
+                board_shift[1] * simulation_pixel_size[0],
             )
 
-        # Performing phase retrieval to find SLM phase pattern for checkerboard
-        # target
-        phase_retriever = PixelwisePhaseRetriever(
-            self.slm_camera_model,
-            target=target,
-            signal_region=signal_region,
-            init_slm_phase=phase_guess,
-        )
+            # Regions for corner detection. The model-plane region is centred on
+            # the board, and the camera-plane region is centred where the board lands.
+            roi_width = (
+                simulation_pixel_size[1] * square_size * (number_of_squares[1] + 1)
+            )
+            roi_height = (
+                simulation_pixel_size[0] * square_size * (number_of_squares[0] + 1)
+            )
+            roi_mask_simulation = rectangular_mask(
+                *lens.get_spatial_grid_output(),
+                width=torch.tensor(roi_width),
+                height=torch.tensor(roi_height),
+                shift_x=board_shift_metres[0],
+                shift_y=board_shift_metres[1],
+            )
 
-        slm_phase = phase_retriever.retrieve_phase(number_of_cg_iterations)
+            inverse = np.asarray(coarse_mapping.inverse_transform, dtype=np.float64)
+            magnification = float(np.sqrt(abs(np.linalg.det(inverse[:, :2]))))
+            squares_plus = (number_of_squares[1] + 1, number_of_squares[0] + 1)
+            center_metres = pixel_to_metres(
+                center_camera, self.camera.pixel_size, camera_shape
+            )
+            camera_grid = get_spatial_grid(
+                self.camera.resolution, self.camera.pixel_size, device=self.device
+            )
+            roi_mask_camera = rectangular_mask(
+                *camera_grid,
+                width=square_size * squares_plus[0] * magnification * pitch[0],
+                height=square_size * squares_plus[1] * magnification * pitch[1],
+                shift_x=center_metres[0],
+                shift_y=center_metres[1],
+            )
 
-        # Optional vortex removal
-        if annihilate_vortices:
-            vortex_annihilator = VortexAnnihilator(phase_retriever)
-            vortex_annihilator.annihilate_vortices(
-                target_intensity_threshold=0.2,
-                max_iterations=5,
-                cg_iterations=20,
+            # Calculating SLM phase guess to seed conjugate gradient minimization
+            # if phase_guess is not provided
+            if phase_guess is None:
+                aspect_ratio = 1 / (1 + number_of_squares[1] / number_of_squares[0])
+                curvature = (
+                    1.8e-6
+                    * square_size
+                    * (number_of_squares[0] ** 2 + number_of_squares[1] ** 2) ** 0.5
+                )
+
+                phase_guess = analytic_phase_guess(
+                    *self.slm_camera_model.virtual_slm.get_slm_grid(),
+                    tilt_x=board_shift_metres[0],
+                    tilt_y=board_shift_metres[1],
+                    curvature=curvature,
+                    aspect_ratio=aspect_ratio,
+                    focal_length=self.slm_camera_model.fourier_lens.focal_length,
+                    wavenumber=self.slm_camera_model.init_field.wavenumber,
+                    tilt_units="metres",
+                    curvature_units="radians_per_pixel_squared",
+                )
+
+            # Performing phase retrieval to find SLM phase pattern for checkerboard
+            # target
+            phase_retriever = PixelwisePhaseRetriever(
+                self.slm_camera_model,
+                target=target,
+                signal_region=signal_region,
+                init_slm_phase=phase_guess,
             )
 
             slm_phase = phase_retriever.retrieve_phase(number_of_cg_iterations)
 
-        simulated_camera_image = gpu_to_numpy(
-            as_image(self.slm_camera_model().intensity)
-        )
-
-        self.slm.set_phase(gpu_to_numpy(slm_phase))
-        if exposure_time is not None:
-            self.camera.set_exposure(exposure_time)
-        else:
-            # Autoexpose on a region around the board (center_camera is (x, y)).
-            board_roi = ROI.centered(
-                (center_camera[1], center_camera[0]),  # (row, col)
-                (
-                    square_size * squares_plus[1] * magnification,  # height
-                    square_size * squares_plus[0] * magnification,  # width
-                ),
-            )
-
-            self.camera.autoexpose(
-                set_fraction=0.95,
-                roi=board_roi,
-                raise_on_rail=False,
-                verbose=self.verbose,
-            )
-
-        # Capturing camera image
-        averaged_camera_image = self.capture_phase_shifted_image(
-            gpu_to_numpy(slm_phase), number_of_shifts=10
-        )
-
-        # Detecting checkerboard corners in the captured and simulated images
-        detected_corners, detected_score = self.detect_in_region(
-            averaged_camera_image,
-            gpu_to_numpy(roi_mask_camera),
-            number_of_corners=number_of_corners,
-        )
-
-        calculated_corners, calculated_score = self.detect_in_region(
-            simulated_camera_image,
-            gpu_to_numpy(roi_mask_simulation),
-            number_of_corners=number_of_corners,
-        )
-
-        # A failed detection returns a scalar rather than an (N, 2) array.
-        number_expected = number_of_corners[0] * number_of_corners[1]
-        for label, corners in (
-            ("camera", detected_corners),
-            ("simulated", calculated_corners),
-        ):
-            if np.asarray(corners).shape != (number_expected, 2):
-                raise RuntimeError(
-                    f"The checkerboard could not be detected in the {label} image "
-                    f"({number_expected} inner corners expected). The board is likely "
-                    "too dim or low contrast. Increase the exposure or square_size, "
-                    "improve the wavefront calibration, or use the more robust "
-                    "SpotArrayMapper."
+            # Optional vortex removal
+            if annihilate_vortices:
+                vortex_annihilator = VortexAnnihilator(phase_retriever)
+                vortex_annihilator.annihilate_vortices(
+                    target_intensity_threshold=0.2,
+                    max_iterations=5,
+                    cg_iterations=20,
                 )
 
-        # Fitting affine transformation to detected and calculated corners
-        affine = AffineTransform.fit(detected_corners, calculated_corners)
-        transform = affine.as_matrix(homogeneous=False)
-        reprojection_errors, reprojection_rms = self.calculate_reprojection_error(
-            detected_corners, calculated_corners, transform
-        )
+                slm_phase = phase_retriever.retrieve_phase(number_of_cg_iterations)
 
-        zeroth_order_position = CameraMapping.zeroth_order_from(
-            affine, self.slm_camera_model.fourier_lens.resolution_out
-        )
+            simulated_camera_image = gpu_to_numpy(
+                as_image(self.slm_camera_model().intensity)
+            )
 
-        # Generating and returning CameraMapping dataclass.
-        return CameraMapping(
-            timestamp=datetime.now(),
-            name="checkerboard",
-            transform=transform,
-            detected_points=detected_corners,
-            calculated_points=calculated_corners,
-            zeroth_order_position=zeroth_order_position,
-            spot_fit=FocalSpotFit(waist=focal_spot_radius),
-            fit=MappingFit(
-                reprojection_errors=reprojection_errors,
-                reprojection_rms=reprojection_rms,
-            ),
-            visualization_data=CameraMappingVisualizationData(
-                camera_image=averaged_camera_image,
-                simulated_image=simulated_camera_image,
-            ),
-        )
+            self.slm.set_phase(gpu_to_numpy(slm_phase))
+            if exposure_time is not None:
+                self.camera.set_exposure(exposure_time)
+            else:
+                # Autoexpose on a region around the board, trimmed to the sensor.
+                # center_camera is (x, y).
+                board_roi = ROI.centered(
+                    (center_camera[1], center_camera[0]),  # (row, col)
+                    (
+                        square_size * squares_plus[1] * magnification,  # height
+                        square_size * squares_plus[0] * magnification,  # width
+                    ),
+                ).trimmed_to(camera_shape)
+
+                self.camera.autoexpose(
+                    set_fraction=0.95,
+                    roi=board_roi,
+                    raise_on_rail=False,
+                    verbose=self.verbose,
+                )
+
+            # Capturing camera image
+            averaged_camera_image = self.capture_phase_shifted_image(
+                gpu_to_numpy(slm_phase), number_of_shifts=10
+            )
+
+            # Detecting checkerboard corners in the captured and simulated images
+            detected_corners, detected_score = self.detect_in_region(
+                averaged_camera_image,
+                gpu_to_numpy(roi_mask_camera),
+                number_of_corners=number_of_corners,
+            )
+
+            calculated_corners, calculated_score = self.detect_in_region(
+                simulated_camera_image,
+                gpu_to_numpy(roi_mask_simulation),
+                number_of_corners=number_of_corners,
+            )
+
+            # A failed detection returns a scalar rather than an (N, 2) array.
+            number_expected = number_of_corners[0] * number_of_corners[1]
+            for label, corners in (
+                ("camera", detected_corners),
+                ("simulated", calculated_corners),
+            ):
+                if np.asarray(corners).shape != (number_expected, 2):
+                    raise RuntimeError(
+                        "The checkerboard could not be detected in the "
+                        f"{label} image ({number_expected} inner corners expected). "
+                        "The board is likely too dim or low contrast. Increase the "
+                        "exposure or square_size, improve the wavefront calibration, "
+                        "or use the more robust SpotArrayMapper."
+                    )
+
+            # Fitting affine transformation to detected and calculated corners
+            affine = AffineTransform.fit(detected_corners, calculated_corners)
+            transform = affine.as_matrix(homogeneous=False)
+            reprojection_errors, reprojection_rms = self.calculate_reprojection_error(
+                detected_corners, calculated_corners, transform
+            )
+
+            zeroth_order_position = CameraMapping.zeroth_order_from(
+                affine, self.slm_camera_model.fourier_lens.resolution_out
+            )
+
+            # Generating and returning CameraMapping dataclass.
+            return CameraMapping(
+                timestamp=datetime.now(),
+                name="checkerboard",
+                transform=transform,
+                detected_points=detected_corners,
+                calculated_points=calculated_corners,
+                zeroth_order_position=zeroth_order_position,
+                spot_fit=FocalSpotFit(waist=focal_spot_radius),
+                fit=MappingFit(
+                    reprojection_errors=reprojection_errors,
+                    reprojection_rms=reprojection_rms,
+                ),
+                visualization_data=CameraMappingVisualizationData(
+                    camera_image=averaged_camera_image,
+                    simulated_image=simulated_camera_image,
+                ),
+            )
 
     def _place_checkerboard(
         self,

@@ -32,7 +32,7 @@ from __future__ import annotations
 import contextlib
 import os
 import typing
-from collections.abc import Iterator
+from collections.abc import Generator
 from dataclasses import MISSING, fields, is_dataclass
 from datetime import datetime
 from pathlib import Path
@@ -337,7 +337,7 @@ def install_extension() -> None:
 
 
 @contextlib.contextmanager
-def registered_as(name: str, cls: type) -> Iterator[None]:
+def registered_as(name: str, cls: type) -> Generator[None, None, None]:
     """Point a stable name at a different class for the duration of the block.
 
     For reading a file whose class has been superseded.

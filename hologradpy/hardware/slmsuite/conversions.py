@@ -22,9 +22,19 @@ ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 
 
 def pixel_size_from_pitch_um(
-    pitch_um: Sequence[float] | NDArray,
+    pitch_um: Sequence[float] | NDArray | None,
 ) -> NDArray[np.float64]:
-    """``pitch_um`` (x, y) um -> ``pixel_size`` (y, x) m."""
+    """``pitch_um`` (x, y) um -> ``pixel_size`` (y, x) m.
+
+    Raises:
+        ValueError: ``pitch_um`` is None, which slmsuite stores for a device opened
+            without a pixel pitch.
+    """
+    if pitch_um is None:
+        raise ValueError(
+            "The device does not state its pixel pitch. Set pitch_um = (x_um, y_um) "
+            "on it."
+        )
     return np.asarray(pitch_um, dtype=np.float64)[::-1] * 1e-6
 
 
@@ -50,11 +60,17 @@ def wav_um_from_wavelength(wavelength: float) -> float:
 
 
 def roi_from_woi(woi: tuple[int, int, int, int]) -> ROI:
-    """From an slmsuite readout window ``(x0, width, y0, height)``."""
+    """From an slmsuite readout window ``(x0, width, y0, height)``.
+
+    A readout window is in raw sensor coordinates, before the camera's frame transform.
+    """
     x0, width, y0, height = woi
     return ROI(int(y0), int(x0), int(height), int(width))
 
 
 def roi_to_woi(roi: ROI) -> tuple[int, int, int, int]:
-    """To an slmsuite readout window ``(x0, width, y0, height)``."""
+    """To an slmsuite readout window ``(x0, width, y0, height)``.
+
+    A readout window is in raw sensor coordinates, before the camera's frame transform.
+    """
     return (roi.left_column, roi.width, roi.top_row, roi.height)

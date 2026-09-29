@@ -1,6 +1,7 @@
 from __future__ import annotations
+import copy
 import os
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar
@@ -10,7 +11,6 @@ import torch.nn as nn
 from torch import Tensor
 
 from ..modules.virtual_slms.abstract import VirtualSLM
-from ..modules.pixel_crosstalk import PixelCrosstalk
 
 from ..modules.abstract import OpticsModule
 from ...fourier_optics import (
@@ -22,7 +22,7 @@ from ..modules.grid_adapter import GridAdapter
 from ..modules.slm_fields import SLMField
 from ..modules.hardware_models import PointingInstability
 from ..modules.recording import RecordingMixin
-from ...geometry import SupportsPartialAffine
+from ..modules.learnable_partial_affine import LearnablePartialAffine
 
 if TYPE_CHECKING:
     from ...calibration.camera_mapping.abstract import CameraMapping
@@ -188,7 +188,7 @@ class OpticalSystem(nn.Module):
                 module.record(enabled)
 
     @contextmanager
-    def record_samples(self) -> Iterator[OpticalSystem]:
+    def record_samples(self) -> Generator[OpticalSystem, None, None]:
         """Record every layer's declared values for the duration of the ``with``
         block (recording is turned off again on exit). Read them from
         :attr:`history`.
@@ -311,8 +311,10 @@ class OpticalSystem(nn.Module):
     def get_checkpoint_spec(self) -> dict[str, object]:
         """Return reconstructible keyword arguments for this system.
 
-        The concrete constructor is captured by the ``@capture_init`` decorator into
-        ``self._init_kwargs`` -- all of which are plain, picklable values.
+        The ``@capture_init`` decorator records the arguments of the concrete
+        constructor into ``self._init_kwargs``, all of which are plain, picklable
+        values. A constructor argument named after a layer takes the current module of
+        that layer, so the rebuilt system keeps any layer replaced after construction.
         """
         spec = getattr(self, "_init_kwargs", None)
         if spec is None:
@@ -321,7 +323,10 @@ class OpticalSystem(nn.Module):
                 "@capture_init (or override get_checkpoint_spec) to support "
                 "checkpointing."
             )
-        return dict(spec)
+        spec = dict(spec)
+        for name in spec.keys() & set(self._order):
+            spec[name] = getattr(self, name)
+        return spec
 
     @classmethod
     def from_checkpoint_spec(
@@ -340,7 +345,7 @@ class OpticalSystem(nn.Module):
         ]
 
     def save(self, filename: str) -> None:
-        """Save model parameters and constructor metadata to a checkpoint."""
+        """Save the model parameters and the constructor metadata to a checkpoint."""
         # Ensure lazily initialized modules have created their parameters.
         _ = self()
 
@@ -472,49 +477,6 @@ def slm_stages(
     }
 
 
-# TODO: See if there is a more elegant solution than this.
-def with_pixel_crosstalk(
-    slm_camera_model: SLMFourierLensModel,
-    crosstalk: PixelCrosstalk,
-) -> SLMFourierLensModel:
-    """``slm_camera_model`` rebuilt with ``crosstalk`` mounted on its SLM stage.
-
-    Crosstalk cannot be inserted into a system that is already built, as it changes the
-    sampling of every stage after the SLM. The model is rebuilt from its construction
-    arguments instead, which needs an ``__init__`` decorated with ``@capture_init``.
-
-    Args:
-        slm_camera_model: The system to rebuild, before it has been run.
-        crosstalk: The model to mount, which the rebuilt system's SLM stage carries.
-
-    Returns:
-        SLMFourierLensModel: A new system of the same type, on the sub-pixel grid.
-
-    Raises:
-        ValueError: If the SLM stage has already been built for the coarse grid.
-        NotImplementedError: If the system cannot be rebuilt from its arguments.
-    """
-    virtual_slm = slm_camera_model.virtual_slm
-    if virtual_slm.initialized:
-        raise ValueError(
-            "The SLM stage has already been built for the coarse grid, so pixel "
-            "crosstalk cannot be added to it. Mount the crosstalk before running the "
-            "model or setting a phase on it."
-        )
-
-    try:
-        spec = slm_camera_model.get_checkpoint_spec()
-    except NotImplementedError as error:
-        raise NotImplementedError(
-            f"{type(slm_camera_model).__name__} cannot be rebuilt with pixel "
-            "crosstalk, because its __init__ is not decorated with @capture_init. "
-            "Build the model with a VirtualSLM carrying the crosstalk instead."
-        ) from error
-
-    virtual_slm.pixel_crosstalk = crosstalk
-    return type(slm_camera_model).from_checkpoint_spec(spec)
-
-
 def camera_shift_pixels(
     camera_shift: tuple[float, float],
     camera_pixel_size: tuple[float, float],
@@ -538,7 +500,7 @@ def upscaled_padding(
 
     A Fourier lens maps ``pixel_size_in * padded_resolution`` onto its focal plane, so
     growing the padding by the same factor the pixel shrinks by leaves the focal-plane
-    sampling, the camera registration and any fitted affine exactly where they were.
+    sampling, the camera mapping and any fitted affine exactly where they were.
     """
     if padded_resolution is None:
         return None
@@ -586,35 +548,66 @@ class SLMFourierLensModel(OpticalSystem):
             # to all of them.
             self.insert_after(SLMField, "pointing_instability", pointing)
 
-    def affine_module(self) -> SupportsPartialAffine | None:
-        """The module carrying the focal-plane ``(scale_factor, shift, angle)``
-        registration, or ``None`` when this model has none.
+    @property
+    def focal_plane_partial_affine(self) -> LearnablePartialAffine | None:
+        """The learnable partial affine that maps the output plane onto the camera, or
+        None for a model without one.
 
-        The default is ``None``: a plain FFT system carries no affine and cannot be
-        calibrated from a mapping. The affine-carrying subclasses override this to
-        return their own carrier (a :class:`GeometricWarp`, or the ``FourierLensCZT``
-        that bakes the affine into the lens).
+        A plain FFT model has none and cannot be calibrated from a mapping. The other
+        models return the partial affine of the module that applies it, the Fourier
+        lens or the field warp.
         """
         return None
 
-    def calibrate_from_mapping(self, mapping: CameraMapping) -> None:
-        """Seed the focal-plane affine from a fitted camera ``mapping``.
+    @contextmanager
+    def bypass_partial_affine(self) -> Generator[SLMFourierLensModel, None, None]:
+        """Hold the focal-plane partial affine at identity for the duration of a
+        ``with`` block, so the model runs as if it had none.
 
-        Composes the mapping's :attr:`~hologradpy.calibration.camera_mapping\
-        .CameraMapping.partial_affine` (camera -> model similarity) as a residual onto
-        the learnable ``(scale_factor, shift, angle)`` of the system's affine module, so
-        a coarse mapping can warm-start the differentiable registration. The system is
-        run once first to ensure its lazy parameters exist. Raises ``TypeError`` for a
-        model that carries no affine module.
+        A camera mapping describes the camera against the model without its partial
+        affine, whose zeroth order sits at the centre of the output plane. The camera
+        mappers measure inside this block, so a mapping comes out the same whatever
+        values the partial affine holds. The values are restored on exit, also after an
+        exception, and blocks nest. A model without a focal-plane partial affine is
+        left as it is.
+
+        Yields:
+            SLMFourierLensModel: This model, with its partial affine at identity.
         """
-        affine_module = self.affine_module()
-        if affine_module is None:
+        partial_affine = self.focal_plane_partial_affine
+        held_state = None
+        if partial_affine is not None:
+            held_state = copy.deepcopy(partial_affine.state_dict())
+            partial_affine.reset()
+        try:
+            yield self
+        finally:
+            if held_state is not None:
+                partial_affine.load_state_dict(held_state)
+
+    def calibrate_from_mapping(self, mapping: CameraMapping) -> None:
+        """Calibrate the focal-plane partial affine from a fitted camera ``mapping``.
+
+        The mapping runs from camera pixels to the output plane of the model without
+        its partial affine. Its :attr:`~.CameraMapping.partial_affine` (camera ->
+        model similarity) is inverted into :attr:`focal_plane_partial_affine`, starting
+        from identity. The previous values are discarded, including the
+        ``camera_angle`` and ``camera_shift`` seeds. The result depends on the mapping
+        alone, so a repeat with the same mapping sets the same values.
+
+        Args:
+            mapping: The camera mapping to calibrate from.
+
+        Raises:
+            TypeError: If the model has no focal-plane partial affine.
+        """
+        partial_affine = self.focal_plane_partial_affine
+        if partial_affine is None:
             raise TypeError(
-                f"{type(self).__name__} has no affine module to calibrate from a "
-                "mapping."
+                f"{type(self).__name__} has no focal-plane partial affine to calibrate "
+                "from a mapping."
             )
-        self()
-        affine_module.apply_partial_affine(mapping.partial_affine)
+        partial_affine.set(mapping.partial_affine)
 
     @property
     def focal_length(self) -> float:

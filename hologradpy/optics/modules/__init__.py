@@ -6,7 +6,8 @@ optical pipeline. This package gathers the whole class hierarchy: the abstract
 base (:mod:`abstract`) and its recording mix-in (:mod:`recording`), the field
 sources (:mod:`virtual_slms`), the plane-to-plane propagators (:mod:`propagators`),
 the per-pixel and geometric field operators (:mod:`diagonal_elements`,
-:mod:`geometric_transforms`), and the apparatus/imperfection models
+:mod:`geometric_transforms`), the learnable partial affine of an output plane
+(:mod:`learnable_partial_affine`), and the apparatus/imperfection models
 (:mod:`hardware_models`).
 
 Distinct from :mod:`hologradpy.optics.systems`, whose ``OpticalSystem``
@@ -24,6 +25,7 @@ from .diagonal_elements import (
 )
 from .slm_fields import PSFSLMField, SLMField, PixelwiseSLMField
 from .geometric_transforms import GeometricWarp
+from .learnable_partial_affine import LearnablePartialAffine
 from .grid_adapter import GridAdapter
 from .pixel_crosstalk import (
     ConvolutionalCrosstalk,
@@ -59,6 +61,7 @@ __all__ = [
     "DoubletLens",
     "ZernikePhase",
     "GeometricWarp",
+    "LearnablePartialAffine",
     "GridAdapter",
     "PixelCrosstalk",
     "ConvolutionalCrosstalk",

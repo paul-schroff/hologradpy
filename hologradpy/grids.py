@@ -11,22 +11,25 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
+from .utils import resolve_device
+
 
 def get_pixel_grid(
     resolution: tuple[int, int],
-    device: torch.device = "cpu",
+    device: torch.device | None = None,
     dtype: torch.dtype | None = None,
 ) -> tuple[Tensor, Tensor]:
     """Centred pixel indices, as an ``(x, y)`` pair of grids.
 
     Args:
         resolution: ``(height, width)`` in pixels.
-        device: Where to build the grid.
+        device: Where to build the grid, the CPU for None.
         dtype: Dtype of the indices. Defaults to the integer one ``arange`` picks.
 
     Returns:
         tuple[Tensor, Tensor]: The ``x`` and ``y`` index grids.
     """
+    device = resolve_device(device)
     height, width = resolution
 
     pixel_indices_x = torch.arange(
@@ -42,7 +45,7 @@ def get_pixel_grid(
 def get_spatial_grid(
     resolution: tuple[int, int],
     pixel_size: tuple[float, float] | Tensor,
-    device: torch.device = "cpu",
+    device: torch.device | None = None,
 ) -> tuple[Tensor, Tensor]:
     """Centred ``(x, y)`` coordinates in metres, one point per pixel.
 
@@ -51,11 +54,12 @@ def get_spatial_grid(
     Args:
         resolution: ``(height, width)`` in pixels.
         pixel_size: ``(height, width)`` pitch in metres, as a pair or a tensor.
-        device: Where to build the grid.
+        device: Where to build the grid, the CPU for None.
 
     Returns:
         tuple[Tensor, Tensor]: The ``x`` and ``y`` coordinate grids.
     """
+    device = resolve_device(device)
     pixel_size = torch.as_tensor(pixel_size, device=device)
     extent = torch.as_tensor(resolution, device=device) * pixel_size
 
@@ -118,7 +122,7 @@ def pixel_to_metres(
 def get_frequency_grid(
     resolution: tuple[int, int],
     pixel_size: tuple[float, float] | Tensor,
-    device: torch.device = "cpu",
+    device: torch.device | None = None,
 ) -> tuple[Tensor, Tensor]:
     """Centred angular frequencies in rad/m, one per sample.
 
@@ -128,11 +132,12 @@ def get_frequency_grid(
         resolution: ``(height, width)`` in pixels.
         pixel_size: ``(height, width)`` pitch in metres, as a pair or a tensor. The
             grid comes back in its dtype.
-        device: Where to build the grid.
+        device: Where to build the grid, the CPU for None.
 
     Returns:
         tuple[Tensor, Tensor]: The ``x`` and ``y`` frequency grids.
     """
+    device = resolve_device(device)
     pixel_size = torch.as_tensor(pixel_size, device=device)
     frequency_extent = 2 * torch.pi / pixel_size
 

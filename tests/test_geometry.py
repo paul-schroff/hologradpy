@@ -1,4 +1,4 @@
-"""Tests for the geometric-transform value objects."""
+"""Tests for the transform value objects, matrix builders and dihedral transforms."""
 
 import numpy as np
 import pytest
@@ -8,6 +8,8 @@ from hologradpy.geometry import (
     GeometricTransform,
     AffineTransform,
     PartialAffineTransform,
+    dihedral_affine_matrix,
+    dihedral_array_transform,
     homogeneous_matrix,
     rotation_matrix_from_angle,
 )
@@ -179,3 +181,35 @@ def test_matrix_builders_are_differentiable_in_torch():
     for tensor in inputs:
         tensor.requires_grad_(True)
     assert torch.autograd.gradcheck(build, inputs)
+
+
+def test_dihedral_array_transform_rotates_before_flipping():
+    """The same for a NumPy array and a torch tensor."""
+    frame = np.arange(15).reshape(3, 5)
+    expected = np.fliplr(np.rot90(frame))
+
+    array_transform = dihedral_array_transform("90", fliplr=True)
+
+    np.testing.assert_array_equal(array_transform(frame), expected)
+    reoriented = array_transform(torch.from_numpy(frame))
+    assert isinstance(reoriented, torch.Tensor)
+    np.testing.assert_array_equal(reoriented.numpy(), expected)
+
+
+@pytest.mark.parametrize("rot", ["0", "90", "180", "270"])
+@pytest.mark.parametrize("fliplr", [False, True])
+def test_dihedral_affine_matrix_maps_each_pixel_to_where_the_array_shows_it(
+    rot, fliplr
+):
+    """For each of the eight rotations and flips, on an array that is not square."""
+    shape = (3, 5)
+    array_transform = dihedral_array_transform(rot, fliplr)
+    matrix = dihedral_affine_matrix(array_transform, shape)
+
+    for row, col in np.ndindex(shape):
+        one_hot = np.zeros(shape)
+        one_hot[row, col] = 1.0
+        ((shown_row, shown_col),) = np.argwhere(array_transform(one_hot))
+        np.testing.assert_allclose(
+            matrix @ [col, row, 1.0], [shown_col, shown_row], atol=1e-12
+        )

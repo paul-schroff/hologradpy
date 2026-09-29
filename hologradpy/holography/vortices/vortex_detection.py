@@ -18,7 +18,9 @@ ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 
 # TODO: Docstrings
 class VortexDetector:
-    def __init__(self, shape: tuple[int, int], device: str = "cpu") -> None:
+    def __init__(
+        self, shape: tuple[int, int], device: torch.device | None = None
+    ) -> None:
         self.labels: torch.Tensor
         self.center_coordinates: torch.Tensor
         self.center_indices: torch.Tensor

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ..modules.learnable_partial_affine import LearnablePartialAffine
 from ..modules.propagators import FourierLensCZT
 from ..modules.slm_fields import SLMField
 from ..modules.virtual_slms.abstract import VirtualSLM
@@ -17,11 +18,10 @@ from ..modules.abstract import capture_init
 class SLMCZT(SLMFourierLensModel):
     """SLM -> exact chirp-z Fourier lens with learnable focal-plane geometry.
 
-    :class:`FourierLensCZT` carries learnable ``scale_factor`` / ``shift`` /
-    ``angle``, so the focal-plane affine map is learned inside the (exact,
-    power-correct) lens itself and maps directly onto the camera resolution at the
-    camera pixel size. ``camera_angle`` (degrees) / ``camera_shift`` (``(x, y)``
-    metres) seed those learnable parameters.
+    The :attr:`focal_plane_partial_affine` of the :class:`FourierLensCZT` is applied
+    inside the exact, power-correct lens, which maps directly onto the camera
+    resolution at the camera pixel size. ``camera_angle`` (degrees) and
+    ``camera_shift`` (``(x, y)`` metres) seed it.
 
     ``padded_resolution`` prevents cropping a rotated field.
     """
@@ -65,5 +65,6 @@ class SLMCZT(SLMFourierLensModel):
             ),
         )
 
-    def affine_module(self) -> FourierLensCZT:
-        return self.fourier_lens
+    @property
+    def focal_plane_partial_affine(self) -> LearnablePartialAffine:
+        return self.fourier_lens.focal_plane_partial_affine

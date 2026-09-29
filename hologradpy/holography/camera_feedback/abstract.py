@@ -19,7 +19,7 @@ from ..phase_retrieval import (
 
 from ...calibration.camera_mapping import CameraMapping, SpotArrayMapper
 from ...fourier_transforms import translate_intensity
-from ...hardware import Camera, SLM
+from ...hardware import Camera, SLM, as_camera, as_slm
 from ...optics.systems import SLMFourierLensModel
 from ...roi import ROI
 from ...serialization import SaveableRecord, record_type
@@ -37,6 +37,7 @@ class CameraFeedbackData(SaveableRecord):
     signal_region: NDArray
     corrected_targets: list[NDArray] = field(default_factory=list)
     measured_images: list[NDArray] = field(default_factory=list)
+    background_images: list[NDArray] | None = None
     final_camera_image: NDArray | None = None
     initial_guess: NDArray | None = None
     camera_mapping: CameraMapping | None = None
@@ -97,30 +98,31 @@ class FeedbackCorrectorBase(ABC):
     ) -> None:
         """
         Args:
-            slm: The SLM displaying the hologram.
-            camera: The camera watching the light potential.
+            slm: The SLM displaying the hologram, or a driver that
+                :func:`~hologradpy.hardware.as_native.as_slm` wraps.
+            camera: The camera watching the light potential, or a driver that
+                :func:`~hologradpy.hardware.as_native.as_camera` wraps.
             target: The target intensity to produce, on the camera grid.
             signal_region: Where the target is optimized.
             target_position: Where to place the target, as ``(x, y)`` metres in
-                the Nyquist plane measured from the zeroth order. The camera's
-                rotation and scale are applied, so this is a position in the
+                the Nyquist plane. The position is measured from the zeroth order. The
+                camera's rotation and scale are applied, so this is a position in the
                 image plane and not in sensor pixels.
             slm_camera_model: The model simulating the propagation of light from the SLM
-                to the camera. Required unless ``phase_retriever`` is given, in which
-                case it is taken from there.
+                to the camera. Required unless ``phase_retriever`` is given. The model
+                is then taken from the retriever.
             init_slm_phase: Starting phase for the retriever.
-            phase_retriever: Use an existing phase retriever instead of building one.
-            camera_mapping: How the camera sits relative to the model, used to seed the
-                model's registration before the loop starts. Measured with a
-                :class:`~hologradpy.calibration.camera_mapping.SpotArrayMapper` when not
-                given.
-            loss_scale: Slope of the cost function used by the retriever this builds.
+            phase_retriever: An existing phase retriever. One is built when None.
+            camera_mapping: How the camera sits relative to the model. The model is
+                calibrated from it before the loop starts. When None,
+                :meth:`apply_camera_mapping` measures one with a
+                :class:`~hologradpy.calibration.camera_mapping.SpotArrayMapper`.
+            loss_scale: Slope of the cost function of the default retriever.
         """
-        self.slm = slm
-        self.camera = camera
+        self.slm = as_slm(slm)
+        self.camera = as_camera(camera)
         self.camera_mapping = camera_mapping
         self.target_position = target_position
-        self._registered = False
 
         if target is None:
             target = getattr(phase_retriever, "target", None)
@@ -303,14 +305,14 @@ class FeedbackCorrectorBase(ABC):
         center_column: float,
         subsample: bool = True,
     ) -> torch.Tensor:
-        """A sensor-sized frame with ``patch`` centered on the given pixel.
+        """A frame of the whole sensor with ``patch`` centred on the given pixel.
 
-        The center is generally not a whole pixel, so the the whole-sample part places 
-        the patch, and the remainder translates it by
-        :func:`~hologradpy.fourier_transforms.fft_translate`, a phase ramp in the
-        Fourier domain that needs no resampling kernel.
+        The centre is generally not a whole pixel. The whole-sample part of the centre
+        places the patch, and the remainder translates it by
+        :func:`~hologradpy.fourier_transforms.fft_translate`. This translation is a
+        phase ramp in the Fourier domain and needs no resampling kernel.
         """
-        height, width = (int(size) for size in self.camera.resolution)
+        height, width = (int(size) for size in self.camera.sensor_resolution)
         patch_height, patch_width = (int(size) for size in patch.shape[-2:])
 
         top = int(round(center_row)) - patch_height // 2
@@ -355,7 +357,8 @@ class FeedbackCorrectorBase(ABC):
             raise ValueError(
                 "Camera feedback needs a camera mapping: where the target sits on the "
                 "sensor is measured from the zeroth order, which only the mapping "
-                "knows. Pass camera_mapping, or call register() to measure one."
+                "knows. Pass camera_mapping, or call apply_camera_mapping() to measure "
+                "one."
             )
         return self.camera_mapping
 
@@ -376,26 +379,24 @@ class FeedbackCorrectorBase(ABC):
         self._corrected_target = target
         self.phase_retriever.set_target(target, self.signal_region)
 
-    def register(self, verbose: bool = True) -> CameraMapping:
-        """Seed the model's registration from a camera mapping.
+    def apply_camera_mapping(self, verbose: bool = True) -> CameraMapping:
+        """Calibrate the focal-plane partial affine of the model from a camera mapping.
 
-        A camera that is rotated or displaced relative to the model produces a
-        measured frame that does not line up with the predicted one, and the loop then
-        attempts to correct a misregistered image. Uses the mapping it was given, or 
-        measures one with a
+        The measured frame does not line up with the predicted one when the camera is
+        rotated or displaced relative to the model. The loop then attempts to correct a
+        misaligned image. The given ``camera_mapping`` is used. When there is none, a
+        mapping is measured with a
         :class:`~hologradpy.calibration.camera_mapping.SpotArrayMapper`.
 
-        The mapping is kept as the description of how the camera sits relative to the
-        optical plane, which :meth:`target_center_pixels` needs. It must be measured
-        against the *unregistered* model since once registered, the model's output plane
-        should be aligned with the sensor.
+        The mapping is kept for :meth:`target_center_pixels`. It describes how the
+        camera sits relative to the optical plane. The mappers measure against the
+        model without its partial affine, so the mapping is the same whatever values
+        the affine held before. The calibration follows from the mapping alone, so a
+        repeated call sets the same values.
 
         Returns:
             CameraMapping: The mapping applied.
         """
-        if self._registered:
-            return self.camera_mapping
-
         if self.camera_mapping is None:
             if verbose:
                 print("No camera mapping supplied. Measuring one with a spot array.")
@@ -410,7 +411,6 @@ class FeedbackCorrectorBase(ABC):
                 self.slm.set_phase(gpu_to_numpy(held_phase))
 
         self.slm_camera_model.calibrate_from_mapping(self.camera_mapping)
-        self._registered = True
         return self.camera_mapping
 
     def placement_data(self) -> TargetPlacementData:
@@ -419,7 +419,7 @@ class FeedbackCorrectorBase(ABC):
         Returns:
             TargetPlacementData: The placed target and the geometry around it.
         """
-        self.register(verbose=False)
+        self.apply_camera_mapping(verbose=False)
         self.place_target()
 
         center_row, center_column = self.target_center_pixels()
@@ -462,16 +462,21 @@ class FeedbackCorrectorBase(ABC):
         )
 
     def _check_grids_match(self) -> None:
-        """The measured frame and the model's prediction have to be the same picture."""
+        """The measured frame and the model's prediction have to be the same picture.
+
+        The feedback measures the whole sensor, so the model's output is compared with
+        the camera's :attr:`~hologradpy.hardware.camera.Camera.sensor_resolution`.
+        """
         model = self.slm_camera_model
         model_resolution = tuple(model[-1].resolution_out)
-        camera_resolution = tuple(self.camera.resolution)
-        if model_resolution != camera_resolution:
+        sensor_resolution = tuple(int(size) for size in self.camera.sensor_resolution)
+        if model_resolution != sensor_resolution:
             raise ValueError(
-                f"The model's output is {model_resolution} but the camera is "
-                f"{camera_resolution}. Camera feedback compares the two directly, so "
-                "build the model with camera_resolution and camera_pixel_size taken "
-                "from the camera."
+                f"The model's output is {model_resolution} but the camera's sensor is "
+                f"{sensor_resolution}. Camera feedback compares the two directly, so "
+                "build the model with camera_resolution taken from "
+                "camera.sensor_resolution and camera_pixel_size from "
+                "camera.pixel_size."
             )
 
     @abstractmethod

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime
 from typing import ClassVar, Sequence
 
@@ -9,13 +8,10 @@ import torch
 from numpy.typing import NDArray
 
 from ....datasets import CaptureStore
-from ....hardware import Camera, SLM
+from ....hardware.camera import Background
 from ....loss_functions import MaskedIntensityMSE
-from ....optics import SLMFourierLensModel
-from ....optics.systems import with_pixel_crosstalk
 from ....optics.modules.pixel_crosstalk import ConvolutionalCrosstalk, PixelCrosstalk
 
-from ...camera_mapping import CameraMapping
 from ...speckle import SpeckleCaptureData
 from ...speckle.calibrator import FitSettings, SpeckleCalibrator
 
@@ -30,6 +26,11 @@ class CrosstalkSpeckleCalibrator(SpeckleCalibrator):
     The SLM-plane beam is held fixed, so calibrate the wavefront first. The fringing
     field acts on the difference between neighboring pixels, so the patterns are drawn
     one pixel at a time rather than band limited.
+
+    The model's SLM stage carries the crosstalk model to fit, so the model is built
+    with a :class:`~hologradpy.optics.modules.virtual_slms.VirtualSLM` that has one,
+    such as ``VirtualSLM.from_slm(slm, pixel_crosstalk=...)``. The focal-plane
+    partial affine keeps the values calibrated from the camera mapping.
     """
 
     fitter_type: ClassVar[type[CrosstalkFitter]] = CrosstalkFitter
@@ -37,53 +38,8 @@ class CrosstalkSpeckleCalibrator(SpeckleCalibrator):
         CrosstalkVisualizationData
     )
 
-    # Adam step size. One rate covers the kernel and the focal-plane affine together.
+    # Adam step size for the crosstalk parameters.
     learning_rate: float = 1e-2
-
-    def __init__(
-        self,
-        slm: SLM,
-        camera: Camera,
-        slm_camera_model: SLMFourierLensModel,
-        dataset_path: str | os.PathLike,
-        pixel_crosstalk: PixelCrosstalk | None = None,
-        camera_mapping: CameraMapping | None = None,
-        number_of_random_patterns: int = 10,
-    ) -> None:
-        """
-        Args:
-            slm: The SLM to drive.
-            camera: The camera watching its focal plane.
-            slm_camera_model: The differentiable model of this setup, with its SLM-plane
-                beam already calibrated.
-            dataset_path: The dataset file, holding the captured samples and what
-                describes them.
-            pixel_crosstalk: The model to fit.
-            camera_mapping: Camera mapping to seed the model's affine transform and to
-                place the region of interest. If None, a
-                :class:`~hologradpy.calibration.camera_mapping.CoarseMapper` is run,
-                which drives the SLM and camera.
-            number_of_random_patterns: How many speckle patterns to capture.
-        """
-        if pixel_crosstalk is not None:
-            existing = slm_camera_model.virtual_slm.pixel_crosstalk
-            if existing is not None and existing is not pixel_crosstalk:
-                print(
-                    f"Replacing the model's {type(existing).__name__} with the "
-                    f"{type(pixel_crosstalk).__name__} to be fitted."
-                )
-            slm_camera_model = with_pixel_crosstalk(
-                slm_camera_model, pixel_crosstalk
-            ).to(slm_camera_model.device)
-
-        super().__init__(
-            slm=slm,
-            camera=camera,
-            slm_camera_model=slm_camera_model,
-            dataset_path=dataset_path,
-            camera_mapping=camera_mapping,
-            number_of_random_patterns=number_of_random_patterns,
-        )
 
     def _prepare_model(self) -> None:
         """Turn on the crosstalk parameters this calibrator fits."""
@@ -91,8 +47,8 @@ class CrosstalkSpeckleCalibrator(SpeckleCalibrator):
         if virtual_slm.pixel_crosstalk is None:
             raise ValueError(
                 "This calibration fits a pixel-crosstalk model and the SLM stage "
-                "carries none. Pass one as pixel_crosstalk, or build the model with a "
-                "VirtualSLM that already has one."
+                "carries none. Build the model with a VirtualSLM that carries the "
+                "crosstalk model to fit."
             )
 
         for parameter in self.slm_camera_model.slm_field.parameters():
@@ -232,6 +188,7 @@ class CrosstalkSpeckleCalibrator(SpeckleCalibrator):
                 "focal_length": self.focal_length,
                 "number_of_random_patterns": self.number_of_random_patterns,
                 "learning_rate": self.learning_rate,
+                "background_level": self.fitter.background_level,
                 **self._residual_metrics(kernel),
             },
             visualization_data=self._build_visualization_data(kernel),
@@ -245,6 +202,7 @@ class CrosstalkSpeckleCalibrator(SpeckleCalibrator):
         subset_indices: Sequence[int] | None = None,
         seed: int | None = None,
         verbose: bool = True,
+        background: Background | None = None,
     ) -> PixelCrosstalkCalibrationData:
         """Capture a dataset, fit the model to it, and return the kernel.
 
@@ -253,15 +211,19 @@ class CrosstalkSpeckleCalibrator(SpeckleCalibrator):
 
         Args:
             speckle_pattern_extent: Full width ``(y, x)`` of the speckle at the
-                camera, in metres. Left as None, the patterns are drawn per pixel and
-                fill everything the SLM can reach, and the region of interest becomes
-                the sensor minus the zeroth order. Give an extent to band limit them
-                instead, which costs the fit most of what it is looking for.
+                camera, in metres. When None, the patterns are drawn per pixel and
+                fill the whole addressable area. The region of interest is then the
+                sensor minus the zeroth order. With an extent, the patterns are band
+                limited, so the fit loses most of its signal.
             number_of_epochs: Passes over the dataset.
             batch_size: Patterns per optimizer step.
             subset_indices: Fit only these patterns of the dataset. Defaults to all.
             seed: Seed for the pattern noise.
             verbose: Print the loss as the fit runs.
+            background: The counts subtracted from every frame before the fit. It is
+                one level for every pixel, a whole-sensor frame, or a function of the
+                exposure in seconds returning either. A function is evaluated at the
+                recorded exposure of the dataset. None, the default, subtracts nothing.
 
         Returns:
             PixelCrosstalkCalibrationData: The fitted kernel and its parameters.
@@ -279,6 +241,7 @@ class CrosstalkSpeckleCalibrator(SpeckleCalibrator):
             subset_indices=subset_indices,
             verbose=verbose,
             capture_data=capture_data,
+            background=background,
         )
 
         return self.generate_crosstalk_calibration()

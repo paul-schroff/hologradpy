@@ -1,7 +1,7 @@
 from .records import SpeckleCaptureData
 from .dataset_generator import DatasetGenerator
 from .dataset_transforms import PrepareSample
-from .fitter import SpeckleFitter, region_of_interest
+from .fitter import SpeckleFitter
 from .calibrator import FitSettings, SpeckleCalibrator
 from .visualizer import SpeckleVisualizerBase
 
@@ -13,5 +13,4 @@ __all__ = [
     "SpeckleCalibrator",
     "FitSettings",
     "SpeckleVisualizerBase",
-    "region_of_interest",
 ]

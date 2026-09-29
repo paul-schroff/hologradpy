@@ -4,6 +4,8 @@ import torch
 from torch import Tensor
 import torch.nn as nn
 
+from ..utils import resolve_device
+
 
 class FourierBase(nn.Module):
     """Base class for 2D Fourier transforms."""
@@ -14,14 +16,14 @@ class FourierBase(nn.Module):
         frequencies: Tensor,
         is_gridded: bool,
         resolution_out: tuple[int, int] | None = None,
-        device: torch.device = "cpu",
+        device: torch.device | None = None,
     ) -> None:
         super().__init__()
         self.resolution = resolution
         self.resolution_out = resolution if resolution_out is None else resolution_out
         self._frequencies = frequencies
         self.is_gridded = is_gridded
-        self.device = device
+        self.device = resolve_device(device)
 
     @property
     def frequencies(self) -> Tensor:

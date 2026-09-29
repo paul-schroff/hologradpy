@@ -1,13 +1,15 @@
-"""The native camera template: the ``Camera`` base class a device subclasses, together
-with the ``CameraData`` snapshot record and the ``probe_orientation`` helper.
+"""The native camera template.
+
+A device subclasses the ``Camera`` base class. The module also defines the
+``CameraOrientation`` and ``CameraData`` records and the ``reorient_pixels`` helper.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Generator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from functools import reduce
-from typing import Callable
 import warnings
 
 import numpy as np
@@ -15,27 +17,61 @@ import torch
 from numpy.typing import NDArray
 from scipy.ndimage import binary_erosion, label
 
-from array_api_compat import array_namespace
-
+from ...geometry import dihedral_affine_matrix, dihedral_array_transform
 from ...grids import get_spatial_grid as _spatial_grid
 from ...roi import ROI
 from ...serialization import SaveableRecord, record_type
 
 
-# What to assume when a camera does not state its ceiling..
-DEFAULT_MAX_EXPOSURE_S = 1.0
+# The longest exposure in seconds that an exposure search reaches unless its caller
+# passes longer bounds.
+DEFAULT_MAX_EXPOSURE = 1.0
+
+# The relative tolerance of the response test in stuck-pixel detection. A working
+# pixel rises by the ratio of two exposures within this tolerance.
+STUCK_PIXEL_RESPONSE_TOLERANCE = 0.2
+
+
+def _select_distinct_exposures(
+    exposures: NDArray[np.float64], tolerance: float
+) -> NDArray[np.intp]:
+    """The indices of the frames that stuck-pixel detection can compare, in increasing
+    order of exposure.
+
+    The shortest exposure is kept first. Each further exposure is kept when it exceeds
+    the last kept exposure by more than a factor ``1 / (1 - tolerance)``. The response
+    test expects a working pixel to rise by the ratio of two exposures, within
+    ``tolerance``. A pixel that does not respond at all also passes this test on a pair
+    of exposures closer than that factor.
+
+    Args:
+        exposures: The exposure of each frame in seconds.
+        tolerance: The relative tolerance of the response test.
+
+    Returns:
+        NDArray[np.intp]: Indices into ``exposures``, ordered by increasing exposure.
+    """
+    exposures = np.asarray(exposures, dtype=np.float64)
+    kept: list[int] = []
+    for index in np.argsort(exposures, kind="stable"):
+        if not kept or exposures[index] * (1.0 - tolerance) > exposures[kept[-1]]:
+            kept.append(int(index))
+    return np.asarray(kept, dtype=np.intp)
 
 
 class Camera(ABC):
     """A HoloGradPy-native camera: SI units, ``(y, x)`` geometry, ``(row, col)`` ROI.
 
     A device implements the geometry / exposure / capture abstract members below. The
-    ``get_spatial_grid``, ``flush`` and ``autoexpose`` template methods are provided
-    here, so every camera shares them. Third-party devices subclass this base or
-    register a wrapper with :func:`hologradpy.hardware.as_native.as_camera`.
+    ``get_spatial_grid`` and ``autoexpose`` template methods are provided here, so every
+    camera shares them. A device captures a frame in :meth:`_get_image`.
+    :meth:`get_image` calls it and checks the frame for overexposure. Third-party
+    devices subclass this base or register a wrapper with
+    :func:`hologradpy.hardware.as_native.as_camera`.
     """
 
     _excluded_pixels: list[tuple[int, int]] | None = None
+    _overexposed: bool = False
 
     @property
     @abstractmethod
@@ -58,19 +94,24 @@ class Camera(ABC):
         return self.max_pixel_value + 1
 
     @property
-    def exposure_limits(self) -> tuple[float, float]:
-        """The ``(min, max)`` exposure to work within, in seconds."""
+    def exposure_search_bounds(self) -> tuple[float, float]:
+        """The ``(min, max)`` exposure in seconds that an exposure search uses.
+
+        It is :attr:`exposure_bounds` with the maximum held at ``DEFAULT_MAX_EXPOSURE``,
+        or ``(0, DEFAULT_MAX_EXPOSURE)`` for a camera that states no bounds.
+        """
         bounds = self.exposure_bounds
-        return (0.0, DEFAULT_MAX_EXPOSURE_S) if bounds is None else bounds
+        if bounds is None:
+            return (0.0, DEFAULT_MAX_EXPOSURE)
+        low, high = float(bounds[0]), float(bounds[1])
+        return (low, min(high, max(low, DEFAULT_MAX_EXPOSURE)))
 
     @property
-    def sensor_shape(self) -> tuple[int, int]:
-        """The whole sensor's ``(height, width)``, whatever the region of interest."""
-        shape = getattr(self, "default_shape", None)
-        if shape is not None:
-            return (int(shape[0]), int(shape[1]))
-        roi = self.roi
-        return (int(roi.top_row + roi.height), int(roi.left_column + roi.width))
+    @abstractmethod
+    def sensor_resolution(self) -> tuple[int, int]:
+        """The whole sensor's ``(height, width)`` in the displayed frame, whatever the
+        region of interest.
+        """
 
     @property
     @abstractmethod
@@ -80,7 +121,12 @@ class Camera(ABC):
     @property
     @abstractmethod
     def exposure_bounds(self) -> tuple[float, float] | None:
-        """The ``(min, max)`` exposure time in seconds, or ``None`` if unbounded."""
+        """The ``(min, max)`` exposure time in seconds that the device accepts, or None
+        when the device does not state them.
+
+        An exposure search uses :attr:`exposure_search_bounds`, which holds the maximum
+        of this range at ``DEFAULT_MAX_EXPOSURE``.
+        """
 
     @property
     @abstractmethod
@@ -99,36 +145,128 @@ class Camera(ABC):
     def set_exposure(self, exposure_s: float) -> None:
         """Set the exposure time in seconds."""
 
-    @abstractmethod
     def get_image(
-        self, exposure_s: float | None = None, averaging: int = 1
+        self,
+        exposure: float | None = None,
+        averaging: int = 1,
+        mask: NDArray[np.bool_] | None = None,
     ) -> NDArray:
         """Capture a frame as a ``(height, width)`` array of digital counts.
 
-        ``exposure_s`` sets the exposure first when given. ``averaging`` sums that many
-        frames (integer sum, not mean), matching the slmsuite convention.
-        :meth:`get_averaged_image` returns the float mean instead.
+        The device captures the frame in :meth:`_get_image`. The frame is then checked
+        for overexposure at the pixels where ``mask`` is True, and the result is
+        recorded in :attr:`overexposed`.
+
+        Args:
+            exposure: The exposure in seconds, set before the capture when given.
+            averaging: The number of fresh frames to sum. The sum is not divided, and
+                :meth:`get_averaged_image` returns the mean.
+            mask: True at the pixels to check for overexposure, in the shape of the
+                frame, or None to check every pixel. The frame is returned whole either
+                way.
+
+        Returns:
+            NDArray: One frame in the device's dtype (integer counts on hardware), or
+                the float64 sum of ``averaging`` frames.
+
+        Raises:
+            ValueError: ``mask`` does not have the shape of the frame.
+        """
+        frame = self._get_image(exposure, averaging)
+        self._overexposed = self._is_overexposed(frame, averaging, mask)
+        return frame
+
+    @abstractmethod
+    def _get_image(
+        self, exposure: float | None = None, averaging: int = 1
+    ) -> NDArray:
+        """Capture a frame for :meth:`get_image`.
+
+        Args:
+            exposure: The exposure in seconds, set before the capture when given.
+            averaging: The number of fresh frames to sum.
+
+        Returns:
+            NDArray: One frame in the device's dtype, or the float64 sum of
+                ``averaging`` frames, cropped to :attr:`roi`.
         """
 
     def get_spatial_grid(
-        self, device: torch.device = torch.device("cpu")
+        self, device: torch.device | None = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """The sensor-plane ``(x, y)`` coordinate meshgrid, in metres."""
+        """The sensor-plane ``(x, y)`` coordinate meshgrid, in metres.
+
+        Args:
+            device: The device to build the grid on, the CPU for None.
+        """
         return _spatial_grid(self.resolution, self.pixel_size, device=device)
 
-    def flush(self) -> None:
-        """Discard two frames so the next :meth:`get_image` is fresh (matches the
-        slmsuite two-frame buffer flush).
+    @contextmanager
+    def preserve_roi(self, full_sensor: bool = False) -> Generator[Camera, None, None]:
+        """Restore the region of interest when the block ends, whether the block
+        finishes or raises.
+
+        The region is written back only when the block changed it, since a device such
+        as a GenTL camera restarts its acquisition to change the region.
+
+        Args:
+            full_sensor: Read out the whole sensor inside the block, so every frame,
+                mask and region there is in whole-sensor pixels. The region is reset
+                only when it does not already cover the sensor.
+
+        Yields:
+            Camera: This camera.
         """
-        self.get_image()
-        self.get_image()
+        stored_roi = self.roi
+        try:
+            if full_sensor and stored_roi != ROI(0, 0, *self.sensor_resolution):
+                self.set_roi(None)
+            yield self
+        finally:
+            if self.roi != stored_roi:
+                self.set_roi(stored_roi)
+
+    @contextmanager
+    def preserve_exposure_and_roi(
+        self, full_sensor: bool = False
+    ) -> Generator[Camera, None, None]:
+        """Restore the exposure and the region of interest when the block ends, whether
+        the block finishes or raises.
+
+        A setting is written back only when the block changed it. The region is
+        restored first (:meth:`preserve_roi`), since a device can bound the exposure by
+        its readout window. The exposure is restored even when restoring the region
+        fails.
+
+        Args:
+            full_sensor: Read out the whole sensor inside the block, as in
+                :meth:`preserve_roi`.
+
+        Yields:
+            Camera: This camera.
+        """
+        stored_exposure = float(self.get_exposure())
+        try:
+            with self.preserve_roi(full_sensor=full_sensor):
+                yield self
+        finally:
+            if float(self.get_exposure()) != stored_exposure:
+                self.set_exposure(stored_exposure)
 
     def orientation_matrix(self) -> NDArray:
-        """The ``(2, 3)`` pixel-space affine of the transform this camera applies."""
+        """The ``(2, 3)`` pixel-space affine of this camera's frame transform.
+
+        It maps the ``(x, y)`` of a pixel in the raw sensor frame to the ``(x, y)`` of
+        the same pixel in the displayed frame. A camera without a ``transform`` is
+        axis-aligned, so its matrix is the identity.
+        """
         transform = getattr(self, "transform", None)
         if transform is None:
             return np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
-        return probe_orientation(transform, self.sensor_shape)
+        raw_shape = np.shape(
+            transform(np.zeros(self.sensor_resolution, dtype=np.uint8))
+        )
+        return dihedral_affine_matrix(transform, raw_shape)
 
     @property
     def orientation(self) -> CameraOrientation | None:
@@ -136,15 +274,23 @@ class Camera(ABC):
         eight rotate and flip orientations.
         """
         return CameraOrientation.from_matrix(
-            self.orientation_matrix(), self.sensor_shape
+            self.orientation_matrix(), self.sensor_resolution
         )
 
     def set_orientation(self, orientation: CameraOrientation) -> None:
         """Mount the sensor in ``orientation``, reorienting every frame from here on.
 
-        What :meth:`~hologradpy.calibration.camera_mapping.CoarseMapper.map_camera`
-        suggests is applied through this, so a device that can be reoriented overrides
-        it.
+        The region of interest then returns to the whole frame, and
+        :attr:`excluded_pixels` follow the sensor into the new frame
+        (:func:`reorient_pixels`). A device that can be reoriented overrides this
+        method. :meth:`~hologradpy.calibration.camera_mapping.CoarseMapper.map_camera`
+        can suggest an orientation, and this method applies it.
+
+        Args:
+            orientation: The orientation to mount the sensor in.
+
+        Raises:
+            NotImplementedError: The camera cannot be reoriented.
         """
         raise NotImplementedError(
             f"{type(self).__name__} does not support being reoriented."
@@ -152,39 +298,128 @@ class Camera(ABC):
 
     @property
     def excluded_pixels(self) -> list[tuple[int, int]]:
-        """The ``(row, col)`` pixels to leave out of measurements, such as hot or dead
-        pixels (empty if none).
+        """The ``(row, col)`` pixels of the whole frame to leave out of measurements,
+        such as hot or dead pixels, as a list of pairs (empty when there are none).
 
-        :meth:`autoexpose` drops these from its peak and saturation, so a stuck pixel
-        cannot pose as the peak and rail the exposure. Set it from a sensor
-        characterization (for example the pixels above a threshold in a dark frame).
+        :meth:`autoexpose` leaves these out of its peak measurement, so a stuck pixel
+        cannot rail the exposure. It is set from pairs or from an ``(N, 2)`` integer
+        array, such as ``np.argwhere(dark_frame > threshold)`` for a characterization
+        from a dark frame. None or an empty input clears it. Anything else raises
+        ``ValueError``. The list returned is a copy, so changing it leaves the camera
+        as it was.
         """
-        return self._excluded_pixels if self._excluded_pixels is not None else []
+        pixels = self._excluded_pixels
+        return list(pixels) if pixels is not None else []
 
     @excluded_pixels.setter
-    def excluded_pixels(self, pixels: list[tuple[int, int]] | None) -> None:
-        self._excluded_pixels = (
-            None if not pixels else [(int(row), int(col)) for row, col in pixels]
-        )
+    def excluded_pixels(
+        self, pixels: Sequence[tuple[int, int]] | NDArray[np.integer] | None
+    ) -> None:
+        if pixels is None:
+            self._excluded_pixels = None
+            return
+        rows_and_columns = np.asarray(pixels, dtype=np.int64)
+        if rows_and_columns.size == 0:
+            self._excluded_pixels = None
+            return
+        if rows_and_columns.ndim != 2 or rows_and_columns.shape[1] != 2:
+            raise ValueError(
+                "excluded_pixels takes (row, col) pairs or an (N, 2) integer array, "
+                f"got an array of shape {rows_and_columns.shape}."
+            )
+        self._excluded_pixels = [
+            (int(row), int(col)) for row, col in rows_and_columns.tolist()
+        ]
+
+    @property
+    def overexposed(self) -> bool:
+        """Whether the last frame from :meth:`get_image` was overexposed.
+
+        A pixel is overexposed when it reads :attr:`max_pixel_value`. Only the pixels
+        where the ``mask`` of that capture is True are checked, and the
+        :attr:`excluded_pixels` are left out. Set by every capture. False before the
+        first capture.
+        """
+        return bool(self._overexposed)
+
+    def _is_overexposed(
+        self,
+        frame: NDArray | torch.Tensor,
+        averaging: int,
+        mask: NDArray[np.bool_] | None = None,
+    ) -> bool:
+        """Whether ``frame`` holds an overexposed pixel.
+
+        ``frame`` is the sum of ``averaging`` frames. A pixel is overexposed when it
+        reads :attr:`max_pixel_value` in every one of them. Only the pixels where
+        ``mask`` is True are checked, and the excluded pixels are left out.
+
+        Raises:
+            ValueError: ``mask`` does not have the shape of ``frame``.
+        """
+        threshold = max(1, int(averaging)) * self.max_pixel_value
+        if isinstance(frame, torch.Tensor):
+            at_full_scale = frame.detach() >= threshold
+        else:
+            at_full_scale = np.asarray(frame) >= threshold
+        if mask is not None:
+            if tuple(np.shape(mask)) != tuple(at_full_scale.shape):
+                raise ValueError(
+                    f"The mask has shape {tuple(np.shape(mask))}, and the frame is "
+                    f"{tuple(at_full_scale.shape)}."
+                )
+            kept = (
+                torch.as_tensor(mask, dtype=torch.bool, device=at_full_scale.device)
+                if isinstance(at_full_scale, torch.Tensor)
+                else np.asarray(mask, dtype=bool)
+            )
+            at_full_scale &= kept
+        if self._excluded_pixels:
+            # Excluded pixels name whole-frame pixels, and the frame is cropped to the
+            # region of interest.
+            top, left = self.roi.top_row, self.roi.left_column
+            height, width = at_full_scale.shape[-2:]
+            for row, col in self._excluded_pixels:
+                if 0 <= row - top < height and 0 <= col - left < width:
+                    at_full_scale[..., row - top, col - left] = False
+        return bool(at_full_scale.any())
 
     def find_stuck_pixels(
         self,
         *,
         exposures: list[float] | None = None,
-        steps: int = 4,
+        steps: int = 7,
         lower_threshold: float = 0.1,
-        tolerance: float = 0.2,
+        tolerance: float = STUCK_PIXEL_RESPONSE_TOLERANCE,
         blob_min_size: int = 4,
         verbose: bool = False,
     ) -> list[tuple[int, int]]:
-        """Capture an exposure sweep and flag the sensor's hot / dead pixels, storing
+        """Capture an exposure sweep and flag the sensor's hot and dead pixels, storing
         them in :attr:`excluded_pixels`.
 
-        The public one-call way to characterize the sensor independently of
-        :meth:`autoexpose`: it captures a low-to-high exposure sweep and analyses it
-        (see :meth:`_detect_stuck_pixels` for the arguments and the method).
-        ``autoexpose`` can instead reuse the frames it already captured, via its
-        ``detect_stuck_pixels`` flag.
+        This characterizes the sensor in one call, independent of :meth:`autoexpose`.
+        :meth:`autoexpose` can run the same analysis on the frames of its own search,
+        through its ``detect_stuck_pixels`` flag. The sweep is
+        :meth:`_capture_exposure_sweep`, and the analysis is
+        :meth:`_detect_stuck_pixels`.
+
+        Args:
+            exposures: The exposures in seconds to capture at, or None for ``steps``
+                exposures a half decade apart.
+            steps: The number of exposures in the default sweep.
+            lower_threshold: The fraction of full scale above which a pixel carries
+                signal.
+            tolerance: The relative tolerance of the response test.
+            blob_min_size: A region saturated in every frame counts as overexposure
+                when it holds at least this many pixels.
+            verbose: Whether to print how many stuck pixels were found and where.
+
+        Returns:
+            list[tuple[int, int]]: The ``(row, col)`` stuck pixels of the whole frame.
+
+        Raises:
+            ValueError: Fewer than two exposures lie within
+                :attr:`exposure_search_bounds`.
         """
         frames, exposures = self._capture_exposure_sweep(exposures, steps=steps)
         return self._detect_stuck_pixels(
@@ -197,22 +432,34 @@ class Camera(ABC):
         )
 
     def _capture_exposure_sweep(
-        self, exposures: list[float] | None = None, *, steps: int = 4
+        self, exposures: list[float] | None = None, *, steps: int = 7
     ) -> tuple[NDArray, list[float]]:
-        """Capture full-frame images across a low-to-high exposure sweep.
+        """Capture whole frames across an exposure sweep from short to long.
 
-        Returns the stacked frames ``(n, height, width)`` and the exposures used.
-        ``exposures`` defaults to ``steps`` values increasing by factors of ten from the
-        minimum exposure, and any value outside the exposure bounds is dropped rather
-        than clipped. The roi and exposure are reset for the capture and restored after.
+        The whole sensor is read out for the sweep, and the region of interest and the
+        exposure are put back afterwards (:meth:`preserve_exposure_and_roi`).
+
+        Args:
+            exposures: The exposures in seconds to capture at. None gives ``steps``
+                exposures a half decade apart, from the lower search bound, or from
+                100 us when that bound is zero. An exposure outside
+                :attr:`exposure_search_bounds` is dropped, so the sweep keeps its
+                spacing.
+            steps: The number of exposures in the default sweep.
+
+        Returns:
+            tuple[NDArray, list[float]]: The frames stacked as ``(n, height, width)``,
+            and the read-back exposure of each frame.
+
+        Raises:
+            ValueError: Fewer than two exposures lie within
+                :attr:`exposure_search_bounds`.
         """
-        low, high = self.exposure_limits
+        low, high = self.exposure_search_bounds
         if exposures is None:
-            # Lower bound if non-zero, otherwise 100 us, then a decade per step.
             base = low if low > 0 else 100e-6
-            exposures = [base * 10.0**step for step in range(steps)]
+            exposures = [base * 10.0 ** (step / 2) for step in range(steps)]
 
-        # Drop exposures outside the bounds rather than clip them.
         exposures = [
             float(exposure) for exposure in exposures if low <= exposure <= high
         ]
@@ -222,19 +469,14 @@ class Camera(ABC):
                 f"{(low, high)}. Got {exposures}."
             )
 
-        stored_roi = self.roi
-        stored_exposure = self.get_exposure()
-        self.set_roi(None)
-        try:
-            frames = []
+        frames = []
+        applied_exposures = []
+        with self.preserve_exposure_and_roi(full_sensor=True):
             for exposure in exposures:
                 self.set_exposure(exposure)
-                self.flush()
+                applied_exposures.append(float(self.get_exposure()))
                 frames.append(np.asarray(self.get_image(), dtype=float))
-        finally:
-            self.set_roi(stored_roi)
-            self.set_exposure(stored_exposure)
-        return np.stack(frames), exposures
+        return np.stack(frames), applied_exposures
 
     def _detect_stuck_pixels(
         self,
@@ -242,31 +484,48 @@ class Camera(ABC):
         exposures: list[float],
         *,
         lower_threshold: float = 0.1,
-        tolerance: float = 0.2,
+        tolerance: float = STUCK_PIXEL_RESPONSE_TOLERANCE,
         blob_min_size: int = 4,
         verbose: bool = False,
     ) -> list[tuple[int, int]]:
-        """Find hot / dead pixels from frames captured at different exposures and store
-        them in :attr:`excluded_pixels`.
+        """Find hot and dead pixels from frames captured at different exposures, and
+        store them in :attr:`excluded_pixels`.
 
-        ``frames`` is a stack ``(n, height, width)`` and ``exposures`` the ``n``
-        exposure times, from :meth:`_capture_exposure_sweep` or the frames captured by
-        :meth:`autoexpose` (``detect_stuck_pixels=True``).
+        A working pixel scales with the exposure. Each frame is compared with the frame
+        at the next longer exposure. A pixel is tested when it carries signal (above
+        ``lower_threshold`` of full scale) and stays below full scale at the longer
+        exposure. A working pixel then rises by the exposure ratio within
+        ``tolerance``. A pixel that climbs to full scale from below also responds, and
+        a stuck pixel does neither. A pixel stuck above ``lower_threshold`` of full
+        scale is flagged anywhere. A pixel stuck lower (dead) is flagged only where its
+        neighbours respond, since elsewhere it cannot be told from an unilluminated
+        pixel.
 
-        A working pixel scales with exposure (linear response). Between a frame and the
-        next longer exposure, a pixel bright enough to carry signal (above
-        ``lower_threshold`` of full scale) that would not clip at the longer exposure
-        should rise by the exposure ratio within ``tolerance``. A pixel that instead
-        climbs to the ceiling (saturating from below) also responds. A stuck pixel does
-        neither. A pixel stuck in the upper half of the range is flagged anywhere, a
-        pixel stuck low (dead) only where its neighbours respond (elsewhere it looks
-        unilluminated).
+        The comparison uses only exposures far enough apart to tell a working pixel
+        from a stuck one (:func:`_select_distinct_exposures`), so a repeated exposure
+        is dropped. A connected region saturated in every frame is taken as
+        overexposure when it holds at least ``blob_min_size`` pixels. Such a region is
+        not excluded, and a ``UserWarning`` reports that the camera is overexposed.
 
-        A connected region of at least ``blob_min_size`` pixels saturated across every
-        frame is likely caused by overexposure rather than hot pixels, so it is *not*
-        excluded and a ``UserWarning`` reports that the camera is overexposed. The
-        flagged ``(row, col)`` pixels replace :attr:`excluded_pixels` and are returned.
-        ``verbose`` prints how many stuck pixels were found and where.
+        Args:
+            frames: A stack ``(n, height, width)`` of whole frames, from
+                :meth:`_capture_exposure_sweep` or from the search of
+                :meth:`autoexpose` with ``detect_stuck_pixels=True``.
+            exposures: The ``n`` exposures in seconds.
+            lower_threshold: The fraction of full scale above which a pixel carries
+                signal.
+            tolerance: The relative tolerance of the response test.
+            blob_min_size: A region saturated in every frame counts as overexposure
+                when it holds at least this many pixels.
+            verbose: Whether to print how many stuck pixels were found and where.
+
+        Returns:
+            list[tuple[int, int]]: The flagged ``(row, col)`` pixels, which replace
+            :attr:`excluded_pixels`.
+
+        Raises:
+            ValueError: The frames are not a stack of at least two, the exposures do not
+                match them, or fewer than two exposures lie far enough apart.
         """
         frames = np.asarray(frames, dtype=float)
         exposures = np.asarray(exposures, dtype=float)
@@ -277,22 +536,28 @@ class Camera(ABC):
         if exposures.shape != (frames.shape[0],):
             raise ValueError("exposures must give one exposure time for each frame.")
 
-        # Sort so exposure increases along the stack, then compare neighbouring frames.
-        order = np.argsort(exposures)
-        exposures = exposures[order]
-        frames = frames[order]
+        # Exposure increases along the stack, and neighbouring frames are compared.
+        distinct = _select_distinct_exposures(exposures, tolerance)
+        if len(distinct) < 2:
+            raise ValueError(
+                "Stuck-pixel detection needs frames at two or more exposures, each "
+                f"longer than the one before by more than a factor 1 / (1 - "
+                f"{tolerance}). Got the exposures {exposures.tolist()} s."
+            )
+        exposures = exposures[distinct]
+        frames = frames[distinct]
 
         full_scale = self.max_pixel_value
         frames_min = frames.min(axis=0)
         frames_max = frames.max(axis=0)
 
-        # A working pixel scales linearly with exposure. Between a frame and the next
-        # longer exposure, a pixel above lower_threshold of full scale (signal, not
-        # noise) that would not clip at the longer exposure should rise by the exposure
-        # ratio within tolerance. A pixel that instead climbs to the ceiling (saturating
-        # from below) also responds. A stuck pixel does neither. Comparing neighbouring
-        # exposures on unsaturated readings avoids the clipping that a single
-        # dimmest-to-brightest ratio hits over a wide sweep.
+        # A working pixel scales with the exposure. Each frame is compared with the
+        # frame at the next longer exposure. A pixel is tested when it reads above
+        # lower_threshold of full scale (signal, not noise) and stays below full scale
+        # at the longer exposure. A working pixel then rises by the exposure ratio
+        # within tolerance. A pixel that climbs to full scale from below also responds,
+        # and a stuck pixel does neither. Neighbouring exposures are compared on
+        # readings below full scale, so the comparison holds over a wide sweep.
         responding = (frames_max >= full_scale) & (frames_min < full_scale)
         for shorter, longer, exposure_short, exposure_long in zip(
             frames[:-1], frames[1:], exposures[:-1], exposures[1:]
@@ -310,12 +575,12 @@ class Camera(ABC):
         # camera is overexposed, not a field of hot pixels.
         saturated = frames_min >= full_scale
 
-        # Labeling connected components and counting their sizes in pixels
+        # The connected components of the saturated pixels, and their sizes in pixels.
         components, count = label(saturated)
         sizes = np.bincount(components.ravel())
 
-        # Keep only the connected components that are less than or equal to 
-        # blob_min_size pixels in size. Larger blobs are deemed to be overexposed.
+        # A component of blob_min_size pixels or more is overexposure, and a smaller one
+        # is a group of hot pixels.
         overexposed_blob = np.zeros_like(saturated)
         for component in range(1, count + 1):
             if sizes[component] >= blob_min_size:
@@ -328,11 +593,11 @@ class Camera(ABC):
             )
 
         # A pixel stuck above the noise floor stands out from the dark background, so it
-        # is flagged anywhere (a hot pixel in a dark corner still rails the exposure). A
-        # pixel stuck low (dead) is only distinguishable from an unilluminated one where
-        # its neighbours respond. Only pixels with real signal count as responding, so a
-        # noisy dark background stays uniformly non-responding rather than posing as
-        # illumination around a dark pixel.
+        # is flagged anywhere. This covers a dark corner, since a hot pixel there still
+        # rails the exposure. A pixel stuck low (dead) can be told from an unilluminated
+        # one only where its neighbours respond. Only pixels with signal count as
+        # responding, so noise in a dark background never marks the neighbours of a
+        # dark pixel as responding.
         neighbours = np.ones((3, 3), dtype=bool)
         neighbours[1, 1] = False
         in_illuminated_region = binary_erosion(
@@ -377,235 +642,367 @@ class Camera(ABC):
         verbose: bool = False,
     ) -> float:
         """Set the exposure so the peak of the measured region sits at ``set_fraction``
-        of the dynamic range, and return it.
+        of full scale, and return it.
 
-        The region is the full sensor frame, optionally cropped to ``roi`` and then
-        reduced to the pixels where ``mask`` is ``True`` (a boolean array of the region
-        shape). ``mask`` drops bright pixels that must not drive the exposure, such as a
-        zeroth order. The camera's :attr:`excluded_pixels` (hot or dead pixels) are
-        always dropped as well. ``roi`` selects a window of the *full* sensor, so the
-        current :attr:`roi` is reset for the measurement and restored afterwards.
+        The region is the whole frame, cropped to ``roi`` and reduced to the pixels
+        where ``mask`` is True, and the camera's :attr:`excluded_pixels` are always left
+        out. The whole sensor is read out for the search, and the region of interest is
+        put back afterwards (:meth:`preserve_roi`). An exception from the search also
+        puts the exposure back where the search started.
 
-        The loop targets ``set_fraction`` directly. Each step scales the exposure to hit
-        the target. When the peak is clipped the true peak is hidden and no such step
-        can be computed, so it cuts by ``overexposed_factor`` and looks again. It stops
-        at ``tolerance`` or after ``max_iterations`` frames, whichever comes first, and
-        warns if it stopped without reaching the target. If the exposure rails against
-        ``exposure_bounds`` (falling back to :attr:`exposure_bounds`, then unbounded),
-        it raises ``RuntimeError`` when ``raise_on_rail`` is set, otherwise it settles
-        at the bound and returns.
+        The search works within ``exposure_bounds``, narrowed to the camera's own
+        :attr:`exposure_bounds`. It starts from the current exposure clipped into those
+        bounds, or from the lower bound when the camera sits at zero, or from the upper
+        bound when the lower one is zero too. Each step sets an exposure, reads back the
+        applied exposure, and measures one frame, so the search measures at most
+        ``1 + max_iterations`` frames. An overexposed peak cuts the exposure by
+        ``overexposed_factor``. A peak below full scale scales the exposure to the
+        target, up to ``set_fraction`` times the shortest exposure that overexposed the
+        region. The target lies at or below this cap for a linear sensor.
 
-        The exposure is read back after each step, so the loop works from the value the
-        camera actually applied rather than the one requested. A real camera tunes in
-        discrete steps, so when it lands on an exposure already tried (a request below
-        its resolution, or an oscillation between two adjacent steps that both miss
-        ``tolerance``) the loop stops and settles on the closest exposure it reached.
+        A step cut short by the bounds lands on the bound and measures it. The search
+        has railed when its next step asks to pass an already measured bound, when the
+        camera reads back zero, or when the camera repeats an exposure while every frame
+        so far has been overexposed. A hidden limit is one that the camera does not
+        state. The search rails at a hidden floor, and at a hidden ceiling reached
+        through a request at a bound. A hidden ceiling reached through a request inside
+        the bounds ends the search with no finer exposure step to take.
 
-        With ``detect_stuck_pixels`` the full frames captured along the way (spanning
-        the exposures the loop visited) are analysed for stuck pixels at the end,
-        populating :attr:`excluded_pixels` in the same call and avoiding a second sweep
-        (see :meth:`find_stuck_pixels`). This runs only when the loop converged or
-        settled, not when it railed.
+        The search settles on a measured exposure when it does not converge. It picks
+        the exposure whose peak lies below full scale and closest to the target, or the
+        shortest exposure when every frame was overexposed. The applied exposure is
+        read back, and one more frame is measured when the camera lands on an
+        unmeasured exposure. A warning then reports the final exposure and the peak of
+        its frame.
+
+        The frames of the search are analysed for stuck pixels
+        (:meth:`find_stuck_pixels`) when ``detect_stuck_pixels`` is set and the search
+        did not rail. The analysis fills :attr:`excluded_pixels` without a second
+        sweep. The detection is skipped with a warning when the frames span fewer than
+        two exposures far enough apart to compare.
+
+        Args:
+            set_fraction: The target peak as a fraction of :attr:`max_pixel_value`.
+            tolerance: The largest accepted distance between the peak and the target,
+                as a fraction of full scale.
+            roi: The region of the whole frame to measure, or None for the whole frame.
+                Without a mask, a region reaching off the frame is trimmed to it.
+            mask: True at the pixels of the region to measure, in the region's shape.
+                For example, a mask can select everything outside a zeroth order. None
+                measures every pixel.
+            exposure_bounds: The ``(min, max)`` exposure in seconds to search within,
+                or None for :attr:`exposure_search_bounds`. A maximum above
+                ``DEFAULT_MAX_EXPOSURE`` is reached only through these bounds.
+            overexposed_factor: The factor that multiplies the exposure after an
+                overexposed peak.
+            raise_on_rail: Whether a rail raises ``RuntimeError``. Otherwise the search
+                settles and warns.
+            max_iterations: The number of exposure steps after the first frame.
+            detect_stuck_pixels: Whether to find stuck pixels in the frames of the
+                search.
+            verbose: Whether to print the exposure and the peak of every frame.
+
+        Returns:
+            float: The final exposure in seconds, as read back from the camera.
+
+        Raises:
+            ValueError: The bounds leave no positive exposure, or the region, the mask
+                or an excluded pixel does not fit the frame. Nothing is captured then.
+            RuntimeError: The search railed and ``raise_on_rail`` is set.
         """
-        if exposure_bounds is None:
-            exposure_bounds = self.exposure_limits
+        requested_bounds = (
+            self.exposure_search_bounds if exposure_bounds is None else exposure_bounds
+        )
+        low, high = float(requested_bounds[0]), float(requested_bounds[1])
+        stated_bounds = self.exposure_bounds
+        if stated_bounds is not None:
+            low = max(low, float(stated_bounds[0]))
+            high = min(high, float(stated_bounds[1]))
+        if not (0.0 <= low <= high and high > 0.0):
+            raise ValueError(
+                f"The exposure bounds {tuple(requested_bounds)} s, narrowed to the "
+                f"camera's bounds {stated_bounds} s, leave no positive exposure to "
+                "search."
+            )
 
-        set_value = set_fraction * self.max_pixel_value
-        clipped_value = self.max_pixel_value
-        exposure = self.get_exposure()
-        stored_roi = self.roi
-        self.set_roi(None)
-
-        # Pixels to keep: the caller's mask minus the sensor's excluded (hot/dead)
-        # pixels, both cropped to roi so a stuck pixel cannot pose as the peak.
-        keep = mask
-        if self.excluded_pixels:
-            rows, columns = zip(*self.excluded_pixels)
-            excluded = np.zeros(self.resolution, dtype=bool)
-            excluded[list(rows), list(columns)] = True
-            excluded = excluded if roi is None else roi.crop(excluded)
-            keep = ~excluded if keep is None else (keep & ~excluded)
-
+        full_scale = self.max_pixel_value
+        set_value = set_fraction * full_scale
+        stored_exposure = float(self.get_exposure())
+        # The peak of the measured region at every applied exposure.
+        peak_by_exposure: dict[float, float] = {}
         recorded_frames: list[NDArray] = []
         recorded_exposures: list[float] = []
-
-        def measure() -> tuple[float, float]:
-            self.flush()
-            image = self.get_image()
-            if detect_stuck_pixels:
-                recorded_frames.append(np.asarray(image, dtype=float))
-                recorded_exposures.append(self.get_exposure())
-            region = image if roi is None else roi.crop(image)
-            if keep is not None:
-                region = np.where(keep, region, 0)
-            peak = float(np.amax(region))
-            valid = int(keep.sum()) if keep is not None else region.size
-            saturated = int(np.count_nonzero(region >= clipped_value))
-            return peak, saturated / valid if valid else 0.0
+        finished = False
 
         try:
-            image_max, sat_fraction = measure()
-            error = np.abs(image_max - set_value) / self.max_pixel_value
+            with self.preserve_roi(full_sensor=True):
+                region, keep = self._select_measured_region(roi, mask)
 
-            clipped = image_max >= clipped_value
-            best_exposure = exposure
-            best_error = np.inf if clipped else error
-            tried = {exposure}
-            unconverged_reason: str | None = None
-            iterations = 0
+                def measure(requested: float | None) -> tuple[float, float, bool]:
+                    """Set ``requested`` when given, then measure one fresh frame.
 
-            while (error > tolerance or clipped) and iterations < max_iterations:
-                iterations += 1
-                if image_max >= clipped_value:
-                    # Overexposed
-                    desired = exposure * overexposed_factor
-                else:
-                    desired = exposure * set_value / max(image_max, 1.0)
+                    Returns the exposure the camera applied, the peak of the region,
+                    and whether that exposure was measured before.
+                    """
+                    if requested is not None:
+                        self.set_exposure(requested)
+                    applied = float(self.get_exposure())
+                    image = self.get_image()
+                    repeated = applied in peak_by_exposure
+                    if detect_stuck_pixels and applied > 0.0 and not repeated:
+                        recorded_frames.append(np.asarray(image, dtype=float))
+                        recorded_exposures.append(applied)
+                    pixels = region.crop(image)
+                    if keep is not None:
+                        pixels = np.where(keep, pixels, 0)
+                    peak = float(np.amax(pixels))
+                    peak_by_exposure[applied] = peak
+                    if verbose:
+                        print(
+                            f"Autoexposure: exposure = {applied:<.3e} s, "
+                            f"peak = {peak:.0f}/{full_scale}."
+                        )
+                    return applied, peak, repeated
 
-                requested = float(
-                    np.clip(desired, exposure_bounds[0], exposure_bounds[1])
+                start = float(np.clip(stored_exposure, low, high))
+                if start <= 0.0:
+                    # A zero start after the clip means the lower bound is zero.
+                    start = high
+                exposure, peak, _ = measure(
+                    None if start == stored_exposure else start
                 )
-                if desired != requested:  # railed against a bound
-                    if raise_on_rail:
+                # The bound of the last request, or None for a request inside the
+                # bounds. A step asking past this bound again has railed.
+                measured_bound = start if start in (low, high) else None
+
+                steps = 0
+                while True:
+                    if (
+                        peak < full_scale
+                        and abs(peak - set_value) <= tolerance * full_scale
+                    ):
+                        outcome = "converged"
+                        break
+                    if peak >= full_scale:
+                        # An overexposed peak hides the true one, so no proportional
+                        # step can be computed.
+                        desired = exposure * overexposed_factor
+                    else:
+                        desired = exposure * set_value / max(peak, 1.0)
+                        # The counts grow in proportion to the exposure, so the target
+                        # lies at or below set_fraction times any exposure that
+                        # overexposed the region. A step from a peak of a few counts
+                        # is coarse, and this bound keeps it from returning to an
+                        # exposure that overexposes the region.
+                        overexposed_at = [
+                            measured_exposure
+                            for measured_exposure, measured_peak in (
+                                peak_by_exposure.items()
+                            )
+                            if measured_exposure > 0.0 and measured_peak >= full_scale
+                        ]
+                        if overexposed_at:
+                            desired = min(
+                                desired, set_fraction * min(overexposed_at)
+                            )
+                    requested = float(np.clip(desired, low, high))
+                    if requested != desired and requested == measured_bound:
+                        outcome = "rail"
+                        break
+                    if steps >= max_iterations:
+                        outcome = "budget"
+                        break
+                    steps += 1
+                    exposure, peak, repeated = measure(requested)
+                    measured_bound = requested if requested in (low, high) else None
+                    if exposure <= 0.0 or repeated:
+                        every_frame_overexposed = all(
+                            peak_by_exposure[measured_exposure] >= full_scale
+                            for measured_exposure in peak_by_exposure
+                            if measured_exposure > 0.0
+                        )
+                        railed = (
+                            exposure <= 0.0
+                            or requested != desired
+                            or every_frame_overexposed
+                        )
+                        outcome = "rail" if railed else "no finer step"
+                        break
+
+                if outcome == "rail" and raise_on_rail:
+                    raise RuntimeError(
+                        f"autoexposure has railed at {exposure:.3e} s: the region "
+                        f"peaks at {peak:.0f} of {full_scale} there, and the target "
+                        f"lies beyond the exposure bounds {(low, high)} s."
+                    )
+
+                if outcome != "converged":
+                    # Settle on the measured exposure closest to the target, and report
+                    # a frame taken at the applied exposure.
+                    positive_peaks = {
+                        measured_exposure: measured_peak
+                        for measured_exposure, measured_peak in peak_by_exposure.items()
+                        if measured_exposure > 0.0
+                    }
+                    if not positive_peaks:
                         raise RuntimeError(
-                            f"autoexposure has railed (exposure: {desired}, "
-                            f"bounds: {exposure_bounds})."
+                            "autoexposure took no frame at a positive exposure, so it "
+                            "has no exposure to settle on."
                         )
-                    self.set_exposure(requested)
-                    exposure = self.get_exposure()
-                    unconverged_reason = (
-                        f"the exposure railed against its bounds {exposure_bounds}"
-                    )
-                    break
-
-                self.set_exposure(requested)
-                # Read back the applied exposure: a real camera tunes in discrete steps
-                # and may snap the request to a nearby value. Working from the actual
-                # exposure keeps the next proportional step honest.
-                exposure = self.get_exposure()
-                image_max, sat_fraction = measure()
-                error = np.abs(image_max - set_value) / self.max_pixel_value
-                clipped = image_max >= clipped_value
-                if not clipped and error < best_error:
-                    best_exposure, best_error = exposure, error
-
-                if verbose:
-                    print(
-                        f"Autoexposure: exposure = {exposure:<.2e} s, "
-                        f"image_max = {image_max}/{clipped_value},"
-                    )
-
-                # If the camera lands on an exposure already tried (a request below its
-                # step resolution, or an oscillation between two adjacent steps that
-                # both miss the target), the discrete steps cannot get closer, so settle
-                # on the best exposure seen instead of spending the rest of the budget.
-                if exposure in tried:
-                    if best_exposure != exposure:
-                        self.set_exposure(best_exposure)
-                    exposure = best_exposure
-                    if best_error > tolerance:
-                        unconverged_reason = (
-                            "the camera has no finer exposure step to take"
+                    peaks_below_full_scale = {
+                        measured_exposure: measured_peak
+                        for measured_exposure, measured_peak in positive_peaks.items()
+                        if measured_peak < full_scale
+                    }
+                    if peaks_below_full_scale:
+                        settled = min(
+                            peaks_below_full_scale,
+                            key=lambda candidate: abs(
+                                peaks_below_full_scale[candidate] - set_value
+                            ),
                         )
-                    break
-                tried.add(exposure)
-            else:
-                if error > tolerance or clipped:
-                    unconverged_reason = (
-                        f"the budget of {max_iterations} frames ran out"
-                    )
+                    else:
+                        settled = min(positive_peaks)
+                    if settled != exposure:
+                        self.set_exposure(settled)
+                        exposure = float(self.get_exposure())
+                        if exposure in peak_by_exposure:
+                            peak = peak_by_exposure[exposure]
+                        else:
+                            exposure, peak, _ = measure(None)
+            finished = True
         finally:
-            self.set_roi(stored_roi)
+            if not finished and float(self.get_exposure()) != stored_exposure:
+                self.set_exposure(stored_exposure)
 
-        if unconverged_reason is not None:
+        if outcome != "converged":
+            reason = {
+                "rail": f"the exposure railed against its bounds {(low, high)} s",
+                "budget": f"the budget of {max_iterations} exposure steps ran out",
+                "no finer step": "the camera has no finer exposure step to take",
+            }[outcome]
             warnings.warn(
-                f"Autoexposure did not reach its target: {unconverged_reason}. The "
-                f"region peaks at {image_max:.0f} of {self.max_pixel_value} "
-                f"({image_max / self.max_pixel_value:.1%}) against a target of "
-                f"{set_fraction:.0%}, at an exposure of {exposure:.3e} s. The frames "
-                "that follow are exposed as reported here, not as asked for.",
+                f"Autoexposure did not reach its target: {reason}. The region peaks at "
+                f"{peak:.0f} of {full_scale} ({peak / full_scale:.1%}) against a "
+                f"target of {set_fraction:.0%}, at an exposure of {exposure:.3e} s. "
+                "The frames that follow are exposed as reported here, not as asked "
+                "for.",
                 stacklevel=2,
             )
 
-        # Reuse the frames the loop captured to find stuck pixels, avoiding a second
-        # sweep. Only reached when the loop converged or settled, not when it railed.
-        if detect_stuck_pixels and len(recorded_frames) >= 2:
-            self._detect_stuck_pixels(
-                np.stack(recorded_frames), recorded_exposures, verbose=verbose
+        if detect_stuck_pixels and outcome != "rail":
+            distinct = _select_distinct_exposures(
+                np.asarray(recorded_exposures, dtype=np.float64),
+                STUCK_PIXEL_RESPONSE_TOLERANCE,
             )
+            if len(distinct) >= 2:
+                self._detect_stuck_pixels(
+                    np.stack(recorded_frames), recorded_exposures, verbose=verbose
+                )
+            else:
+                warnings.warn(
+                    "Stuck pixels were not detected: autoexposure took frames at fewer "
+                    "than two exposures far enough apart to compare. find_stuck_pixels "
+                    "captures a sweep of its own.",
+                    stacklevel=2,
+                )
 
         return exposure
 
-    def get_averaged_image(
-        self, exposure_s: float | None = None, averaging: int = 1
-    ) -> NDArray:
-        """Mean of ``averaging`` frames as a float array, the lower-noise counterpart
-        of :meth:`get_image` (which returns the integer sum).
+    def _select_measured_region(
+        self, roi: ROI | None, mask: NDArray[np.bool_] | None
+    ) -> tuple[ROI, NDArray[np.bool_] | None]:
+        """The measured region of the whole frame for :meth:`autoexpose`, and the
+        pixels to keep.
 
-        A real (and the simulated) camera draws fresh read and shot noise per frame, so
-        the mean has ``averaging`` times lower noise variance.
+        It runs with the whole sensor read out. A ``roi`` without a mask is trimmed to
+        the frame (:meth:`~hologradpy.roi.ROI.trimmed_to`), so a window centred near an
+        edge measures the part of it on the frame. A ``roi`` with a mask has to lie on
+        the frame, since the mask is given in the shape of the whole region.
+
+        Args:
+            roi: The region of the whole frame to measure, or None for the whole frame.
+            mask: True at the pixels of the region to measure, in the region's shape,
+                or None to measure every pixel.
+
+        Returns:
+            tuple[ROI, NDArray[np.bool_] | None]: The region, and the pixels of it to
+            measure, which leave out :attr:`excluded_pixels`. The pixels are None when
+            there is neither a mask nor an excluded pixel.
+
+        Raises:
+            ValueError: No part of ``roi`` lies on the frame, ``roi`` reaches off the
+                frame while a mask is given, the mask is not the region's shape, an
+                excluded pixel lies off the frame, or no pixel is left to measure.
+        """
+        height, width = self.resolution
+        if roi is None:
+            region = ROI(0, 0, height, width)
+        else:
+            if mask is not None and not roi.lies_inside((height, width)):
+                raise ValueError(
+                    f"{roi} reaches off the {height} x {width} frame, and a mask is "
+                    "given in its shape, so the region cannot be trimmed to the frame."
+                )
+            region = roi.trimmed_to((height, width))
+
+        keep = None
+        if mask is not None:
+            keep = np.asarray(mask, dtype=bool)
+            if keep.shape != (region.height, region.width):
+                raise ValueError(
+                    f"The mask has shape {keep.shape}, and the region it selects from "
+                    f"is {(region.height, region.width)}."
+                )
+
+        excluded = np.asarray(self.excluded_pixels, dtype=np.int64).reshape(-1, 2)
+        if len(excluded) > 0:
+            off_frame = (
+                (excluded < 0).any(axis=1)
+                | (excluded[:, 0] >= height)
+                | (excluded[:, 1] >= width)
+            )
+            if off_frame.any():
+                listed = [
+                    (int(row), int(column))
+                    for row, column in excluded[off_frame][:5].tolist()
+                ]
+                raise ValueError(
+                    f"The excluded pixels {listed} lie off the {height} x {width} "
+                    "frame. excluded_pixels names (row, col) pixels of the whole frame "
+                    "the camera returns."
+                )
+            excluded_in_frame = np.zeros((height, width), dtype=bool)
+            excluded_in_frame[excluded[:, 0], excluded[:, 1]] = True
+            kept_by_exclusion = ~region.crop(excluded_in_frame)
+            keep = kept_by_exclusion if keep is None else keep & kept_by_exclusion
+
+        if keep is not None and not keep.any():
+            raise ValueError(
+                f"The mask and the excluded pixels leave no pixel of {region} to "
+                "measure."
+            )
+        return region, keep
+
+    def get_averaged_image(
+        self, exposure: float | None = None, averaging: int = 1
+    ) -> NDArray:
+        """The mean of ``averaging`` fresh frames as a float array.
+
+        :meth:`get_image` returns the sum of the frames, and this method divides it by
+        ``averaging``. The mean cuts the noise variance by a factor ``averaging`` for a
+        camera that draws fresh noise for every frame.
+
+        Args:
+            exposure: The exposure in seconds, set before the capture when given.
+            averaging: The number of frames to average.
+
+        Returns:
+            NDArray: The mean frame in float64.
         """
         frames = max(1, int(averaging))
-        summed = np.asarray(self.get_image(exposure_s, averaging=frames), dtype=float)
+        summed = np.asarray(self.get_image(exposure, averaging=frames), dtype=float)
         return summed / frames
-
-
-def get_orientation_transformation(
-    rot: str | int = "0", fliplr: bool = False, flipud: bool = False
-) -> Callable[[NDArray], NDArray]:
-    """Compile a discrete image transform (a rot90/flip composition) from simple
-    rotate and flip flags.
-
-    ``rot`` rotates by the given degrees in ``["90", "180", "270"]`` or the
-    :func:`numpy.rot90` code in ``[1, 2, 3]`` (no rotation otherwise). ``fliplr`` and
-    ``flipud`` mirror left-right and up-down. The flips are applied before the
-    rotation. Returns a function mapping an array to the reoriented array, matching the
-    ``transform`` a camera applies to its raw frames. Backend-agnostic: a numpy frame
-    comes back as numpy, a torch frame as torch on the same device.
-    """
-    transforms = []
-
-    if fliplr:
-        transforms.append(lambda img: array_namespace(img).fliplr(img))
-    if flipud:
-        transforms.append(lambda img: array_namespace(img).flipud(img))
-
-    if rot == "90" or rot == 1:
-        transforms.append(lambda img: array_namespace(img).rot90(img, 1))
-    elif rot == "180" or rot == 2:
-        transforms.append(lambda img: array_namespace(img).rot90(img, 2))
-    elif rot == "270" or rot == 3:
-        transforms.append(lambda img: array_namespace(img).rot90(img, 3))
-
-    return reduce(lambda f, g: lambda x: f(g(x)), transforms, lambda x: x)
-
-
-def probe_orientation(
-    transform_fn: Callable[[NDArray], NDArray], shape: tuple[int, int]
-) -> NDArray:
-    """Pixel-space affine ``(x, y)_out = M @ [x, y, 1]`` of a discrete image transform
-    (a rot90/flip composition, e.g. ``Camera.transform``).
-
-    Found by applying ``transform_fn`` to row/column index arrays of ``shape`` (height,
-    width) and reading where three input corners land. Robust for any of the 8
-    dihedral orientations. Returns a ``(2, 3)`` matrix.
-    """
-    height, width = int(shape[0]), int(shape[1])
-    rows = np.broadcast_to(np.arange(height)[:, None], (height, width))
-    columns = np.broadcast_to(np.arange(width)[None, :], (height, width))
-    source_rows = np.asarray(transform_fn(rows))
-    source_columns = np.asarray(transform_fn(columns))
-    out_h, out_w = source_rows.shape
-
-    # Output corner (i, j) came from input (source_rows[i, j], source_columns[i, j]).
-    # fit input (x=col, y=row) -> output (x'=j, y'=i) at three corners.
-    corners = [(0, 0), (0, out_w - 1), (out_h - 1, 0)]
-    source = np.array(
-        [[source_columns[i, j], source_rows[i, j], 1.0] for i, j in corners],
-        dtype=np.float64,
-    )
-    destination = np.array([[j, i] for i, j in corners], dtype=np.float64)
-    return np.linalg.solve(source, destination).T
 
 
 @record_type("camera_orientation")
@@ -619,11 +1016,20 @@ class CameraOrientation:
 
     def transformation(self) -> Callable[[NDArray], NDArray]:
         """The transform a camera in this orientation applies to its raw frames."""
-        return get_orientation_transformation(self.rot, self.fliplr, self.flipud)
+        return dihedral_array_transform(self.rot, self.fliplr, self.flipud)
 
     def matrix(self, shape: tuple[int, int]) -> NDArray:
-        """The ``(2, 3)`` pixel-space affine of :meth:`transformation` on ``shape``."""
-        return probe_orientation(self.transformation(), shape)
+        """The ``(2, 3)`` pixel-space affine of :meth:`transformation`.
+
+        Args:
+            shape: The ``(height, width)`` of the raw frame, which sets the
+                translation.
+
+        Returns:
+            NDArray: The matrix mapping the ``(x, y, 1)`` of a raw pixel to its
+            ``(x, y)`` in the transformed frame.
+        """
+        return dihedral_affine_matrix(self.transformation(), shape)
 
     def swaps_axes(self) -> bool:
         """True when the rotation exchanges height and width."""
@@ -636,7 +1042,7 @@ class CameraOrientation:
         # Non-square, so no two of the eight probe to the same matrix.
         shape = (3, 5)
         return CameraOrientation.from_matrix(
-            probe_orientation(combined, shape), shape
+            dihedral_affine_matrix(combined, shape), shape
         )
 
     @classmethod
@@ -652,21 +1058,74 @@ class CameraOrientation:
     def from_matrix(
         cls, matrix: NDArray, shape: tuple[int, int]
     ) -> CameraOrientation | None:
-        """The orientation whose :meth:`matrix` on ``shape`` is ``matrix``."""
+        """The orientation whose :meth:`matrix` has the linear part of ``matrix``.
+
+        Args:
+            matrix: A ``(2, 3)`` pixel-space affine.
+            shape: The ``(height, width)`` for probing the orientations, at least 2 in
+                each dimension.
+
+        Returns:
+            CameraOrientation | None: The orientation, or None when the linear part is
+                not one of the eight.
+        """
         target = np.asarray(matrix, dtype=np.float64)
         for orientation in cls.dihedral():
-            if np.allclose(orientation.matrix(shape), target):
+            if np.allclose(orientation.matrix(shape)[:, :2], target[:, :2]):
                 return orientation
         return None
 
 
-@record_type("camera_data")
+def reorient_pixels(
+    pixels: Sequence[tuple[int, int]] | NDArray,
+    raw_shape: tuple[int, int],
+    source: CameraOrientation,
+    target: CameraOrientation,
+) -> list[tuple[int, int]]:
+    """Convert the positions of sensor pixels in the displayed frame from one camera
+    orientation to another.
+
+    A camera names a sensor pixel by its position in the displayed frame, and that
+    position depends on the orientation. A pixel list such as
+    :attr:`Camera.excluded_pixels` is therefore converted whenever the orientation
+    changes. Each position is first mapped back to the raw sensor frame with the inverse
+    of the ``source`` affine, :meth:`CameraOrientation.matrix` for ``raw_shape``. It is
+    then mapped forward into the displayed frame with the ``target`` affine.
+
+    Args:
+        pixels: The ``(row, col)`` positions in the frame displayed in the ``source``
+            orientation, as pairs or as an ``(N, 2)`` array.
+        raw_shape: The ``(height, width)`` of the raw sensor frame, before any rotation
+            or flip.
+        source: The orientation in which the positions are given.
+        target: The orientation to convert them to.
+
+    Returns:
+        list[tuple[int, int]]: The ``(row, col)`` positions in the frame displayed in
+        the ``target`` orientation, in the same order as ``pixels``.
+    """
+    points = np.asarray(pixels, dtype=np.float64).reshape(-1, 2)
+    if points.shape[0] == 0:
+        return []
+    source_matrix = source.matrix(raw_shape)
+    target_matrix = target.matrix(raw_shape)
+    # The matrices act on (x, y) = (col, row) positions.
+    shown_xy = points[:, ::-1]
+    sensor_xy = np.linalg.solve(
+        source_matrix[:, :2], (shown_xy - source_matrix[:, 2]).T
+    ).T
+    target_xy = sensor_xy @ target_matrix[:, :2].T + target_matrix[:, 2]
+    target_rows_cols = np.rint(target_xy[:, ::-1]).astype(np.int64)
+    return [(int(row), int(col)) for row, col in target_rows_cols]
+
+
+@record_type("camera_data", version=2)
 @dataclass(frozen=True, unsafe_hash=True)
 class CameraData(SaveableRecord):
     """A native snapshot of a camera's geometry and exposure state."""
 
     name: str
-    sensor_shape: tuple[int, int]
+    sensor_resolution: tuple[int, int]
     pixel_size: tuple[float, float]
     adu_levels: int
     exposure: float
@@ -682,15 +1141,21 @@ class CameraData(SaveableRecord):
     @property
     def orientation_flags(self) -> CameraOrientation | None:
         """:attr:`orientation` as the rotate and flip flags a device takes, or None."""
-        return CameraOrientation.from_matrix(self.orientation, self.sensor_shape)
+        return CameraOrientation.from_matrix(self.orientation, self.sensor_resolution)
 
     @classmethod
     def from_camera(cls, camera: Camera) -> CameraData:
-        # transform / default_shape are device details (a real slmsuite camera or the
-        # adapter exposes them). Without a transform the sensor is axis-aligned.
+        """Record a camera as it stands.
+
+        Args:
+            camera: The camera, as :func:`~hologradpy.hardware.factory.open_camera` or
+                :func:`~hologradpy.hardware.as_native.as_camera` returns it.
+        """
+        # transform is a device detail, which the slmsuite adapter exposes. Without a
+        # transform the sensor is axis-aligned.
         return cls(
             name=getattr(camera, "name", ""),
-            sensor_shape=camera.sensor_shape,
+            sensor_resolution=camera.sensor_resolution,
             pixel_size=tuple(float(v) for v in camera.pixel_size),
             adu_levels=camera.adu_levels,
             exposure=camera.get_exposure(),
@@ -698,3 +1163,20 @@ class CameraData(SaveableRecord):
             roi=camera.roi,
             orientation=camera.orientation_matrix(),
         )
+
+    @classmethod
+    def _migrate(cls, version: int, stored: dict) -> dict:
+        """Rename the fields of an older record to the current names.
+
+        A version 1 record holds the sensor resolution under ``sensor_shape``.
+
+        Args:
+            version: The record version of the stored fields.
+            stored: The fields as they were read from the file.
+
+        Returns:
+            dict: The fields under the parameter names of the constructor.
+        """
+        if version < 2:
+            stored["sensor_resolution"] = stored.pop("sensor_shape")
+        return stored

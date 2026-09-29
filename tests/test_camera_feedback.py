@@ -22,7 +22,8 @@ from hologradpy.calibration.camera_mapping import (
     FocalSpotFit,
 )
 from hologradpy.datasets import CaptureStore, RetrievalStepStore
-from hologradpy.grids import get_spatial_grid
+from hologradpy.geometry import PartialAffineTransform
+from hologradpy.grids import get_spatial_grid, plane_center
 from hologradpy.analysis.error_metrics import (
     DEFAULT_INTENSITY_METRICS,
     IntensityMetric,
@@ -243,12 +244,13 @@ def _bench() -> tuple:
 
 
 def _identity_mapping(resolution=CAMERA_RESOLUTION) -> CameraMapping:
-    """A mapping that says the camera and the model already agree.
+    """An identity mapping, for a camera that already agrees with the model.
 
-    Passed throughout so register() has nothing to measure: a real spot-array mapping
-    needs resolvable spots, which this 64 by 64 bench does not have. The point pairs are
-    identical, so the fitted transform is the identity and calibrate_from_mapping is a
-    no-op.
+    The tests pass it throughout, so apply_camera_mapping() has nothing to measure. A
+    real spot-array mapping needs resolvable spots, and this 64 by 64 bench has none.
+    The point pairs are identical, so the fitted transform is the identity. These
+    unseeded models already hold the identity affine, and calibrate_from_mapping sets
+    the same affine.
     """
     points = [(10.0, 12.0), (40.0, 15.0), (20.0, 45.0), (50.0, 50.0)]
     return CameraMapping(
@@ -592,7 +594,7 @@ def test_patch_is_placed_at_the_requested_offset() -> None:
     assert np.isclose(column_offset, expected_column, atol=0.5)
 
 
-# --- Registration ------------------------------------------------------------------
+# --- Applying the camera mapping ---------------------------------------------------
 
 
 def test_mapping_seeds_the_model(monkeypatch) -> None:
@@ -668,11 +670,25 @@ def test_a_mapping_is_measured_when_none_is_given(monkeypatch) -> None:
     assert applied == [measured]
 
 
-def test_registration_is_applied_only_once(monkeypatch) -> None:
-    """calibrate_from_mapping composes a residual, so applying it twice would put the
-    rotation and shift in twice over.
+def test_a_measured_mapping_is_kept(monkeypatch) -> None:
+    """apply_camera_mapping() measures a mapping once and keeps it. Every later call,
+    including the one in run(), calibrates the model from the kept mapping.
     """
     slm, camera, retriever, target, signal_region = _bench()
+    measured = _identity_mapping()
+
+    class StubMapper:
+        instances = []
+
+        def __init__(self, *arguments):
+            StubMapper.instances.append(arguments)
+
+        def map_camera(self):
+            return measured
+
+    monkeypatch.setattr(
+        "hologradpy.holography.camera_feedback.abstract.SpotArrayMapper", StubMapper
+    )
     applied = []
     monkeypatch.setattr(
         type(retriever.slm_camera_model),
@@ -680,20 +696,70 @@ def test_registration_is_applied_only_once(monkeypatch) -> None:
         lambda self, mapping: applied.append(mapping),
     )
 
-    mapping = _identity_mapping()
     feedback = SimpleFeedbackCorrector(
         phase_retriever=retriever,
         camera=camera,
         slm=slm,
         target=target,
         signal_region=signal_region,
-        camera_mapping=mapping,
     )
-    feedback.register()
-    feedback.register()
+    feedback.apply_camera_mapping(verbose=False)
+    feedback.apply_camera_mapping(verbose=False)
     feedback.run(retriever_iterations=[5] * 1, averages=1, verbose=False)
 
-    assert applied == [mapping]
+    assert len(StubMapper.instances) == 1
+    assert applied == [measured] * 3
+
+
+def _similarity_mapping(similarity: PartialAffineTransform) -> CameraMapping:
+    """A mapping whose point pairs realize ``similarity``, with the zeroth order at the
+    centre of the sensor.
+    """
+    detected = np.random.default_rng(0).uniform(10.0, 54.0, size=(8, 2))
+    return CameraMapping(
+        timestamp=datetime(2026, 1, 1),
+        name="similarity",
+        transform=similarity.as_matrix(homogeneous=False),
+        detected_points=detected.tolist(),
+        calculated_points=similarity.transform_points(detected).tolist(),
+        zeroth_order_position=(
+            CAMERA_RESOLUTION[0] / 2,
+            CAMERA_RESOLUTION[1] / 2,
+        ),
+        spot_fit=FocalSpotFit(waist=2.0),
+    )
+
+
+def test_feedback_after_a_calibrator_keeps_the_partial_affine() -> None:
+    """A calibrator sets the focal-plane partial affine of the model from its mapping.
+    The feedback then receives the same mapping and leaves the affine where it is.
+    """
+    slm, camera, retriever, target, signal_region = _bench()
+    model = retriever.slm_camera_model
+    mapping = _similarity_mapping(
+        PartialAffineTransform.from_components(
+            angle_deg=2.0, shift=(1.0, -1.0), center=plane_center(CAMERA_RESOLUTION)
+        )
+    )
+    model.calibrate_from_mapping(mapping)
+    calibrated = {
+        name: value.detach().clone()
+        for name, value in model.fourier_lens.state_dict().items()
+    }
+
+    feedback = SimpleFeedbackCorrector(
+        phase_retriever=retriever,
+        camera=camera,
+        slm=slm,
+        target=target,
+        signal_region=signal_region,
+        target_position=TARGET_POSITION,
+        camera_mapping=mapping,
+    )
+    feedback.apply_camera_mapping()
+
+    for name, value in model.fourier_lens.state_dict().items():
+        assert torch.equal(value, calibrated[name]), name
 
 
 # --- Building the retriever --------------------------------------------------------
@@ -1480,6 +1546,186 @@ def test_run_result_renders(feedback_run: CameraFeedbackData) -> None:
     figure = feedback_run.visualizer().render()
     assert figure is not None
     plt.close(figure)
+
+
+# --- Exposure, overexposure, the background and the camera's state -------------------
+
+
+def test_every_iteration_is_exposed_and_recorded() -> None:
+    """Each hologram is metered on its own, and the exposure of every measurement is
+    recorded, whether it was metered or given.
+    """
+    feedback = _feedback()
+    entry_exposure = feedback.camera.get_exposure()
+
+    data = feedback.run(retriever_iterations=[5] * 3, averages=1, verbose=False)
+
+    assert len(data.metadata["exposures"]) == 3
+    assert data.metadata["overexposed_iterations"] == []
+    assert all(exposure > 0.0 for exposure in data.metadata["exposures"])
+    assert data.background_images is None
+    assert feedback.camera.get_exposure() == entry_exposure
+
+    feedback = _feedback()
+    fixed = feedback.camera.get_exposure()
+    data = feedback.run(
+        retriever_iterations=[5] * 3,
+        averages=1,
+        autoexpose=False,
+        exposure=fixed,
+        verbose=False,
+    )
+    assert data.metadata["exposures"] == [fixed] * 3
+
+
+def test_an_overexposed_measurement_is_reported() -> None:
+    feedback = _feedback()
+    metered = feedback.camera.get_exposure()
+
+    with pytest.warns(UserWarning, match="are overexposed"):
+        data = feedback.run(
+            retriever_iterations=[5],
+            averages=1,
+            autoexpose=False,
+            exposure=100 * metered,
+            verbose=False,
+        )
+
+    assert data.metadata["overexposed_iterations"] == [0]
+
+
+def test_a_measurement_overexposed_in_one_of_its_frames_is_reported(
+    monkeypatch,
+) -> None:
+    """One pixel of the region reaches full scale in every other frame. In the other
+    frames it sits 10 counts below full scale, so the mean of two frames stays below
+    full scale. The measurement still counts as overexposed.
+    """
+    plain = _feedback().run(
+        retriever_iterations=[5], averages=2, autoexpose=False, verbose=False
+    )
+    assert plain.metadata["overexposed_iterations"] == []
+
+    feedback = _feedback()
+    camera = feedback.camera
+    region = gpu_to_numpy(feedback.signal_region).astype(bool)
+    rows, columns = np.nonzero(region)
+    row, column = rows[len(rows) // 2], columns[len(columns) // 2]
+    capture_frame = camera._capture_frame
+    captured = []
+
+    def alternate_one_pixel():
+        frame = capture_frame().detach().clone()
+        captured.append(frame)
+        frame[row, column] = camera.max_pixel_value - (10 if len(captured) % 2 else 0)
+        return frame
+
+    monkeypatch.setattr(camera, "_capture_frame", alternate_one_pixel)
+
+    with pytest.warns(UserWarning, match="are overexposed"):
+        data = feedback.run(
+            retriever_iterations=[5], averages=2, autoexpose=False, verbose=False
+        )
+
+    assert len(captured) == 2
+    assert data.final_camera_image[row, column] < camera.max_pixel_value
+    assert data.metadata["overexposed_iterations"] == [0]
+
+
+def test_overexposure_outside_the_signal_region_is_not_reported(monkeypatch) -> None:
+    """A saturated zeroth order can put a pixel at full scale outside the signal
+    region. Such a pixel leaves the loop unaffected, so the measurement does not count
+    as overexposed.
+    """
+    feedback = _feedback()
+    camera = feedback.camera
+    region = gpu_to_numpy(feedback.signal_region).astype(bool)
+    rows, columns = np.nonzero(~region)
+    row, column = rows[0], columns[0]
+    capture_frame = camera._capture_frame
+
+    def one_pixel_at_full_scale():
+        frame = capture_frame().detach().clone()
+        frame[row, column] = camera.max_pixel_value
+        return frame
+
+    monkeypatch.setattr(camera, "_capture_frame", one_pixel_at_full_scale)
+
+    data = feedback.run(
+        retriever_iterations=[5], averages=1, autoexpose=False, verbose=False
+    )
+
+    assert data.final_camera_image[row, column] == camera.max_pixel_value
+    assert data.metadata["overexposed_iterations"] == []
+
+
+@pytest.mark.parametrize("form", ["level", "frame", "function"])
+def test_a_background_passed_in_leaves_the_loop_unchanged(monkeypatch, form) -> None:
+    """The camera adds a background to every count. With the background passed in,
+    the loop runs as it does on a camera without one. The record keeps the raw frames,
+    and beside them the background subtracted from each frame.
+    """
+    plain = _feedback()
+    exposure = plain.camera.get_exposure()
+    reference = plain.run(
+        retriever_iterations=[5] * 2,
+        averages=1,
+        autoexpose=False,
+        exposure=exposure,
+        verbose=False,
+    )
+
+    lifted = _feedback()
+    camera = lifted.camera
+    shape = camera.sensor_resolution
+    pattern = 7.0 + np.arange(np.prod(shape)).reshape(shape) % 5
+    added, background = {
+        "level": (7.0, 7.0),
+        "frame": (pattern, pattern),
+        "function": (2.0 + 3e3 * exposure, lambda seconds: 2.0 + 3e3 * seconds),
+    }[form]
+    get_image = camera.get_image
+    monkeypatch.setattr(
+        camera,
+        "get_image",
+        lambda *arguments, **options: (
+            np.asarray(get_image(*arguments, **options), dtype=float) + added
+        ),
+    )
+    shifted = lifted.run(
+        retriever_iterations=[5] * 2,
+        averages=1,
+        autoexpose=False,
+        exposure=exposure,
+        background=background,
+        verbose=False,
+    )
+
+    for name, values in reference.metrics.items():
+        np.testing.assert_allclose(shifted.metrics[name], values, rtol=1e-6)
+    expected_background = shifted.signal_roi.crop(np.broadcast_to(added, shape))
+    for raw, clean, subtracted in zip(
+        shifted.measured_images, reference.measured_images, shifted.background_images
+    ):
+        np.testing.assert_allclose(raw, clean + expected_background)
+        np.testing.assert_allclose(subtracted, expected_background)
+    np.testing.assert_allclose(
+        shifted.visualizer()._measured(1), reference.visualizer()._measured(1)
+    )
+
+
+def test_run_on_a_camera_left_with_a_window() -> None:
+    """The model predicts the whole sensor, so the whole sensor is measured for any
+    window held by the camera. The window is put back afterwards.
+    """
+    feedback = _feedback()
+    window = ROI(8, 8, 20, 24)
+    feedback.camera.set_roi(window)
+
+    data = feedback.run(retriever_iterations=[5], averages=1, verbose=False)
+
+    assert data.final_camera_image.shape == CAMERA_RESOLUTION
+    assert feedback.camera.roi == window
 
 
 def test_phase_reaches_the_slm() -> None:

@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+from hologradpy.hardware import SLM
 from hologradpy.optics.modules.virtual_slms.zernike_slm import ZernikeSLM
 
 from .registry import ZERNIKE_RADIAL_ORDERS, make_field
@@ -21,13 +22,15 @@ pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 NUMBER_OF_COEFFICIENTS = ZERNIKE_RADIAL_ORDERS * (ZERNIKE_RADIAL_ORDERS + 1) // 2
 
 
-class _FakeSLM:
-    shape = (16, 16)
-    pitch_um = (10.0, 10.0)
-    phase_scaling = 1.0
-    # Square, because from_slm now checks it: a Zernike basis is built on a unit disk
-    # and an anamorphic pitch would make it an ellipse.
+class _FakeSLM(SLM):
+    """A native SLM, since ``from_slm`` coerces its argument with ``as_slm``."""
+
+    resolution = (16, 16)
+    # Square, because from_slm checks it. A Zernike basis is built on a unit disk, and
+    # an anamorphic pitch makes it an ellipse.
     pixel_size = (10e-6, 10e-6)
+    wavelength = 633e-9
+    bitdepth = 8
 
 
 def _field(shape, n_wavelengths):
@@ -125,9 +128,8 @@ def test_set_phase_not_supported() -> None:
 
 
 def test_from_slm_constructs() -> None:
-    module = ZernikeSLM.from_slm(
-        _FakeSLM(), number_of_radial_orders=ZERNIKE_RADIAL_ORDERS
-    )
+    slm = _FakeSLM()
+    module = ZernikeSLM.from_slm(slm, number_of_radial_orders=ZERNIKE_RADIAL_ORDERS)
     output = module(_field((16, 16), 1))
     assert output.shape == (1, 1, 16, 16)
-    assert module.phase_scaling == _FakeSLM.phase_scaling
+    assert module.phase_scaling == slm.phase_scaling

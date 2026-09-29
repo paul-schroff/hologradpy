@@ -18,38 +18,11 @@ from .records import SpeckleCaptureData
 from .dataset_transforms import PrepareSample
 
 from ...datasets import CaptureStore, SampleDataset
+from ...hardware.camera import Background, background_at
 from ...loss_functions import LossFunction, MaskedIntensityMSE
 from ...roi import ROI
 from ...optics.systems import SLMFourierLensModel
 from ...utils import ProgressBar
-
-
-def region_of_interest(
-    capture_data: SpeckleCaptureData,
-    slm_camera_model: SLMFourierLensModel,
-    roi_mask: NDArray[np.bool_] | None = None,
-) -> tuple[ROI, torch.Tensor]:
-    """The region the fit is evaluated over, as a crop and a mask. Shared by
-    :class:`SpeckleFitter`, which crops its predictions to the ``ROI``.
-
-    Args:
-        capture_data: The captured dataset, carrying the full-frame region mask.
-        slm_camera_model: The model being fitted, which fixes the dtype and device.
-        roi_mask: A region mask to use instead of the capture's own.
-
-    Returns:
-        The bounding-box ``ROI`` and the mask cropped to it.
-    """
-    if roi_mask is None:
-        roi_mask = capture_data.roi_mask
-
-    roi = ROI.detect(roi_mask, pad=0)
-    mask = torch.as_tensor(
-        roi.crop(roi_mask),
-        dtype=slm_camera_model.init_field.dtype_r,
-        device=slm_camera_model.device,
-    )
-    return roi, mask
 
 
 class SpeckleFitter(ABC):
@@ -71,6 +44,7 @@ class SpeckleFitter(ABC):
         loss: LossFunction | None = None,
         learning_rate: float = 1e-2,
         roi_mask: NDArray[np.bool_] | None = None,
+        background: Background | None = None,
     ) -> None:
         """
         Args:
@@ -80,18 +54,27 @@ class SpeckleFitter(ABC):
             loss: The cost, taking ``(predicted_field, camera_image)``. Defaults to
                 :class:`~hologradpy.loss_functions.MaskedIntensityMSE`.
             learning_rate: Adam step size.
-            roi_mask: A region mask to use instead of the capture's own.
+            roi_mask: A region mask that replaces the capture's own.
+            background: The counts subtracted from every frame before it is
+                normalized.
         """
         self.capture_data: SpeckleCaptureData = capture_data
         self.dataset_path: Path = Path(dataset_path)
         self.slm_camera_model: SLMFourierLensModel = slm_camera_model
         self.learning_rate: float = learning_rate
+        self.background: Background | None = background
+        # The mean of the subtracted background over the region of the fit, or None.
+        self.background_level: float | None = None
 
         self.device: torch.device = slm_camera_model.device
         self.dtype: torch.dtype = slm_camera_model.init_field.dtype_r
 
-        self.roi, self.roi_mask = region_of_interest(
-            capture_data, slm_camera_model, roi_mask
+        # The frames and predictions are cropped to the bounding box of the region
+        # mask, and the mask is cropped with them.
+        region_mask = capture_data.roi_mask if roi_mask is None else roi_mask
+        self.roi: ROI = ROI.detect(region_mask, pad=0)
+        self.roi_mask: torch.Tensor = torch.as_tensor(
+            self.roi.crop(region_mask), dtype=self.dtype, device=self.device
         )
 
         self.loss: LossFunction = (
@@ -187,10 +170,15 @@ class SpeckleFitter(ABC):
         store = CaptureStore.open(self.dataset_path)
         self.store = store
         self.phase_bitdepth: int | None = store.phase_bitdepth
+        background = self._background_for(store)
         self.dataset = SampleDataset(
             store,
             transform=PrepareSample(
-                self.roi, self.roi_mask, self.device, self.dtype
+                self.roi,
+                self.roi_mask,
+                self.device,
+                self.dtype,
+                background=background,
             ),
         )
 
@@ -214,6 +202,28 @@ class SpeckleFitter(ABC):
             pin_memory=False,
             num_workers=0,
         )
+
+    def _background_for(self, store: CaptureStore) -> float | NDArray | None:
+        """The background to subtract from the stored frames. Its mean over the region
+        of the fit is kept in :attr:`background_level`.
+
+        The frames are stored raw. A background function is evaluated at the recorded
+        exposure of the dataset.
+        """
+        self.background_level = None
+        if self.background is None:
+            return None
+        background = background_at(
+            self.background,
+            self.capture_data.metadata.get("exposure_time"),
+            np.shape(store.read(0)["camera_image"]),
+        )
+        if np.ndim(background) == 0:
+            self.background_level = float(background)
+        else:
+            region = self.roi_mask.detach().cpu().numpy() > 0
+            self.background_level = float(np.mean(self.roi.crop(background)[region]))
+        return background
 
     @abstractmethod
     def trainable_parameters(self) -> Iterable[torch.nn.Parameter]:

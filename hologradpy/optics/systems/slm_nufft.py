@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ..modules.learnable_partial_affine import LearnablePartialAffine
 from ..modules.propagators import FourierLensNUFFT
 from ..modules.slm_fields import SLMField
 from ..modules.virtual_slms.abstract import VirtualSLM
@@ -58,5 +59,6 @@ class SLMNUFFT(SLMFourierLensModel):
             ),
         )
 
-    def affine_module(self) -> FourierLensNUFFT:
-        return self.fourier_lens
+    @property
+    def focal_plane_partial_affine(self) -> LearnablePartialAffine:
+        return self.fourier_lens.focal_plane_partial_affine

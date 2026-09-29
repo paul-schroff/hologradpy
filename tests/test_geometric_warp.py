@@ -35,7 +35,7 @@ def test_matrix_matches_the_partial_affine_value_object():
     )
     warp(ComplexAmplitude(_random_plane(resolution), WAVELENGTH, PIXEL_SIZE))
     center = (warp.rotation_center + warp.rotation_center_shift)[0]
-    shift = (warp.shift_center + warp.shift)[0]
+    shift = (warp.shift_center + warp.focal_plane_partial_affine.shift)[0]
     expected = PartialAffineTransform.from_components(
         scale=1.2,
         angle_deg=17.0,

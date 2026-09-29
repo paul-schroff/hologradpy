@@ -20,6 +20,7 @@ from hologradpy.optics.modules import (
     GridAdapter,
     NeighbourDifferenceCrosstalk,
     PiecewiseSuperGaussianCrosstalk,
+    PixelCrosstalk,
     PixelwiseSLMField,
     SuperGaussianCrosstalk,
     VirtualSLM,
@@ -733,13 +734,15 @@ def test_a_system_with_crosstalk_survives_a_checkpoint(tmp_path) -> None:
     torch.testing.assert_close(reopened().as_tensor(), system().as_tensor())
 
 
-# --- the simulated camera carries it, the retrieval model does not ---------------
+# --- the simulated SLM carries it, the retrieval model does not ------------------
 
 
-def _simulated_pair(crosstalk_upscale_factor: int | None):
+def _simulated_pair(pixel_crosstalk: PixelCrosstalk | None):
     """An SLM and a simulated camera sharing it, as the feedback example builds them."""
     geometry = _geometry()
-    slm = SimulatedSLMTorch(input_geometry=geometry, bitdepth=8)
+    slm = SimulatedSLMTorch(
+        input_geometry=geometry, bitdepth=8, pixel_crosstalk=pixel_crosstalk
+    )
     beam = ComplexAmplitude(
         torch.ones(RESOLUTION) + 0j,
         wavelength=geometry.wavelength,
@@ -760,29 +763,20 @@ def _simulated_pair(crosstalk_upscale_factor: int | None):
         bitdepth=12,
         nd_filter_optical_density=6,
         noise_level=0,
-        crosstalk_upscale_factor=crosstalk_upscale_factor,
     )
     return slm, camera, model
 
 
-def test_the_camera_leaves_the_model_alone_without_crosstalk_arguments() -> None:
-    _, camera, model = _simulated_pair(None)
+def test_the_slm_carries_crosstalk_the_retrieval_model_knows_nothing_about() -> None:
+    slm, camera, model = _simulated_pair(SuperGaussianCrosstalk(upscale_factor=3))
+    crosstalk = model.virtual_slm.pixel_crosstalk
 
+    # The camera keeps the model it was handed, on the sub-pixel grid of the SLM.
     assert camera.slm_camera_model is model
-    assert camera.slm_camera_model.virtual_slm.pixel_crosstalk is None
-    assert camera.slm_camera_model.grid_adapter.factor == 1
-
-
-def test_the_camera_carries_crosstalk_the_retrieval_model_knows_nothing_about() -> None:
-    slm, camera, model = _simulated_pair(3)
-    crosstalk = camera.slm_camera_model.virtual_slm.pixel_crosstalk
-
-    # Rebuilt onto the sub-pixel grid, sharing the SLM it was handed.
-    assert camera.slm_camera_model is not model
+    assert model.virtual_slm is slm.virtual_slm
     assert isinstance(crosstalk, SuperGaussianCrosstalk)
     assert crosstalk.upscale_factor == 3
-    assert camera.slm_camera_model.grid_adapter.factor == 3
-    assert camera.slm_camera_model.virtual_slm is slm.virtual_slm
+    assert model.grid_adapter.factor == 3
 
     # A model built separately from the same SLM has none, so a retriever
     # optimizing against it never sees the crosstalk.
@@ -800,9 +794,9 @@ def test_the_camera_carries_crosstalk_the_retrieval_model_knows_nothing_about() 
     assert retrieval.virtual_slm is not slm.virtual_slm
 
 
-def test_the_rebuilt_camera_reports_the_geometry_it_would_have_anyway() -> None:
+def test_crosstalk_leaves_the_camera_geometry_unchanged() -> None:
     _, plain, _ = _simulated_pair(None)
-    _, smeared, _ = _simulated_pair(3)
+    _, smeared, _ = _simulated_pair(SuperGaussianCrosstalk(upscale_factor=3))
 
     assert tuple(smeared.resolution) == tuple(plain.resolution)
     np.testing.assert_allclose(smeared.pixel_size, plain.pixel_size)
@@ -814,7 +808,7 @@ def test_a_phase_set_before_any_capture_reaches_the_sub_pixel_camera() -> None:
     """``SimulatedSLMTorch`` builds its virtual SLM from the SLM plane, which is
     coarser than the field the stage reads once crosstalk is fitted.
     """
-    slm, camera, _ = _simulated_pair(3)
+    slm, camera, _ = _simulated_pair(SuperGaussianCrosstalk(upscale_factor=3))
 
     grid_x, _unused = slm.get_spatial_grid()
     slm.set_phase(2 * torch.pi * (3.0 / (RESOLUTION[1] * PITCH)) * grid_x)

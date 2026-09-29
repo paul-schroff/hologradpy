@@ -39,6 +39,7 @@ from hologradpy.calibration.camera_mapping import (
     SpotArrayMapper,
 )
 from hologradpy.profiles.masks import disc_mask
+from hologradpy.roi import ROI
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -271,6 +272,30 @@ def test_map_camera_fills_sensor_and_respects_border():
     assert detected[:, 1].min() > 5 and detected[:, 1].max() < height - 5
 
 
+def test_map_camera_with_a_window_left_on_the_camera():
+    """The array is placed, exposed and detected on the whole sensor for any window
+    held by the camera. The mapping therefore comes out the same, and the window is
+    put back.
+    """
+    slm, camera, model = _build_setup(camera_angle=10.0)
+    coarse = CoarseMapper(slm, camera, model).map_camera()
+    exposure = camera.get_exposure()
+    expected = SpotArrayMapper(slm, camera, model).map_camera(
+        number_of_spots=8, seed=1, coarse_mapping=coarse
+    )
+    assert camera.get_exposure() == exposure
+
+    window = ROI(20, 30, 100, 120)
+    camera.set_roi(window)
+    mapping = SpotArrayMapper(slm, camera, model).map_camera(
+        number_of_spots=8, seed=1, coarse_mapping=coarse
+    )
+
+    np.testing.assert_allclose(mapping.transform, expected.transform, rtol=1e-6)
+    assert camera.roi == window
+    assert camera.get_exposure() == exposure
+
+
 def test_map_camera_accepts_explicit_coarse_mapping():
     """A supplied coarse mapping is used directly (no internal coarse build)."""
     slm, camera, model = _build_setup(camera_angle=10.0)
@@ -280,6 +305,29 @@ def test_map_camera_accepts_explicit_coarse_mapping():
     )
     assert mapping.name == "spot_array"
     assert mapping.fit.reprojection_rms < 2.0
+
+
+def test_the_mapper_reads_the_output_layer_geometry(simulated_setup):
+    """On a model with a separate warp, the simulated image is the warp's camera grid,
+    and the Fourier lens before the warp samples the padded focal plane.
+    """
+    slm, camera, _ = simulated_setup
+    model = SLMFFTAffine(
+        input_geometry=slm.input_geometry,
+        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        camera_resolution=(240, 320),
+        camera_pixel_size=(30e-6, 30e-6),
+        focal_length=0.25,
+        slm_field=PixelwiseSLMField(),
+        padded_resolution=(512, 512),
+    )
+    mapper = SpotArrayMapper(slm, camera, model)
+
+    pixel_size_out, resolution_out = mapper._model_output_geometry()
+
+    assert resolution_out == (240, 320)
+    np.testing.assert_allclose(pixel_size_out, (30e-6, 30e-6))
+    assert resolution_out != tuple(model.fourier_lens.resolution_out)
 
 
 def test_disc_mask_membership():

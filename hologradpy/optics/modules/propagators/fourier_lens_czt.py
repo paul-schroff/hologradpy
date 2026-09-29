@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import torch
 from torch import Tensor
-from torch.nn import Parameter
 
 from ....fourier_optics import (
     fourier_lens_magnification,
@@ -14,24 +13,21 @@ from ....fourier_transforms import (
     window_offset_from_pixels,
 )
 
-from ....geometry import PartialAffineTransform
-from ....grids import plane_center
 from ....utils import to_canvas
 from ..abstract import OpticsModule
+from ..learnable_partial_affine import LearnablePartialAffine
 from ...complex_amplitude import ComplexAmplitude, pixel_area
-from ....geometry import recalibrated_partial_affine
 
 
 class FourierLensCZT(OpticsModule):
-    """Exact Fourier lens via the chirp-z zoom, with learnable focal-plane affine
-    parameters (scale, shift, angle).
+    """Exact Fourier lens via the chirp-z zoom, with a learnable focal-plane partial
+    affine.
 
-
-    ``scale_factor`` (per-axis zoom multiplier, ``(x, y)``), ``shift`` (focal-plane
-    offset in output pixels, ``(x, y)``) and ``angle`` (rotation in degrees) are
-    ``nn.Parameter`` s (``requires_grad=learnable``), so the focal-plane affine map
-    can be calibrated by gradient descent. All three are handed to the transform, which
-    samples the scaled, shifted, rotated window directly.
+    The partial affine is :attr:`focal_plane_partial_affine`, a
+    :class:`~hologradpy.optics.modules.learnable_partial_affine.LearnablePartialAffine`.
+    The transform applies its zoom, shift and rotation by sampling the scaled, shifted
+    and rotated window directly. Its parameters require a gradient when ``learnable``
+    is set, so the focal-plane geometry can be calibrated by gradient descent.
 
     The geometry is per-wavelength: the base magnification is ``lambda * f /
     (pixel_in * resolution_in * pixel_out)``, so that with the parameters at their
@@ -53,9 +49,12 @@ class FourierLensCZT(OpticsModule):
         super().__init__(pixel_size_out, resolution_out)
 
         self.focal_length: float = focal_length
-        self.shift_init: tuple[float, float] = shift
-        self.angle_init: float = angle  # degrees
+        # The starting angle in degrees. It sizes the padding for the rotation.
+        self.angle_init: float = angle
         self.learnable: bool = learnable
+        self.focal_plane_partial_affine = LearnablePartialAffine(
+            resolution_out, shift=shift, angle=angle, learnable=learnable
+        )
         self.power_normalized: bool = power_normalized
         self.padded_resolution: tuple[int, int] | None = padded_resolution
 
@@ -83,64 +82,11 @@ class FourierLensCZT(OpticsModule):
             self._pixel_size_out.unsqueeze(0),
         ).flip(-1)  # (n_wl, 2): (x, y)
 
-        real_dtype = complex_amplitude.dtype_r
-        device = complex_amplitude.device
         # scale_factor and shift are (x, y), matching the geometry / GeometricWarp
         # convention and the (x, y) base magnification, so they combine directly.
-        self.scale_factor = Parameter(
-            torch.ones(2, dtype=real_dtype, device=device),
-            requires_grad=self.learnable,
+        self.focal_plane_partial_affine.to(
+            device=complex_amplitude.device, dtype=complex_amplitude.dtype_r
         )
-        self.shift = Parameter(
-            torch.tensor(self.shift_init, dtype=real_dtype, device=device),
-            requires_grad=self.learnable,
-        )
-        self.angle = Parameter(
-            torch.tensor(self.angle_init, dtype=real_dtype, device=device),
-            requires_grad=self.learnable,
-        )
-
-    def apply_partial_affine(self, transform: PartialAffineTransform) -> None:
-        """Seed the learnable ``scale_factor`` / ``shift`` / ``angle`` from a fitted
-        camera -> model similarity, composing it as a residual onto the current
-        values (see :func:`~hologradpy.geometry.partial_affine\
-        .recalibrated_partial_affine`).
-
-        The lens stores ``shift`` and ``scale_factor`` as (x, y), matching the
-        transform's point convention, so no axis swap is needed. ``shift`` is an image
-        translation in output pixels, as it is on
-        :class:`~hologradpy.optics.modules.geometric_transforms.GeometricWarp`, so the
-        residual is stored as it arrives.
-        """
-        if not hasattr(self, "scale_factor"):
-            raise RuntimeError(
-                "FourierLensCZT must be initialized before apply_partial_affine "
-                "(run the system once)."
-            )
-        center = plane_center(self.resolution_out)
-        scale, angle_deg, shift = recalibrated_partial_affine(
-            float(self.scale_factor.mean()),
-            float(self.angle),
-            (float(self.shift[0]), float(self.shift[1])),
-            transform,
-            center,
-        )
-        with torch.no_grad():
-            self.scale_factor.copy_(
-                torch.tensor(
-                    [scale, scale],
-                    dtype=self.scale_factor.dtype,
-                    device=self.scale_factor.device,
-                )
-            )
-            self.shift.copy_(
-                torch.tensor(
-                    [shift[0], shift[1]],
-                    dtype=self.shift.dtype,
-                    device=self.shift.device,
-                )
-            )
-            self.angle.copy_(torch.as_tensor(angle_deg, dtype=self.angle.dtype))
 
     def _power_prefactor(self: FourierLensCZT) -> Tensor:
         """Fourier-lens amplitude prefactor ``(du*dv) / (lambda*f)`` per
@@ -186,8 +132,9 @@ class FourierLensCZT(OpticsModule):
         The same object serves both directions: the transform's ``adjoint`` reverses
         the rotation itself, so the angle is not negated here.
         """
+        partial_affine = self.focal_plane_partial_affine
         magnification = (scale[0], scale[1])  # (x, y)
-        angle = torch.deg2rad(self.angle)
+        angle = torch.deg2rad(partial_affine.angle)
         if not self.learnable:
             # A plain float lets the transform skip the rotation entirely at zero. When
             # the parameters are learnable the tensor is kept so a gradient flows, even
@@ -195,7 +142,7 @@ class FourierLensCZT(OpticsModule):
             angle = float(angle)
 
         shift = window_offset_from_pixels(
-            self.shift, self._padded_resolution, (scale[0], scale[1])
+            partial_affine.shift, self._padded_resolution, (scale[0], scale[1])
         )  # (x, y)
 
         return ChirpZPartialAffine(
@@ -213,7 +160,8 @@ class FourierLensCZT(OpticsModule):
         flat_field, batch_spec = complex_amplitude.flatten_batch()  # (N, n_wl, H, W)
         field = to_canvas(flat_field, self._padded_resolution)
 
-        scale = self.scale_factor.abs() * self._base_magnification  # (n_wl, 2): (x, y)
+        scale_factor = self.focal_plane_partial_affine.scale_factor
+        scale = scale_factor.abs() * self._base_magnification  # (n_wl, 2): (x, y)
         outputs = [
             self._chirp_z(scale[wavelength]).forward(field[:, wavelength])
             for wavelength in range(field.shape[1])
@@ -236,7 +184,8 @@ class FourierLensCZT(OpticsModule):
         rotation, then crop.
         """
         flat_field, batch_spec = complex_amplitude.flatten_batch()
-        scale = self.scale_factor.abs() * self._base_magnification
+        scale_factor = self.focal_plane_partial_affine.scale_factor
+        scale = scale_factor.abs() * self._base_magnification
         inputs = [
             self._chirp_z(scale[wavelength]).adjoint(flat_field[:, wavelength])
             for wavelength in range(flat_field.shape[1])

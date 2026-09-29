@@ -2,29 +2,26 @@ from __future__ import annotations
 
 import copy
 import os
+import warnings
 from dataclasses import dataclass
-from typing import Literal
 
 import numpy as np
 import torch
 from numpy.typing import NDArray
 
 from ...optics.modules.abstract import capture_init
-from ...optics.systems import SLMFourierLensModel, with_pixel_crosstalk
+from ...optics.systems import SLMFourierLensModel
 from ...optics.systems.abstract import OpticalSystem
 from ...optics.modules.hardware_models import (
     CameraSensor,
     BackgroundScatter,
     PowerInstability,
 )
-from ...optics.modules.pixel_crosstalk import (
-    ConvolutionalCrosstalk,
-    SuperGaussianCrosstalk,
-)
+from ...optics.modules.pixel_crosstalk import ConvolutionalCrosstalk
 from ...optics.modules.slm_fields import PixelwiseSLMField
 from ...utils import gpu_to_numpy
 from ...roi import ROI
-from .abstract import Camera, CameraOrientation
+from .abstract import Camera, CameraOrientation, reorient_pixels
 
 
 @dataclass
@@ -36,7 +33,7 @@ class SimulatedCameraCheckpoint:
     model_class_name: str
     model_spec: dict[str, object]
     state_dict: dict[str, object]
-    exposure_s: float
+    exposure: float
     roi: ROI | None
 
 
@@ -64,10 +61,6 @@ class SimulatedCameraTorch(Camera):
         background_scatter_seed: int | None = None,
         power_std: float | None = None,
         power_seed: int | None = None,
-        crosstalk_upscale_factor: int | None = None,
-        crosstalk_order: float = 2.0,
-        crosstalk_width: float = 1.0,
-        crosstalk_extent: int = 3,
         **sensor_kwargs,
     ) -> None:
         """Initialize a simulated camera with a given SLM camera model.
@@ -79,9 +72,9 @@ class SimulatedCameraTorch(Camera):
         bit depth, instead of a bare ``|E|^2``. The camera exposure
         (``set_exposure`` / ``autoexpose``) drives the sensor's exposure.
 
-        ``exposure_bounds`` defaults to ``(0.0, 1.0)`` so the simulated camera
-        advertises a 1 s maximum integration like real hardware. Callers such as
-        ``CoarseMapper`` read this ceiling instead of hardcoding it.
+        ``exposure_bounds`` defaults to ``(0.0, 1.0)``, so the simulated camera states
+        a 1 s maximum integration like real hardware, and :meth:`set_exposure` clips an
+        exposure into the bounds with a warning.
 
         When ``background_scatter_power`` is given, a static laser-speckle
         stray-light background of that total power [W] (grain
@@ -95,14 +88,6 @@ class SimulatedCameraTorch(Camera):
         inserted just after the model's ``PixelwiseSLMField``, reproducible via
         ``power_seed``.
 
-        When ``crosstalk_upscale_factor`` is given, the fringing field between
-        neighbouring liquid-crystal pixels is modeled with a
-        :class:`~hologradpy.optics.modules.pixel_crosstalk.SuperGaussianCrosstalk` of
-        that many sub-pixels per SLM pixel, ``crosstalk_order`` (``q``),
-        ``crosstalk_width`` (``sigma``, in cycles per SLM pixel) and
-        ``crosstalk_extent`` (the reach, in SLM pixels). This is quite memory intensive,
-        and works best on a GPU.
-
         ``orientation`` mounts the sensor the way a real camera would be, matching the
         slmsuite orientation convention. :meth:`set_orientation` remounts it later.
         """
@@ -113,17 +98,6 @@ class SimulatedCameraTorch(Camera):
             )
         except NotImplementedError:
             self._model_spec = None
-
-        if crosstalk_upscale_factor is not None:
-            slm_camera_model = with_pixel_crosstalk(
-                slm_camera_model,
-                SuperGaussianCrosstalk(
-                    upscale_factor=crosstalk_upscale_factor,
-                    extent=crosstalk_extent,
-                    order=crosstalk_order,
-                    width=crosstalk_width,
-                ),
-            )
 
         # Camera geometry comes from the last *optical* module (the Fourier
         # lens / affine), not the sensor, whose output geometry mirrors its input.
@@ -144,7 +118,7 @@ class SimulatedCameraTorch(Camera):
             torch.as_tensor(pixel_size_out).detach().cpu().numpy().astype(np.float64)
         )
 
-        # Raw sensor shape (rows, cols), before the orientation is applied.
+        # Raw sensor resolution (rows, cols), before the orientation is applied.
         self._raw_shape: tuple[int, int] = tuple(
             int(size) for size in output_module.resolution_out
         )
@@ -156,7 +130,7 @@ class SimulatedCameraTorch(Camera):
             if exposure_bounds is not None
             else None
         )
-        self.exposure_s: float = 1.0  # Default to 1 s like a real simulated camera.
+        self.exposure: float = 1.0  # Default to 1 s like a real simulated camera.
 
         self.slm_camera_model: SLMFourierLensModel = slm_camera_model
 
@@ -254,7 +228,7 @@ class SimulatedCameraTorch(Camera):
             model_class_name=self._model_class_name,
             model_spec=self._model_spec,
             state_dict=self.slm_camera_model.state_dict(),
-            exposure_s=self.exposure_s,
+            exposure=self.exposure,
             roi=self._roi,
         )
         torch.save(checkpoint, str(filename))
@@ -305,15 +279,14 @@ class SimulatedCameraTorch(Camera):
         spec = dict(checkpoint.spec)
         spec.update(kwargs)
 
-        if spec.get("crosstalk_upscale_factor") is None:
-            _ = model()
+        _ = model()
 
         camera = cls.from_checkpoint_spec(spec, model)
 
         _ = camera.slm_camera_model()
         camera.slm_camera_model.load_state_dict(checkpoint.state_dict)
 
-        camera.set_exposure(checkpoint.exposure_s)
+        camera.set_exposure(checkpoint.exposure)
         camera.set_roi(checkpoint.roi)
         return camera
 
@@ -321,8 +294,19 @@ class SimulatedCameraTorch(Camera):
 
     @property
     def pixel_size(self) -> NDArray[np.float64]:
-        """Pixel pitch ``(y, x)`` in metres."""
+        """Pixel pitch ``(y, x)`` of the displayed frame in metres.
+
+        A 90-degree rotation exchanges the sensor's axes in the displayed frame, so the 
+        pitch is exchanged with them.
+        """
+        if self._transform_swaps_axes:
+            return self._pixel_size[::-1].copy()
         return self._pixel_size
+
+    @property
+    def _transform_swaps_axes(self) -> bool:
+        """True when the frame transform exchanges height and width."""
+        return np.shape(self.transform(np.zeros((3, 5)))) == (5, 3)
 
     @property
     def bitdepth(self) -> int:
@@ -340,13 +324,22 @@ class SimulatedCameraTorch(Camera):
 
     @property
     def exposure_bounds(self) -> tuple[float, float] | None:
-        """The ``(min, max)`` exposure time in seconds, or ``None`` if unbounded."""
+        """The ``(min, max)`` exposure time in seconds that :meth:`set_exposure`
+        applies, or None for a camera built without bounds.
+        """
         return self._exposure_bounds
 
     @property
     def roi(self) -> ROI:
         """The current region of interest, in displayed ``(row, col)`` coordinates."""
         return self._roi
+
+    @property
+    def sensor_resolution(self) -> tuple[int, int]:
+        """The whole sensor's ``(height, width)`` in the displayed frame, whatever the
+        region of interest.
+        """
+        return self._sensor_resolution
 
     @property
     def static_slm_field(self) -> NDArray | None:
@@ -370,7 +363,9 @@ class SimulatedCameraTorch(Camera):
 
     @property
     def static_crosstalk_kernel(self) -> NDArray | None:
-        """The fringing-field kernel this simulated Camera was built with."""
+        """The fringing-field kernel of the model's SLM stage, or None without a
+        convolutional crosstalk model.
+        """
         crosstalk = getattr(
             self.slm_camera_model.virtual_slm, "pixel_crosstalk", None
         )
@@ -381,35 +376,81 @@ class SimulatedCameraTorch(Camera):
     def set_orientation(self, orientation: CameraOrientation) -> None:
         """Remount the sensor, reorienting every frame from here on.
 
-        A quarter turn swaps the displayed shape, so the region of interest resets to
-        the whole frame rather than keeping a crop expressed in the old one.
+        The region of interest returns to the whole frame, since a crop is given in the
+        coordinates of the previous frame. The excluded pixels follow the sensor into
+        the new frame (:func:`~hologradpy.hardware.camera.reorient_pixels`), and the
+        pixel pitch is exchanged under a quarter turn.
+
+        Args:
+            orientation: The orientation to mount the sensor in.
+
+        Raises:
+            NotImplementedError: Excluded pixels are set while the frame transform is
+                not one of the eight orientations, so they cannot be remapped.
         """
         raw_shape = self._raw_shape
         displayed_shape = (
             (raw_shape[1], raw_shape[0]) if orientation.swaps_axes() else raw_shape
         )
-        # shape / default_shape follow the slmsuite convention of naming the displayed
-        # frame rather than the sensor.
-        self._resolution: tuple[int, int] = displayed_shape
-        self.default_shape: tuple[int, int] = displayed_shape
+        excluded = self.excluded_pixels
+        if excluded:
+            current = self.orientation
+            if current is None:
+                raise NotImplementedError(
+                    f"{type(self).__name__} applies a frame transform that is not one "
+                    "of the eight orientations, so its excluded pixels cannot follow "
+                    "the sensor into a new one. Clear excluded_pixels first."
+                )
+            excluded = reorient_pixels(excluded, raw_shape, current, orientation)
+        self._sensor_resolution: tuple[int, int] = displayed_shape
+        # shape names the displayed frame, as in slmsuite.
         self.shape: tuple[int, int] = displayed_shape
         self.transform = orientation.transformation()
         self.set_roi(None)
+        self.excluded_pixels = excluded
 
     def set_roi(self, roi: ROI | None) -> None:
-        """Set the region of interest (``None`` resets to the full frame)."""
+        """Set the region of interest, or return to the whole frame with None.
+
+        Args:
+            roi: The region in displayed ``(row, col)`` coordinates, or None.
+
+        Raises:
+            ValueError: ``roi`` is empty or reaches off the displayed frame. The region
+                is then left as it was.
+        """
+        height, width = self._sensor_resolution
         if roi is None:
-            self._roi = ROI(0, 0, self._resolution[0], self._resolution[1])
-        else:
-            self._roi = roi
+            self._roi = ROI(0, 0, height, width)
+            return
+        if not roi.lies_inside((height, width)):
+            raise ValueError(f"{roi} does not lie inside the {height} x {width} frame.")
+        self._roi = roi
 
     def get_exposure(self) -> float:
         """The current exposure time in seconds."""
-        return float(self.exposure_s)
+        return float(self.exposure)
 
     def set_exposure(self, exposure_s: float) -> None:
-        """Set the exposure time in seconds."""
-        self.exposure_s = float(exposure_s)
+        """Set the exposure time in seconds.
+
+        An exposure outside :attr:`exposure_bounds` is clipped into them with a
+        warning, as slmsuite's cameras do.
+
+        Args:
+            exposure_s: The exposure in seconds.
+        """
+        exposure = float(exposure_s)
+        bounds = self._exposure_bounds
+        if bounds is not None and not bounds[0] <= exposure <= bounds[1]:
+            clipped = min(max(exposure, bounds[0]), bounds[1])
+            warnings.warn(
+                f"An exposure of {exposure} s is outside the camera's bounds {bounds} "
+                f"s, so {clipped} s is applied.",
+                stacklevel=2,
+            )
+            exposure = clipped
+        self.exposure = exposure
 
     # Capture
 
@@ -420,49 +461,65 @@ class SimulatedCameraTorch(Camera):
         Drives the sensor exposure from the camera exposure so ``set_exposure`` /
         ``autoexpose`` take effect.
         """
-        self.sensor.exposure_time = float(self.exposure_s)
+        self.sensor.exposure_time = float(self.exposure)
         return self.slm_camera_model()  # CameraSensor returns pixel values
 
-    def get_image(
-        self,
-        exposure_s: float | None = None,
-        averaging: int = 1,
-        backend: Literal["numpy", "torch"] = "numpy",
-    ) -> NDArray | torch.Tensor:
+    def _get_image(
+        self, exposure: float | None = None, averaging: int = 1
+    ) -> NDArray:
         """Capture a frame as a ``(height, width)`` array of digital counts.
 
-        ``exposure_s`` sets the exposure first when given. ``averaging`` sums that many
-        fresh frames (integer sum, not mean), promoting to float to avoid overflow, as
-        in slmsuite. The frame is then reoriented via :attr:`transform` and cropped to
-        :attr:`roi`.
-
-        ``backend="torch"`` runs the whole pipeline (averaging, orientation, ROI crop)
-        on the model's tensors and returns a live tensor on their device, avoiding the
-        CPU transfer of the default numpy path.
+        ``exposure`` sets the exposure first when given. ``averaging`` sums that many
+        fresh frames in float64, and the sum is not divided, as in slmsuite. The frame
+        is then reoriented via :attr:`transform` and cropped to :attr:`roi` on the
+        model's tensors, as in :meth:`get_image_tensor`. The result is copied to the
+        CPU.
         """
-        if backend not in ("numpy", "torch"):
-            raise ValueError("Backend must be either 'numpy' or 'torch'.")
-        if exposure_s is not None:
-            self.set_exposure(exposure_s)
+        return gpu_to_numpy(self._capture_image_tensor(exposure, averaging))
 
+    def get_image_tensor(
+        self,
+        exposure: float | None = None,
+        averaging: int = 1,
+        mask: NDArray[np.bool_] | None = None,
+    ) -> torch.Tensor:
+        """Capture a frame as :meth:`get_image` does, as a tensor on the model's device.
+
+        The whole pipeline (averaging, orientation, region of interest) runs on the
+        model's tensors. The frame stays on their device, which saves the copy to the
+        CPU. :attr:`overexposed` is recorded as for :meth:`get_image`.
+
+        Args:
+            exposure: The exposure in seconds, set before the capture when given.
+            averaging: The number of fresh frames to sum.
+            mask: True at the pixels to check for overexposure, in the shape of the
+                frame, or None to check every pixel.
+
+        Returns:
+            torch.Tensor: One frame, or the float64 sum of ``averaging`` frames.
+
+        Raises:
+            ValueError: ``mask`` does not have the shape of the frame.
+        """
+        image = self._capture_image_tensor(exposure, averaging)
+        self._overexposed = self._is_overexposed(image, averaging, mask)
+        return image
+
+    def _capture_image_tensor(
+        self, exposure: float | None, averaging: int
+    ) -> torch.Tensor:
+        """Capture ``averaging`` frames on the model's device and sum them, then
+        reorient the sum and crop it to :attr:`roi`.
+        """
+        if exposure is not None:
+            self.set_exposure(exposure)
         averaging = max(1, int(averaging))
-        if backend == "numpy":
-            if averaging > 1:
-                frames = [
-                    gpu_to_numpy(self._capture_frame()) for _ in range(averaging)
-                ]
-                image = np.sum(np.stack(frames).astype(np.float64), axis=0)
-            else:
-                image = gpu_to_numpy(self._capture_frame())
+        if averaging > 1:
+            frames = [self._capture_frame() for _ in range(averaging)]
+            image = torch.stack(frames).to(torch.float64).sum(dim=0)
         else:
-            if averaging > 1:
-                frames = [self._capture_frame() for _ in range(averaging)]
-                image = torch.stack(frames).to(torch.float64).sum(dim=0)
-            else:
-                image = self._capture_frame()
-
-        image = self.transform(image)
-        return self._roi.crop(image)
+            image = self._capture_frame()
+        return self._roi.crop(self.transform(image))
 
     def close(self) -> None:
         torch.cuda.empty_cache()

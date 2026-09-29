@@ -99,7 +99,7 @@ def test_czt_lens_parameters_are_learnable() -> None:
 
     # angle starts at 0 but still receives a gradient (differentiable shear).
     for name in ("scale_factor", "shift", "angle"):
-        grad = getattr(lens, name).grad
+        grad = getattr(lens.focal_plane_partial_affine, name).grad
         assert grad is not None
         assert torch.isfinite(grad).all()
         assert float(grad.abs().sum()) > 0.0
@@ -110,9 +110,9 @@ def test_czt_lens_static_has_no_grad_parameters() -> None:
         FOCAL_LENGTH, RESOLUTION, (5e-6, 8e-6), learnable=False
     )
     lens(make_field((2, *RESOLUTION), 2, seed=3))
-    assert lens.scale_factor.requires_grad is False
-    assert lens.shift.requires_grad is False
-    assert lens.angle.requires_grad is False
+    assert lens.focal_plane_partial_affine.scale_factor.requires_grad is False
+    assert lens.focal_plane_partial_affine.shift.requires_grad is False
+    assert lens.focal_plane_partial_affine.angle.requires_grad is False
 
 
 def test_czt_lens_preserves_batch_rank_and_geometry() -> None:

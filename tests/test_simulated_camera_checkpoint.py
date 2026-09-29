@@ -1,9 +1,9 @@
 """Tests for saving a simulated camera and reopening it elsewhere.
 
-A simulated camera mounts its own modules onto the model it is handed: the crosstalk
-kernel, the power instability, the stray-light background and the sensor. The model's
-own constructor arguments therefore stop describing the thing whose weights get saved,
-which is why saving the model alone used to come back with nowhere to put
+A simulated camera mounts its own modules onto the model it is handed: the power
+instability, the stray-light background and the sensor. The model's own constructor
+arguments therefore stop describing the thing whose weights get saved, which is why
+saving the model alone used to come back with nowhere to put
 ``background.background``. These pin the round trip for every combination of noise
 source.
 """
@@ -15,6 +15,10 @@ import torch
 
 from hologradpy.hardware import SimulatedCameraTorch
 from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
+from hologradpy.optics.modules.pixel_crosstalk import (
+    PixelCrosstalk,
+    SuperGaussianCrosstalk,
+)
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.optics.systems import SLMCZT, SLMFFT
@@ -44,12 +48,12 @@ def _beam(geometry: FieldGeometry) -> PixelwiseSLMField:
     )
 
 
-def _czt() -> SLMCZT:
+def _czt(pixel_crosstalk: PixelCrosstalk | None = None) -> SLMCZT:
     """A model that knows its output pixel size without being run."""
     geometry = _geometry()
     return SLMCZT(
         input_geometry=geometry,
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(phase_scaling=1.0, pixel_crosstalk=pixel_crosstalk),
         slm_field=_beam(geometry),
         focal_length=0.1,
         camera_resolution=(32, 32),
@@ -80,9 +84,7 @@ NOISE_SOURCES = {
         "background_scatter_seed": 3,
     },
     "power instability": {"power_std": 0.05, "power_seed": 7, "noise_level": 3},
-    "crosstalk": {"crosstalk_upscale_factor": 3, "noise_level": 2},
     "everything at once": {
-        "crosstalk_upscale_factor": 3,
         "background_scatter_power": 1e-7,
         "power_std": 0.03,
         "noise_level": 4,
@@ -181,15 +183,24 @@ def test_the_sensor_and_noise_settings_come_back(tmp_path) -> None:
 
 
 def test_the_crosstalk_kernel_comes_back(tmp_path) -> None:
-    """Crosstalk is mounted before the SLM stage is built, so it has to be replayed."""
+    """The crosstalk belongs to the model's SLM stage, so the checkpoint restores it
+    with the model, beside the modules the camera adds.
+    """
     camera, reloaded = _saved_and_reloaded(
-        tmp_path, _czt(), crosstalk_upscale_factor=3, noise_level=2
+        tmp_path,
+        _czt(SuperGaussianCrosstalk(upscale_factor=3)),
+        **NOISE_SOURCES["everything at once"],
     )
 
     assert reloaded.static_crosstalk_kernel is not None
     assert reloaded.static_crosstalk_kernel == pytest.approx(
         camera.static_crosstalk_kernel
     )
+    original = camera.slm_camera_model.state_dict()
+    restored = reloaded.slm_camera_model.state_dict()
+    assert sorted(restored) == sorted(original)
+    for key, value in original.items():
+        assert torch.equal(restored[key], value), key
 
 
 def test_a_keyword_overrides_the_saved_one(tmp_path) -> None:

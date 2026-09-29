@@ -90,6 +90,18 @@ def get_device(verbose: bool = False) -> torch.device:
     return device
 
 
+def resolve_device(device: torch.device | None) -> torch.device:
+    """The device to create tensors on: ``device``, or the CPU when it is None.
+
+    Args:
+        device: The requested device, or None.
+
+    Returns:
+        torch.device: ``device``, or the CPU.
+    """
+    return torch.device("cpu") if device is None else torch.device(device)
+
+
 def gpu_to_numpy(array: ArrayLike) -> NDArray:
     """A numpy copy of a tensor, off the device and off the graph."""
     if not is_torch_array(array):

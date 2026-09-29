@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import torch
 from torch import nn
 
@@ -15,9 +17,10 @@ from ....profiles.zernike import (
     make_per_wavelength_coefficients,
 )
 
-from slmsuite.hardware.slms.slm import SLM
-
 from .abstract import VirtualSLM
+
+if TYPE_CHECKING:
+    from ....hardware.slm import SLM
 
 
 class ZernikeSLM(VirtualSLM):

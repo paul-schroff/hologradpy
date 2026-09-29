@@ -236,13 +236,14 @@ def test_psf_calibration_runs_end_to_end() -> None:
     field_pixels = 2 * SMALL_SLM_RESOLUTION[0] * SMALL_SLM_RESOLUTION[1]
     assert trainable < field_pixels
 
-    # Enough epochs to be past Adam's opening transient. At 4 the first steps can
-    # still overshoot and leave the loss above where it started, which made the
-    # assertion below a coin flip on the dataset. By 10 the fit is clearly
-    # descending, and by 30 it reaches 0.004 from 0.090.
+    # Enough epochs to be past Adam's opening transient. The first steps overshoot to
+    # several times the starting loss. The batches are drawn in an order set by the
+    # global torch generator, so at 10 epochs the loss can still lie above its
+    # starting value. By 20 epochs it lies below a quarter of that value for every
+    # order tried, and by 30 it reaches 0.002 from 0.073.
     result = calibrator.calibrate(
         speckle_pattern_extent=(5e-4, 5e-4),
-        number_of_epochs=10,
+        number_of_epochs=20,
         batch_size=2,
         seed=0,
         verbose=False,

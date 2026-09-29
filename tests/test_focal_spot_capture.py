@@ -6,6 +6,8 @@ held a corner of the spot, and off the sensor it held no spot at all. The kernel
 had the right shape and the fit still ran, it just started from noise.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 
 import numpy as np
@@ -26,6 +28,8 @@ from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.systems import SLMFFTAffine
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
+from hologradpy.roi import ROI
+from tests.native_camera_fakes import CroppingCamera
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -50,11 +54,20 @@ def _mapping(zeroth_order_position, scale: float = 1.0, angle: float = 0.0):
     )
 
 
-class _FakeCamera:
-    """Just enough camera for the tilt arithmetic, which reads only the geometry."""
+class _FakeCamera(CroppingCamera):
+    """A native camera for the tilt arithmetic. The arithmetic reads only the geometry,
+    so the camera never captures a frame.
+    """
 
-    resolution = CAMERA_RESOLUTION
-    pixel_size = CAMERA_PIXEL_SIZE
+    def __init__(self) -> None:
+        super().__init__(CAMERA_RESOLUTION)
+
+    @property
+    def pixel_size(self) -> np.ndarray:
+        return np.asarray(CAMERA_PIXEL_SIZE)
+
+    def render_sensor_frame(self) -> np.ndarray:
+        raise AssertionError("The tilt is worked out from the geometry alone.")
 
 
 def test_a_centered_zeroth_order_needs_no_steering() -> None:
@@ -143,9 +156,9 @@ def _build_hardware(camera_shift):
     )
     camera = SimulatedCameraTorch(hardware, noise_level=0.0)
     # Roughly mid-scale for this bench. A milliwatt onto a 96 x 96 sensor with no
-    # attenuation saturates by eight orders of magnitude, and a clipped frame hides the
-    # peak, so autoexposure can only walk back down geometrically and would spend its
-    # whole budget doing it.
+    # attenuation saturates by eight orders of magnitude. An overexposed frame hides the
+    # peak, so autoexposure from there only steps down geometrically and uses up its
+    # whole budget.
     camera.set_exposure(2.5e-11)
     camera.get_image()
     return slm, camera
@@ -198,13 +211,39 @@ def test_the_captured_spot_lands_in_the_middle_of_the_kernel(camera_shift) -> No
     assert kernel.max() > 10 * max(edge, 1e-12)
 
 
-def test_a_spot_that_never_arrives_is_reported() -> None:
-    """A seed of pure noise would fit happily and recover nothing, so an empty frame
-    has to be an error rather than a kernel.
+def test_capture_ignores_a_window_left_on_the_camera() -> None:
+    """The spot is steered to the middle of the whole sensor and captured there, so a
+    window left in a corner changes nothing. The window and the exposure are put back
+    afterwards.
+    """
+    slm, camera = _build_hardware((18.0, -12.0))
+    zeroth = _zeroth_order_position(slm, camera)
+    exposure = camera.get_exposure()
+    expected = capture_focal_spot(slm, camera, _mapping(zeroth), FOCAL_LENGTH, 21)
+    assert camera.get_exposure() == exposure
+
+    window = ROI(0, 0, 30, 40)
+    camera.set_roi(window)
+    kernel = capture_focal_spot(slm, camera, _mapping(zeroth), FOCAL_LENGTH, 21)
+
+    np.testing.assert_array_equal(kernel, expected)
+    assert camera.roi == window
+    assert camera.get_exposure() == exposure
+
+
+def test_a_spot_that_never_arrives_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An empty frame holds no point spread function, so the capture raises an error
+    and returns no kernel.
+
+    Autoexposure starts from a bound when the camera sits at zero. The test holds
+    autoexposure off, so every frame stays empty.
     """
     slm, camera = _build_hardware((0.0, 0.0))
     zeroth = _zeroth_order_position(slm, camera)
     camera.set_exposure(0.0)
+    monkeypatch.setattr(camera, "autoexpose", lambda **_: camera.get_exposure())
 
     # A mapping that claims the beam is somewhere it is not sends the steering the
     # wrong way, which is exactly the case that must not pass silently.

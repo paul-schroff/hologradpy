@@ -168,12 +168,12 @@ def test_camera_exposure_drives_sensor() -> None:
 
     camera.set_exposure(5e-3)
     camera._capture_frame()
-    assert camera.sensor.exposure_time == float(camera.exposure_s)
+    assert camera.sensor.exposure_time == float(camera.exposure)
 
 
-def test_get_image_torch_backend_matches_numpy() -> None:
-    """backend="torch" runs the full pipeline (orientation, ROI crop, averaging) on
-    tensors and matches the numpy path value for value.
+def test_get_image_tensor_matches_get_image() -> None:
+    """The tensor path runs the full pipeline (orientation, ROI crop, averaging) on
+    tensors and matches the numpy frame value for value.
     """
     model = _make_model()
     camera = SimulatedCameraTorch(
@@ -185,29 +185,26 @@ def test_get_image_torch_backend_matches_numpy() -> None:
     camera.set_exposure(1e-3)
     camera.set_roi(ROI(2, 3, 10, 8))
 
-    tensor_image = camera.get_image(backend="torch")
+    tensor_image = camera.get_image_tensor()
     assert isinstance(tensor_image, torch.Tensor)
     assert tuple(tensor_image.shape) == (10, 8)
 
     numpy_image = camera.get_image()
     np.testing.assert_array_equal(numpy_image, tensor_image.cpu().numpy())
 
-    tensor_summed = camera.get_image(averaging=3, backend="torch")
+    tensor_summed = camera.get_image_tensor(averaging=3)
     numpy_summed = camera.get_image(averaging=3)
     np.testing.assert_array_equal(numpy_summed, tensor_summed.cpu().numpy())
 
-    with pytest.raises(ValueError):
-        camera.get_image(backend="nonsense")
-
 
 def test_autoexpose_never_accepts_a_saturated_frame() -> None:
-    """A clipped frame hides the true peak, so it can never count as converged.
+    """An overexposed frame hides the true peak, so it can never count as converged.
 
     With ``set_fraction`` close to full scale the error of a saturated frame can
     fall inside ``tolerance`` on its own: at 8 bits, 0.95 targets 243.2 and a
     saturated frame reads 255, an error of 0.046 against the default 0.05. The
     loop then exited immediately and left the exposure untouched, so the speckle
-    calibrator was handed completely clipped frames and could not fit anything.
+    calibrator was handed completely overexposed frames and could not fit anything.
     """
     model = _make_model()
     camera = SimulatedCameraTorch(model, bitdepth=8, noise_level=0.0)
@@ -216,9 +213,9 @@ def test_autoexpose_never_accepts_a_saturated_frame() -> None:
     camera.set_exposure(1.0)
     assert float(np.asarray(camera.get_image()).max()) >= camera.adu_levels - 1
 
-    # An explicit budget, well above the default of 5. A clipped frame hides the true
-    # peak, so there is no step that lands on the target and the descent is geometric:
-    # from this starting point it takes about twenty frames, where an underexposed
+    # An explicit budget, well above the default of 5. An overexposed frame hides the
+    # true peak, so no step lands on the target, and the descent is geometric. From
+    # this starting point the descent takes about twenty frames, and an underexposed
     # region takes one. That asymmetry is a property of the descent, not of this test.
     exposure = camera.autoexpose(
         set_fraction=0.95, tolerance=0.05, max_iterations=25
@@ -226,7 +223,7 @@ def test_autoexpose_never_accepts_a_saturated_frame() -> None:
 
     image = np.asarray(camera.get_image(), dtype=float)
     assert exposure < 1.0                                  # it actually reduced
-    assert image.max() < camera.adu_levels - 1             # and is no longer clipped
+    assert image.max() < camera.adu_levels - 1             # and is not overexposed
 
 
 def test_a_field_vector_reads_as_the_sum_of_its_components() -> None:

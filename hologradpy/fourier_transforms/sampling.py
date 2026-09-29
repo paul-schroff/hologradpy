@@ -10,13 +10,15 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
+from ..utils import resolve_device
+
 
 def get_zoom_frequency_grid(
     resolution: tuple[int, int],
     resolution_out: tuple[int, int],
     magnification: tuple[float, float],
     shift: tuple[float, float] = (0.0, 0.0),
-    device: torch.device = "cpu",
+    device: torch.device | None = None,
 ) -> tuple[Tensor, Tensor]:
     """Per-axis k-space sample points (rad/sample) of a scaled + shifted output
     window, shared by the zoom transforms (NUFFT, chirp-z) so they sample
@@ -28,8 +30,9 @@ def get_zoom_frequency_grid(
     ``shift`` (rad/sample). ``shift`` and ``magnification`` are ``(x, y)``;
     ``resolution`` / ``resolution_out`` are ``(height, width)``.
 
-    Returns the 1D omega arrays ``(omega_x, omega_y)``.
+    Returns the 1D omega arrays ``(omega_x, omega_y)``, on ``device``, the CPU for None.
     """
+    device = resolve_device(device)
 
     def axis(length_in: int, length_out: int, mag: float, offset: float) -> Tensor:
         step = (2 * torch.pi / length_in) / mag

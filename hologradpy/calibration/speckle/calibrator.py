@@ -13,10 +13,11 @@ from ..abstract import CalibratorBase
 from ..camera_mapping import CameraMapping, CoarseMapper
 
 from ...hardware import Camera, SLM
+from ...hardware.camera import Background
 from ...optics import SLMFourierLensModel
 
 from .dataset_generator import DatasetGenerator
-from .fitter import SpeckleFitter, region_of_interest
+from .fitter import SpeckleFitter
 from .records import SpeckleCaptureData
 
 
@@ -55,12 +56,12 @@ class SpeckleCalibrator(CalibratorBase):
             slm: The SLM to drive.
             camera: The camera watching its focal plane.
             slm_camera_model: The differentiable model of this setup.
-            dataset_path: The dataset file, holding the captured samples and what
-                describes them.
-            camera_mapping: Camera mapping to seed the model's affine transform and to
-                place the region of interest. If None, a
-                :class:`~hologradpy.calibration.camera_mapping.CoarseMapper` is run,
-                which drives the SLM and camera.
+            dataset_path: The dataset file, holding the captured samples and their
+                description.
+            camera_mapping: The camera mapping to calibrate the model's affine
+                transform from. It also places the region of interest. If None, a
+                :class:`~hologradpy.calibration.camera_mapping.CoarseMapper` measures
+                one with the SLM and camera.
             number_of_random_patterns: How many speckle patterns to capture.
         """
         super().__init__(slm, camera, slm_camera_model.device)
@@ -75,10 +76,9 @@ class SpeckleCalibrator(CalibratorBase):
             camera_mapping = self._map_camera()
         self.camera_mapping: CameraMapping = camera_mapping
 
-        # Before calibrate_from_mapping, which runs the model once and so fixes every
-        # lazily built module.
         self._prepare_model()
-
+        # One run builds the modules that make their parameters lazily
+        self.slm_camera_model()
         self.slm_camera_model.calibrate_from_mapping(camera_mapping)
 
         self.dataset_generator: DatasetGenerator = DatasetGenerator(
@@ -128,12 +128,12 @@ class SpeckleCalibrator(CalibratorBase):
         subset_indices: Sequence[int] | None = None,
         verbose: bool = True,
         capture_data: SpeckleCaptureData | None = None,
+        background: Background | None = None,
     ) -> list[float]:
         """Fit the model to a captured dataset.
 
-        Optimization using its own so a dataset can be captured once and refitted
-        several times, with different settings or more epochs, without recapturing it.
-        Capture one with
+        Only the optimization runs here, so a dataset can be captured once and refitted
+        several times, with different settings or more epochs. Capture one with
         :meth:`~hologradpy.calibration.speckle.DatasetGenerator.generate_dataset` on
         :attr:`dataset_generator`.
 
@@ -144,6 +144,11 @@ class SpeckleCalibrator(CalibratorBase):
             verbose: Show a progress bar.
             capture_data: The dataset to fit. Defaults to the one from the last call, so
                 a refit needs only the settings that changed.
+            background: The counts subtracted from every frame before it is compared
+                with the model. It is one level for every pixel, a whole-sensor frame,
+                or a function of the exposure in seconds returning either. A function
+                is evaluated at the recorded exposure of the dataset. None, the
+                default, subtracts nothing.
 
         Returns:
             list[float]: The mean loss of each epoch, also kept on :attr:`loss_history`.
@@ -158,16 +163,17 @@ class SpeckleCalibrator(CalibratorBase):
                 "capture_data, or call calibrate() to do both."
             )
 
-        _, mask = region_of_interest(self.capture_data, self.slm_camera_model)
-        settings = self._fit_settings(mask)
-
         self.fitter = self.fitter_type(
             capture_data=self.capture_data,
             slm_camera_model=self.slm_camera_model,
             dataset_path=self.dataset_path,
-            loss=settings.loss,
-            learning_rate=settings.learning_rate,
+            background=background,
         )
+        # The loss takes the cropped region mask of the fitter. The fitter reads the
+        # loss and the learning rate only once fit() runs.
+        settings = self._fit_settings(self.fitter.roi_mask)
+        self.fitter.loss = settings.loss
+        self.fitter.learning_rate = settings.learning_rate
 
         self.loss_history = self.fitter.fit(
             number_of_epochs=number_of_epochs,

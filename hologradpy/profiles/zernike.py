@@ -4,6 +4,7 @@ from typing import Literal
 import torch
 
 from ..grids import get_pixel_grid
+from ..utils import resolve_device
 
 Conventions = Literal["OSA", "ANSI", "Noll", "Fringe", "Arizona", "Wyant"]
 
@@ -107,11 +108,11 @@ class Zernike:
         number_of_radial_orders: int | None = None,
         indices: list[int | tuple[int, int]] | None = None,
         convention: Conventions = "ANSI",
-        device: torch.device = "cpu",
+        device: torch.device | None = None,
     ) -> None:
         self.resolution = resolution
         self.convention_handler = ZernikeConventionHandler(convention)
-        self.device = device
+        self.device = resolve_device(device)
         self.radial_coordinate, self.angular_coordinate, self.mask = (
             self.get_unit_disk_coordinates(
                 resolution,
@@ -228,7 +229,7 @@ class Zernike:
         resolution: tuple[int, int],
         unit_disk_mode: Literal["fill", "fit"] = DEFAULT_UNIT_DISK_MODE,
         unit_disk_radius: float | None = None,
-        device: torch.device = "cpu",
+        device: torch.device | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if unit_disk_radius is None:
             if unit_disk_mode == "fit":

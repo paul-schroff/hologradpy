@@ -203,8 +203,23 @@ class VirtualSLM(OpticsModule):
         cls: type[VirtualSLM],
         slm: SLM,
         init_phase: torch.Tensor | None = None,
+        pixel_crosstalk: PixelCrosstalk | None = None,
     ) -> VirtualSLM:
-        return cls._from_source(slm, init_phase=init_phase)
+        """Build the virtual SLM of a device, with its pixel pitch and phase response.
+
+        Args:
+            slm: The SLM, as :func:`~hologradpy.hardware.factory.open_slm` or
+                :func:`~hologradpy.hardware.as_native.as_slm` returns it.
+            init_phase: Desired phase to start from, at the SLM resolution.
+            pixel_crosstalk: Fringing fields between neighbouring pixels. The field
+                arriving must be finer than the SLM by its ``upscale_factor``.
+
+        Returns:
+            VirtualSLM: The virtual SLM.
+        """
+        return cls._from_source(
+            slm, init_phase=init_phase, pixel_crosstalk=pixel_crosstalk
+        )
 
     @classmethod
     def from_slm_data(

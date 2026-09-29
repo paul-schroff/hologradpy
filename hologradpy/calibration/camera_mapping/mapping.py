@@ -45,7 +45,10 @@ class OrientationSuggestion:
 @record_type("camera_mapping")
 @dataclass
 class CameraMapping(SaveableRecord):
-    """The coordinate mapping between camera pixels and the simulated image."""
+    """The coordinate mapping between camera pixels and the output plane of the model
+    without its focal-plane partial affine. The camera mappers measure in this frame
+    (see :meth:`~hologradpy.optics.systems.SLMFourierLensModel.bypass_partial_affine`).
+    """
 
     timestamp: datetime
     name: str
@@ -101,7 +104,11 @@ class CameraMapping(SaveableRecord):
     def zeroth_order_from(
         affine: AffineTransform, resolution_out: tuple[int, int]
     ) -> tuple[float, float]:
-        """Where the undiffracted spot lands on the sensor, as ``(row, column)``."""
+        """Where the undiffracted spot lands on the sensor, as ``(row, column)``.
+
+        Without its partial affine, the model has its zeroth order at the centre of its
+        output plane, and the inverse of ``affine`` carries that point onto the sensor.
+        """
         center = plane_center(resolution_out)
         column, row = affine.inverse().transform_points([center])[0]
         return (float(row), float(column))

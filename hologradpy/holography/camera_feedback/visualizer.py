@@ -163,11 +163,16 @@ class CameraFeedbackVisualizer(BaseVisualizer):
         )
 
     def _measured(self, iteration: int | None = None) -> NDArray:
-        """A measured frame, cropped to the region and on the target's scale."""
+        """A measured frame, cropped to the region and on the target's scale.
+
+        The record keeps raw frames, so any background subtracted during the run is
+        subtracted here too.
+        """
         index = self.iteration if iteration is None else iteration
-        return normalize(
-            np.asarray(self.data.measured_images[index]), self._cropped_region()
-        )
+        measured = np.asarray(self.data.measured_images[index], dtype=np.float64)
+        if self.data.background_images is not None:
+            measured = measured - np.asarray(self.data.background_images[index])
+        return normalize(measured, self._cropped_region())
 
     def best_iteration(self) -> int:
         """The iteration that came out best on the run's first metric, from zero.

@@ -84,8 +84,8 @@ class CoarseMapperVisualizer(BaseVisualizer):
         self.data = data
 
     def default_layout(self) -> PlotLayout:
-        # All camera captures share the sensor shape; the 4-probe composite is
-        # always present, so use it to size the image cells.
+        # All camera captures have the sensor resolution, and the 4-probe composite
+        # is always present, so it sizes the image cells.
         camera_shape = np.asarray(self.data.probe_image).shape
         aspect = camera_shape[0] / camera_shape[1]
         layout = PlotLayout(column_width=3.6)

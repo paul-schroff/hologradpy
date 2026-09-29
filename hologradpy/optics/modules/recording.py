@@ -15,7 +15,7 @@ forward).
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 
 import torch
@@ -65,7 +65,7 @@ class RecordingMixin:
             self._history = {}
 
     @contextmanager
-    def record_samples(self) -> Iterator[RecordingMixin]:
+    def record_samples(self) -> Generator[RecordingMixin, None, None]:
         """Record :meth:`recordables` for the duration of the ``with`` block
         (recording is turned off again on exit). Read them from :attr:`history`.
         """
