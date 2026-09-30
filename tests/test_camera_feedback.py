@@ -21,6 +21,7 @@ from hologradpy.calibration.camera_mapping import (
     CameraMapping,
     FocalSpotFit,
 )
+from hologradpy.calibration.spot_detection import tilt_to_sensor_center
 from hologradpy.datasets import CaptureStore, RetrievalStepStore
 from hologradpy.geometry import PartialAffineTransform
 from hologradpy.grids import get_spatial_grid, plane_center
@@ -219,7 +220,7 @@ def _bench() -> tuple:
     hardware_model = _model(
         geometry, slm.virtual_slm, _beam(geometry, _aberration(geometry))
     )
-    camera = SimulatedCameraTorch(hardware_model, bitdepth=12, noise_level=0.0)
+    camera = SimulatedCameraTorch(hardware_model, bitdepth=12, read_noise=0.0)
 
     model = _model(geometry, VirtualSLM.from_slm(slm), _beam(geometry))
     target, signal_region = _target(model)
@@ -261,6 +262,8 @@ def _identity_mapping(resolution=CAMERA_RESOLUTION) -> CameraMapping:
         calculated_points=points,
         zeroth_order_position=(resolution[0] / 2, resolution[1] / 2),
         spot_fit=FocalSpotFit(waist=2.0),
+        output_pixel_size=(CAMERA_PIXEL_SIZE, CAMERA_PIXEL_SIZE),
+        output_resolution=resolution,
     )
 
 
@@ -712,8 +715,8 @@ def test_a_measured_mapping_is_kept(monkeypatch) -> None:
 
 
 def _similarity_mapping(similarity: PartialAffineTransform) -> CameraMapping:
-    """A mapping whose point pairs realize ``similarity``, with the zeroth order at the
-    centre of the sensor.
+    """A mapping whose point pairs realize ``similarity``, onto an output plane of the
+    camera's grid. The stored zeroth order sits at the centre of the sensor.
     """
     detected = np.random.default_rng(0).uniform(10.0, 54.0, size=(8, 2))
     return CameraMapping(
@@ -727,6 +730,8 @@ def _similarity_mapping(similarity: PartialAffineTransform) -> CameraMapping:
             CAMERA_RESOLUTION[1] / 2,
         ),
         spot_fit=FocalSpotFit(waist=2.0),
+        output_pixel_size=(CAMERA_PIXEL_SIZE, CAMERA_PIXEL_SIZE),
+        output_resolution=CAMERA_RESOLUTION,
     )
 
 
@@ -762,6 +767,43 @@ def test_feedback_after_a_calibrator_keeps_the_partial_affine() -> None:
         assert torch.equal(value, calibrated[name]), name
 
 
+# A similarity about the centre of the sensor, with a shift, so its zeroth order lies
+# away from the centre.
+PLACEMENT_SIMILARITY = PartialAffineTransform.from_components(
+    scale=1.1, angle_deg=8.0, shift=(3.0, -2.0), center=plane_center(CAMERA_RESOLUTION)
+)
+
+
+def test_the_target_and_the_zeroth_order_share_the_partial_affine() -> None:
+    """The target and the zeroth order are placed through the inverse of the partial
+    affine the model is calibrated from, at the model's output pitch. The zeroth order
+    the mapping stores, here at the centre of the sensor, is not read.
+    """
+    feedback = _feedback(camera_mapping=_similarity_mapping(PLACEMENT_SIMILARITY))
+    inverse = PLACEMENT_SIMILARITY.inverse()
+    center = np.asarray(plane_center(CAMERA_RESOLUTION), dtype=float)  # (x, y)
+    steered = center + np.asarray(TARGET_POSITION) / CAMERA_PIXEL_SIZE
+
+    zeroth_column, zeroth_row = inverse.transform_points([center])[0]
+    target_column, target_row = inverse.transform_points([steered])[0]
+    assert feedback.zeroth_order_pixels() == pytest.approx((zeroth_row, zeroth_column))
+    assert feedback.target_center_pixels() == pytest.approx((target_row, target_column))
+
+
+def test_a_tilt_to_the_sensor_centre_places_the_target_there() -> None:
+    """tilt_to_sensor_center and the feedback convert through the same partial affine,
+    so a target placed at that tilt lands in the middle of the sensor.
+    """
+    mapping = _similarity_mapping(PLACEMENT_SIMILARITY)
+    feedback = _feedback(camera_mapping=mapping)
+
+    feedback.target_position = tilt_to_sensor_center(feedback.camera, mapping)
+
+    assert feedback.target_center_pixels() == pytest.approx(
+        (CAMERA_RESOLUTION[0] / 2, CAMERA_RESOLUTION[1] / 2), abs=1e-6
+    )
+
+
 # --- Building the retriever --------------------------------------------------------
 
 
@@ -771,7 +813,7 @@ def test_builds_its_own_retriever() -> None:
     geometry = _geometry()
     slm = open_slm(SimulatedSLMTorch, input_geometry=geometry, bitdepth=8)
     hardware = _model(geometry, slm.virtual_slm, _beam(geometry, _aberration(geometry)))
-    camera = SimulatedCameraTorch(hardware, bitdepth=12, noise_level=0.0)
+    camera = SimulatedCameraTorch(hardware, bitdepth=12, read_noise=0.0)
 
     model = _model(geometry, VirtualSLM.from_slm(slm), _beam(geometry))
     target, signal_region = _target(model)

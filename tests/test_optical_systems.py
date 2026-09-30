@@ -54,7 +54,7 @@ def _slm_field() -> PixelwiseSLMField:
 def _make_slm_fft(pointing_focal_shift_std=None) ->SLMFFT:
     return SLMFFT(
         input_geometry=_input_geometry(),
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         slm_field=_slm_field(),
         focal_length=0.1,
         padded_resolution=PADDED_RESOLUTION,
@@ -65,7 +65,7 @@ def _make_slm_fft(pointing_focal_shift_std=None) ->SLMFFT:
 def _make_slm_fft_affine(pointing_focal_shift_std=None) ->SLMFFTAffine:
     return SLMFFTAffine(
         input_geometry=_input_geometry(),
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         camera_resolution=CAMERA_RESOLUTION,
         camera_pixel_size=CAMERA_PIXEL_SIZE,
         focal_length=0.1,
@@ -78,7 +78,7 @@ def _make_slm_fft_affine(pointing_focal_shift_std=None) ->SLMFFTAffine:
 def _make_slm_nufft(pointing_focal_shift_std=None) ->SLMNUFFT:
     return SLMNUFFT(
         input_geometry=_input_geometry(),
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         camera_resolution=CAMERA_RESOLUTION,
         camera_pixel_size=CAMERA_PIXEL_SIZE,
         focal_length=0.1,
@@ -92,7 +92,7 @@ def _make_slm_nufft(pointing_focal_shift_std=None) ->SLMNUFFT:
 def _make_slm_czt(pointing_focal_shift_std=None) ->SLMCZT:
     return SLMCZT(
         input_geometry=_input_geometry(),
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         camera_resolution=CAMERA_RESOLUTION,
         camera_pixel_size=CAMERA_PIXEL_SIZE,
         focal_length=0.1,
@@ -285,7 +285,7 @@ def test_checkpoint_preserves_pointing_instability(tmp_path) -> None:
 
     model = SLMCZT(
         input_geometry=_input_geometry(),
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         camera_resolution=CAMERA_RESOLUTION,
         camera_pixel_size=CAMERA_PIXEL_SIZE,
         focal_length=0.1,
@@ -329,6 +329,43 @@ def test_a_plain_dict_checkpoint_loads(tmp_path) -> None:
     restored = type(model).load(dict_path)
 
     torch.testing.assert_close(restored().intensity, expected)
+
+
+def _slm_czt_at(camera_angle: float) -> SLMCZT:
+    """An SLMCZT whose uniform SLM field fills its frame, seeded at ``camera_angle``."""
+    return SLMCZT(
+        input_geometry=_input_geometry(),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
+        camera_resolution=CAMERA_RESOLUTION,
+        camera_pixel_size=CAMERA_PIXEL_SIZE,
+        focal_length=0.1,
+        slm_field=_slm_field(),
+        camera_angle=camera_angle,
+    )
+
+
+def test_a_czt_model_reloaded_after_a_calibration_keeps_the_corners(tmp_path) -> None:
+    """Loading replays the constructor at the seed angle, then loads the calibrated
+    angle. The reloaded model pads for the calibrated angle, so it matches a model built
+    at that angle and keeps the corners of its uniform SLM field.
+    """
+    angle = 30.0
+    model = _slm_czt_at(0.0)
+    model()
+    with torch.no_grad():
+        model.focal_plane_partial_affine.angle.fill_(angle)
+    path = str(tmp_path / "calibrated.pt")
+    model.save(path)
+
+    reloaded = SLMCZT.load(path)
+
+    expected = _slm_czt_at(angle)().intensity.detach()
+    torch.testing.assert_close(
+        reloaded().intensity.detach(),
+        expected,
+        rtol=1e-5,
+        atol=1e-5 * float(expected.max()),
+    )
 
 
 def test_a_swapped_layer_survives_save_and_load(tmp_path) -> None:

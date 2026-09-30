@@ -59,7 +59,8 @@ class SpeckleCalibrator(CalibratorBase):
             dataset_path: The dataset file, holding the captured samples and their
                 description.
             camera_mapping: The camera mapping to calibrate the model's affine
-                transform from. It also places the region of interest. If None, a
+                transform from. It also places the region of interest, and is checked
+                against ``camera``. If None, a
                 :class:`~hologradpy.calibration.camera_mapping.CoarseMapper` measures
                 one with the SLM and camera.
             number_of_random_patterns: How many speckle patterns to capture.
@@ -74,6 +75,8 @@ class SpeckleCalibrator(CalibratorBase):
 
         if camera_mapping is None:
             camera_mapping = self._map_camera()
+        else:
+            camera_mapping.check_camera(self.camera)
         self.camera_mapping: CameraMapping = camera_mapping
 
         self._prepare_model()

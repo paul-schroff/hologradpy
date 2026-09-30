@@ -56,13 +56,15 @@ class DatasetGenerator:
             camera: The camera capturing the speckle, or a driver that
                 :func:`~hologradpy.hardware.as_native.as_camera` wraps.
             camera_mapping: How the camera sits relative to the model. It places the
-                zeroth order on the sensor.
+                zeroth order on the sensor, and is checked against ``camera``
+                (:meth:`~hologradpy.calibration.camera_mapping.CameraMapping.check_camera`).
             focal_length: The focal length of the Fourier lens in metres.
             dataset_path: The dataset file holding the frames.
             number_of_random_patterns: How many patterns to generate and capture.
         """
         self.slm: SLM = as_slm(slm)
         self.camera: Camera = as_camera(camera)
+        camera_mapping.check_camera(self.camera)
         self.camera_mapping: CameraMapping = camera_mapping
         self.focal_length: float = focal_length
         self.dataset_path: Path = Path(dataset_path)
@@ -100,8 +102,9 @@ class DatasetGenerator:
                 sets both the pattern band limit and the region of interest. As a full
                 width, it compares directly against the sensor size. Defaults to the
                 largest speckle that fits on the sensor.
-            benchmark_calibration: An existing calibration to add to every pattern, for
-                measuring the residual of a previous fit.
+            benchmark_calibration: An existing calibration whose correction, the
+                negative of its phase, is added to every pattern, for measuring the
+                residual of a previous fit.
             seed: Seed for the pattern noise. Leave as None to seed from the system
                 entropy, which makes the dataset irreproducible.
             pattern: How each pattern is drawn, passed to
@@ -173,8 +176,9 @@ class DatasetGenerator:
                 sets both the band limit and the region of interest. It is a width, not
                 a radius, so it can be compared directly against the sensor size.
                 Defaults to the largest speckle that fits on the sensor.
-            benchmark_calibration: An existing calibration to add to every pattern, for
-                measuring the residual of a previous fit.
+            benchmark_calibration: An existing calibration whose correction, the
+                negative of its phase, is added to every pattern, for measuring the
+                residual of a previous fit.
             seed: Seed for the pattern noise. One generator produces every pattern, so
                 they differ from one another and the whole set is reproducible. Leave
                 as None to seed from the system entropy, which makes the dataset
@@ -202,7 +206,9 @@ class DatasetGenerator:
         if self.benchmark_calibration is None:
             benchmark_phase = np.zeros(self.slm.resolution)
         else:
-            benchmark_phase = np.angle(
+            # The record holds the incident field, so its correction is the negative
+            # of its phase.
+            benchmark_phase = -np.angle(
                 as_image(self.benchmark_calibration.complex_amplitude)
                 .detach()
                 .cpu()

@@ -110,7 +110,7 @@ def _build_hardware():
         camera_angle=0.0,
         camera_shift=(0.0, 0.0),
     )
-    camera = SimulatedCameraTorch(hardware, noise_level=0.0)
+    camera = SimulatedCameraTorch(hardware, read_noise=0.0)
     camera.set_exposure(1e-3)
     camera.get_image()
     return slm, camera
@@ -152,7 +152,8 @@ def _synthetic_mapping(
     zeroth_order_position: tuple[float, float] | None = None,
 ) -> CameraMapping:
     """An identity camera -> model mapping with the zeroth order at the (square)
-    camera center, so the affine seed is near identity.
+    camera center, so the affine seed is near identity. The model's output plane is
+    the camera grid, as in :func:`_build_model`.
 
     Args:
         zeroth_order_position: Where the zeroth order sits, ``(y, x)`` in camera pixels.
@@ -174,6 +175,8 @@ def _synthetic_mapping(
         calculated_points=calculated.tolist(),
         zeroth_order_position=center,
         spot_fit=FocalSpotFit(waist=CAMERA_PIXEL_SIZE[0] * 2),
+        output_pixel_size=CAMERA_PIXEL_SIZE,
+        output_resolution=CAMERA_RESOLUTION,
     )
 
 
@@ -888,6 +891,77 @@ def test_a_zeroth_order_off_the_sensor_refuses_to_pick_an_extent(tmp_path) -> No
         generator.largest_extent_on_sensor()
 
 
+# --- The benchmark ----------------------------------------------------------------
+
+
+def _benchmark_record(slm) -> tuple[WavefrontCalibrationData, np.ndarray]:
+    """A calibration record whose incident field has unit amplitude and a random
+    phase, and that phase in radians.
+    """
+    incident_phase = np.random.default_rng(1).uniform(
+        -np.pi, np.pi, tuple(slm.resolution)
+    )
+    record = WavefrontCalibrationData(
+        timestamp=datetime.now(),
+        name="benchmark",
+        complex_amplitude=ComplexAmplitude(
+            torch.exp(1j * torch.as_tensor(incident_phase)).to(torch.complex64),
+            wavelength=torch.as_tensor(slm.wavelength),
+            pixel_size=torch.as_tensor(tuple(slm.pixel_size)),
+        ),
+    )
+    return record, incident_phase
+
+
+def test_a_benchmark_adds_the_correction_of_its_record(tmp_path) -> None:
+    """A calibration record holds the incident field, so the benchmark adds the
+    negative of its phase, the correction, to the pattern.
+    """
+    slm, camera = _build_hardware()
+    record, incident_phase = _benchmark_record(slm)
+    plain = _generator_for(_synthetic_mapping(), slm, camera, tmp_path)
+    corrected = _generator_for(_synthetic_mapping(), slm, camera, tmp_path)
+
+    plain.generate_phase_patterns((5e-4, 5e-4), seed=0, verbose=False)
+    corrected.generate_phase_patterns(
+        (5e-4, 5e-4), benchmark_calibration=record, seed=0, verbose=False
+    )
+
+    assert len(corrected.phase_patterns) == len(plain.phase_patterns) == 1
+    np.testing.assert_allclose(
+        np.exp(1j * (corrected.phase_patterns[0] - plain.phase_patterns[0])),
+        np.exp(-1j * incident_phase),
+        atol=1e-5,
+    )
+
+
+def test_a_benchmark_dataset_displays_the_corrected_pattern(tmp_path) -> None:
+    """The levels shown on the SLM and stored for the fit carry the correction, and
+    the record keeps the benchmark the dataset was captured with.
+    """
+    slm, camera = _build_hardware()
+    record, incident_phase = _benchmark_record(slm)
+    plain = _generator_for(_synthetic_mapping(), slm, camera, tmp_path)
+    plain.generate_phase_patterns((5e-4, 5e-4), seed=0, verbose=False)
+    generator = _generator_for(_synthetic_mapping(), slm, camera, tmp_path)
+
+    capture = generator.generate_dataset(
+        (5e-4, 5e-4), benchmark_calibration=record, seed=0
+    )
+
+    assert capture.benchmark_calibration is record
+    with CaptureStore.open(generator.dataset_path) as store:
+        levels = np.asarray(store.read(0)["slm_levels"])
+    displayed_phase = np.asarray(slm.phase_response.to_phase(levels))
+    # The incident field and the displayed correction leave the random pattern, to
+    # within one level of the SLM.
+    np.testing.assert_allclose(
+        np.exp(1j * (displayed_phase + incident_phase)),
+        np.exp(1j * plain.phase_patterns[0]),
+        atol=2 * np.pi / 2**slm.bitdepth,
+    )
+
+
 # --- Metering, overexposure, the background and the camera's state ------------------
 
 
@@ -1084,7 +1158,7 @@ def test_speckle_calibrator_recovers_injected_wavefront(tmp_path) -> None:
         focal_length=FOCAL_LENGTH,
         slm_field=PixelwiseSLMField(beam),
     )
-    camera = SimulatedCameraTorch(hardware, noise_level=0.0)
+    camera = SimulatedCameraTorch(hardware, read_noise=0.0)
     camera.set_exposure(1e-3)
     camera.get_image()
 

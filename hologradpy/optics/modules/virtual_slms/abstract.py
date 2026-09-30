@@ -39,7 +39,7 @@ class VirtualSLM(OpticsModule):
 
     def __init__(
         self: VirtualSLM,
-        phase_scaling: float = 1.0,
+        full_scale_cycles: float = 1.0,
         init_phase: torch.Tensor | None = None,
         phase_response: PhaseResponse | None = None,
         pixel_crosstalk: PixelCrosstalk | None = None,
@@ -47,8 +47,8 @@ class VirtualSLM(OpticsModule):
     ) -> None:
         """
         Args:
-            phase_scaling: The phase the SLM reaches at full scale, in cycles. Ignored
-                when ``phase_response`` is given.
+            full_scale_cycles: The phase the SLM reaches at full scale, in cycles.
+                Ignored when ``phase_response`` is given.
             init_phase: Desired phase to start from, at the SLM resolution.
             phase_response: The gray level to phase curve of the device.
             pixel_crosstalk: Fringing fields between neighbouring pixels. The field
@@ -63,15 +63,15 @@ class VirtualSLM(OpticsModule):
 
         self.phase_response = PhaseResponseModule(
             phase_response
-            or LinearResponse(bitdepth=8, phase_scaling=phase_scaling)
+            or LinearResponse(bitdepth=8, full_scale_cycles=full_scale_cycles)
         )
         self.pixel_crosstalk: PixelCrosstalk | None = pixel_crosstalk
         self._slm_pixel_size: tuple[float, float] | None = None
 
     @property
-    def phase_scaling(self) -> float:
-        """The reachable phase range in cycles, read from the response."""
-        return self.phase_response.phase_scaling
+    def full_scale_cycles(self) -> float:
+        """The phase delay at full scale in cycles, read from the response."""
+        return self.phase_response.full_scale_cycles
 
     @property
     def upscale_factor(self) -> int:

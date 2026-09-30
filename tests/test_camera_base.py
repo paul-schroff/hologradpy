@@ -502,6 +502,28 @@ def test_autoexpose_steps_up_below_an_exposure_that_overexposed() -> None:
     assert abs(camera.get_image().max() - 0.8 * 255) <= 0.05 * 255
 
 
+def test_autoexpose_steps_between_the_exposures_either_side_of_full_scale() -> None:
+    """The cuts from 10 us stay overexposed down to 100 ns and land on 2 counts at 1 ns.
+    The step to the target is held at 0.95 of 100 ns and still overexposes the region.
+    The next exposure is the geometric mean of 1 ns and 95 ns. Its peak of 28 counts
+    gives a proportional step onto the target within the budget.
+    """
+    camera = _ResponsiveCamera(
+        lambda exposure: np.floor(2.9e9 * exposure),
+        exposure_bounds=(1e-10, 1.0),
+        exposure_s=1e-5,
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        camera.autoexpose(set_fraction=0.95)
+
+    assert camera.frame_exposures[:5] == pytest.approx(
+        [1e-5, 1e-7, 1e-9, 0.95e-7, np.sqrt(1e-9 * 0.95e-7)]
+    )
+    assert abs(camera.get_image().max() - 0.95 * 255) <= 0.05 * 255
+
+
 def test_autoexpose_starts_from_a_bound_when_the_exposure_is_zero() -> None:
     """From the lower bound when it is positive, and from the upper bound when the
     lower one is zero.

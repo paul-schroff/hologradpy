@@ -2,7 +2,7 @@
 
 Covers the intensity -> photon -> electron -> ADU chain: shape / wavelength
 summation, full-well saturation, bit-depth quantization, the deterministic
-differentiable path, read noise, and the wiring into SimulatedCameraTorch.
+differentiable path, shot and read noise, and the wiring into SimulatedCameraTorch.
 """
 
 from __future__ import annotations
@@ -110,14 +110,129 @@ def test_differentiable_path_has_gradient() -> None:
 def test_read_noise_increases_variance() -> None:
     field = constant_field((32, 32), 0.0)  # no signal -> isolate the read noise
     noiseless = CameraSensor(
-        0.5, 5e4, 1e-3, noise_level=0.0, add_noise=False, quantize=False
+        0.5, 5e4, 1e-3, read_noise=0.0, add_noise=False, quantize=False
     )(field)
     noisy = CameraSensor(
-        0.5, 5e4, 1e-3, noise_level=50.0, add_noise=True, quantize=False
+        0.5, 5e4, 1e-3, read_noise=50.0, add_noise=True, quantize=False
     )(field)
     assert float(noiseless.var()) == 0.0   # constant input, no noise -> flat
     assert float(noisy.var()) > 0.0        # read noise adds spread
-    assert float(noisy.mean()) > 0.0       # and a positive offset
+    assert float(noisy.mean()) > 0.0       # clipped at zero, so the mean is positive
+
+
+# A constant field bringing about 15000 electrons to each pixel, and a read noise whose
+# variance of 1600 electrons squared is about a tenth of the shot noise.
+NOISE_FIELD_VALUE = math.sqrt(0.3)
+READ_NOISE = 40.0
+
+# The dark current in electrons per second, 100 electrons in a 1 ms exposure.
+DARK_CURRENT = 1e5
+
+
+def _electron_counting_sensor(exposure_time: float = 1e-3, **kwargs) -> CameraSensor:
+    """A sensor reading one ADU per electron, far below its full well."""
+    return CameraSensor(
+        quantum_efficiency=0.5,
+        full_well_capacity=2**24 - 1,
+        exposure_time=exposure_time,
+        bitdepth=24,
+        quantize=False,
+        **kwargs,
+    )
+
+
+def _expected_electrons(field: ComplexAmplitude) -> float:
+    return float(_electron_counting_sensor(add_noise=False)(field).mean())
+
+
+def test_shot_noise_draws_the_signal_as_a_poisson_count() -> None:
+    """Without read noise, the variance of the electrons equals their mean."""
+    torch.manual_seed(0)
+    field = constant_field((256, 256), NOISE_FIELD_VALUE)
+    expected = _expected_electrons(field)
+
+    electrons = _electron_counting_sensor(read_noise=0.0)(field)
+
+    assert float(electrons.mean()) == pytest.approx(expected, rel=1e-3)
+    assert float(electrons.var()) == pytest.approx(expected, rel=0.03)
+
+
+def test_the_read_noise_adds_its_variance_to_the_shot_noise() -> None:
+    """The read noise has zero mean, so it leaves the mean electrons alone."""
+    torch.manual_seed(1)
+    field = constant_field((256, 256), NOISE_FIELD_VALUE)
+    expected = _expected_electrons(field)
+    read_variance = READ_NOISE**2
+
+    electrons = _electron_counting_sensor(read_noise=READ_NOISE)(field)
+
+    assert float(electrons.mean()) == pytest.approx(expected, rel=1e-3)
+    assert float(electrons.var()) == pytest.approx(expected + read_variance, rel=0.03)
+
+
+def test_without_shot_noise_only_the_read_noise_is_drawn() -> None:
+    torch.manual_seed(2)
+    field = constant_field((256, 256), NOISE_FIELD_VALUE)
+    expected = _expected_electrons(field)
+
+    electrons = _electron_counting_sensor(
+        read_noise=READ_NOISE, shot_noise=False
+    )(field)
+
+    assert float(electrons.mean()) == pytest.approx(expected, rel=1e-3)
+    assert float(electrons.var()) == pytest.approx(READ_NOISE**2, rel=0.03)
+
+
+@pytest.mark.parametrize("shot_noise", [True, False])
+@pytest.mark.parametrize("exposure_time", [1e-3, 4e-3])
+def test_the_dark_current_grows_with_the_exposure_time(
+    exposure_time: float, shot_noise: bool
+) -> None:
+    """The dark electrons are a Poisson count of the dark current over the exposure, so
+    their mean and their variance both grow with the exposure time. The shot noise of
+    the signal has no part in it.
+    """
+    torch.manual_seed(3)
+    field = constant_field((256, 256), 0.0)
+    dark_electrons = DARK_CURRENT * exposure_time
+
+    electrons = _electron_counting_sensor(
+        exposure_time=exposure_time, dark_current=DARK_CURRENT, shot_noise=shot_noise
+    )(field)
+
+    assert float(electrons.mean()) == pytest.approx(dark_electrons, rel=1e-2)
+    assert float(electrons.var()) == pytest.approx(dark_electrons, rel=0.03)
+
+
+def test_the_noisy_electrons_carry_the_gradient_of_the_expected_ones() -> None:
+    """torch.poisson passes no gradient, so the draw hands the gradient of the
+    expected electrons through.
+    """
+    generator = torch.Generator().manual_seed(1)
+    data = (
+        0.3 * (torch.rand(8, 8, generator=generator)
+               + 1j * torch.rand(8, 8, generator=generator))
+    ).to(torch.complex64)
+    gradients = []
+    for add_noise in (False, True):
+        leaf = data.clone().requires_grad_(True)
+        sensor = CameraSensor(
+            0.5, 1e6, 1e-3, read_noise=4.0, add_noise=add_noise, quantize=False
+        )
+        sensor(ComplexAmplitude(leaf, torch.tensor(WAVELENGTH), PIXEL)).sum().backward()
+        gradients.append(leaf.grad)
+
+    noiseless, noisy = gradients
+    assert float(noiseless.abs().sum()) > 0.0
+    torch.testing.assert_close(noisy, noiseless)
+
+
+def test_any_noise_source_makes_the_sensor_stochastic() -> None:
+    assert CameraSensor(read_noise=0.0).is_stochastic
+    assert not CameraSensor(read_noise=0.0, shot_noise=False).is_stochastic
+    assert CameraSensor(read_noise=4.0, shot_noise=False).is_stochastic
+    assert CameraSensor(shot_noise=False, dark_current=DARK_CURRENT).is_stochastic
+    assert not CameraSensor(add_noise=False, dark_current=DARK_CURRENT).is_stochastic
 
 
 # --- Integration with SimulatedCameraTorch -----------------------------------
@@ -136,7 +251,7 @@ def _make_model():
     )
     return SLMFFTAffine(
         input_geometry=geometry,
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         camera_resolution=(24, 24),
         camera_pixel_size=(20e-6, 20e-6),
         focal_length=0.1,
@@ -207,16 +322,15 @@ def test_autoexpose_never_accepts_a_saturated_frame() -> None:
     calibrator was handed completely overexposed frames and could not fit anything.
     """
     model = _make_model()
-    camera = SimulatedCameraTorch(model, bitdepth=8, noise_level=0.0)
+    camera = SimulatedCameraTorch(model, bitdepth=8, read_noise=0.0)
 
     # Start far enough into saturation that a single gentle step cannot fix it.
     camera.set_exposure(1.0)
     assert float(np.asarray(camera.get_image()).max()) >= camera.adu_levels - 1
 
-    # An explicit budget, well above the default of 5. An overexposed frame hides the
-    # true peak, so no step lands on the target, and the descent is geometric. From
-    # this starting point the descent takes about twenty frames, and an underexposed
-    # region takes one. That asymmetry is a property of the descent, not of this test.
+    # A budget above the default of 5. An overexposed frame hides the true peak, so the
+    # search cuts the exposure until a frame falls below full scale, then steps between
+    # the exposures either side of full scale onto the target.
     exposure = camera.autoexpose(
         set_fraction=0.95, tolerance=0.05, max_iterations=25
     )

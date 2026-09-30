@@ -23,6 +23,7 @@ from hologradpy.calibration.spot_detection import (
     tilt_to_sensor_center,
 )
 from hologradpy.geometry import PartialAffineTransform
+from hologradpy.grids import plane_center
 from hologradpy.hardware import SimulatedCameraTorch, SimulatedSLMTorch
 from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
@@ -40,17 +41,35 @@ CAMERA_PIXEL_SIZE = (30e-6, 30e-6)
 FOCAL_LENGTH = 0.1
 
 
-def _mapping(zeroth_order_position, scale: float = 1.0, angle: float = 0.0):
-    """A camera mapping carrying nothing but a similarity and a zeroth order."""
-    transform = PartialAffineTransform.from_components(scale=scale, angle_deg=angle)
+def _mapping(
+    zeroth_order_position,
+    scale: float = 1.0,
+    angle: float = 0.0,
+    output_pixel_size: tuple[float, float] | None = CAMERA_PIXEL_SIZE,
+):
+    """A camera mapping whose similarity sends the zeroth order at
+    ``zeroth_order_position``, ``(row, column)``, to the centre of an output plane of
+    the camera's size, at ``output_pixel_size``.
+    """
+    center = np.asarray(plane_center(CAMERA_RESOLUTION), dtype=float)  # (x, y)
+    zeroth_xy = np.array([zeroth_order_position[1], zeroth_order_position[0]])
+    turned = PartialAffineTransform.from_components(scale=scale, angle_deg=angle)
+    transform = PartialAffineTransform.from_components(
+        scale=scale,
+        angle_deg=angle,
+        shift=tuple(center - turned.transform_points([zeroth_xy])[0]),
+    )
+    detected = np.random.default_rng(0).uniform(0.0, 96.0, size=(8, 2))
     return CameraMapping(
         timestamp=datetime.now(),
         name="synthetic",
         transform=transform.as_matrix(homogeneous=False),
-        detected_points=[],
-        calculated_points=[],
+        detected_points=detected.tolist(),
+        calculated_points=transform.transform_points(detected).tolist(),
         zeroth_order_position=zeroth_order_position,
         spot_fit=FocalSpotFit(waist=CAMERA_PIXEL_SIZE[0] * 2),
+        output_pixel_size=output_pixel_size,
+        output_resolution=CAMERA_RESOLUTION,
     )
 
 
@@ -105,13 +124,30 @@ def test_the_tilt_is_taken_through_the_mapping_not_along_the_sensor() -> None:
     straight = tilt_to_sensor_center(camera, _mapping(zeroth))
     rotated = tilt_to_sensor_center(camera, _mapping(zeroth, angle=90.0))
 
-    # A quarter turn sends (x, y) to (-y, x).
-    assert rotated == pytest.approx((-straight[1], straight[0]), abs=1e-12)
+    # A quarter turn sends (x, y) to (-y, x). The partial affine is fitted from the
+    # point pairs, which holds it to a relative 1e-8.
+    assert rotated == pytest.approx((-straight[1], straight[0]), rel=1e-6)
 
 
-def test_a_scaled_mapping_scales_the_tilt() -> None:
-    """The model plane can be sampled at a different pitch from the sensor, and the
-    tilt lives in the model plane.
+def test_a_model_plane_sampled_finer_than_the_sensor_gives_the_same_tilt() -> None:
+    """A model plane at half the camera pitch holds twice the pixels over the same
+    distance, so the tilt in metres is unchanged.
+    """
+    zeroth = (20.0, 70.0)
+    camera = _FakeCamera()
+    half_pitch = (CAMERA_PIXEL_SIZE[0] / 2, CAMERA_PIXEL_SIZE[1] / 2)
+
+    unit = tilt_to_sensor_center(camera, _mapping(zeroth))
+    finer = tilt_to_sensor_center(
+        camera, _mapping(zeroth, scale=2.0, output_pixel_size=half_pitch)
+    )
+
+    assert finer == pytest.approx(unit)
+
+
+def test_a_demagnified_focal_plane_doubles_the_tilt() -> None:
+    """At the camera pitch, a mapping of scale two means the focal plane is imaged at
+    half size, so the spot has twice as far to go in the focal plane.
     """
     zeroth = (20.0, 70.0)
     camera = _FakeCamera()
@@ -120,6 +156,13 @@ def test_a_scaled_mapping_scales_the_tilt() -> None:
     doubled = tilt_to_sensor_center(camera, _mapping(zeroth, scale=2.0))
 
     assert doubled == pytest.approx((2 * unit[0], 2 * unit[1]))
+
+
+def test_a_mapping_without_an_output_plane_is_refused() -> None:
+    with pytest.raises(ValueError, match="no output plane"):
+        tilt_to_sensor_center(
+            _FakeCamera(), _mapping((20.0, 70.0), output_pixel_size=None)
+        )
 
 
 def _build_hardware(camera_shift):
@@ -154,7 +197,7 @@ def _build_hardware(camera_shift):
             s * p for s, p in zip(camera_shift, CAMERA_PIXEL_SIZE)
         ),
     )
-    camera = SimulatedCameraTorch(hardware, noise_level=0.0)
+    camera = SimulatedCameraTorch(hardware, add_noise=False)
     # Roughly mid-scale for this bench. A milliwatt onto a 96 x 96 sensor with no
     # attenuation saturates by eight orders of magnitude. An overexposed frame hides the
     # peak, so autoexposure from there only steps down geometrically and uses up its

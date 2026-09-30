@@ -207,6 +207,23 @@ def detect_spot(
 
     return int(row), int(column)
 
+
+def zeroth_order_mask_radius(
+    spot_radius: float, pixel_size: NDArray | tuple[float, float]
+) -> float:
+    """The radius in pixels of the disc that keeps the zeroth order out of a spot search
+    or fit, twice the fitted focal-spot radius.
+
+    Args:
+        spot_radius: The fitted focal-spot radius (1/e^2 intensity) in metres.
+        pixel_size: The pixel pitch ``(y, x)`` of the sensor in metres.
+
+    Returns:
+        float: The radius in pixels.
+    """
+    return 2.0 * spot_radius / float(np.min(pixel_size))
+
+
 def get_diffraction_spot_position(
     slm: SLM,
     camera: Camera,
@@ -366,10 +383,15 @@ def get_diffraction_spot_position(
         if verbose:
             print("Fitting Gaussian to camera image...")
 
+        # The fit starts at the peak of the frame blurred over one spot radius, so a
+        # spot beside the mask starts at its own peak.
         popt, _ = fit_gaussian_beam_intensity(
             *cropped_grid,
             cropped_camera_image,
             beam_radius_guess=focal_spot_radius_guess,
+            blur_sigma=max(
+                focal_spot_radius_guess / float(np.min(camera.pixel_size)), 1.0
+            ),
             mask=None if mask is None else roi.crop(mask),
         )
 
@@ -431,36 +453,33 @@ def _brightest_pixel(
 def tilt_to_sensor_center(
     camera: Camera, camera_mapping: CameraMapping
 ) -> tuple[float, float]:
-    """The focal-plane tilt that steers a spot to the sensor centre, as ``(x, y)`` in
-    metres. The tilt is a displacement in the model plane. The model plane is rotated
-    and scaled with respect to the sensor.
+    """The tilt that steers a spot to the sensor centre, as ``(x, y)`` in metres. It is
+    the image-plane position of the sensor centre, measured from the zeroth order,
+    through
+    :meth:`~hologradpy.calibration.camera_mapping.CameraMapping.sensor_to_image_plane`.
 
     Args:
-        camera: The camera, for its sensor resolution and pitch, or a driver that
+        camera: The camera, for its sensor resolution, or a driver that
             :func:`~hologradpy.hardware.as_native.as_camera` wraps. The tilt aims at the
             middle of the whole sensor, whatever region of interest is set.
-        camera_mapping: The fitted camera mapping, for its affine and its
-            ``zeroth_order_position``.
+        camera_mapping: The fitted camera mapping, for its partial affine and its
+            output plane.
 
     Returns:
         tuple[float, float]: ``(tilt_x, tilt_y)`` in metres, ready for
         :func:`~hologradpy.profiles.phase.linear_phase` with ``tilt_units="metres"``.
+
+    Raises:
+        ValueError: The mapping records no output plane, or was measured on a camera
+            with another sensor, pitch or orientation.
     """
     camera = as_camera(camera)
+    camera_mapping.check_camera(camera)
     sensor_height, sensor_width = tuple(camera.sensor_resolution)
-    zeroth = camera_mapping.zeroth_order_position  # (row, column) in camera pixels
-
-    # The mapping works in (x, y), so both points are flipped out of (row, column).
-    mapped = camera_mapping.affine.transform_points(
-        [
-            (float(zeroth[1]), float(zeroth[0])),
-            (sensor_width / 2.0, sensor_height / 2.0),
-        ]
-    )
-    displacement = mapped[1] - mapped[0]  # model pixels, (x, y)
-
-    pitch_y, pitch_x = (float(pitch) for pitch in camera.pixel_size)
-    return (float(displacement[0]) * pitch_x, float(displacement[1]) * pitch_y)
+    tilt_x, tilt_y = camera_mapping.sensor_to_image_plane(
+        [(sensor_height / 2.0, sensor_width / 2.0)]
+    )[0]
+    return (float(tilt_x), float(tilt_y))
 
 
 def capture_focal_spot(

@@ -231,6 +231,68 @@ def test_padding_smaller_than_the_field_is_refused() -> None:
         lens(field)
 
 
+def _set_angle(lens: FourierLensCZT, angle: float) -> None:
+    """Set the angle of the partial affine, as a calibration does."""
+    with torch.no_grad():
+        lens.focal_plane_partial_affine.angle.fill_(angle)
+
+
+def test_an_angle_raised_after_the_first_pass_keeps_the_corners() -> None:
+    """A calibration sets the angle after the lens has run. The padding grows to hold
+    it, so the lens matches a lens built at that angle, which keeps the corners
+    (test_padding_keeps_the_corners_a_rotation_would_otherwise_clip).
+    """
+    angle = 8.0
+    field = _smooth_field_filling_the_frame()
+    raised = FourierLensCZT(FOCAL_LENGTH, RESOLUTION, _identity_pixel_out())
+    raised(field)
+    _set_angle(raised, angle)
+    built_at_angle = FourierLensCZT(
+        FOCAL_LENGTH, RESOLUTION, _identity_pixel_out(), angle=angle
+    )
+
+    torch.testing.assert_close(
+        raised(field).as_tensor(), built_at_angle(field).as_tensor()
+    )
+
+
+def test_an_angle_that_falls_back_keeps_the_grown_padding() -> None:
+    field = _smooth_field_filling_the_frame()
+    lens = FourierLensCZT(FOCAL_LENGTH, RESOLUTION, _identity_pixel_out())
+    lens(field)
+    for angle in (20.0, 5.0):
+        _set_angle(lens, angle)
+        lens(field)
+
+    assert lens._padded_resolution == padded_resolution_for_rotation(RESOLUTION, 20.0)
+
+
+@pytest.mark.parametrize("angle", [65.0, -100.0, 250.0])
+def test_an_angle_the_rotation_cannot_hold_is_refused(angle: float) -> None:
+    """The error of the rotation rises steeply beyond 60 degrees from 0 or 180
+    degrees. Both directions refuse such an angle, and so does a lens with an explicit
+    padding.
+    """
+    field = make_field(RESOLUTION, 1, seed=6)
+    lens = FourierLensCZT(FOCAL_LENGTH, RESOLUTION, _identity_pixel_out())
+    focal_field = lens(field)
+    _set_angle(lens, angle)
+    pinned = FourierLensCZT(
+        FOCAL_LENGTH,
+        RESOLUTION,
+        _identity_pixel_out(),
+        angle=angle,
+        padded_resolution=(28, 32),
+    )
+
+    with pytest.raises(ValueError, match="60 degrees"):
+        lens(field)
+    with pytest.raises(ValueError, match="60 degrees"):
+        lens.adjoint(focal_field)
+    with pytest.raises(ValueError, match="60 degrees"):
+        pinned(field)
+
+
 def _centred_crop(image: torch.Tensor, window: tuple[int, int]) -> torch.Tensor:
     """The part of a full focal plane a centred chirp-z window covers.
 

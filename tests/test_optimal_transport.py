@@ -60,7 +60,7 @@ def _model() -> SLMCZT:
     )
     model = SLMCZT(
         input_geometry=geometry,
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         slm_field=PixelwiseSLMField(beam),
         camera_resolution=CAMERA_RESOLUTION,
         camera_pixel_size=CAMERA_PIXEL_SIZE,
@@ -288,7 +288,7 @@ def _rectangular_model() -> SLMCZT:
     )
     model = SLMCZT(
         input_geometry=geometry,
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         slm_field=PixelwiseSLMField(beam),
         camera_resolution=(48, 80),
         camera_pixel_size=(14e-6, 11e-6),

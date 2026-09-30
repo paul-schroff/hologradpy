@@ -15,13 +15,22 @@ SENSOR_HEIGHT = 480
 SENSOR_WIDTH = 640
 
 
-class FakeNode:
-    """One GenICam feature node, with the bounds a real one carries."""
+class OutOfRangeException(Exception):
+    """What GenICam raises for a value outside a node's range or off its increment."""
 
-    def __init__(self, value, minimum=None, maximum=None, on_write=None):
+
+class FakeNode:
+    """One GenICam feature node, with the bounds and the increment a real one
+    enforces.
+    """
+
+    def __init__(
+        self, value, minimum=None, maximum=None, on_write=None, increment=None
+    ):
         self._value = value
         self.min = minimum
         self.max = maximum
+        self.inc = increment
         self._on_write = on_write
         self.writes = []
 
@@ -32,6 +41,14 @@ class FakeNode:
     @value.setter
     def value(self, new_value):
         self.writes.append(new_value)
+        below = self.min is not None and new_value < self.min
+        above = self.max is not None and new_value > self.max
+        off_grid = self.inc is not None and new_value % self.inc != 0
+        if below or above or off_grid:
+            raise OutOfRangeException(
+                f"{new_value} is outside [{self.min}, {self.max}] or off the "
+                f"increment {self.inc}."
+            )
         if self._on_write is not None:
             new_value = self._on_write(new_value)
         self._value = new_value
@@ -79,17 +96,24 @@ class FakeNodeMap:
         # ExposureTime is in microseconds, as GenICam states it.
         self.ExposureTime = FakeNode(100.0, minimum=20.0, maximum=1e7)
 
+        # The geometry takes even values only, as many sensors read out pixel pairs.
         self.Width = FakeNode(
-            SENSOR_WIDTH, maximum=SENSOR_WIDTH, on_write=self._record("Width")
+            SENSOR_WIDTH,
+            maximum=SENSOR_WIDTH,
+            on_write=self._record("Width"),
+            increment=2,
         )
         self.Height = FakeNode(
-            SENSOR_HEIGHT, maximum=SENSOR_HEIGHT, on_write=self._record("Height")
+            SENSOR_HEIGHT,
+            maximum=SENSOR_HEIGHT,
+            on_write=self._record("Height"),
+            increment=2,
         )
         self.OffsetX = FakeNode(
-            0, maximum=SENSOR_WIDTH, on_write=self._record("OffsetX")
+            0, maximum=SENSOR_WIDTH, on_write=self._record("OffsetX"), increment=2
         )
         self.OffsetY = FakeNode(
-            0, maximum=SENSOR_HEIGHT, on_write=self._record("OffsetY")
+            0, maximum=SENSOR_HEIGHT, on_write=self._record("OffsetY"), increment=2
         )
         self.WidthMax = FakeNode(SENSOR_WIDTH)
         self.HeightMax = FakeNode(SENSOR_HEIGHT)
@@ -311,6 +335,25 @@ def test_exposure_bounds_are_seconds(camera):
     assert high == pytest.approx(10.0)
 
 
+def test_an_exposure_outside_the_node_range_is_clipped_with_a_warning(camera):
+    """The node refuses a value outside its range, so the driver writes the nearer
+    limit instead.
+    """
+    device, harvester = camera
+
+    with pytest.warns(UserWarning, match="outside the camera's bounds"):
+        device.set_exposure(20.0)
+    assert harvester.node_map.ExposureTime.value == 1e7
+
+    with pytest.warns(UserWarning, match="outside the camera's bounds"):
+        device.set_exposure(1e-6)
+    assert harvester.node_map.ExposureTime.value == 20.0
+
+    # The lower bound in seconds lands on the node's own limit, without a warning.
+    device.set_exposure(device.exposure_bounds[0])
+    assert harvester.node_map.ExposureTime.value == 20.0
+
+
 def test_max_pixel_value_follows_the_stated_dynamic_range(camera):
     device, harvester = camera
     # Mono16 on a 12-bit sensor still only fills 12 bits.
@@ -364,6 +407,30 @@ def test_resetting_the_region_restores_the_whole_sensor(camera):
     device.set_roi(ROI(10, 20, 64, 128))
     device.set_roi(None)
     assert device.roi == ROI(0, 0, SENSOR_HEIGHT, SENSOR_WIDTH)
+
+
+def test_a_region_off_the_increment_grid_is_read_out_on_it_and_cropped(camera):
+    """The camera reads out the smallest window on its grid that holds the region, and
+    every frame comes back at the size of the region.
+    """
+    device, harvester = camera
+    region = ROI(top_row=101, left_column=203, height=63, width=127)
+
+    device.set_roi(region)
+    device.set_exposure(100e-6)
+    frame = device.get_image()
+
+    node_map = harvester.node_map
+    window = (
+        node_map.OffsetY.value,
+        node_map.OffsetX.value,
+        node_map.Height.value,
+        node_map.Width.value,
+    )
+    assert window == (100, 202, 64, 128)
+    assert device.roi == region
+    assert device.resolution == (63, 127)
+    np.testing.assert_array_equal(frame, fake_frame(64, 128, 100.0)[1:, 1:])
 
 
 def test_setting_a_region_cycles_acquisition(camera):

@@ -7,6 +7,7 @@ for a MATRIX VISION BlueFOX3.
 from __future__ import annotations
 
 import re
+import warnings
 from typing import Any
 
 import numpy as np
@@ -74,6 +75,10 @@ class GenTLCamera(Camera):
         self._pixel_size = np.asarray(pixel_size, dtype=np.float64)
         self.frames_before_restart: int | None = frames_before_restart
         self.frames_since_start: int = 0
+        # The region the caller asked for, and the window on the camera's increment
+        # grid that is read out to hold it. None is the whole sensor.
+        self._requested_roi: ROI | None = None
+        self._window: ROI | None = None
 
         self._harvester = Harvester()
         self._harvester.add_file(str(cti_path))
@@ -193,6 +198,11 @@ class GenTLCamera(Camera):
 
     @property
     def roi(self) -> ROI:
+        """The region each frame covers, as set, or the readout window of the
+        geometry nodes when no region was set.
+        """
+        if self._requested_roi is not None:
+            return self._requested_roi
         return ROI(
             top_row=int(self._read("OffsetY", 0)),
             left_column=int(self._read("OffsetX", 0)),
@@ -203,7 +213,9 @@ class GenTLCamera(Camera):
     def set_roi(self, roi: ROI | None) -> None:
         """Set the region of interest, restarting acquisition around the change.
 
-        ``Width`` and ``Height`` are not writable while the camera streams.
+        ``Width`` and ``Height`` are not writable while the camera streams. The camera
+        reads out the smallest window on its increment grid that holds the region, and
+        every frame is cropped to the region.
         """
         self._acquirer.stop()
         try:
@@ -221,6 +233,8 @@ class GenTLCamera(Camera):
         """
         self._write("OffsetX", 0)
         self._write("OffsetY", 0)
+        self._requested_roi = None
+        self._window = None
 
         if roi is None:
             width = self._node("Width")
@@ -231,10 +245,38 @@ class GenTLCamera(Camera):
                 height.value = height.max
             return
 
-        self._write("Width", int(roi.width))
-        self._write("Height", int(roi.height))
-        self._write("OffsetX", int(roi.left_column))
-        self._write("OffsetY", int(roi.top_row))
+        window = self._window_holding(roi)
+        self._write("Width", window.width)
+        self._write("Height", window.height)
+        self._write("OffsetX", window.left_column)
+        self._write("OffsetY", window.top_row)
+        self._requested_roi = roi
+        self._window = window
+
+    def _window_holding(self, roi: ROI) -> ROI:
+        """The smallest readout window on the camera's increment grid that holds
+        ``roi``.
+
+        The offsets are rounded down to their increments and the sizes up to theirs, so
+        the window holds the whole region.
+        """
+        top = _round_down(int(roi.top_row), self._increment("OffsetY"))
+        left = _round_down(int(roi.left_column), self._increment("OffsetX"))
+        bottom = int(roi.top_row) + int(roi.height)
+        right = int(roi.left_column) + int(roi.width)
+        return ROI(
+            top_row=top,
+            left_column=left,
+            height=_round_up(bottom - top, self._increment("Height")),
+            width=_round_up(right - left, self._increment("Width")),
+        )
+
+    def _increment(self, name: str) -> int:
+        """The step between the values a geometry node accepts, one when the camera
+        does not state it.
+        """
+        increment = getattr(self._node(name), "inc", None)
+        return int(increment) if increment else 1
 
     @property
     def exposure_bounds(self) -> tuple[float, float] | None:
@@ -250,7 +292,34 @@ class GenTLCamera(Camera):
         return float(self._read("ExposureTime", 0.0)) / MICROSECONDS_PER_SECOND
 
     def set_exposure(self, exposure_s: float) -> None:
-        self._write("ExposureTime", float(exposure_s) * MICROSECONDS_PER_SECOND)
+        """Set the exposure time in seconds.
+
+        An exposure outside :attr:`exposure_bounds` is clipped into them with a
+        warning, since the camera rejects a value outside its node's range. The value
+        is clipped in the node's microseconds, so a bound converted to seconds and back
+        still lands on the node's limit.
+
+        Args:
+            exposure_s: The exposure in seconds.
+        """
+        exposure = float(exposure_s)
+        exposure_us = exposure * MICROSECONDS_PER_SECOND
+        node = self._node("ExposureTime")
+        if node is not None:
+            low_us, high_us = float(node.min), float(node.max)
+            bounds = (
+                low_us / MICROSECONDS_PER_SECOND,
+                high_us / MICROSECONDS_PER_SECOND,
+            )
+            exposure_us = min(max(exposure_us, low_us), high_us)
+            if not bounds[0] <= exposure <= bounds[1]:
+                warnings.warn(
+                    f"An exposure of {exposure} s is outside the camera's bounds "
+                    f"{bounds} s, so {exposure_us / MICROSECONDS_PER_SECOND} s is "
+                    "applied.",
+                    stacklevel=2,
+                )
+        self._write("ExposureTime", exposure_us)
 
     def _get_image(
         self, exposure: float | None = None, averaging: int = 1
@@ -276,7 +345,9 @@ class GenTLCamera(Camera):
         return np.sum(np.stack(frames).astype(np.float64), axis=0)
 
     def _fetch_frame(self) -> NDArray:
-        """Trigger one exposure and copy the frame out of the transport buffer."""
+        """Trigger one exposure, copy the frame out of the transport buffer, and crop
+        it to the region of interest.
+        """
         self._restart_if_due()
 
         self._execute("TriggerSoftware")
@@ -289,7 +360,12 @@ class GenTLCamera(Camera):
             )
 
         self.frames_since_start += 1
-        return frame
+        roi, window = self._requested_roi, self._window
+        if roi is None or window is None:
+            return frame
+        top = int(roi.top_row) - window.top_row
+        left = int(roi.left_column) - window.left_column
+        return frame[top : top + int(roi.height), left : left + int(roi.width)]
 
     def _execute(self, name: str) -> None:
         """Fire a GenICam command node."""
@@ -385,3 +461,13 @@ class GenTLCamera(Camera):
             self.close()
         except Exception:
             pass
+
+
+def _round_down(value: int, step: int) -> int:
+    """``value`` rounded down to a multiple of ``step``."""
+    return (value // step) * step
+
+
+def _round_up(value: int, step: int) -> int:
+    """``value`` rounded up to a multiple of ``step``."""
+    return -(-value // step) * step

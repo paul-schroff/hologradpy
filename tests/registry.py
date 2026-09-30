@@ -57,15 +57,15 @@ ZERNIKE_COEFFICIENTS = torch.linspace(0.1, 1.0, 10)
 # deterministic, so a single field processed alone must reproduce the
 # corresponding slice of a batched forward.
 MODULE_FACTORIES: dict[str, callable] = {
-    "VirtualSLM": lambda: VirtualSLM(phase_scaling=1.0),
+    "VirtualSLM": lambda: VirtualSLM(full_scale_cycles=1.0),
     "VirtualSLMFreeKernel": lambda: VirtualSLM(
-        phase_scaling=1.0, pixel_crosstalk=FreeKernelCrosstalk(upscale_factor=4)
+        full_scale_cycles=1.0, pixel_crosstalk=FreeKernelCrosstalk(upscale_factor=4)
     ),
     "VirtualSLMSuperGaussian": lambda: VirtualSLM(
-        phase_scaling=1.0, pixel_crosstalk=SuperGaussianCrosstalk(upscale_factor=2)
+        full_scale_cycles=1.0, pixel_crosstalk=SuperGaussianCrosstalk(upscale_factor=2)
     ),
     "VirtualSLMNeighbour": lambda: VirtualSLM(
-        phase_scaling=1.0,
+        full_scale_cycles=1.0,
         pixel_crosstalk=NeighbourDifferenceCrosstalk(upscale_factor=2),
         quantize=True,
     ),
@@ -85,7 +85,7 @@ MODULE_FACTORIES: dict[str, callable] = {
         shift=(2.0, 2.0),
     ),
     "ZernikeSLM": lambda: ZernikeSLM(
-        phase_scaling=1.0,
+        full_scale_cycles=1.0,
         number_of_radial_orders=ZERNIKE_RADIAL_ORDERS,
         initial_coefficients=ZERNIKE_COEFFICIENTS,
     ),

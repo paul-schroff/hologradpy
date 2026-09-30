@@ -10,6 +10,7 @@ lives in :mod:`hologradpy.hardware.as_native`.
 from __future__ import annotations
 
 import importlib
+import inspect
 from typing import Any, Callable, ParamSpec, TypeVar, overload
 
 from .camera import Camera
@@ -118,7 +119,8 @@ def _resolve_backend(
 
     A class is returned as is. A registered ``name`` is looked up, and a registry entry
     that is a ``"module:Attr"`` import spec is imported lazily (so the vendor SDK loads
-    only here, on the actual open).
+    only here, on the actual open). An abstract class is rejected with a TypeError that
+    names its unimplemented members.
     """
     if isinstance(driver, str):
         if driver not in registry:
@@ -128,9 +130,30 @@ def _resolve_backend(
         entry = registry[driver]
     else:
         entry = driver
-    if isinstance(entry, str):
-        return _import_spec(entry, driver, kind)
-    return entry
+    resolved = _import_spec(entry, driver, kind) if isinstance(entry, str) else entry
+    _reject_incomplete_driver(resolved, kind)
+    return resolved
+
+
+def _reject_incomplete_driver(driver: Callable[..., Any], kind: str) -> None:
+    """Raise if ``driver`` is a class that leaves abstract members unimplemented.
+
+    Args:
+        driver: The driver class, or any other callable that builds a device.
+        kind: ``"camera"`` or ``"SLM"``, used in the message.
+
+    Raises:
+        TypeError: ``driver`` is an abstract class, which cannot be constructed.
+    """
+    if not (isinstance(driver, type) and inspect.isabstract(driver)):
+        return
+    missing = ", ".join(sorted(driver.__abstractmethods__))
+    raise TypeError(
+        f"The {kind} driver {driver.__module__}.{driver.__qualname__} does not "
+        f"implement {missing}, so it cannot be constructed. Implement the missing "
+        "members in a subclass, or install a version of the driver's package that "
+        "implements them."
+    )
 
 
 def _import_spec(spec: str, name: str, kind: str) -> type:

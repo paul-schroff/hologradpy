@@ -23,7 +23,9 @@ class SLMCZT(SLMFourierLensModel):
     resolution at the camera pixel size. ``camera_angle`` (degrees) and
     ``camera_shift`` (``(x, y)`` metres) seed it.
 
-    ``padded_resolution`` prevents cropping a rotated field.
+    ``padded_resolution`` pins the padding of the lens. Left at None, the padding
+    follows the angle of the partial affine, so a calibrated rotation keeps the corners
+    of the field.
     """
 
     virtual_slm: VirtualSLM

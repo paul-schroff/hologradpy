@@ -25,7 +25,8 @@ class SimulatedSLMTorch(SLM):
     levels through the phase response, as for a hardware SLM. The virtual SLM then
     shows those levels, so the simulation sees the same discretized pattern as the
     hardware. The simulated SLM shows each pattern at once, and ``settle_time`` is
-    only recorded for ``SLMData``.
+    only recorded for ``SLMData``. The phase response is a straight line reaching one
+    cycle at full scale, until :meth:`load_phase_response` takes another.
 
     ``pixel_crosstalk`` adds fringing fields between neighbouring pixels to
     :attr:`virtual_slm`, and so to every model that shares it.
@@ -38,7 +39,6 @@ class SimulatedSLMTorch(SLM):
         input_geometry: FieldGeometry,
         bitdepth: int = 8,
         name: str = "SimulatedSLM",
-        wav_design_um: float | None = None,
         settle_time: float = 0.3,
         pixel_crosstalk: PixelCrosstalk | None = None,
     ) -> None:
@@ -62,13 +62,7 @@ class SimulatedSLMTorch(SLM):
         self.settle_time = float(settle_time)
 
         self._bitdepth = int(bitdepth)
-
-        # Phase response scales with wavelength.
-        wav_um = self._wavelength * 1e6
-        wav_design = wav_um if wav_design_um is None else float(wav_design_um)
-        self._response: PhaseResponse = LinearResponse(
-            bitdepth=self._bitdepth, phase_scaling=wav_design / wav_um
-        )
+        self._response: PhaseResponse = LinearResponse(bitdepth=self._bitdepth)
 
         self.display: NDArray = np.zeros(
             self._resolution, dtype=level_dtype(self._bitdepth)
@@ -111,7 +105,7 @@ class SimulatedSLMTorch(SLM):
 
     @property
     def _nominal_phase_response(self) -> PhaseResponse:
-        """The response built at construction, from the two wavelengths."""
+        """The response built at construction, one cycle at full scale."""
         return self._response
 
     def load_phase_response(self, response: PhaseResponse | None) -> None:

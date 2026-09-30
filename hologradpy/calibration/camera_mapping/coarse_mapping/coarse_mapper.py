@@ -24,9 +24,11 @@ from ....profiles.masks import disc_mask
 
 from ...spot_detection import (
     _WINDOW_SPOT_RADII,
+    _brightest_pixel,
     detect_spot,
     get_diffraction_spot_position,
     has_prominent_peak,
+    zeroth_order_mask_radius,
 )
 from ...exposure import expose_until_spot
 
@@ -65,10 +67,12 @@ class CoarseMapper(CameraMapper):
     spot) and matches the fitted camera positions with the model's output of the same
     tilts.
 
-    This works for setups where the zeroth-order is not hitting the camera. If no spot
-    is found at zero tilt, the focal plane is searched with probe spots along an outward
-    spiral (limited by the model's field of view) until one lands on the sensor, and the
-    probe pattern is placed around that tilt. The ``zeroth_order_position`` is then
+    A zeroth order on the sensor is located first, as the spot a 0/pi grating
+    suppresses. It seeds the search for the sensor centre and is masked out of every
+    probe fit, so it may be brighter than the probes. Without a zeroth order on the
+    sensor, the focal plane is searched with probe spots along an outward spiral
+    (limited by the model's field of view) until one lands on the sensor, and the probe
+    pattern is placed around that tilt. The ``zeroth_order_position`` is then
     extrapolated by the affine transformation.
 
     The result tells you where the sensor sits with respect to the zeroth order and how
@@ -132,6 +136,8 @@ class CoarseMapper(CameraMapper):
                 on the sensor. When given, the spiral search is skipped,
                 ``search_radius`` is ignored, and this tilt seeds the centre search
                 directly. A ValueError is raised if no spot is detected at this tilt.
+                A zeroth order located on the sensor seeds the centre search at zero
+                tilt, and ``initial_tilt`` is then not used.
             find_camera_orientation: If True, suggest the discrete camera orientation
                 that aligns the camera best with the model plane. The suggestion and
                 its near-identity residual are recorded on the result as
@@ -205,18 +211,24 @@ class CoarseMapper(CameraMapper):
                     min(search_radius, addressable[1]),
                 )
 
-            # In auto-exposure mode, calibrate a fixed exposure upfront. If the zeroth
-            # order is off the sensor, a spot array is generated over the entire
-            # addressable area, and the camera autoexposes on it.
-            if exposure_time is None:
+            # The zeroth order is located first if it hits the sensor
+            zeroth_order_position = self._locate_zeroth_order(focal_length, spot_radius)
+
+            # In auto-exposure mode with the zeroth order off the sensor, a spot array
+            # is generated over the entire addressable area, and the camera autoexposes
+            # on it to calibrate a fixed exposure upfront.
+            if exposure_time is None and zeroth_order_position is None:
                 exposure_time = self._calibrate_exposure(
                     focal_length, half_extent, search_step, spot_radius
                 )
 
-            if initial_tilt is None:
-                # Find a tilt that lands a spot on the sensor. Zero tilt (the zeroth
-                # order) is tried first, then tilts along an outward spiral.
-                center_tilt = self._search_spot(
+            if zeroth_order_position is not None:
+                # The zeroth order is a spot on the sensor at zero tilt.
+                tilt_on_sensor = (0.0, 0.0)
+            elif initial_tilt is None:
+                # Find a tilt that lands a spot on the sensor, along an outward spiral
+                # of tilts around the zeroth order.
+                tilt_on_sensor = self._search_spot(
                     focal_length=focal_length,
                     half_extent=half_extent,
                     search_step=search_step,
@@ -235,21 +247,22 @@ class CoarseMapper(CameraMapper):
                         f"{initial_tilt} (focal-plane metres). Check the tilt and "
                         "exposure."
                     )
-                center_tilt = initial_tilt
+                tilt_on_sensor = initial_tilt
 
             # Measuring the focal spot radius from a Gaussian fit. The center search
             # uses this to scale its probe offset and detection window.
             spot_radius = self._measure_spot_radius(
-                center_tilt, focal_length, spot_radius
+                tilt_on_sensor, focal_length, spot_radius
             )
 
             # Finding the center of the camera sensor and the local tilt that places
             # the probe spots.
             center_tilt, jacobian = self._center_search(
-                tilt=center_tilt,
+                tilt=tilt_on_sensor,
                 focal_length=focal_length,
                 camera_shape=camera_shape,
                 spot_radius=spot_radius,
+                zeroth_order_position=zeroth_order_position,
             )
             if jacobian is None:
                 # Fall back to a nominal ~1:1, un-rotated tilt to pixel map in the rare
@@ -264,6 +277,15 @@ class CoarseMapper(CameraMapper):
                 [camera_shape[1] / 4.0, camera_shape[0] / 4.0]  # (x, y)
             )
             corner_offsets = half_extent_px * np.asarray(_PROBE_RECTANGLE)
+            probe_mask = None
+            if zeroth_order_position is not None:
+                # The zeroth order is masked out of every probe fit.
+                mask_radius = zeroth_order_mask_radius(spot_radius, camera_pixel_size)
+                probe_mask = ~disc_mask(
+                    camera_shape,
+                    (zeroth_order_position[1], zeroth_order_position[0]),
+                    mask_radius,
+                )
             probe_tilts = [
                 (center_tilt[0] + float(dt[0]), center_tilt[1] + float(dt[1]))
                 for dt in corner_offsets @ inverse_jacobian.T
@@ -282,6 +304,7 @@ class CoarseMapper(CameraMapper):
                 camera_shape=camera_shape,
                 field_of_view=field_of_view,
                 model_window_offset=model_window_offset,
+                mask=probe_mask,
             )
 
             detected = np.asarray(probes.camera_points, dtype=np.float64)
@@ -293,7 +316,7 @@ class CoarseMapper(CameraMapper):
                 detected, calculated, transform
             )
 
-            zeroth_order_position = CameraMapping.zeroth_order_from(
+            extrapolated_zeroth_order_position = CameraMapping.zeroth_order_from(
                 affine, resolution_out
             )
 
@@ -349,7 +372,7 @@ class CoarseMapper(CameraMapper):
                 transform=transform,
                 detected_points=probes.camera_points,
                 calculated_points=probes.simulated_points,
-                zeroth_order_position=zeroth_order_position,
+                zeroth_order_position=extrapolated_zeroth_order_position,
                 spot_fit=FocalSpotFit(waist=probes.focal_spot_radius),
                 fit=MappingFit(
                     reprojection_errors=reprojection_errors,
@@ -357,6 +380,11 @@ class CoarseMapper(CameraMapper):
                 ),
                 orientation=orientation,
                 camera_data=CameraData.from_camera(self.camera),
+                output_pixel_size=(
+                    float(pixel_size_out[0]),
+                    float(pixel_size_out[1]),
+                ),
+                output_resolution=(int(resolution_out[0]), int(resolution_out[1])),
                 visualization_data=visualization_data,
             )
 
@@ -479,6 +507,7 @@ class CoarseMapper(CameraMapper):
         camera_shape: tuple[int, int],
         field_of_view: tuple[float, float],
         model_window_offset: tuple[float, float] = (0.0, 0.0),
+        mask: NDArray[np.bool_] | None = None,
     ) -> _ProbeMeasurements:
         """Measure every probe on the camera and in the model. Raises RuntimeError when
         a probe fit fails or lands implausibly.
@@ -499,6 +528,8 @@ class CoarseMapper(CameraMapper):
                 window by while the probes are measured, so it covers the same region
                 the camera does. Removed again from the reported model positions, which
                 stay in the plane's own frame, centered on the zeroth order.
+            mask: True at the sensor pixels each probe is exposed and fitted on, and
+                False over the zeroth order. Every pixel is used when None.
         """
         geometry = self.slm_camera_model.input_geometry
         grid = geometry.get_spatial_grid()
@@ -541,6 +572,7 @@ class CoarseMapper(CameraMapper):
                         exposure_time=exposure_time,
                         units="metres",
                         verbose=False,
+                        mask=mask,
                     )
                 except (RuntimeError, ValueError) as error:
                     raise RuntimeError(
@@ -613,30 +645,18 @@ class CoarseMapper(CameraMapper):
         search_step: float,
         spot_radius: float,
     ) -> float | None:
-        """Calibrate one fixed per-probe exposure before the sequential search.
+        """Calibrate one fixed per-probe exposure before the sequential search, for a
+        zeroth order off the sensor.
 
-        If the zeroth-order spot cannot be located on the sensor, display a spot array 
-        covering the entire adressable area and autoexpose the camera. A phase-only 
-        superposition of N spots makes each spot ~1/N as bright as a single-spot probe, 
-        so the per-probe exposure is calculated as ``t_array / N``.
+        A spot array covering the entire addressable area is displayed, and the camera
+        autoexposes on it. A phase-only superposition of N spots makes each spot ~1/N
+        as bright as a single-spot probe, so the per-probe exposure is calculated as
+        ``t_array / N``.
 
         Returns the per-probe exposure in seconds, or None to fall back to the
         adaptive per-probe ladder.
         """
-        # Zeroth order on the sensor: trivial case, no array needed. A bright
-        # stray-light background (e.g. speckle from a different laser) can make the 
-        # adaptive-exposure probe find a spurious spot at zero tilt, so confirm it is 
-        # really the zeroth order (dims under a 0/pi grating) before skipping the array.
-        zod_on_sensor = self._spot_on_sensor(
-            (0.0, 0.0), focal_length, None, spot_radius
-        )
-
-        if zod_on_sensor is not None and self._confirm_zeroth_order(
-            zod_on_sensor, spot_radius
-        ):
-            return None
-
-        # Zeroth order off the sensor: display the full probe array and autoexpose once.
+        # Display the full probe array and autoexpose once.
         tilts = [
             tilt
             for tilt in self._spiral_tilts(
@@ -685,38 +705,47 @@ class CoarseMapper(CameraMapper):
             exposure = hardware_minimum
         return exposure
 
-    def _confirm_zeroth_order(self, image: NDArray, spot_radius: float) -> bool:
-        """Whether the bright spot in ``image`` (found at zero tilt) is the true zeroth
-        order and not fixed stray light / speckle.
+    def _locate_zeroth_order(
+        self, focal_length: float, spot_radius: float
+    ) -> tuple[float, float] | None:
+        """The ``(row, column)`` of the zeroth order, or None when it misses the sensor.
 
-        A 2-pixel-period 0/pi binary grating has no DC term (``exp(1j*0) + exp(1j*pi) =
-        0``), so it strongly suppresses the real zeroth order. Fixed background is
-        independent of the SLM and is left untouched. The spot is the zeroth order if
-        its intensity at the same position drops when the grating is displayed. The
-        comparison is metered on its own, and the camera's exposure and region of
-        interest are put back afterwards.
+        With the zeroth order off the sensor, the camera can still find a spot at zero
+        tilt in fixed background, such as stray light or speckle. The spot found is
+        metered below full scale and located at its brightest pixel, so an overexposed
+        frame cannot misplace it. A 2-pixel-period 0/pi binary grating has no DC term
+        (``exp(1j*0) + exp(1j*pi) = 0``), so it strongly suppresses the zeroth order and
+        leaves fixed background untouched. The spot is the zeroth order when its peak
+        within the zeroth-order mask falls below half under the grating. The camera's
+        exposure and region of interest are put back afterwards.
+
+        Args:
+            focal_length: Focal length of the Fourier lens in metres.
+            spot_radius: The focal-spot radius in metres, which sizes the mask the two
+                peaks are compared in.
         """
-        row, column = np.unravel_index(int(np.argmax(image)), image.shape)
-        spot_radius_px = spot_radius / (min(self.camera.pixel_size))
-        half = max(int(round(2.0 * spot_radius_px)), 2)
-
-        def window_peak(frame: NDArray) -> float:
-            top, left = max(row - half, 0), max(column - half, 0)
-            return float(frame[top:row + half + 1, left:column + half + 1].max())
+        if self._spot_on_sensor((0.0, 0.0), focal_length, None, spot_radius) is None:
+            return None
+        mask_radius = zeroth_order_mask_radius(spot_radius, self.camera.pixel_size)
+        half = int(np.ceil(mask_radius))
 
         with self.camera.preserve_exposure_and_roi():
-            self.camera.autoexpose(
-                set_fraction=0.5,
-                raise_on_rail=False,
-                verbose=False,
-            )
-            peak_before = window_peak(np.asarray(self.camera.get_image()))
+            self.camera.autoexpose(set_fraction=0.5, raise_on_rail=False, verbose=False)
+            metered = np.asarray(self.camera.get_image(), dtype=np.float64)
+            row, column = _brightest_pixel(metered)
+
+            def window_peak(frame: NDArray) -> float:
+                top, left = max(row - half, 0), max(column - half, 0)
+                return float(frame[top:row + half + 1, left:column + half + 1].max())
+
+            peak = window_peak(metered)
             # 2-px-period 0/pi vertical binary grating: diffracts the light into the
             # Nyquist-edge +/-1 orders, minimizing the zeroth order.
-            grating = binary_phase_grating(self.slm.resolution)
-            self.slm.set_phase(grating)
-            suppressed = np.asarray(self.camera.get_image())
-        return window_peak(suppressed) < 0.5 * peak_before
+            self.slm.set_phase(binary_phase_grating(self.slm.resolution))
+            suppressed = np.asarray(self.camera.get_image(), dtype=np.float64)
+        if window_peak(suppressed) < 0.5 * peak:
+            return (float(row), float(column))
+        return None
 
     def _default_search_step(
         self, spot_radius: float, field_of_view: tuple[float, float]
@@ -776,10 +805,15 @@ class CoarseMapper(CameraMapper):
     ) -> tuple[float, float]:
         """Find a tilt whose probe spot lands on the sensor, walking the rectangular
         spiral outward from the zeroth order.
+
+        The search runs once the zeroth order is known to miss the sensor, so zero tilt
+        is left out of the spiral.
         """
         for tilt in self._spiral_tilts(
             half_extent[0], half_extent[1], search_step
         ):
+            if np.hypot(tilt[0], tilt[1]) <= 1e-9:
+                continue
             image = self._spot_on_sensor(
                 tilt, focal_length, exposure_time, spot_radius
             )
@@ -855,6 +889,7 @@ class CoarseMapper(CameraMapper):
         focal_length: float,
         camera_shape: tuple[int, int],
         spot_radius: float,
+        zeroth_order_position: tuple[float, float] | None = None,
     ) -> tuple[tuple[float, float], NDArray | None]:
         """Move the found spot to the sensor center by a local linear fit.
 
@@ -865,16 +900,16 @@ class CoarseMapper(CameraMapper):
         The Jacobian comes from how the detected spot moves when the tilt is perturbed.
         The zeroth order does not move with tilt and can be brighter than the first
         order, so it is masked (a disk around the reference spot) in the derivative
-        captures.
+        captures. A located zeroth order, at ``zeroth_order_position`` ``(row,
+        column)``, is also masked in the capture that confirms the centre tilt, when the
+        sensor centre lies clear of it.
         """
         center = np.array([(camera_shape[1] - 1) / 2, (camera_shape[0] - 1) / 2])
         exposure = float(self.camera.get_exposure())
-        # Deflect by twice the detection window so the offset spot lands clear of
-        # the ZOD mask (radius one window) applied in the derivative captures.
+        # Deflect by twice the detection window, so the offset spot lies well clear of
+        # the zeroth-order mask applied in the derivative captures.
         offset = 2.0 * _WINDOW_SPOT_RADII * spot_radius
-        mask_radius_px = _WINDOW_SPOT_RADII * spot_radius / (
-            min(self.camera.pixel_size)
-        )
+        mask_radius_px = zeroth_order_mask_radius(spot_radius, self.camera.pixel_size)
 
         def measure(
             candidate: tuple[float, float], mask_center: NDArray | None = None
@@ -930,9 +965,18 @@ class CoarseMapper(CameraMapper):
             return tilt, None
         center_tilt = (tilt[0] + float(delta[0]), tilt[1] + float(delta[1]))
 
-        # Confirm the extrapolated tilt lands the spot near the sensor center.
-        # Fall back to the found tilt if the linear step overshot off the sensor.
-        if measure(center_tilt) is None:
+        # Confirm the extrapolated tilt lands the spot near the sensor center. The spot
+        # there and a located zeroth order stay apart when they lie two mask radii
+        # apart, and the zeroth order is then masked. Fall back to the found tilt if the
+        # linear step overshot off the sensor.
+        confirm_mask_center = None
+        if zeroth_order_position is not None:
+            zeroth_order_xy = np.array(
+                [zeroth_order_position[1], zeroth_order_position[0]]
+            )
+            if np.linalg.norm(center - zeroth_order_xy) > 2.0 * mask_radius_px:
+                confirm_mask_center = zeroth_order_xy
+        if measure(center_tilt, mask_center=confirm_mask_center) is None:
             return tilt, jacobian
         return center_tilt, jacobian
 

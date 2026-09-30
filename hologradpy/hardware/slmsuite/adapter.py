@@ -346,7 +346,7 @@ class SLMSuiteSLMAdapter(SLM):
 
     The phase response is the one loaded with :meth:`load_phase_response`, or else a
     straight line reaching ``wav_design_um / wav_um`` cycles at full scale. For this
-    nominal response, :attr:`phase_scaling` is the reciprocal of slmsuite's
+    nominal response, :attr:`full_scale_cycles` is the reciprocal of slmsuite's
     ``phase_scaling``. ``wav_um`` is the operating wavelength. slmsuite defaults it
     to 1 um, so it is given when the device is opened.
 
@@ -465,7 +465,7 @@ class SLMSuiteSLMAdapter(SLM):
     def _nominal_phase_response(self) -> PhaseResponse | None:
         """A straight line reaching ``wav_design_um / wav_um`` cycles at full scale.
 
-        Its ``phase_scaling`` is the reciprocal of slmsuite's ``phase_scaling``.
+        Its ``full_scale_cycles`` is the reciprocal of slmsuite's ``phase_scaling``.
         """
         bitdepth = self.bitdepth
         if bitdepth is None:
@@ -473,7 +473,7 @@ class SLMSuiteSLMAdapter(SLM):
         wav_um = float(self._slm.wav_um)
         wav_design_um = float(getattr(self._slm, "wav_design_um", wav_um))
         return LinearResponse(
-            bitdepth=int(bitdepth), phase_scaling=wav_design_um / wav_um
+            bitdepth=int(bitdepth), full_scale_cycles=wav_design_um / wav_um
         )
 
     @property

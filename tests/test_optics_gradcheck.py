@@ -118,13 +118,13 @@ MODULE_FACTORIES: dict[str, callable] = {
     ),
     "SimpleLens": lambda: SimpleLens(focal_length=0.1, aperture_radius=1e-3),
     "PixelwiseSLMField": lambda: PixelwiseSLMField(),
-    "VirtualSLM": lambda: VirtualSLM(phase_scaling=1.0),
+    "VirtualSLM": lambda: VirtualSLM(full_scale_cycles=1.0),
     "ZernikePhase": lambda: ZernikePhase(
         number_of_radial_orders=3,
         initial_coefficients=torch.linspace(0.1, 1.0, 6),
     ),
     "ZernikeSLM": lambda: ZernikeSLM(
-        phase_scaling=1.0,
+        full_scale_cycles=1.0,
         number_of_radial_orders=3,
         initial_coefficients=torch.linspace(0.1, 1.0, 6),
     ),

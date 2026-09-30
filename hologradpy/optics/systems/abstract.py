@@ -1,5 +1,6 @@
 from __future__ import annotations
 import copy
+import math
 import os
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -600,6 +601,8 @@ class SLMFourierLensModel(OpticalSystem):
 
         Raises:
             TypeError: If the model has no focal-plane partial affine.
+            ValueError: If the mapping records an output plane other than this
+                model's, since it was then measured against another model.
         """
         partial_affine = self.focal_plane_partial_affine
         if partial_affine is None:
@@ -607,7 +610,50 @@ class SLMFourierLensModel(OpticalSystem):
                 f"{type(self).__name__} has no focal-plane partial affine to calibrate "
                 "from a mapping."
             )
+        self._check_output_plane(mapping)
         partial_affine.set(mapping.partial_affine)
+
+    def _check_output_plane(self, mapping: CameraMapping) -> None:
+        """Raise when ``mapping`` records an output plane other than this model's.
+
+        The point pairs of a mapping are pixels of the output plane it was measured
+        against, so on another plane they name other positions. A mapping that records
+        no plane, or a model that has not run yet, is not checked.
+
+        Args:
+            mapping: The camera mapping to compare.
+
+        Raises:
+            ValueError: The recorded pitch or resolution differs from the model's.
+        """
+        output = self[-1]
+        if mapping.output_pixel_size is None or output.pixel_size_out is None:
+            return
+        pixel_size = tuple(
+            float(size)
+            for size in torch.as_tensor(output.pixel_size_out).reshape(-1, 2)[0]
+        )
+        resolution = tuple(int(size) for size in output.resolution_out)
+        recorded_pixel_size = tuple(float(size) for size in mapping.output_pixel_size)
+        recorded_resolution = (
+            resolution
+            if mapping.output_resolution is None
+            else tuple(int(size) for size in mapping.output_resolution)
+        )
+        same_pitch = all(
+            math.isclose(recorded, own, rel_tol=1e-6)
+            for recorded, own in zip(recorded_pixel_size, pixel_size)
+        )
+        if same_pitch and recorded_resolution == resolution:
+            return
+        raise ValueError(
+            f"The mapping was measured against a {recorded_resolution[0]} x "
+            f"{recorded_resolution[1]} output plane at a pitch of "
+            f"{recorded_pixel_size[0] * 1e6:.3f} x {recorded_pixel_size[1] * 1e6:.3f} "
+            f"um, and this model's output plane is {resolution[0]} x {resolution[1]} "
+            f"at {pixel_size[0] * 1e6:.3f} x {pixel_size[1] * 1e6:.3f} um. Measure the "
+            "mapping on this model."
+        )
 
     @property
     def focal_length(self) -> float:

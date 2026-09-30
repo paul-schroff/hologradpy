@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import torch
 
 from hologradpy.roi import ROI
 
@@ -32,14 +33,47 @@ def test_a_region_over_an_edge_keeps_the_part_inside(
 
 
 def test_a_trimmed_region_crops_what_lies_inside() -> None:
-    """The crop covers the part of the region inside the image. ``crop`` on a region
-    with a negative corner slices from the far edge, so the region is trimmed first.
+    """The crop covers the part of the region inside the image. ``crop`` refuses a
+    region reaching off the image, so the region is trimmed first.
     """
     image = np.arange(BOUNDS[0] * BOUNDS[1]).reshape(BOUNDS)
     region = ROI(-5, 50, 20, 20)
     np.testing.assert_array_equal(
         region.trimmed_to(BOUNDS).crop(image), image[0:15, 50:60]
     )
+    with pytest.raises(ValueError, match="does not lie inside"):
+        region.crop(image)
+
+
+@pytest.mark.parametrize(
+    "to_array", [np.asarray, torch.as_tensor], ids=["numpy", "torch"]
+)
+@pytest.mark.parametrize(
+    "region",
+    [
+        ROI(31, 50, 10, 10),  # over the bottom edge
+        ROI(-1, 7, 10, 12),  # over the top edge
+        ROI(-12, 7, 10, 12),  # wholly above, which slicing wraps from the bottom
+        ROI(5, 7, 0, 12),  # no pixels
+    ],
+)
+def test_crop_refuses_a_region_reaching_off_the_image(region: ROI, to_array) -> None:
+    image = to_array(np.zeros(BOUNDS))
+    with pytest.raises(ValueError, match="does not lie inside the 40 x 60 image"):
+        region.crop(image)
+
+
+def test_crop_checks_the_trailing_axes_of_a_stack() -> None:
+    """A stack of frames is checked against the size of one frame."""
+    stack = np.zeros((3, *BOUNDS))
+    assert ROI(30, 50, 10, 10).crop(stack).shape == (3, 10, 10)
+    with pytest.raises(ValueError, match="does not lie inside"):
+        ROI(31, 50, 10, 10).crop(stack)
+
+
+def test_pad_refuses_a_region_reaching_off_the_frame() -> None:
+    with pytest.raises(ValueError, match="does not lie inside the 40 x 60 frame"):
+        ROI(-12, 7, 10, 12).pad(np.ones((10, 12)), BOUNDS)
 
 
 @pytest.mark.parametrize(

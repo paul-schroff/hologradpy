@@ -44,7 +44,7 @@ def _model() -> SLMFFT:
     )
     return SLMFFT(
         input_geometry=beam.geometry,
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         slm_field=PixelwiseSLMField(beam),
         focal_length=FOCAL_LENGTH,
         padded_resolution=(128, 128),

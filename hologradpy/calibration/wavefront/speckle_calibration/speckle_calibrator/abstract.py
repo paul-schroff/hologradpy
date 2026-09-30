@@ -284,8 +284,9 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
             number_of_epochs: Passes over the dataset.
             batch_size: Patterns per optimizer step.
             subset_indices: Fit only these patterns of the dataset. Defaults to all.
-            benchmark_calibration: An existing calibration to add to every pattern, for
-                measuring the residual of a previous fit.
+            benchmark_calibration: An existing calibration whose correction, the
+                negative of its phase, is added to every pattern, for measuring the
+                residual of a previous fit.
             seed: Seed for the pattern noise.
             verbose: Print the loss as the fit runs.
             beam_mask_threshold: Fraction of the peak intensity above which a pixel

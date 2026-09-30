@@ -104,7 +104,7 @@ WITHOUT_ADJOINT: dict[str, callable] = {
     "GeometricWarp": lambda: GeometricWarp(
         resolution_out=RESOLUTION, pixel_size_out=PIXEL_SIZE
     ),
-    "VirtualSLM": lambda: VirtualSLM(phase_scaling=1.0),
+    "VirtualSLM": lambda: VirtualSLM(full_scale_cycles=1.0),
 }
 
 

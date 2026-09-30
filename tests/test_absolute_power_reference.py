@@ -57,7 +57,7 @@ def _model(camera_resolution=(256, 256), camera_pixel_size=None) -> SLMCZT:
 
     model = SLMCZT(
         input_geometry=geometry,
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         slm_field=PixelwiseSLMField(beam),
         focal_length=FOCAL_LENGTH,
         camera_resolution=camera_resolution,

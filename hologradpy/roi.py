@@ -28,7 +28,8 @@ class ROI:
     """A rectangular region of interest in native ``(row, col)`` pixel coordinates.
 
     ``top_row`` / ``left_column`` are the top-left corner and ``height`` / ``width``
-    the extent, so ``image[roi.rows, roi.columns]`` (or :meth:`crop`) selects it.
+    the extent, so :meth:`crop` selects ``image[..., roi.rows, roi.columns]`` from an
+    image the region lies inside.
     """
 
     top_row: int
@@ -169,7 +170,18 @@ class ROI:
         return cls(top, left, bottom - top, right - left)
 
     def crop(self, image: ArrayLike) -> ArrayLike:
-        """Crop ``image`` (any array with two trailing spatial axes) to this ROI."""
+        """Crop ``image`` (any array with two trailing spatial axes) to this ROI.
+
+        Raises:
+            ValueError: The region is empty or reaches outside the two trailing axes of
+                ``image``. :meth:`trimmed_to` gives the part of a region inside them.
+        """
+        height, width = (int(size) for size in image.shape[-2:])
+        if not self.lies_inside((height, width)):
+            raise ValueError(
+                f"{self} does not lie inside the {height} x {width} image. Trim it to "
+                "the image first with trimmed_to."
+            )
         return image[..., self.rows, self.columns]
 
     def pad(
@@ -177,7 +189,15 @@ class ROI:
     ) -> ArrayLike:
         """Inverse of :meth:`crop`: place ``image`` back into a zero array of
         ``original_shape`` ``(height, width)`` at this ROI.
+
+        Raises:
+            ValueError: The region is empty or reaches outside ``original_shape``.
         """
+        if not self.lies_inside(original_shape):
+            raise ValueError(
+                f"{self} does not lie inside the {int(original_shape[0])} x "
+                f"{int(original_shape[1])} frame."
+            )
         xp = array_namespace(image)
         output = xp.zeros(
             (*image.shape[:-2], *original_shape),

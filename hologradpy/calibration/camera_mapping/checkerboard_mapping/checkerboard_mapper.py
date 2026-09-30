@@ -10,6 +10,7 @@ from scipy.ndimage import gaussian_filter
 from ....geometry import AffineTransform
 
 from ....hardware import Camera, SLM
+from ....hardware.camera import CameraData
 from ....roi import ROI
 
 from ....profiles.amplitude import checkerboard
@@ -106,6 +107,8 @@ class CheckerboardMapper(CameraMapper):
                 coarse_mapping = CoarseMapper(
                     self.slm, self.camera, self.slm_camera_model
                 ).map_camera()
+            else:
+                coarse_mapping.check_camera(self.camera)
 
             lens = self.slm_camera_model.fourier_lens
             simulation_pixel_size = lens.pixel_size_out.tolist()[0]  # (y, x) metres
@@ -310,6 +313,12 @@ class CheckerboardMapper(CameraMapper):
                     reprojection_errors=reprojection_errors,
                     reprojection_rms=reprojection_rms,
                 ),
+                camera_data=CameraData.from_camera(self.camera),
+                output_pixel_size=(
+                    float(simulation_pixel_size[0]),
+                    float(simulation_pixel_size[1]),
+                ),
+                output_resolution=(int(resolution_out[0]), int(resolution_out[1])),
                 visualization_data=CameraMappingVisualizationData(
                     camera_image=averaged_camera_image,
                     simulated_image=simulated_camera_image,

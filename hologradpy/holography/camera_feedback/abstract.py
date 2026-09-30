@@ -113,14 +113,17 @@ class FeedbackCorrectorBase(ABC):
                 is then taken from the retriever.
             init_slm_phase: Starting phase for the retriever.
             phase_retriever: An existing phase retriever. One is built when None.
-            camera_mapping: How the camera sits relative to the model. The model is
-                calibrated from it before the loop starts. When None,
+            camera_mapping: How the camera sits relative to the model, checked against
+                ``camera``. The model is calibrated from it before the loop starts.
+                When None,
                 :meth:`apply_camera_mapping` measures one with a
                 :class:`~hologradpy.calibration.camera_mapping.SpotArrayMapper`.
             loss_scale: Slope of the cost function of the default retriever.
         """
         self.slm = as_slm(slm)
         self.camera = as_camera(camera)
+        if camera_mapping is not None:
+            camera_mapping.check_camera(self.camera)
         self.camera_mapping = camera_mapping
         self.target_position = target_position
 
@@ -178,8 +181,10 @@ class FeedbackCorrectorBase(ABC):
         )
 
     def zeroth_order_pixels(self) -> tuple[float, float]:
-        """Where the undiffracted spot sits on the sensor, as ``(row, column)``."""
-        row, column = self._mapping.zeroth_order_position
+        """Where the calibrated model puts the undiffracted spot on the sensor, as
+        ``(row, column)``.
+        """
+        row, column = self._mapping.image_plane_to_sensor(np.zeros((1, 2)))[0]
         return float(row), float(column)
 
     def target_center_pixels(self) -> tuple[float, float]:
@@ -194,45 +199,10 @@ class FeedbackCorrectorBase(ABC):
         means half a millimetre along the *optical* x axis, wherever that falls on a
         rotated sensor, rather than half a millimetre along the sensor's own columns.
         """
-        row, column = self._camera_pixels_from_optical_metres(
+        row, column = self._mapping.image_plane_to_sensor(
             np.asarray([self.target_position])
         )[0]
         return float(row), float(column)
-
-    # TODO: Check how the camera returns the pixel pitch
-    def _camera_pitch(self) -> tuple[float, float]:
-        """Camera pixel pitch as ``(y, x)`` floats."""
-        pitch = np.asarray(self.camera.pixel_size, dtype=float).reshape(-1)
-        return float(pitch[0]), float(pitch[1])
-
-    def _camera_pixels_from_optical_metres(self, points: np.ndarray) -> np.ndarray:
-        """Optical-plane ``(x, y)`` metres from the zeroth order to sensor
-        ``(row, column)``.
-        """
-        pitch_y, pitch_x = self._camera_pitch()
-        zeroth_row, zeroth_column = self.zeroth_order_pixels()
-
-        linear = self._mapping.partial_affine.inverse().linear
-        points = np.atleast_2d(np.asarray(points, dtype=float))
-        scaled = np.stack([points[:, 0] / pitch_x, points[:, 1] / pitch_y], axis=1)
-        columns, rows = (linear @ scaled.T)
-
-        return np.stack([rows + zeroth_row, columns + zeroth_column], axis=1)
-
-    def _optical_metres_from_pixels(self, points: np.ndarray) -> np.ndarray:
-        """Sensor ``(row, column)`` to optical-plane ``(x, y)`` metres from the zeroth
-        order, the inverse of :meth:`_camera_pixels_from_optical_metres`.
-        """
-        pitch_y, pitch_x = self._camera_pitch()
-        zeroth_row, zeroth_column = self.zeroth_order_pixels()
-
-        linear = self._mapping.partial_affine.linear
-        points = np.atleast_2d(np.asarray(points, dtype=float))
-        offsets = np.stack(
-            [points[:, 1] - zeroth_column, points[:, 0] - zeroth_row], axis=1
-        )
-        x_pixels, y_pixels = (linear @ offsets.T)
-        return np.stack([x_pixels * pitch_x, y_pixels * pitch_y], axis=1)
 
     def _addressable_corners_pixels(self) -> np.ndarray:
         """The four corners of the addressable region, as sensor ``(row, column)``."""
@@ -245,7 +215,7 @@ class FeedbackCorrectorBase(ABC):
                 [-half_x, half_y],
             ]
         )
-        return self._camera_pixels_from_optical_metres(corners)
+        return self._mapping.image_plane_to_sensor(corners)
 
     def place_target(self) -> None:
         """Build the full-frame target from the patch and hand it to the retriever.
@@ -410,6 +380,7 @@ class FeedbackCorrectorBase(ABC):
                 virtual_slm.set_phase(held_phase)
                 self.slm.set_phase(gpu_to_numpy(held_phase))
 
+        self.camera_mapping.check_camera(self.camera)
         self.slm_camera_model.calibrate_from_mapping(self.camera_mapping)
         return self.camera_mapping
 
@@ -428,7 +399,7 @@ class FeedbackCorrectorBase(ABC):
         )
 
         half_x, half_y = self.slm_camera_model.addressable_half_extent()
-        corners_optical = self._optical_metres_from_pixels(
+        corners_optical = self._mapping.sensor_to_image_plane(
             np.array(
                 [
                     [center_row - patch_height / 2, center_column - patch_width / 2],

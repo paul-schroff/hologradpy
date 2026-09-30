@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import torch
 from torch import Tensor
 
@@ -33,6 +35,12 @@ class FourierLensCZT(OpticsModule):
     (pixel_in * resolution_in * pixel_out)``, so that with the parameters at their
     identity values (scale 1, shift 0, angle 0) a focal pixel measures
     ``pixel_out``.
+
+    The field is padded before the transform, so the rotation keeps its corners. With
+    ``padded_resolution`` left at None, the padding follows the angle of the partial
+    affine and grows whenever a larger angle needs more room, including an angle set by
+    a calibration after the first pass. An explicit ``padded_resolution`` is used as
+    given.
     """
 
     def __init__(
@@ -49,8 +57,6 @@ class FourierLensCZT(OpticsModule):
         super().__init__(pixel_size_out, resolution_out)
 
         self.focal_length: float = focal_length
-        # The starting angle in degrees. It sizes the padding for the rotation.
-        self.angle_init: float = angle
         self.learnable: bool = learnable
         self.focal_plane_partial_affine = LearnablePartialAffine(
             resolution_out, shift=shift, angle=angle, learnable=learnable
@@ -62,31 +68,68 @@ class FourierLensCZT(OpticsModule):
         # Output geometry (pixel_size_out / resolution_out) is set from the
         # constructor args by the base before this runs.
         self._input_resolution: tuple[int, int] = tuple(complex_amplitude.resolution)
-        self._padded_resolution: tuple[int, int] = self._resolve_padding()
-
-        resolution_in = torch.tensor(
-            self._padded_resolution,
-            device=complex_amplitude.device,
-            dtype=complex_amplitude.dtype_r,
-        )
-
-        # Per-wavelength base magnification in (x, y). Built from the (y, x)
-        # array-axis pixel_size / resolution and flipped once here into the (x, y)
-        # focal-plane convention the chirp-z and the learnable params share. This is
-        # the single boundary between the array-axis and focal-plane conventions.
-        self._base_magnification: Tensor = fourier_lens_magnification(
-            complex_amplitude.wavelength.unsqueeze(-1),
-            self.focal_length,
-            complex_amplitude.pixel_size,
-            resolution_in.unsqueeze(0),
-            self._pixel_size_out.unsqueeze(0),
-        ).flip(-1)  # (n_wl, 2): (x, y)
 
         # scale_factor and shift are (x, y), matching the geometry / GeometricWarp
         # convention and the (x, y) base magnification, so they combine directly.
         self.focal_plane_partial_affine.to(
             device=complex_amplitude.device, dtype=complex_amplitude.dtype_r
         )
+        self._set_padding(self._resolve_padding())
+
+    def _set_padding(self: FourierLensCZT, padded_resolution: tuple[int, int]) -> None:
+        """Transform on ``padded_resolution``, with the base magnification that keeps
+        the focal plane sampled at ``pixel_size_out`` on that frame.
+        """
+        self._padded_resolution: tuple[int, int] = padded_resolution
+        # On the device and in the dtype of the scale factor it multiplies in forward.
+        scale_factor = self.focal_plane_partial_affine.scale_factor
+        resolution_in = torch.tensor(
+            padded_resolution, device=scale_factor.device, dtype=scale_factor.dtype
+        )
+        # The output pitch is (2,) during lazy_init and (n_wavelengths, 2) after it.
+        pixel_size_out = self._pixel_size_out
+        if pixel_size_out.ndim == 1:
+            pixel_size_out = pixel_size_out.unsqueeze(0)
+
+        # Per-wavelength base magnification in (x, y). Built from the (y, x)
+        # array-axis pixel_size / resolution and flipped once here into the (x, y)
+        # focal-plane convention the chirp-z and the learnable params share. This is
+        # the single boundary between the array-axis and focal-plane conventions.
+        self._base_magnification: Tensor = fourier_lens_magnification(
+            self.input_geometry.wavelength.unsqueeze(-1),
+            self.focal_length,
+            self.pixel_size_in,
+            resolution_in.unsqueeze(0),
+            pixel_size_out,
+        ).flip(-1)  # (n_wl, 2): (x, y)
+
+    def _grow_padding_for_angle(self: FourierLensCZT) -> None:
+        """Grow the automatic padding until it holds the rotation of the current angle.
+
+        The padding never shrinks, and an explicit ``padded_resolution`` is used as
+        given.
+
+        Raises:
+            ValueError: The angle lies more than 60 degrees from both 0 and 180
+                degrees.
+        """
+        angle = float(self.focal_plane_partial_affine.angle.detach())
+        if abs(math.cos(math.radians(angle))) < 0.5:
+            raise ValueError(
+                f"The focal-plane partial affine rotates by {angle:.1f} degrees, and "
+                "the chirp-z lens only rotates by up to 60 degrees from 0 or 180 "
+                "degrees. Set the orientation the camera mapping suggests with "
+                "Camera.set_orientation, or model the system with SLMNUFFT."
+            )
+        if self.padded_resolution is not None:
+            return
+        needed = padded_resolution_for_rotation(self._input_resolution, angle)
+        grown = tuple(
+            max(current, need)
+            for current, need in zip(self._padded_resolution, needed)
+        )
+        if grown != self._padded_resolution:
+            self._set_padding(grown)
 
     def _power_prefactor(self: FourierLensCZT) -> Tensor:
         """Fourier-lens amplitude prefactor ``(du*dv) / (lambda*f)`` per
@@ -107,7 +150,8 @@ class FourierLensCZT(OpticsModule):
     def _resolve_padding(self: FourierLensCZT) -> tuple[int, int]:
         if self.padded_resolution is None:
             return padded_resolution_for_rotation(
-                self._input_resolution, float(self.angle_init)
+                self._input_resolution,
+                float(self.focal_plane_partial_affine.angle.detach()),
             )
 
         padded = tuple(int(length) for length in self.padded_resolution)
@@ -157,6 +201,7 @@ class FourierLensCZT(OpticsModule):
     def forward(
         self: FourierLensCZT, complex_amplitude: ComplexAmplitude
     ) -> ComplexAmplitude:
+        self._grow_padding_for_angle()
         flat_field, batch_spec = complex_amplitude.flatten_batch()  # (N, n_wl, H, W)
         field = to_canvas(flat_field, self._padded_resolution)
 
@@ -183,6 +228,7 @@ class FourierLensCZT(OpticsModule):
         """Conjugate transpose of :meth:`forward`: the chirp-z adjoint, the inverse
         rotation, then crop.
         """
+        self._grow_padding_for_angle()
         flat_field, batch_spec = complex_amplitude.flatten_batch()
         scale_factor = self.focal_plane_partial_affine.scale_factor
         scale = scale_factor.abs() * self._base_magnification

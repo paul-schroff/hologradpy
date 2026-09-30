@@ -132,7 +132,7 @@ def test_a_component_out_of_range_says_so() -> None:
 def _fourier_model(number_of_components: int = SCALAR) -> SLMFFT:
     return SLMFFT(
         input_geometry=_geometry(number_of_components),
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         slm_field=PixelwiseSLMField(),
         focal_length=0.1,
         padded_resolution=(64, 64),
@@ -142,7 +142,7 @@ def _fourier_model(number_of_components: int = SCALAR) -> SLMFFT:
 def _chirp_z_model(number_of_components: int = SCALAR) -> SLMCZT:
     return SLMCZT(
         input_geometry=_geometry(number_of_components),
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         slm_field=PixelwiseSLMField(),
         focal_length=0.1,
         camera_resolution=CAMERA_RESOLUTION,

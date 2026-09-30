@@ -7,6 +7,8 @@ positioned so the zeroth order misses the sensor entirely.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 import torch
@@ -113,7 +115,7 @@ def _build_setup(
     camera.get_image()
     model = SLMFFT(
         input_geometry=geometry,
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         slm_field=PixelwiseSLMField(beam),
         focal_length=0.25,
         padded_resolution=(512, 512),
@@ -121,14 +123,14 @@ def _build_setup(
     return slm, camera, model
 
 
-def test_the_zeroth_order_is_confirmed_through_an_overexposed_camera():
-    """The probe that locates the zeroth order stops as soon as it is detectable, which
-    a saturated frame already is, so it leaves the camera far overexposed.
+def test_the_zeroth_order_is_located_through_an_overexposed_camera():
+    """The probe that finds the spot at zero tilt stops as soon as it is detectable,
+    which a saturated frame already is, so it leaves the camera far overexposed.
 
     An SLM that leaves light undiffracted then reads the same overexposed peak under the
-    suppressing grating as without it, and its real zeroth order is dismissed as stray
-    light. Pixel crosstalk leaves about a tenth of it, which is plenty to overexpose the
-    sensor. The confirmation therefore has to make its own measurement below full scale.
+    suppressing grating as without it. Pixel crosstalk leaves about a tenth of it, which
+    is plenty to overexpose the sensor. The zeroth order is therefore located on a frame
+    of its own below full scale.
     """
     slm, camera, model = _build_setup(
         pixel_crosstalk=SuperGaussianCrosstalk(upscale_factor=3, order=2.0, width=1.0)
@@ -136,24 +138,96 @@ def test_the_zeroth_order_is_confirmed_through_an_overexposed_camera():
     mapper = CoarseMapper(slm, camera, model)
     spot_radius = 2.0 * float(min(camera.pixel_size))
 
+    # The exposure handed over by the probe. It overexposes the zeroth order by a wide
+    # margin, with and without the grating.
     flat = np.zeros(slm.resolution, dtype=np.float32)
     slm.set_phase(flat)
-    camera.set_exposure(1e-3)
-    camera.autoexpose(
-        set_fraction=0.5, exposure_bounds=(0, 1), raise_on_rail=False, verbose=False
-    )
-    located = np.asarray(camera.get_image())
-    assert located.max() < camera.max_pixel_value
-
-    # The exposure handed over by the probe. It overexposes the zeroth order by a wide
-    # margin.
     camera.set_exposure(1e-3)
     assert np.asarray(camera.get_image()).max() >= camera.max_pixel_value
     slm.set_phase(binary_phase_grating(slm.resolution))
     assert np.asarray(camera.get_image()).max() >= camera.max_pixel_value
     slm.set_phase(flat)
 
-    assert mapper._confirm_zeroth_order(located, spot_radius)
+    located = mapper._locate_zeroth_order(focal_length=0.25, spot_radius=spot_radius)
+
+    assert located == pytest.approx(ALIGNED_ZEROTH_ORDER, abs=1.0)
+
+
+# The zeroth order of the aligned bench, (row, column), at the centre of the sensor.
+ALIGNED_ZEROTH_ORDER = (120.0, 160.0)
+
+# The share of the beam the SLM leaves unmodulated, which makes the zeroth order one and
+# a half times as bright as a probe.
+UNMODULATED_FRACTION = 0.6
+
+
+def _add_unmodulated_light(slm: SimulatedSLMTorch, fraction: float) -> None:
+    """Leave ``fraction`` of the beam unmodulated by the simulated SLM.
+
+    The field leaving the SLM is ``sqrt(1 - fraction) exp(i phase) + sqrt(fraction)``,
+    so the zeroth order keeps ``fraction`` of the light whatever the SLM shows.
+    """
+    virtual_slm = slm.virtual_slm
+
+    def forward(complex_amplitude: ComplexAmplitude) -> ComplexAmplitude:
+        phase = virtual_slm.apply_phase_transforms(virtual_slm.get_phase())
+        phase = virtual_slm.align_phase(phase, complex_amplitude.ndim)
+        modulation = np.sqrt(1.0 - fraction) * torch.exp(1j * phase) + np.sqrt(fraction)
+        output = complex_amplitude * modulation
+        return output.with_geometry(
+            wavelength=output.wavelength, pixel_size=virtual_slm.pixel_size_out
+        )
+
+    virtual_slm.forward = forward
+
+
+@pytest.mark.parametrize(
+    ("bench", "mirrored", "rotation_degrees"),
+    [
+        ({}, False, 0.0),
+        ({"camera_angle": 10.0, "camera_shift": (20, -10)}, False, -10.0),
+        ({"rot": "90"}, False, 90.0),
+        ({"fliplr": True}, True, None),
+    ],
+    ids=["aligned", "rotated-and-shifted", "quarter-turn", "mirrored"],
+)
+def test_a_zeroth_order_brighter_than_the_probes_is_masked(
+    bench: dict, mirrored: bool, rotation_degrees: float | None
+) -> None:
+    """The SLM leaves more light in the zeroth order than in a probe. The zeroth order
+    is located and masked, so every probe is fitted at its own position.
+    """
+    slm, camera, model = _build_setup(**bench)
+    _add_unmodulated_light(slm, UNMODULATED_FRACTION)
+
+    coarse = CoarseMapper(slm, camera, model).map_camera()
+
+    assert coarse.is_mirrored == mirrored
+    if rotation_degrees is not None:
+        assert abs(coarse.rotation_degrees) == pytest.approx(
+            abs(rotation_degrees), abs=0.5
+        )
+    assert coarse.fit.reprojection_rms < 1.0
+
+
+def test_a_located_zeroth_order_seeds_the_centre_search(monkeypatch):
+    """The zeroth order is a spot on the sensor at zero tilt, so the mapping starts
+    there. It needs neither the spiral search nor the exposure of a spot array, and a
+    given initial tilt is not used, even one that misses the sensor.
+    """
+    slm, camera, model = _build_setup()
+    mapper = CoarseMapper(slm, camera, model)
+
+    def not_needed(*arguments, **options):
+        raise AssertionError("Not needed with the zeroth order on the sensor.")
+
+    monkeypatch.setattr(mapper, "_search_spot", not_needed)
+    monkeypatch.setattr(mapper, "_calibrate_exposure", not_needed)
+
+    coarse = mapper.map_camera(initial_tilt=(5e-3, 5e-3))
+
+    assert coarse.zeroth_order_position == pytest.approx(ALIGNED_ZEROTH_ORDER, abs=1.0)
+    assert coarse.fit.reprojection_rms < 1.0
 
 
 # --- CameraMapping orientation properties --------------------------------------
@@ -448,16 +522,89 @@ def test_map_camera_orientation_off_by_default():
     assert coarse.orientation is None
 
 
-def test_camera_mapping_records_camera_data_and_pickles(tmp_path):
+def test_camera_mapping_records_the_camera_and_the_output_plane(tmp_path):
+    """The mapping records the camera it was measured with and the output plane of its
+    model, and both survive a save and a load.
+    """
     slm, camera, model = _build_setup()
     coarse = CoarseMapper(slm, camera, model).map_camera()
+    output = model[-1]
     assert coarse.camera_data is not None
     assert np.asarray(coarse.camera_data.orientation).shape == (2, 3)
-    # The mapping (with the CameraData snapshot) still round-trips through pickle.
+    assert coarse.output_pixel_size == pytest.approx(
+        tuple(output.pixel_size_out.tolist()[0])
+    )
+    assert coarse.output_resolution == tuple(output.resolution_out)
+
     path = str(tmp_path / "coarse_mapping.asdf")
     coarse.save(path)
     loaded = CameraMapping.load(path)
     assert loaded.camera_data.resolution == tuple(camera.shape)
+    assert loaded.output_pixel_size == coarse.output_pixel_size
+    assert loaded.output_resolution == coarse.output_resolution
+
+
+# --- checking a mapping against the camera it is used with ----------------------
+
+
+@pytest.fixture(scope="module")
+def measured_camera():
+    """A camera and the coarse mapping measured with it, shared by the checks."""
+    slm, camera, model = _build_setup()
+    return camera, CoarseMapper(slm, camera, model).map_camera()
+
+
+def test_a_mapping_accepts_the_camera_it_was_measured_with(measured_camera, tmp_path):
+    """The region of interest is not compared, and the check holds after a save and a
+    load.
+    """
+    camera, mapping = measured_camera
+    mapping.check_camera(camera)
+
+    path = tmp_path / "coarse_mapping.asdf"
+    mapping.save(path)
+    loaded = CameraMapping.load(path)
+    camera.set_roi(ROI(10, 20, 50, 60))
+    try:
+        loaded.check_camera(camera)
+    finally:
+        camera.set_roi(None)
+
+
+def test_a_mapping_refuses_a_camera_turned_since_it_was_measured(measured_camera):
+    camera, mapping = measured_camera
+    camera.set_orientation(CameraOrientation(rot="180"))
+    try:
+        with pytest.raises(ValueError, match="mounted"):
+            mapping.check_camera(camera)
+    finally:
+        camera.set_orientation(CameraOrientation())
+
+
+def test_a_mapping_refuses_a_sensor_of_another_resolution(measured_camera):
+    camera, mapping = measured_camera
+    other = replace(
+        mapping,
+        camera_data=replace(mapping.camera_data, sensor_resolution=(120, 160)),
+    )
+    with pytest.raises(ValueError, match="120 x 160 sensor"):
+        other.check_camera(camera)
+
+
+def test_a_mapping_refuses_a_camera_of_another_pixel_pitch(measured_camera):
+    camera, mapping = measured_camera
+    pitch_y, pitch_x = mapping.camera_data.pixel_size
+    other = replace(
+        mapping,
+        camera_data=replace(mapping.camera_data, pixel_size=(2 * pitch_y, 2 * pitch_x)),
+    )
+    with pytest.raises(ValueError, match="pitch"):
+        other.check_camera(camera)
+
+
+def test_a_mapping_without_camera_data_is_not_checked(measured_camera):
+    camera, mapping = measured_camera
+    replace(mapping, camera_data=None).check_camera(camera)
 
 
 def test_coarse_mapping_accepts_initial_tilt():
@@ -658,19 +805,10 @@ def test_calibrate_exposure_uses_visible_array():
     assert exposure >= 0.0
 
 
-def test_calibrate_exposure_none_when_zeroth_order_on_sensor():
-    """When the zeroth order lands on the sensor no array calibration is needed;
-    the helper returns None so the search keeps its normal per-probe path.
-    """
-    slm, camera, model = _build_setup()  # centered sensor: DC on it
-    mapper = CoarseMapper(slm, camera, model)
-    assert mapper._calibrate_exposure(*_calibration_args(slm, (240, 320))) is None
-
-
-def test_calibrate_exposure_rejects_speckle_as_zeroth_order():
+def test_a_speckle_grain_is_not_taken_for_the_zeroth_order():
     """A bright static speckle background must not be mistaken for the zeroth
-    order. The zero-tilt probe latches onto a speckle grain, but the 0/pi-grating
-    confirmation rejects it (it does not dim), so the array path is taken.
+    order. The zero-tilt probe latches onto a speckle grain, but the 0/pi grating
+    leaves it as bright as it was, so no zeroth order is located.
     """
     slm, camera, model = _build_setup(
         camera_angle=10.0, camera_shift=(60, 100), camera_resolution=(120, 160),
@@ -683,8 +821,8 @@ def test_calibrate_exposure_rejects_speckle_as_zeroth_order():
         mapper._spot_on_sensor((0.0, 0.0), focal_length, None, spot_radius)
         is not None
     )
-    # But the 0/pi confirmation rejects it, so a fixed array exposure is returned.
-    assert mapper._calibrate_exposure(*_calibration_args(slm, (120, 160))) is not None
+
+    assert mapper._locate_zeroth_order(focal_length, spot_radius) is None
 
 
 def test_calibrate_exposure_warns_and_clamps_below_hardware_bound():

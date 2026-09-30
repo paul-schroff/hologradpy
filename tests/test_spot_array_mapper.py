@@ -75,14 +75,14 @@ def _build_setup(camera_angle: float = 0.0):
         camera_angle=camera_angle,
         camera_shift=(0, 0),
     )
-    camera = SimulatedCameraTorch(simulated_camera_model)
+    camera = SimulatedCameraTorch(simulated_camera_model, add_noise=False)
     camera.set_exposure(1e-3)
     # Forward-initialize the shared slm.virtual_slm so set_phase() works later.
     camera.get_image()
 
     slm_camera_model = SLMFFT(
         input_geometry=slm_geometry,
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         slm_field=PixelwiseSLMField(gaussian_beam),
         focal_length=0.25,
         padded_resolution=(512, 512),
@@ -177,6 +177,24 @@ def test_weighted_average_matches_hand_computed():
 
 
 # --- end-to-end smoke test ----------------------------------------------------
+
+
+def test_the_mapping_records_the_camera_and_the_output_plane(
+    simulated_setup, spot_array_mapping
+):
+    """The mapping records the whole sensor it was measured on and the output plane of
+    its model.
+    """
+    _, camera, slm_camera_model = simulated_setup
+    output = slm_camera_model[-1]
+    mapping = spot_array_mapping
+
+    assert mapping.camera_data.sensor_resolution == tuple(camera.sensor_resolution)
+    assert mapping.camera_data.resolution == tuple(camera.sensor_resolution)
+    assert mapping.output_pixel_size == pytest.approx(
+        tuple(output.pixel_size_out.tolist()[0])
+    )
+    assert mapping.output_resolution == tuple(output.resolution_out)
 
 
 def test_map_camera_returns_populated_mapping(spot_array_mapping):
@@ -314,7 +332,7 @@ def test_the_mapper_reads_the_output_layer_geometry(simulated_setup):
     slm, camera, _ = simulated_setup
     model = SLMFFTAffine(
         input_geometry=slm.input_geometry,
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         camera_resolution=(240, 320),
         camera_pixel_size=(30e-6, 30e-6),
         focal_length=0.25,

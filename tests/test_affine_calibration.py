@@ -15,6 +15,7 @@ the same calibrated affine.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 
 import numpy as np
@@ -187,7 +188,7 @@ def _oracle_bench(build):
 def _run_oracle(build, seed_angle, seed_shift):
     geometry, slm, beam, camera = _oracle_bench(build)
     reference = build(
-        geometry, beam, VirtualSLM(phase_scaling=1.0), seed_angle, seed_shift
+        geometry, beam, VirtualSLM(full_scale_cycles=1.0), seed_angle, seed_shift
     )
     mapping = CoarseMapper(slm, camera, reference).map_camera()
     reference.calibrate_from_mapping(mapping)
@@ -216,7 +217,7 @@ def _slm_fft() -> SLMFFT:
     geometry, _, beam = _geometry_and_beam()
     return SLMFFT(
         input_geometry=geometry,
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         slm_field=PixelwiseSLMField(beam),
         focal_length=FOCAL,
         padded_resolution=(512, 512),
@@ -230,6 +231,34 @@ def test_calibrate_from_mapping_rejects_system_without_focal_plane_partial_affin
         model.calibrate_from_mapping(mapping)
 
 
+def test_a_mapping_of_another_output_plane_is_refused():
+    """A mapping records the output plane of the model it was measured against, and a
+    model with another output plane refuses it.
+    """
+    geometry, _, beam = _geometry_and_beam()
+    model = _czt(geometry, beam, VirtualSLM(full_scale_cycles=1.0), 0.0, (0.0, 0.0))
+    model()
+    output = model[-1]
+    pixel_size = tuple(output.pixel_size_out.tolist()[0])
+    resolution = tuple(output.resolution_out)
+    mapping = replace(
+        _calibration_mapping(),
+        output_pixel_size=pixel_size,
+        output_resolution=resolution,
+    )
+
+    model.calibrate_from_mapping(mapping)
+
+    with pytest.raises(ValueError, match="output plane"):
+        model.calibrate_from_mapping(
+            replace(mapping, output_pixel_size=(2 * pixel_size[0], 2 * pixel_size[1]))
+        )
+    with pytest.raises(ValueError, match="output plane"):
+        model.calibrate_from_mapping(
+            replace(mapping, output_resolution=(resolution[0] // 2, resolution[1]))
+        )
+
+
 # --- calibrating from a mapping -------------------------------------------------
 
 SEED_ANGLE = 4.0
@@ -240,7 +269,7 @@ BUILDERS = {"czt": _czt, "fft_affine": _fft_affine}
 def _reference(build, angle: float = 0.0, shift: tuple[float, float] = (0.0, 0.0)):
     """A reference model of the oracle geometry, run once so its affine exists."""
     geometry, _, beam = _geometry_and_beam()
-    model = build(geometry, beam, VirtualSLM(phase_scaling=1.0), angle, shift)
+    model = build(geometry, beam, VirtualSLM(full_scale_cycles=1.0), angle, shift)
     model()
     return model
 
@@ -354,6 +383,45 @@ def test_a_different_mapping_replaces_the_calibration():
     _assert_affine_equal(model, expected)
 
 
+def test_calibrating_to_a_larger_angle_keeps_the_corners():
+    """A calibration can set a larger angle than the seed, and the padding of the
+    chirp-z lens grows to hold it. A model seeded at 0 degrees and calibrated to about
+    20 degrees matches a model seeded at the calibrated angle, and so keeps the corners
+    of a beam that fills the SLM.
+    """
+    geometry, _, _ = _geometry_and_beam()
+    uniform_beam = ComplexAmplitude(
+        torch.ones(geometry.resolution, dtype=torch.complex64),
+        wavelength=geometry.wavelength,
+        pixel_size=geometry.pixel_size,
+    )
+    mapping = _calibration_mapping(angle_deg=-20.0)
+
+    def calibrated_model(seed_angle: float) -> SLMCZT:
+        model = _czt(
+            geometry,
+            uniform_beam,
+            VirtualSLM(full_scale_cycles=1.0),
+            seed_angle,
+            (0.0, 0.0),
+        )
+        model()
+        model.calibrate_from_mapping(mapping)
+        return model
+
+    seeded_at_zero = calibrated_model(0.0)
+    angle = float(seeded_at_zero.focal_plane_partial_affine.angle)
+    expected = calibrated_model(angle)().intensity.detach()
+
+    assert angle == pytest.approx(20.0, abs=0.5)
+    torch.testing.assert_close(
+        seeded_at_zero().intensity.detach(),
+        expected,
+        rtol=1e-5,
+        atol=1e-5 * float(expected.max()),
+    )
+
+
 @pytest.mark.parametrize("build", list(BUILDERS.values()), ids=list(BUILDERS))
 def test_bypass_partial_affine_holds_identity_and_restores(build):
     """The affine sits at identity inside the block. The calibrated values are
@@ -412,7 +480,7 @@ def test_a_seeded_reference_finds_the_true_zeroth_order():
     """
     geometry, slm, beam, camera = _oracle_bench(_czt)
     reference = _czt(
-        geometry, beam, VirtualSLM(phase_scaling=1.0), SEED_ANGLE, SEED_SHIFT
+        geometry, beam, VirtualSLM(full_scale_cycles=1.0), SEED_ANGLE, SEED_SHIFT
     )
 
     mapping = CoarseMapper(slm, camera, reference).map_camera()
@@ -427,7 +495,7 @@ def test_mapping_a_calibrated_model_gives_the_same_mapping():
     calibrated values in place.
     """
     geometry, slm, beam, camera = _oracle_bench(_czt)
-    reference = _czt(geometry, beam, VirtualSLM(phase_scaling=1.0), 0.0, (0.0, 0.0))
+    reference = _czt(geometry, beam, VirtualSLM(full_scale_cycles=1.0), 0.0, (0.0, 0.0))
 
     first = CoarseMapper(slm, camera, reference).map_camera()
     reference.calibrate_from_mapping(first)

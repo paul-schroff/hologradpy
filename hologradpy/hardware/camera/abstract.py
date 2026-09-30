@@ -656,9 +656,12 @@ class Camera(ABC):
         bound when the lower one is zero too. Each step sets an exposure, reads back the
         applied exposure, and measures one frame, so the search measures at most
         ``1 + max_iterations`` frames. An overexposed peak cuts the exposure by
-        ``overexposed_factor``. A peak below full scale scales the exposure to the
-        target, up to ``set_fraction`` times the shortest exposure that overexposed the
-        region. The target lies at or below this cap for a linear sensor.
+        ``overexposed_factor`` until a frame peaks below full scale. From then on, an
+        overexposed peak steps to the geometric mean of the longest exposure below full
+        scale and the shortest overexposed one, when the first is the shorter. A peak
+        below full scale scales the exposure to the target, up to ``set_fraction`` times
+        the shortest exposure that overexposed the region. The target lies at or below
+        this cap for a linear sensor.
 
         A step cut short by the bounds lands on the bound and measures it. The search
         has railed when its next step asks to pass an already measured bound, when the
@@ -694,7 +697,7 @@ class Camera(ABC):
                 or None for :attr:`exposure_search_bounds`. A maximum above
                 ``DEFAULT_MAX_EXPOSURE`` is reached only through these bounds.
             overexposed_factor: The factor that multiplies the exposure after an
-                overexposed peak.
+                overexposed peak, until a frame peaks below full scale.
             raise_on_rail: Whether a rail raises ``RuntimeError``. Otherwise the search
                 settles and warns.
             max_iterations: The number of exposure steps after the first frame.
@@ -783,10 +786,32 @@ class Camera(ABC):
                     ):
                         outcome = "converged"
                         break
+                    overexposed_at = [
+                        measured_exposure
+                        for measured_exposure, measured_peak in peak_by_exposure.items()
+                        if measured_exposure > 0.0 and measured_peak >= full_scale
+                    ]
+                    below_full_scale_at = [
+                        measured_exposure
+                        for measured_exposure, measured_peak in peak_by_exposure.items()
+                        if measured_exposure > 0.0 and measured_peak < full_scale
+                    ]
                     if peak >= full_scale:
                         # An overexposed peak hides the true one, so no proportional
-                        # step can be computed.
-                        desired = exposure * overexposed_factor
+                        # step can be computed. Once a shorter exposure has kept the
+                        # peak below full scale, the step goes to the geometric mean of
+                        # the longest exposure below full scale and the shortest
+                        # overexposed one.
+                        if (
+                            overexposed_at
+                            and below_full_scale_at
+                            and max(below_full_scale_at) < min(overexposed_at)
+                        ):
+                            desired = float(
+                                np.sqrt(max(below_full_scale_at) * min(overexposed_at))
+                            )
+                        else:
+                            desired = exposure * overexposed_factor
                     else:
                         desired = exposure * set_value / max(peak, 1.0)
                         # The counts grow in proportion to the exposure, so the target
@@ -794,13 +819,6 @@ class Camera(ABC):
                         # overexposed the region. A step from a peak of a few counts
                         # is coarse, and this bound keeps it from returning to an
                         # exposure that overexposes the region.
-                        overexposed_at = [
-                            measured_exposure
-                            for measured_exposure, measured_peak in (
-                                peak_by_exposure.items()
-                            )
-                            if measured_exposure > 0.0 and measured_peak >= full_scale
-                        ]
                         if overexposed_at:
                             desired = min(
                                 desired, set_fraction * min(overexposed_at)
@@ -1119,7 +1137,7 @@ def reorient_pixels(
     return [(int(row), int(col)) for row, col in target_rows_cols]
 
 
-@record_type("camera_data", version=2)
+@record_type("camera_data")
 @dataclass(frozen=True, unsafe_hash=True)
 class CameraData(SaveableRecord):
     """A native snapshot of a camera's geometry and exposure state."""
@@ -1163,20 +1181,3 @@ class CameraData(SaveableRecord):
             roi=camera.roi,
             orientation=camera.orientation_matrix(),
         )
-
-    @classmethod
-    def _migrate(cls, version: int, stored: dict) -> dict:
-        """Rename the fields of an older record to the current names.
-
-        A version 1 record holds the sensor resolution under ``sensor_shape``.
-
-        Args:
-            version: The record version of the stored fields.
-            stored: The fields as they were read from the file.
-
-        Returns:
-            dict: The fields under the parameter names of the constructor.
-        """
-        if version < 2:
-            stored["sensor_resolution"] = stored.pop("sensor_shape")
-        return stored

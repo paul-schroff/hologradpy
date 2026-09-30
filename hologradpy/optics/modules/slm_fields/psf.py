@@ -77,7 +77,9 @@ class PSFSLMField(SLMField):
                 kernel is sampled on.
             psf_kernel_size: PSF kernel side in camera pixels, as an int or ``(y, x)``.
                 :func:`kernel_size_from_waist` sizes one around a measured focal spot.
-            psf_gaussian_waist: Gaussian waist in metres used to seed the PSF kernel.
+            psf_gaussian_waist: Gaussian waist in metres that seeds the PSF kernel.
+                Defaults to the focal waist of a Gaussian beam whose waist is half the
+                SLM width, ``wavelength * focal_length / (pi * half_width)``.
             learnable: Whether the kernel receives gradients.
             init_psf_kernel: Starting PSF kernel, ``(kernel_y, kernel_x)``. Pass the
                 measured focal spot in amplitude, which is the point spread function
@@ -107,24 +109,23 @@ class PSFSLMField(SLMField):
         extent_in_waists: float = 10.0,
         init_psf_kernel: Tensor | None = None,
     ) -> PSFSLMField:
-        """Size a kernel from a camera mapping's fitted focal spot.
+        """Size a kernel from the focal spot a camera mapping fitted.
 
-        The kernel side comes from the mapping's fitted waist, falling back to the spot
-        radius when the mapping carries no waist fit. The waist is measured, so it
-        already carries the aberration, and a worse wavefront buys a larger kernel,
-        which is when the fit needs more freedom.
+        The kernel side and the Gaussian seed both come from the waist of the mapping's
+        spot fit, ``camera_mapping.spot_fit.waist``. The waist is measured on the
+        camera, so it includes the aberration, and a worse wavefront gives a larger
+        kernel.
 
-        Pure by design: pass ``init_psf_kernel`` to seed from a captured image of the
-        focal spot, which
-        :func:`~hologradpy.calibration.spot_detection.capture_focal_spot` produces. An
-        optics module should not be reaching for a live camera itself.
+        The camera is not read here. Pass ``init_psf_kernel`` to seed the kernel from a
+        captured image of the focal spot, such as
+        :func:`~hologradpy.calibration.spot_detection.capture_focal_spot` returns.
 
         Args:
-            camera_mapping: The fitted mapping, for its waist or spot radius.
+            camera_mapping: The fitted mapping, for the waist of its spot fit.
             focal_length: Fourier lens focal length in metres.
             camera_pixel_size: Camera pitch ``(y, x)`` in metres.
             kernel_size: Kernel side in camera pixels. Sized from the waist if omitted.
-            extent_in_waists: How many waists the kernel should span when sized here.
+            extent_in_waists: How many waists the kernel spans when sized here.
             init_psf_kernel: Starting kernel, overriding the Gaussian seed.
         """
         waist: float = waist_from_camera_mapping(camera_mapping)

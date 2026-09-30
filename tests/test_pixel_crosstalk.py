@@ -62,7 +62,7 @@ def _geometry(resolution: tuple[int, int] = RESOLUTION) -> FieldGeometry:
 def _system(crosstalk=None, **kwargs) -> SLMFFT:
     return SLMFFT(
         input_geometry=_geometry(),
-        virtual_slm=VirtualSLM(phase_scaling=1.0, pixel_crosstalk=crosstalk),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0, pixel_crosstalk=crosstalk),
         slm_field=PixelwiseSLMField(),
         focal_length=FOCAL_LENGTH,
         padded_resolution=(32, 32),
@@ -431,9 +431,9 @@ def test_the_grid_adapter_caches_only_when_asked() -> None:
 # --- the wrap has to be the one the hardware uses --------------------------------
 
 
-@pytest.mark.parametrize("phase_scaling", [0.6, 1.0, 1.5, 2.0])
+@pytest.mark.parametrize("full_scale_cycles", [0.6, 1.0, 1.5, 2.0])
 def test_the_model_and_the_device_wrap_on_the_same_pixels(
-    phase_scaling: float,
+    full_scale_cycles: float,
 ) -> None:
     """The phase a simulation believes it displays is the phase the levels sent to the
     device impose.
@@ -441,7 +441,7 @@ def test_the_model_and_the_device_wrap_on_the_same_pixels(
     Without this the crosstalk convolution smears across a step the SLM puts somewhere
     else, and a fitted kernel means nothing.
     """
-    virtual_slm = VirtualSLM(phase_scaling=phase_scaling)
+    virtual_slm = VirtualSLM(full_scale_cycles=full_scale_cycles)
     virtual_slm(
         ComplexAmplitude(
             torch.ones(RESOLUTION, dtype=torch.complex64),
@@ -461,7 +461,8 @@ def test_the_model_and_the_device_wrap_on_the_same_pixels(
     imposed = virtual_slm.levels_to_phase(torch.as_tensor(sent.astype(np.float64)))
 
     # One gray level of slack, since the levels are whole numbers.
-    step = 2 * torch.pi * phase_scaling / virtual_slm.phase_response.number_of_levels
+    number_of_levels = virtual_slm.phase_response.number_of_levels
+    step = 2 * torch.pi * full_scale_cycles / number_of_levels
     assert float((imposed - believed).abs().max()) < step
 
     # And the fraction of full scale really is one the device can show.
@@ -494,21 +495,21 @@ def test_a_measured_response_wraps_where_its_table_ends() -> None:
     assert float(fraction.max()) <= 1.0
 
 
-@pytest.mark.parametrize("phase_scaling", [0.6, 1.0, 1.5])
-def test_a_level_means_the_phase_the_response_says(phase_scaling: float) -> None:
-    """Full scale reaches ``phase_scaling`` cycles, which is what the whole package
-    documents the number to mean.
+@pytest.mark.parametrize("full_scale_cycles", [0.6, 1.0, 1.5])
+def test_a_level_means_the_phase_the_response_says(full_scale_cycles: float) -> None:
+    """A response is at zero phase at level zero and ``full_scale_cycles`` cycles of
+    delay at full scale.
     """
-    response = LinearResponse(bitdepth=8, phase_scaling=phase_scaling)
+    response = LinearResponse(bitdepth=8, full_scale_cycles=full_scale_cycles)
 
     assert float(response.phase_at(np.array(1.0))) == pytest.approx(
-        -2 * np.pi * phase_scaling
+        -2 * np.pi * full_scale_cycles
     )
     assert float(response.phase_at(np.array(0.0))) == pytest.approx(0.0)
 
 
 def test_quantizing_holds_the_phase_on_whole_levels() -> None:
-    virtual_slm = VirtualSLM(phase_scaling=1.0, quantize=True)
+    virtual_slm = VirtualSLM(full_scale_cycles=1.0, quantize=True)
     virtual_slm(
         ComplexAmplitude(
             torch.ones(RESOLUTION, dtype=torch.complex64),
@@ -535,7 +536,7 @@ def test_quantizing_holds_the_phase_on_whole_levels() -> None:
 def test_the_slm_keeps_one_pattern_value_per_real_pixel() -> None:
     upscale_factor = 4
     virtual_slm = VirtualSLM(
-        phase_scaling=1.0,
+        full_scale_cycles=1.0,
         pixel_crosstalk=FreeKernelCrosstalk(upscale_factor=upscale_factor),
     )
     fine = tuple(length * upscale_factor for length in RESOLUTION)
@@ -564,7 +565,7 @@ def test_the_slm_keeps_one_pattern_value_per_real_pixel() -> None:
 
 def test_an_slm_stage_refuses_a_field_it_cannot_divide() -> None:
     virtual_slm = VirtualSLM(
-        phase_scaling=1.0, pixel_crosstalk=FreeKernelCrosstalk(upscale_factor=3)
+        full_scale_cycles=1.0, pixel_crosstalk=FreeKernelCrosstalk(upscale_factor=3)
     )
     with pytest.raises(ValueError, match="GridAdapter"):
         virtual_slm(
@@ -678,7 +679,7 @@ def test_the_other_lenses_take_the_sub_pixel_grid(system_class) -> None:
     system = system_class(
         input_geometry=_geometry(),
         virtual_slm=VirtualSLM(
-            phase_scaling=1.0, pixel_crosstalk=FreeKernelCrosstalk(3, 3)
+            full_scale_cycles=1.0, pixel_crosstalk=FreeKernelCrosstalk(3, 3)
         ),
         slm_field=PixelwiseSLMField(),
         camera_resolution=RESOLUTION,
@@ -703,7 +704,7 @@ def test_the_crosstalk_follows_the_field_onto_its_device_and_dtype() -> None:
     left behind makes ``conv2d`` raise on the first frame.
     """
     virtual_slm = VirtualSLM(
-        phase_scaling=1.0, pixel_crosstalk=FreeKernelCrosstalk(2, 3)
+        full_scale_cycles=1.0, pixel_crosstalk=FreeKernelCrosstalk(2, 3)
     )
     virtual_slm(
         ComplexAmplitude(
@@ -762,7 +763,7 @@ def _simulated_pair(pixel_crosstalk: PixelCrosstalk | None):
         slm_camera_model=model,
         bitdepth=12,
         nd_filter_optical_density=6,
-        noise_level=0,
+        read_noise=0,
     )
     return slm, camera, model
 
@@ -832,7 +833,7 @@ def test_crosstalk_costs_a_blazed_grating_its_efficiency() -> None:
     def undiffracted_fraction(crosstalk, cycles: float) -> float:
         system = SLMCZT(
             input_geometry=_geometry(slm_resolution),
-            virtual_slm=VirtualSLM(phase_scaling=1.0, pixel_crosstalk=crosstalk),
+            virtual_slm=VirtualSLM(full_scale_cycles=1.0, pixel_crosstalk=crosstalk),
             camera_resolution=camera_resolution,
             camera_pixel_size=(20e-6, 20e-6),
             focal_length=FOCAL_LENGTH,

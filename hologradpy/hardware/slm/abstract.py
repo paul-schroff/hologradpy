@@ -344,8 +344,8 @@ class SLM(ABC):
             response: The response at the SLM's bit depth. A measured curve is a
                 :class:`~hologradpy.phase_levels.LookupResponse`. A straight line
                 reaching one cycle below full scale is a
-                :class:`~hologradpy.phase_levels.LinearResponse` with ``phase_scaling``
-                above one. None returns to the nominal response.
+                :class:`~hologradpy.phase_levels.LinearResponse` with
+                ``full_scale_cycles`` above one. None returns to the nominal response.
 
         Raises:
             TypeError: ``response`` is not a ``PhaseResponse``.
@@ -375,10 +375,10 @@ class SLM(ABC):
             )
 
     @property
-    def phase_scaling(self) -> float:
+    def full_scale_cycles(self) -> float:
         """The phase delay at full scale in cycles, read from the response."""
         response = self.phase_response
-        return 1.0 if response is None else response.phase_scaling
+        return 1.0 if response is None else response.full_scale_cycles
 
     def phase_to_levels(self, phase: NDArray | torch.Tensor) -> NDArray:
         """Convert a target phase to gray levels through :attr:`phase_response`.
@@ -414,7 +414,7 @@ class SLM(ABC):
         return _spatial_grid(self.resolution, self.pixel_size, device=device)
 
 
-@record_type("slm_data", version=2)
+@record_type("slm_data")
 @dataclass(frozen=True, unsafe_hash=True)
 class SLMData(SaveableRecord):
     """A native snapshot of an SLM's geometry and modulation settings."""
@@ -434,9 +434,11 @@ class SLMData(SaveableRecord):
         return None if self.phase_response is None else self.phase_response.bitdepth
 
     @property
-    def phase_scaling(self) -> float:
+    def full_scale_cycles(self) -> float:
         """The phase delay at full scale in cycles, read from the response."""
-        return 1.0 if self.phase_response is None else self.phase_response.phase_scaling
+        if self.phase_response is None:
+            return 1.0
+        return self.phase_response.full_scale_cycles
 
     @classmethod
     def from_slm(cls, slm: SLM) -> SLMData:
@@ -456,23 +458,6 @@ class SLMData(SaveableRecord):
             phase_correction=slm.phase_correction,
             vendor_correction=slm.vendor_correction,
         )
-
-    @classmethod
-    def _migrate(cls, version: int, stored: dict) -> dict:
-        """Rename the fields of an older record to the current names.
-
-        A version 1 record holds the settling time under ``settle_time_s``.
-
-        Args:
-            version: The record version of the stored fields.
-            stored: The fields as they were read from the file.
-
-        Returns:
-            dict: The fields under the parameter names of the constructor.
-        """
-        if version < 2:
-            stored["settle_time"] = stored.pop("settle_time_s")
-        return stored
 
 
 def _phase_of(source: WavefrontSource) -> NDArray:

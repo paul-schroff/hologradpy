@@ -71,7 +71,7 @@ def _build(camera_angle=0.0, camera_shift=(0.0, 0.0)):
     camera.get_image()
     reference = SLMFFT(
         input_geometry=geometry,
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         slm_field=PixelwiseSLMField(beam),
         focal_length=FOCAL,
         padded_resolution=(PADDED, PADDED),

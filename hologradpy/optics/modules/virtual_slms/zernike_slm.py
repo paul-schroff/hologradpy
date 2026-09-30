@@ -35,7 +35,7 @@ class ZernikeSLM(VirtualSLM):
 
     def __init__(
         self: ZernikeSLM,
-        phase_scaling: float = 1.0,
+        full_scale_cycles: float = 1.0,
         number_of_radial_orders: int = 5,
         initial_coefficients: torch.Tensor | None = None,
         convention: Conventions = "Noll",
@@ -44,8 +44,8 @@ class ZernikeSLM(VirtualSLM):
     ) -> None:
         """
         Args:
-            phase_scaling: SLM phase scaling factor (``phase`` displayed modulo
-                ``phase_scaling * 2 * pi``).
+            full_scale_cycles: The phase the SLM reaches at full scale, in cycles.
+                Ignored when ``phase_response`` is given.
             number_of_radial_orders: Number of radial Zernike orders to
                 include (orders ``0 .. number_of_radial_orders - 1``).
             initial_coefficients: Optional initial coefficients. May be a 1D
@@ -57,10 +57,10 @@ class ZernikeSLM(VirtualSLM):
                 (``"fill"`` covers the corners, ``"fit"`` inscribes it).
             phase_response: The gray level to phase curve of the device, which
                 :meth:`apply_phase_transforms` wraps the reconstructed phase into.
-                Defaults to a linear response built from ``phase_scaling``.
+                Defaults to a linear response built from ``full_scale_cycles``.
         """
         super().__init__(
-            phase_scaling=phase_scaling, phase_response=phase_response
+            full_scale_cycles=full_scale_cycles, phase_response=phase_response
         )
 
         self.number_of_radial_orders: int = number_of_radial_orders

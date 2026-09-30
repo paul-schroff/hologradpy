@@ -199,27 +199,23 @@ def test_slm_native_properties():
 # --- Grayscale levels ---------------------------------------------------
 
 
-def _slm_at(bitdepth: int, wav_design_um: float | None = None, **options) -> SLM:
+def _slm_at(bitdepth: int, **options) -> SLM:
     geometry = FieldGeometry(
         resolution=(32, 48),
         pixel_size=torch.tensor([SLM_PITCH, SLM_PITCH]),
         wavelength=torch.tensor(WAVELENGTH),
     )
     return open_slm(
-        SimulatedSLMTorch,
-        input_geometry=geometry,
-        bitdepth=bitdepth,
-        wav_design_um=wav_design_um,
-        **options,
+        SimulatedSLMTorch, input_geometry=geometry, bitdepth=bitdepth, **options
     )
 
 
 # Phases that exercise the wrap: inside the modulation range, below it, and several
-# turns above it.
+# cycles above it.
 _PHASES = {
     "in range": lambda rng, shape: rng.random(shape) * 2 * np.pi,
     "negative": lambda rng, shape: rng.random(shape) * 2 * np.pi - 7.0,
-    "many turns": lambda rng, shape: rng.random(shape) * 40,
+    "many cycles": lambda rng, shape: rng.random(shape) * 40,
 }
 
 
@@ -308,12 +304,12 @@ def test_a_pattern_survives_a_display_round_trip() -> None:
     assert np.array_equal(slm.display, first)
 
 
-def test_levels_replay_with_a_phase_scaling() -> None:
-    """A target wavelength away from the design one takes the other branch of the
-    conversion, where the wrap is folded into the scaling factor.
+def test_levels_replay_short_of_one_cycle_at_full_scale() -> None:
+    """An SLM reaching less than one cycle at full scale takes the other branch of the
+    conversion.
     """
-    slm = _slm_at(8, wav_design_um=WAVELENGTH * 1e6 / 1.4)
-    assert slm.phase_scaling != 1
+    slm = _slm_at(8)
+    slm.load_phase_response(LinearResponse(bitdepth=8, full_scale_cycles=1 / 1.4))
 
     phase = np.random.default_rng(3).random(slm.resolution) * 2 * np.pi
     slm.set_phase(phase)
@@ -325,10 +321,10 @@ def test_levels_replay_with_a_phase_scaling() -> None:
 
 
 def _s_curve(bitdepth: int = 8, span: float = 1.9 * np.pi) -> LookupResponse:
-    """The shape a real panel has: monotone, and not a straight line."""
+    """The shape a real SLM response has: monotone, and not a straight line."""
     levels = np.arange(2**bitdepth)
     top = levels[-1]
-    # No phase_scaling: the table's own span says how far the panel reaches.
+    # No full_scale_cycles: the table's own span says how far the SLM reaches.
     return LookupResponse(
         bitdepth=bitdepth,
         phases=-span * (0.5 - 0.5 * np.cos(np.pi * levels / top)),
@@ -405,15 +401,16 @@ def test_quantize_leaves_the_gradient_alone() -> None:
     assert torch.equal(levels.grad, torch.ones(3))
 
 
-def test_a_curve_that_cannot_reach_a_phase_clamps() -> None:
-    """Under a full turn of modulation there are phases the panel simply cannot impose,
-    and the nearest end is the honest answer rather than a wrap onto an unrelated
-    level.
+def test_a_curve_that_cannot_reach_a_phase_clips_it_to_the_last_level() -> None:
+    """Under a full cycle of modulation there are phases the SLM cannot impose. Each is
+    clipped to the delay of the last level.
     """
+    # The last level sits at 0.6 cycles.
     response = _s_curve(span=1.2 * np.pi)
-    unreachable = np.array([-2.0 * np.pi])
+    unreachable = np.array([-1.4 * np.pi, -1.9 * np.pi, 0.3 * np.pi])
 
-    assert response.to_levels(unreachable)[0] == response.number_of_levels - 1
+    last = response.number_of_levels - 1
+    assert np.array_equal(response.to_levels(unreachable), [last, last, last])
 
 
 def test_the_response_travels_with_the_model() -> None:
@@ -559,6 +556,43 @@ def _raw_slm(**options) -> _RawSlm:
     return _RawSlm(**arguments)
 
 
+class _IncompleteSlm(SLMSuiteSLM):
+    """An slmsuite SLM that leaves close unimplemented, like the Hamamatsu driver in
+    slmsuite 0.4.1.
+    """
+
+    def __init__(self, resolution, bitdepth, wav_um, pitch_um, **kwargs):
+        super().__init__(
+            resolution=resolution,
+            bitdepth=bitdepth,
+            wav_um=wav_um,
+            pitch_um=pitch_um,
+            **kwargs,
+        )
+
+    def _set_phase_hw(self, display):
+        pass
+
+
+class _IncompleteCamera(SLMSuiteCamera):
+    """An slmsuite camera that leaves close unimplemented."""
+
+    def __init__(self, resolution, bitdepth, pitch_um, **kwargs):
+        super().__init__(
+            resolution=resolution, bitdepth=bitdepth, pitch_um=pitch_um, **kwargs
+        )
+
+    def _get_image_hw(self, timeout_s=None):
+        width, height = self.default_shape[::-1]
+        return np.zeros((height, width), dtype=np.uint16)
+
+    def _get_exposure_hw(self):
+        return 1e-3
+
+    def _set_exposure_hw(self, exposure_s):
+        pass
+
+
 def test_as_camera_wraps_slmsuite_and_is_idempotent():
     _, sim = _build()
     assert as_camera(sim) is sim                   # native sim -> passthrough
@@ -643,6 +677,20 @@ def test_open_camera_unknown_backend_raises():
         open_camera("nope", resolution=(20, 30), bitdepth=8, pitch_um=(5.0, 7.0))
 
 
+def test_open_slm_rejects_driver_with_unimplemented_methods():
+    """An abstract driver is refused before construction, with the members it leaves
+    unimplemented.
+    """
+    with pytest.raises(TypeError, match="_IncompleteSlm does not implement close"):
+        open_slm(
+            _IncompleteSlm,
+            resolution=(20, 30),
+            bitdepth=8,
+            wav_um=0.5,
+            pitch_um=(5.0, 7.0),
+        )
+
+
 # --- factory: lazy string-spec backends -----------------------------------------
 
 
@@ -658,6 +706,20 @@ def test_open_camera_resolves_lazy_string_spec():
     )
     assert isinstance(camera, SLMSuiteCameraAdapter)
     np.testing.assert_allclose(camera.pixel_size, (7e-6, 5e-6))
+
+
+def test_open_camera_rejects_lazy_backend_with_unimplemented_methods(monkeypatch):
+    """A driver imported from a registered name gets the same check as a class."""
+    from hologradpy.hardware.factory import _CAMERA_BACKENDS
+
+    monkeypatch.setitem(
+        _CAMERA_BACKENDS, "incomplete_cam", f"{__name__}:_IncompleteCamera"
+    )
+
+    with pytest.raises(TypeError, match="_IncompleteCamera does not implement close"):
+        open_camera(
+            "incomplete_cam", resolution=(20, 30), bitdepth=8, pitch_um=(5.0, 7.0)
+        )
 
 
 def test_import_spec_colon_and_dotted_forms():
@@ -1279,7 +1341,7 @@ def _aberrated_slm(rms: float = 1.5):
 def _residual(displayed: torch.Tensor, aberration: torch.Tensor) -> float:
     """What is left once the bench adds its own aberration back on.
 
-    Wrapped, because a phase means the same thing a turn away, and the panel returns it
+    Wrapped, because a phase means the same thing a cycle away, and the SLM returns it
     wrapped into its own range.
     """
     return float(torch.angle(torch.exp(1j * (displayed + aberration))).std())
@@ -1423,7 +1485,7 @@ def test_a_vendor_correction_wraps_at_the_slms_full_cycle() -> None:
     """
     raw = _raw_slm()
     slm = as_slm(raw)
-    slm.load_phase_response(LinearResponse(bitdepth=8, phase_scaling=256 / 200))
+    slm.load_phase_response(LinearResponse(bitdepth=8, full_scale_cycles=256 / 200))
     slm.load_vendor_correction(np.full(slm.resolution, 100, dtype=np.uint8))
     phase = np.full(slm.resolution, -2 * np.pi * 0.9)
 
@@ -1722,8 +1784,8 @@ def test_the_adapter_reads_the_design_wavelength() -> None:
     slm = as_slm(raw)
 
     assert slm.phase_response.bitdepth == 8
-    assert slm.phase_scaling == pytest.approx(1.4)
-    assert slm.phase_scaling == pytest.approx(1 / raw.phase_scaling)
+    assert slm.full_scale_cycles == pytest.approx(1.4)
+    assert slm.full_scale_cycles == pytest.approx(1 / raw.phase_scaling)
     assert as_slm(_raw_slm(wav_um=0.5)).phase_response == LinearResponse(bitdepth=8)
 
 
@@ -1733,14 +1795,14 @@ def test_a_loaded_phase_response_drives_the_levels() -> None:
     """
     raw = _raw_slm()
     slm = as_slm(raw)
-    response = LinearResponse(bitdepth=8, phase_scaling=256 / 200)
+    response = LinearResponse(bitdepth=8, full_scale_cycles=256 / 200)
 
     slm.load_phase_response(response)
     slm.set_phase(np.full(slm.resolution, -2 * np.pi * 0.75))
 
     assert np.all(raw.written == 150)
     assert SLMData.from_slm(slm).phase_response == response
-    assert VirtualSLM.from_slm(slm).phase_scaling == pytest.approx(1.28)
+    assert VirtualSLM.from_slm(slm).full_scale_cycles == pytest.approx(1.28)
 
     slm.load_phase_response(None)
     assert slm.phase_response == LinearResponse(bitdepth=8)
@@ -1782,7 +1844,7 @@ def test_every_adapter_of_one_slm_shares_what_was_loaded() -> None:
     """
     raw = _raw_slm()
     vendor = np.full(raw.shape, 3, dtype=np.uint8)
-    response = LinearResponse(bitdepth=8, phase_scaling=256 / 200)
+    response = LinearResponse(bitdepth=8, full_scale_cycles=256 / 200)
 
     as_slm(raw).load_vendor_correction(vendor)
     as_slm(raw).load_phase_response(response)

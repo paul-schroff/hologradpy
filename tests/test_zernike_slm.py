@@ -42,7 +42,7 @@ def test_learns_coefficients_not_phase() -> None:
     ``(n_wavelengths, n_coefficients)``, not a per-pixel phase param.
     """
     module = ZernikeSLM(
-        phase_scaling=1.0, number_of_radial_orders=ZERNIKE_RADIAL_ORDERS
+        full_scale_cycles=1.0, number_of_radial_orders=ZERNIKE_RADIAL_ORDERS
     )
     module(_field((2, 16, 16), 2))
 
@@ -62,7 +62,7 @@ def test_per_wavelength_coefficients_give_distinct_phases() -> None:
         ]
     )
     module = ZernikeSLM(
-        phase_scaling=1.0,
+        full_scale_cycles=1.0,
         number_of_radial_orders=ZERNIKE_RADIAL_ORDERS,
         initial_coefficients=coefficients,
     )
@@ -78,7 +78,7 @@ def test_per_wavelength_coefficients_give_distinct_phases() -> None:
 def test_one_dimensional_coefficients_broadcast_across_wavelengths() -> None:
     coefficients = torch.linspace(0.1, 1.0, NUMBER_OF_COEFFICIENTS)
     module = ZernikeSLM(
-        phase_scaling=1.0,
+        full_scale_cycles=1.0,
         number_of_radial_orders=ZERNIKE_RADIAL_ORDERS,
         initial_coefficients=coefficients,
     )
@@ -93,7 +93,7 @@ def test_one_dimensional_coefficients_broadcast_across_wavelengths() -> None:
 
 def test_gradient_flows_to_coefficients() -> None:
     module = ZernikeSLM(
-        phase_scaling=1.0, number_of_radial_orders=ZERNIKE_RADIAL_ORDERS
+        full_scale_cycles=1.0, number_of_radial_orders=ZERNIKE_RADIAL_ORDERS
     )
     output = module(_field((2, 16, 16), 2))
 
@@ -111,7 +111,7 @@ def test_gradient_flows_to_coefficients() -> None:
 
 def test_bad_coefficient_shape_raises() -> None:
     module = ZernikeSLM(
-        phase_scaling=1.0,
+        full_scale_cycles=1.0,
         number_of_radial_orders=ZERNIKE_RADIAL_ORDERS,
         initial_coefficients=torch.zeros(NUMBER_OF_COEFFICIENTS + 5),
     )
@@ -121,7 +121,7 @@ def test_bad_coefficient_shape_raises() -> None:
 
 def test_set_phase_not_supported() -> None:
     module = ZernikeSLM(
-        phase_scaling=1.0, number_of_radial_orders=ZERNIKE_RADIAL_ORDERS
+        full_scale_cycles=1.0, number_of_radial_orders=ZERNIKE_RADIAL_ORDERS
     )
     with pytest.raises(NotImplementedError):
         module.set_phase(torch.zeros(16, 16))
@@ -132,4 +132,4 @@ def test_from_slm_constructs() -> None:
     module = ZernikeSLM.from_slm(slm, number_of_radial_orders=ZERNIKE_RADIAL_ORDERS)
     output = module(_field((16, 16), 1))
     assert output.shape == (1, 1, 16, 16)
-    assert module.phase_scaling == slm.phase_scaling
+    assert module.full_scale_cycles == slm.full_scale_cycles

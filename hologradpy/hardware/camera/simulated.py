@@ -68,8 +68,8 @@ class SimulatedCameraTorch(Camera):
         A :class:`CameraSensor` is constructed from the sensor keyword arguments
         and appended as the terminal module of ``slm_camera_model``, so the model
         emits digital pixel values (ADU) from photons to electrons to ADU with the
-        quantum efficiency, exposure, gain, full-well saturation, read noise and
-        bit depth, instead of a bare ``|E|^2``. The camera exposure
+        quantum efficiency, exposure, gain, full-well saturation, shot noise, dark
+        current, read noise and bit depth. The camera exposure
         (``set_exposure`` / ``autoexpose``) drives the sensor's exposure.
 
         ``exposure_bounds`` defaults to ``(0.0, 1.0)``, so the simulated camera states
@@ -175,7 +175,11 @@ class SimulatedCameraTorch(Camera):
     # Saving and reopening
 
     def get_checkpoint_spec(self) -> dict[str, object]:
-        """The keyword arguments this camera was built from, without the model.
+        """The keyword arguments this camera was built from, without the model, and
+        the arguments of its sensor.
+
+        The sensor arguments are recorded also for a sensor the model carried before
+        the camera was built, so the sensor reopens as saved.
 
         Raises:
             NotImplementedError: The constructor arguments were not recorded.
@@ -188,6 +192,7 @@ class SimulatedCameraTorch(Camera):
             )
         spec = dict(spec)
         spec.pop("slm_camera_model", None)
+        spec.update(self.sensor._init_kwargs)
         return spec
 
     @classmethod

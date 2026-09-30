@@ -10,6 +10,7 @@ from scipy.optimize import linear_sum_assignment
 from ....geometry import AffineTransform
 
 from ....hardware import Camera, SLM
+from ....hardware.camera import CameraData
 
 from ....optics.systems import SLMFourierLensModel
 from ....grids import get_spatial_grid, metres_to_pixel, pixel_to_metres, plane_center
@@ -23,6 +24,7 @@ from ....profiles.masks import disc_mask
 from ...spot_detection import (
     _WINDOW_SPOT_RADII,
     background_noise,
+    zeroth_order_mask_radius,
 )
 from ..coarse_mapping.coarse_mapper import CoarseMapper
 
@@ -149,6 +151,8 @@ class SpotArrayMapper(CameraMapper):
                 coarse_mapping = CoarseMapper(
                     self.slm, self.camera, self.slm_camera_model
                 ).map_camera()
+            else:
+                coarse_mapping.check_camera(self.camera)
 
             aperture_radius = 0.5 * min(self.slm.aperture_extent)
             diffraction_limit = get_focal_spot_radius(
@@ -164,16 +168,10 @@ class SpotArrayMapper(CameraMapper):
                 )
             )
 
-            # Zeroth-order pixel (stored as (y, x)) and its detection mask (radius
-            # clamped to [8 px, one sixth of the sensor]).
+            # The zeroth-order pixel (x, y) and the disc around it that the detection
+            # leaves out.
             zeroth_pixel = coarse_mapping.zeroth_order_xy
-            mask_radius = int(
-                np.clip(
-                    _WINDOW_SPOT_RADII * focal_spot_radius / pitch.min(),
-                    8,
-                    min(camera_shape) // 6,
-                )
-            )
+            mask_radius = zeroth_order_mask_radius(focal_spot_radius, pitch)
             zeroth_mask = disc_mask(camera_shape, zeroth_pixel, mask_radius)
 
             # Camera pixels per focal-plane metre from the coarse transform.
@@ -462,6 +460,12 @@ class SpotArrayMapper(CameraMapper):
                     reprojection_rms=reprojection_rms,
                     excluded_points=excluded_points,
                 ),
+                camera_data=CameraData.from_camera(self.camera),
+                output_pixel_size=(
+                    float(pixel_size_out[0]),
+                    float(pixel_size_out[1]),
+                ),
+                output_resolution=(int(resolution_out[0]), int(resolution_out[1])),
                 visualization_data=CameraMappingVisualizationData(
                     camera_image=masked_image,
                     simulated_image=simulated_image,

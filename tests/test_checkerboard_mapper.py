@@ -127,7 +127,7 @@ def _build_setup(
 
     slm_camera_model = SLMFFT(
         input_geometry=slm_geometry,
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         slm_field=PixelwiseSLMField(ideal_beam),
         focal_length=0.25,
         padded_resolution=(512, 512),
@@ -191,6 +191,24 @@ def test_map_camera_builds_coarse_and_recovers_affine(checkerboard_mapping):
     rms = np.sqrt(np.mean(np.sum((mapped - calculated) ** 2, axis=1)))
     assert rms < 2.0
     assert mapping.fit.reprojection_rms == pytest.approx(rms)
+
+
+def test_the_mapping_records_the_camera_and_the_plane_it_runs_to(
+    simulated_setup, checkerboard_mapping
+):
+    """The mapping records the whole sensor it was measured on, and the plane of the
+    model's Fourier lens, which its points are measured in.
+    """
+    _, camera, slm_camera_model = simulated_setup
+    lens = slm_camera_model.fourier_lens
+    mapping = checkerboard_mapping
+
+    assert mapping.camera_data.sensor_resolution == tuple(camera.sensor_resolution)
+    assert mapping.camera_data.resolution == tuple(camera.sensor_resolution)
+    assert mapping.output_pixel_size == pytest.approx(
+        tuple(lens.pixel_size_out.tolist()[0])
+    )
+    assert mapping.output_resolution == tuple(lens.resolution_out)
 
 
 def test_zeroth_order_clears_board_footprint(checkerboard_mapping):

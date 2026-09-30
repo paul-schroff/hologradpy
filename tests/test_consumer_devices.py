@@ -15,6 +15,7 @@ The spot-seeking steps are ``expose_until_spot``, the main-order check of
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime
 
 import numpy as np
@@ -42,7 +43,7 @@ from hologradpy.calibration.wavefront.speckle_calibration import (
     PSFSpeckleCalibrator,
 )
 from hologradpy.geometry import PartialAffineTransform
-from hologradpy.grids import pixel_to_metres
+from hologradpy.grids import pixel_to_metres, plane_center
 from hologradpy.hardware import (
     SLM,
     Camera,
@@ -51,6 +52,7 @@ from hologradpy.hardware import (
     as_camera,
     as_slm,
 )
+from hologradpy.hardware.camera import CameraData
 from hologradpy.holography.camera_feedback import SimpleFeedbackCorrector
 from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
@@ -150,12 +152,23 @@ def _raw_slm() -> _RawSlm:
 
 
 def _mapping_centered_on(
-    zeroth_order_position: tuple[float, float], waist: float
+    zeroth_order_position: tuple[float, float],
+    waist: float,
+    pixel_pitch: float,
+    sensor_resolution: tuple[int, int],
 ) -> CameraMapping:
-    """An identity mapping with the zeroth order at ``zeroth_order_position``,
-    ``(row, col)``, and a spot of ``waist`` metres.
+    """A mapping without rotation or scale that sends the zeroth order at
+    ``zeroth_order_position``, ``(row, col)``, to the centre of an output plane of the
+    sensor's size, sampled at ``pixel_pitch``, the camera's. The spot has a waist of
+    ``waist`` metres.
     """
-    truth = PartialAffineTransform.from_components(scale=1.0)
+    center_x, center_y = plane_center(sensor_resolution)
+    truth = PartialAffineTransform.from_components(
+        shift=(
+            center_x - zeroth_order_position[1],
+            center_y - zeroth_order_position[0],
+        )
+    )
     detected = np.random.default_rng(0).uniform(-20, 20, size=(8, 2))
     return CameraMapping(
         timestamp=datetime(2026, 1, 1),
@@ -165,12 +178,17 @@ def _mapping_centered_on(
         calculated_points=truth.transform_points(detected).tolist(),
         zeroth_order_position=zeroth_order_position,
         spot_fit=FocalSpotFit(waist=waist),
+        output_pixel_size=(pixel_pitch, pixel_pitch),
+        output_resolution=sensor_resolution,
     )
 
 
 def _raw_mapping() -> CameraMapping:
     return _mapping_centered_on(
-        (float(RAW_SPOT_CENTER[0]), float(RAW_SPOT_CENTER[1])), RAW_SPOT_WAIST
+        (float(RAW_SPOT_CENTER[0]), float(RAW_SPOT_CENTER[1])),
+        RAW_SPOT_WAIST,
+        RAW_PIXEL_PITCH,
+        RAW_SENSOR_RESOLUTION,
     )
 
 
@@ -288,6 +306,61 @@ RAW_DEVICE_CONSUMERS: dict[str, Callable[..., None]] = {
     "PSFSpeckleCalibrator": _psf_speckle_calibrator,
     "RasterCalibrator": _raster_calibrator,
 }
+
+
+def _mapping_of_another_camera(raw_camera) -> CameraMapping:
+    """The mapping of the raw bench, recorded on a sensor of another resolution."""
+    recorded = CameraData.from_camera(as_camera(raw_camera))
+    return replace(
+        _raw_mapping(), camera_data=replace(recorded, sensor_resolution=(24, 32))
+    )
+
+
+MAPPING_CONSUMERS: dict[str, Callable[..., object]] = {
+    "tilt_to_sensor_center": lambda slm, camera, mapping, tmp_path: (
+        tilt_to_sensor_center(camera, mapping)
+    ),
+    "DatasetGenerator": lambda slm, camera, mapping, tmp_path: DatasetGenerator(
+        slm, camera, mapping, RAW_FOCAL_LENGTH, tmp_path / "dataset.asdf"
+    ),
+    "SimpleFeedbackCorrector": lambda slm, camera, mapping, tmp_path: (
+        SimpleFeedbackCorrector(
+            slm=slm,
+            camera=camera,
+            slm_camera_model=_raw_model(slm),
+            target=torch.ones(6, 6),
+            camera_mapping=mapping,
+        )
+    ),
+    "PSFSpeckleCalibrator": lambda slm, camera, mapping, tmp_path: (
+        PSFSpeckleCalibrator(
+            slm=slm,
+            camera=camera,
+            slm_camera_model=_raw_model(slm),
+            dataset_path=tmp_path / "dataset.asdf",
+            camera_mapping=mapping,
+        )
+    ),
+    "RasterCalibrator": lambda slm, camera, mapping, tmp_path: RasterCalibrator(
+        slm, camera, RAW_FOCAL_LENGTH
+    )._ensure_camera_mapping(mapping, None),
+}
+
+
+@pytest.mark.parametrize(
+    "consumer", MAPPING_CONSUMERS.values(), ids=MAPPING_CONSUMERS.keys()
+)
+def test_every_consumer_refuses_a_mapping_of_another_camera(
+    consumer: Callable[..., object], tmp_path
+) -> None:
+    """A consumer checks a supplied mapping against its camera before it places
+    anything with it.
+    """
+    raw_camera = _RawSpotCamera()
+    mapping = _mapping_of_another_camera(raw_camera)
+
+    with pytest.raises(ValueError, match="24 x 32 sensor"):
+        consumer(_raw_slm(), raw_camera, mapping, tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -479,7 +552,7 @@ def _main_order_mapper(
     )
     model = SLMFFT(
         input_geometry=geometry,
-        virtual_slm=VirtualSLM(phase_scaling=1.0),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         slm_field=PixelwiseSLMField(),
         focal_length=0.25,
         padded_resolution=(64, 64),
@@ -579,6 +652,41 @@ def test_diffraction_spot_ignores_a_masked_zeroth_order() -> None:
 
     assert unmasked == pytest.approx(ZEROTH_ORDER, abs=1.0)
     assert masked == pytest.approx(PROBE, abs=1.0)
+
+
+class _WideRecordingSlm(_RecordingSlm):
+    """The recording SLM with a wider aperture, so the starting spot of the fit is
+    about one pixel of the spot camera.
+    """
+
+    resolution = (256, 256)
+
+
+@pytest.mark.parametrize("gap", [3.0, 6.0])
+def test_a_spot_beside_the_mask_is_fitted_at_its_own_peak(gap: float) -> None:
+    """The fit starts at the peak of the frame blurred over one spot radius. A small
+    probe ``gap`` pixels from the edge of the masked zeroth order is then fitted where
+    it is.
+    """
+    mask_radius = 10.0
+    zeroth_order = (PROBE[0], PROBE[1] - mask_radius - gap)
+    scene = _gaussian_spot(PROBE, 1e5, sigma_px=0.85) + _gaussian_spot(
+        zeroth_order, 3e5, sigma_px=0.85
+    )
+    kept = ~disc_mask(
+        SPOT_SENSOR_RESOLUTION, (zeroth_order[1], zeroth_order[0]), mask_radius
+    )
+
+    position, _, _, _ = get_diffraction_spot_position(
+        _WideRecordingSlm(),
+        _SpotCamera(lambda: scene),
+        (0.0, 0.0),
+        SPOT_FOCAL_LENGTH,
+        verbose=False,
+        mask=kept,
+    )
+
+    assert _position_in_pixels(position) == pytest.approx(PROBE, abs=1.0)
 
 
 def test_diffraction_spot_is_searched_inside_the_search_region() -> None:
@@ -738,7 +846,7 @@ class _Bench:
         """The ideal reference model for a coarse mapping of the camera."""
         return SLMFFT(
             input_geometry=self.geometry,
-            virtual_slm=VirtualSLM(phase_scaling=1.0),
+            virtual_slm=VirtualSLM(full_scale_cycles=1.0),
             slm_field=PixelwiseSLMField(self.beam),
             focal_length=BENCH_FOCAL_LENGTH,
             padded_resolution=(512, 512),
@@ -761,6 +869,8 @@ def _aligned_bench_mapping() -> CameraMapping:
     return _mapping_centered_on(
         (BENCH_SENSOR_RESOLUTION[0] / 2, BENCH_SENSOR_RESOLUTION[1] / 2),
         2 * BENCH_PIXEL_PITCH,
+        BENCH_PIXEL_PITCH,
+        BENCH_SENSOR_RESOLUTION,
     )
 
 
@@ -835,7 +945,7 @@ def test_get_diffraction_spot_position_leaves_the_camera_as_it_found_it() -> Non
     is therefore found at the same position as without a window. The window and the
     exposure are put back.
     """
-    bench = _Bench()
+    bench = _Bench(add_noise=False)
     bench.camera.set_exposure(PRESET_EXPOSURE)
     expected = get_diffraction_spot_position(
         bench.slm, bench.camera, BENCH_PROBE_TILT, BENCH_FOCAL_LENGTH, verbose=False
