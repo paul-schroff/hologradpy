@@ -512,6 +512,34 @@ def test_calibration_returns_a_complex_amplitude_its_consumers_accept():
     assert as_image(record.complex_amplitude).shape == tuple(slm.resolution)
 
 
+def test_calibrate_records_the_scan_for_the_animation(tmp_path) -> None:
+    """The animation and the full-frame snapshot read the displayed phases, which
+    only measure_phase recorded, so a calibration run through calibrate() could not be
+    animated.
+    """
+    from hologradpy.calibration.wavefront.raster_calibration import (
+        RasterCalibratorVisualizer,
+    )
+
+    slm, camera = _build_setup()
+    calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
+    record = calibrator.calibrate(
+        number_of_superpixels=(4, 4),
+        camera_mapping=_synthetic_mapping(),
+        verbose=False,
+        record_displayed_phases=True,
+    )
+
+    data = record.visualization_data
+    assert data.displayed_slm_phases is not None
+    assert len(data.displayed_slm_phases) == data.camera_images.shape[0]
+    assert data.full_frame_image is not None
+
+    visualizer = RasterCalibratorVisualizer(data)
+    gif = visualizer.save_gif(str(tmp_path / "scan.gif"), max_frames=2)
+    assert (tmp_path / "scan.gif").exists(), gif
+
+
 def test_a_supplied_model_must_match_the_calibrator_focal_length() -> None:
     """A model with a different focal length is rejected rather than used.
 

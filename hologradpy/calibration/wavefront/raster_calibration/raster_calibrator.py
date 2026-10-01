@@ -1432,7 +1432,24 @@ class RasterCalibrator(WavefrontCalibratorBase):
         normalize_power: bool = False,
         save_metadata: bool = False,
         verbose: bool = True,
+        record_displayed_phases: bool = False,
     ) -> WavefrontCalibrationData:
+        """Measure the SLM-plane intensity, then the phase, by raster scans.
+
+        The arguments not described here are those of :meth:`measure_intensity` and
+        :meth:`measure_phase`.
+
+        Args:
+            record_displayed_phases: Passed to :meth:`measure_phase`. Keeps the
+                displayed SLM levels of every superpixel and a full-sensor snapshot on
+                the result's ``visualization_data``, which the animation and
+                :meth:`RasterCalibratorVisualizer.plot_full_frame` need. One
+                full-resolution frame per superpixel, so off by default.
+
+        Returns:
+            WavefrontCalibrationData: The measured SLM-plane field, carrying the
+            phase scan as ``visualization_data``.
+        """
         if number_of_superpixels is None and superpixel_size is not None:
             number_of_superpixels_x, number_of_superpixels_y = (
                 self.get_number_of_superpixels(*superpixel_size)
@@ -1491,6 +1508,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
             lattice_superpixel_size=lattice_superpixel_size,
             lattice_roi_size=lattice_roi_size,
             verbose=verbose,
+            record_displayed_phases=record_displayed_phases,
         )
 
         complex_amplitude = ComplexAmplitude(

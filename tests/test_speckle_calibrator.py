@@ -611,6 +611,45 @@ def test_the_calibrator_builds_the_field_it_fits_from_its_own_mapping(tmp_path) 
     assert torch.allclose(field.get_psf_kernel().detach(), seed, atol=1e-5)
 
 
+def test_the_psf_kernel_spans_the_requested_waists(tmp_path) -> None:
+    """The default kernel is several times wider than a well-corrected spot, and the
+    margin only fits noise, so its size is the caller's to choose.
+    """
+    from .test_coarse_mapper import _build_setup
+
+    slm, camera, _ = _build_setup()
+    calibrator = PSFSpeckleCalibrator(
+        slm=slm,
+        camera=camera,
+        slm_camera_model=_plain_model(slm, camera),
+        dataset_path=tmp_path / "dataset.asdf",
+        number_of_random_patterns=2,
+        psf_kernel_waists=5.0,
+    )
+
+    expected = kernel_size_from_waist(
+        waist_from_camera_mapping(calibrator.camera_mapping),
+        float(camera.pixel_size[1]),
+        extent_in_waists=5.0,
+    )
+    field = calibrator.slm_camera_model.slm_field
+    assert field.psf_kernel_size == (expected, expected)
+    assert tuple(field.get_psf_kernel().shape) == (expected, expected)
+
+
+def test_a_non_positive_psf_kernel_is_refused(tmp_path) -> None:
+    slm, camera = _build_hardware()
+    with pytest.raises(ValueError, match="must be positive"):
+        PSFSpeckleCalibrator(
+            slm=slm,
+            camera=camera,
+            slm_camera_model=_build_model(slm, camera),
+            dataset_path=tmp_path / "dataset.asdf",
+            camera_mapping=_synthetic_mapping(),
+            psf_kernel_waists=0.0,
+        )
+
+
 def test_the_swap_leaves_no_ghost_of_the_replaced_field(tmp_path) -> None:
     """The old field must leave the model entirely, or the optimizer would carry
     parameters that no longer affect the forward pass.
@@ -876,6 +915,69 @@ def test_the_default_extent_is_the_largest_that_fits_an_off_axis_camera(
     assert rows.min() <= 1
     assert rows.max() == pytest.approx(2 * zeroth[0], abs=2)
     assert rows.max() < CAMERA_RESOLUTION[0] - 1
+
+
+@pytest.mark.parametrize("waists", [4.0, 8.0])
+def test_the_zeroth_order_mask_is_sized_in_waists(tmp_path, waists) -> None:
+    """The model predicts none of the undiffracted light, and on a real SLM its wings
+    reach well past a few waists, so the excluded disc has to be sizable on request.
+    """
+    slm, camera = _build_hardware()
+    mapping = _synthetic_mapping()
+    generator = DatasetGenerator(
+        slm=slm,
+        camera=camera,
+        camera_mapping=mapping,
+        focal_length=FOCAL_LENGTH,
+        dataset_path=tmp_path / "dataset.asdf",
+        number_of_random_patterns=1,
+        zeroth_order_mask_waists=waists,
+    )
+    generator.generate_phase_patterns(seed=0)
+
+    radius = waists * mapping.spot_fit.waist
+    radius_pixels = radius / camera.pixel_size[0]
+    rows, columns = np.indices(generator.roi_mask.shape)
+    distance = np.hypot(
+        rows - mapping.zeroth_order_position[0],
+        columns - mapping.zeroth_order_position[1],
+    )
+    # A pixel of slack either side for the grid convention.
+    assert not generator.roi_mask[distance < radius_pixels - 1].any()
+    assert generator.roi_mask[
+        (distance > radius_pixels + 1) & (distance < radius_pixels + 3)
+    ].all()
+    assert generator.metadata["zeroth_order_mask_radius"] == pytest.approx(radius)
+
+
+def test_the_calibrator_passes_the_zeroth_order_mask_to_its_generator(
+    tmp_path,
+) -> None:
+    slm, camera = _build_hardware()
+    calibrator = PixelwiseSpeckleCalibrator(
+        slm=slm,
+        camera=camera,
+        camera_mapping=_synthetic_mapping(),
+        slm_camera_model=_build_model(slm, camera, FOCAL_LENGTH),
+        dataset_path=tmp_path / "dataset.asdf",
+        number_of_random_patterns=1,
+        zeroth_order_mask_waists=10.0,
+    )
+
+    assert calibrator.dataset_generator.zeroth_order_mask_waists == 10.0
+
+
+def test_a_negative_zeroth_order_mask_is_refused(tmp_path) -> None:
+    slm, camera = _build_hardware()
+    with pytest.raises(ValueError, match="cannot be negative"):
+        DatasetGenerator(
+            slm=slm,
+            camera=camera,
+            camera_mapping=_synthetic_mapping(),
+            focal_length=FOCAL_LENGTH,
+            dataset_path=tmp_path / "dataset.asdf",
+            zeroth_order_mask_waists=-1.0,
+        )
 
 
 def test_a_zeroth_order_off_the_sensor_refuses_to_pick_an_extent(tmp_path) -> None:

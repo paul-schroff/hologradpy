@@ -48,6 +48,7 @@ class DatasetGenerator:
         focal_length: float,
         dataset_path: str | os.PathLike,
         number_of_random_patterns: int = 1,
+        zeroth_order_mask_waists: float = 4.0,
     ) -> None:
         """
         Args:
@@ -61,7 +62,20 @@ class DatasetGenerator:
             focal_length: The focal length of the Fourier lens in metres.
             dataset_path: The dataset file holding the frames.
             number_of_random_patterns: How many patterns to generate and capture.
+            zeroth_order_mask_waists: Radius of the disc kept out of the region of
+                interest around the zeroth order, in fitted focal-spot waists
+                (``camera_mapping.spot_fit.waist``). The model does not predict the
+                undiffracted light, so the disc has to cover its wings as well as its
+                core. Defaults to 4.
+
+        Raises:
+            ValueError: ``zeroth_order_mask_waists`` is negative.
         """
+        if zeroth_order_mask_waists < 0:
+            raise ValueError(
+                "zeroth_order_mask_waists is a radius, so it cannot be negative, got "
+                f"{zeroth_order_mask_waists}."
+            )
         self.slm: SLM = as_slm(slm)
         self.camera: Camera = as_camera(camera)
         camera_mapping.check_camera(self.camera)
@@ -69,6 +83,7 @@ class DatasetGenerator:
         self.focal_length: float = focal_length
         self.dataset_path: Path = Path(dataset_path)
         self.number_of_random_patterns: int = number_of_random_patterns
+        self.zeroth_order_mask_waists: float = float(zeroth_order_mask_waists)
         self.benchmark_calibration: WavefrontCalibrationData | None = None
 
         self.phase_patterns: list[NDArray[np.float64]] = []
@@ -297,9 +312,13 @@ class DatasetGenerator:
                 shift_y=shift_y,
             )
 
+        zeroth_order_mask_radius = (
+            self.zeroth_order_mask_waists * self.camera_mapping.spot_fit.waist
+        )
+        self.metadata["zeroth_order_mask_radius"] = zeroth_order_mask_radius
         zeroth_order_mask = circular_mask(
             *camera_grid,
-            4 * self.camera_mapping.spot_fit.waist,
+            zeroth_order_mask_radius,
             shift_x=shift_x,
             shift_y=shift_y,
         )

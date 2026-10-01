@@ -50,6 +50,7 @@ class SpeckleCalibrator(CalibratorBase):
         dataset_path: str | os.PathLike,
         camera_mapping: CameraMapping | None = None,
         number_of_random_patterns: int = 10,
+        zeroth_order_mask_waists: float = 4.0,
     ) -> None:
         """
         Args:
@@ -64,6 +65,9 @@ class SpeckleCalibrator(CalibratorBase):
                 :class:`~hologradpy.calibration.camera_mapping.CoarseMapper` measures
                 one with the SLM and camera.
             number_of_random_patterns: How many speckle patterns to capture.
+            zeroth_order_mask_waists: Radius of the disc around the zeroth order that
+                is left out of the fit, in fitted focal-spot waists. Passed to
+                :class:`DatasetGenerator`. Defaults to 4.
         """
         super().__init__(slm, camera, slm_camera_model.device)
 
@@ -91,6 +95,7 @@ class SpeckleCalibrator(CalibratorBase):
             focal_length=self.focal_length,
             dataset_path=self.dataset_path,
             number_of_random_patterns=self.number_of_random_patterns,
+            zeroth_order_mask_waists=zeroth_order_mask_waists,
         )
 
         self.capture_data: SpeckleCaptureData | None = None

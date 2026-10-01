@@ -919,6 +919,31 @@ def test_linear_superposition_refuses_to_be_retargeted() -> None:
         retriever.set_target(target)
 
 
+def test_a_starting_phase_can_be_set_on_a_model_that_has_not_run() -> None:
+    """The virtual SLM makes its levels on the first forward pass, so a retriever
+    handed a fresh model has to run it before it can set a starting phase.
+    """
+    geometry = _geometry()
+    slm = open_slm(SimulatedSLMTorch, input_geometry=geometry, bitdepth=8)
+    model = SLMCZT(
+        input_geometry=geometry,
+        virtual_slm=VirtualSLM.from_slm(slm),
+        camera_resolution=CAMERA_RESOLUTION,
+        camera_pixel_size=(CAMERA_PIXEL_SIZE, CAMERA_PIXEL_SIZE),
+        focal_length=FOCAL_LENGTH,
+        slm_field=PixelwiseSLMField(_beam(geometry)),
+    )
+    assert not model.virtual_slm.initialized
+
+    init_phase = _init_phase()
+    PixelwisePhaseRetriever(slm_camera_model=model, init_slm_phase=init_phase)
+
+    shown = model.virtual_slm.get_phase().detach()
+    assert torch.allclose(
+        torch.exp(1j * shown), torch.exp(1j * init_phase.to(shown.dtype)), atol=1e-4
+    )
+
+
 def test_target_without_signal_region_raises() -> None:
     geometry = _geometry()
     slm = open_slm(SimulatedSLMTorch, input_geometry=geometry, bitdepth=8)

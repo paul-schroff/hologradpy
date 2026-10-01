@@ -174,6 +174,11 @@ class PhaseRetrieverBase:
 
     def __init__(self, slm_camera_model: SLMFourierLensModel) -> None:
         self.slm_camera_model: SLMFourierLensModel = slm_camera_model
+        # One run builds the modules that make their parameters lazily, so a starting
+        # phase can be set on a model that has not run yet.
+        if not slm_camera_model.virtual_slm.initialized:
+            with torch.no_grad():
+                slm_camera_model()
         # The device is determined by the optical model rather than passed in.
         self.device: torch.device = slm_camera_model.device
 
