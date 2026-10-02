@@ -14,8 +14,15 @@ from hologradpy.roi import ROI
 
 SENSOR_HEIGHT = 480
 SENSOR_WIDTH = 640
+# The smallest window the fake reads out, as a real sensor has one.
+MIN_WINDOW_HEIGHT = 4
+MIN_WINDOW_WIDTH = 8
 BIT_DEPTH = 10
 MAX_COUNT = 2**BIT_DEPTH - 1
+# Every pixel holds its own index, so a crop or a turn that is off by a pixel shows.
+NUMBERED = np.arange(SENSOR_HEIGHT * SENSOR_WIDTH, dtype=np.uint32).reshape(
+    SENSOR_HEIGHT, SENSOR_WIDTH
+)
 # Not square, so a quarter turn that forgets to exchange the pitch shows.
 PIXEL_SIZE = (3.0e-6, 4.0e-6)
 
@@ -36,9 +43,21 @@ def fake_frame(exposure_s):
     return np.clip(ramp * exposure_s * 1e6, 0, MAX_COUNT).astype(np.uint16)
 
 
+def truncate(start, end, minimum, maximum):
+    """The truncation pylablib applies to one axis of a window, for a position step of
+    one: clip to the sensor, then grow to the minimum size.
+    """
+    start, end = max(0, start), min(maximum if end is None else end, maximum)
+    if end - start < minimum:
+        end = start + minimum
+    if end > maximum:
+        start, end = maximum - minimum, maximum
+    return start, end
+
+
 class FakeTLCamera:
     """The pylablib ThorlabsTLCamera calls ThorlabsCamera makes, on a sensor that
-    exposes one frame per software trigger while armed.
+    exposes one frame per software trigger while armed and reads out its window.
     """
 
     def __init__(self, serial=None):
@@ -46,6 +65,8 @@ class FakeTLCamera:
         self.exposure = 1e-4
         self.trigger_mode = "ext"
         self.roi_calls = []
+        # (hstart, hend, vstart, vend), as pylablib states a window.
+        self.window = (0, SENSOR_WIDTH, 0, SENSOR_HEIGHT)
         self.start_options = None
         self.armed = False
         self.arms = 0
@@ -54,12 +75,24 @@ class FakeTLCamera:
         self.triggers = 0
         self.timeouts = []
         self.pending = []
+        self.pattern = None  # What the sensor sees, or None for the exposure ramp.
 
     def get_device_info(self):
         return TDeviceInfo("CS165MU", "Zelux", self.serial or "00001", "1.0")
 
-    def set_roi(self, *args, **kwargs):
-        self.roi_calls.append((args, kwargs))
+    def set_roi(self, hstart=0, hend=None, vstart=0, vend=None):
+        """Takes the window, and as pylablib does, re-arms an armed camera with a bare
+        start_acquisition, which free-runs.
+        """
+        self.roi_calls.append((hstart, hend, vstart, vend))
+        was_armed = self.armed
+        self.stop_acquisition()
+        hstart, hend = truncate(hstart, hend, MIN_WINDOW_WIDTH, SENSOR_WIDTH)
+        vstart, vend = truncate(vstart, vend, MIN_WINDOW_HEIGHT, SENSOR_HEIGHT)
+        self.window = (hstart, hend, vstart, vend)
+        if was_armed:
+            self.start_acquisition()
+        return (*self.window, 1, 1)
 
     def set_trigger_mode(self, mode):
         self.trigger_mode = mode
@@ -94,7 +127,9 @@ class FakeTLCamera:
         if not self.armed or self.trigger_mode != "int":
             raise RuntimeError("A software trigger needs the armed camera in 'int'.")
         self.triggers += 1
-        self.pending.append(fake_frame(self.exposure))
+        whole = fake_frame(self.exposure) if self.pattern is None else self.pattern
+        hstart, hend, vstart, vend = self.window
+        self.pending.append(whole[vstart:vend, hstart:hend])
 
     def read_multiple_images(self):
         frames, self.pending = self.pending, []
@@ -144,7 +179,7 @@ def camera(fake_pylablib):
 def test_opens_the_camera_and_arms_it_for_software_triggers(camera):
     _, fake = camera
     assert fake.serial == "23702"
-    assert fake.roi_calls == [((), {})]  # The whole sensor.
+    assert fake.roi_calls == [(0, None, 0, None)]  # The whole sensor.
     assert fake.trigger_mode == "int"
     assert fake.start_options == {"frames_per_trigger": 1, "auto_start": False}
     assert fake.arms == 1
@@ -253,28 +288,126 @@ def test_the_region_starts_as_the_whole_sensor(camera):
     np.testing.assert_array_equal(device.pixel_size, PIXEL_SIZE)
 
 
-def test_the_region_of_interest_crops_the_frame(camera):
-    device, _ = camera
-    device.set_exposure(100e-6)
+def test_only_the_region_of_interest_is_read_out(camera):
+    device, fake = camera
+    fake.pattern = NUMBERED
     device.set_roi(ROI(top_row=100, left_column=200, height=64, width=128))
 
     frame = device.get_image()
 
+    assert fake.window == (200, 328, 100, 164)  # (hstart, hend, vstart, vend)
     assert device.resolution == (64, 128)
-    np.testing.assert_array_equal(frame, fake_frame(100e-6)[100:164, 200:328])
+    np.testing.assert_array_equal(frame, NUMBERED[100:164, 200:328])
+
+
+def test_setting_a_region_rearms_for_one_frame_per_trigger(camera):
+    """An armed camera is re-armed free-running by pylablib, so the driver disarms
+    first.
+    """
+    device, fake = camera
+    device.set_roi(ROI(10, 20, 64, 128))
+
+    assert fake.disarms == 1
+    assert fake.arms == 2
+    assert fake.armed
+    assert fake.start_options == {"frames_per_trigger": 1, "auto_start": False}
+
+
+def test_an_unchanged_region_is_not_read_out_again(camera):
+    device, fake = camera
+    device.set_roi(ROI(10, 20, 64, 128))
+    device.set_roi(ROI(10, 20, 64, 128))
+    device.set_roi(None)
+    device.set_roi(None)
+
+    assert len(fake.roi_calls) == 3  # Opening, the region, and the whole sensor.
+    assert fake.arms == 3
+
+
+def test_a_window_grown_to_the_minimum_size_is_cropped_to_the_region(camera):
+    device, fake = camera
+    fake.pattern = NUMBERED
+    device.set_roi(ROI(top_row=5, left_column=6, height=2, width=3))
+
+    frame = device.get_image()
+
+    assert fake.window == (6, 6 + MIN_WINDOW_WIDTH, 5, 5 + MIN_WINDOW_HEIGHT)
+    np.testing.assert_array_equal(frame, NUMBERED[5:7, 6:9])
+
+
+def test_a_window_grown_at_the_sensor_edge_still_holds_the_region(camera):
+    """Growing past the edge moves the window back onto the sensor."""
+    device, fake = camera
+    fake.pattern = NUMBERED
+    region = ROI(SENSOR_HEIGHT - 1, SENSOR_WIDTH - 2, 1, 2)
+    device.set_roi(region)
+
+    frame = device.get_image()
+
+    assert fake.window == (
+        SENSOR_WIDTH - MIN_WINDOW_WIDTH,
+        SENSOR_WIDTH,
+        SENSOR_HEIGHT - MIN_WINDOW_HEIGHT,
+        SENSOR_HEIGHT,
+    )
+    np.testing.assert_array_equal(frame, region.crop(NUMBERED))
+
+
+def test_a_window_that_does_not_hold_the_region_is_an_error(camera):
+    device, fake = camera
+    fake.set_roi = lambda *_: (0, 8, 0, 4, 1, 1)  # A camera that ignores the request.
+    with pytest.raises(RuntimeError, match="does not hold"):
+        device.set_roi(ROI(100, 200, 64, 128))
+    # Armed again for triggers, whatever the window.
+    assert fake.start_options == {"frames_per_trigger": 1, "auto_start": False}
+
+
+@pytest.mark.parametrize("orientation", CameraOrientation.dihedral(), ids=repr)
+def test_a_region_reads_out_only_its_sensor_pixels_in_every_orientation(
+    camera, orientation
+):
+    """The frame is the region of the reoriented whole frame, and only the sensor
+    pixels under it are read out.
+    """
+    device, fake = camera
+    fake.pattern = NUMBERED
+    device.set_orientation(orientation)
+    region = ROI(top_row=37, left_column=53, height=61, width=97)
+    device.set_roi(region)
+
+    frame = device.get_image()
+
+    np.testing.assert_array_equal(
+        frame, region.crop(orientation.transformation()(NUMBERED))
+    )
+    hstart, hend, vstart, vend = fake.window
+    assert (hend - hstart) * (vend - vstart) == region.height * region.width
+
+
+@pytest.mark.parametrize("orientation", CameraOrientation.dihedral(), ids=repr)
+def test_the_whole_frame_in_every_orientation(camera, orientation):
+    device, fake = camera
+    fake.pattern = NUMBERED
+    device.set_orientation(orientation)
+
+    np.testing.assert_array_equal(
+        device.get_image(), orientation.transformation()(NUMBERED)
+    )
+    assert fake.window == (0, SENSOR_WIDTH, 0, SENSOR_HEIGHT)
 
 
 def test_a_region_off_the_frame_is_rejected(camera):
-    device, _ = camera
+    device, fake = camera
     with pytest.raises(ValueError, match="does not lie inside"):
         device.set_roi(ROI(400, 600, 100, 100))
     assert device.roi == ROI(0, 0, SENSOR_HEIGHT, SENSOR_WIDTH)
+    assert fake.window == (0, SENSOR_WIDTH, 0, SENSOR_HEIGHT)
 
 
 def test_orientation_reorients_frames_and_exchanges_the_geometry(camera):
-    device, _ = camera
+    device, fake = camera
+    fake.pattern = NUMBERED
     orientation = CameraOrientation(rot="270", fliplr=True, flipud=False)
-    device.set_exposure(100e-6)
 
     device.set_orientation(orientation)
     frame = device.get_image()
@@ -283,16 +416,15 @@ def test_orientation_reorients_frames_and_exchanges_the_geometry(camera):
     assert device.sensor_resolution == (SENSOR_WIDTH, SENSOR_HEIGHT)
     assert device.roi == ROI(0, 0, SENSOR_WIDTH, SENSOR_HEIGHT)
     np.testing.assert_array_equal(device.pixel_size, PIXEL_SIZE[::-1])
-    np.testing.assert_array_equal(
-        frame, orientation.transformation()(fake_frame(100e-6))
-    )
+    np.testing.assert_array_equal(frame, orientation.transformation()(NUMBERED))
 
 
-def test_orientation_returns_the_region_to_the_whole_frame(camera):
-    device, _ = camera
+def test_orientation_returns_the_region_and_the_readout_to_the_whole_frame(camera):
+    device, fake = camera
     device.set_roi(ROI(10, 20, 64, 128))
     device.set_orientation(CameraOrientation(rot="180"))
     assert device.roi == ROI(0, 0, SENSOR_HEIGHT, SENSOR_WIDTH)
+    assert fake.window == (0, SENSOR_WIDTH, 0, SENSOR_HEIGHT)
 
 
 def test_excluded_pixels_follow_the_sensor(camera):

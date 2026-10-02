@@ -22,9 +22,9 @@ class ThorlabsCamera(Camera):
     """A Thorlabs scientific camera, armed once and triggered in software.
 
     The camera is armed for one frame per software trigger, and every frame is taken
-    with a trigger. The whole sensor is read out, and the region of interest is cut from
-    the reoriented frame. The pixel pitch and the exposure bounds are passed in, since
-    the driver does not report them.
+    with a trigger. Only the part of the sensor under the region of interest is read
+    out, which shortens the transfer of every frame. The pixel pitch and the exposure
+    bounds are passed in, since the driver does not report them.
     """
 
     def __init__(
@@ -58,10 +58,11 @@ class ThorlabsCamera(Camera):
         info = self._device.get_device_info()
         self.name = f"{info.model} {info.serial_number}"
 
-        self._device.set_roi()  # The whole sensor.
-        self._device.set_trigger_mode("int")  # Software triggers.
         width, height = self._device.get_detector_size()
         self._raw_shape: tuple[int, int] = (int(height), int(width))
+        self._device.set_trigger_mode("int")  # Software triggers.
+        self._sensor_region = ROI(0, 0, *self._raw_shape)
+        self._window = _window(self._device.set_roi())
         self._raw_pixel_size = np.asarray(pixel_size, dtype=np.float64)
         self._max_pixel_value = 2 ** int(self._device.get_sensor_info().bit_depth) - 1
         self._exposure_bounds: tuple[float, float] | None = (
@@ -103,6 +104,9 @@ class ThorlabsCamera(Camera):
     def set_roi(self, roi: ROI | None) -> None:
         """Set the region of interest, or return to the whole frame with None.
 
+        Only the part of the sensor under the region is read out. Changing it re-arms
+        the camera, which takes a moment.
+
         Args:
             roi: The region in displayed ``(row, col)`` coordinates, or None.
 
@@ -112,11 +116,69 @@ class ThorlabsCamera(Camera):
         """
         height, width = self._sensor_resolution
         if roi is None:
-            self._roi = ROI(0, 0, height, width)
-            return
-        if not roi.lies_inside((height, width)):
+            roi = ROI(0, 0, height, width)
+        elif not roi.lies_inside((height, width)):
             raise ValueError(f"{roi} does not lie inside the {height} x {width} frame.")
+        self._read_out(self._sensor_region_of(roi))
         self._roi = roi
+
+    def _sensor_region_of(self, roi: ROI) -> ROI:
+        """The region of the raw sensor that ``roi`` shows in displayed coordinates.
+
+        A rotation or a flip takes a rectangle to a rectangle, so its two opposite
+        corners are enough.
+        """
+        corners = reorient_pixels(
+            [
+                (roi.top_row, roi.left_column),
+                (roi.top_row + roi.height - 1, roi.left_column + roi.width - 1),
+            ],
+            self._raw_shape,
+            self.orientation,
+            CameraOrientation(),
+        )
+        rows, columns = zip(*corners)
+        return ROI(
+            min(rows),
+            min(columns),
+            max(rows) - min(rows) + 1,
+            max(columns) - min(columns) + 1,
+        )
+
+    def _read_out(self, region: ROI) -> None:
+        """Read out the window the camera allows around ``region`` of the raw sensor.
+
+        The camera is disarmed for the change and armed again for one frame per
+        trigger.
+
+        Args:
+            region: The raw sensor region to read out, in raw ``(row, col)``
+                coordinates.
+
+        Raises:
+            RuntimeError: The window the camera took does not hold ``region``.
+        """
+        if region == self._sensor_region:
+            return
+        self._device.stop_acquisition()
+        try:
+            window = _window(
+                self._device.set_roi(
+                    region.left_column,
+                    region.left_column + region.width,
+                    region.top_row,
+                    region.top_row + region.height,
+                )
+            )
+        finally:
+            self._device.start_acquisition(frames_per_trigger=1, auto_start=False)
+        if not _holds(window, region):
+            raise RuntimeError(
+                f"The camera reads out {window}, which does not hold the sensor region "
+                f"{region} asked for."
+            )
+        self._window = window
+        self._sensor_region = region
 
     def set_orientation(self, orientation: CameraOrientation) -> None:
         """Remount the sensor, reorienting every frame from here on.
@@ -206,8 +268,13 @@ class ThorlabsCamera(Camera):
         self._device.send_software_trigger()
         self._device.wait_for_frame(timeout=self.get_exposure() + FRAME_TIMEOUT_S)
         frame = self._device.read_oldest_image()
+        # The window can be larger than the region, when the camera has a minimum size.
+        region, window = self._sensor_region, self._window
+        top = region.top_row - window.top_row
+        left = region.left_column - window.left_column
+        part = frame[top : top + region.height, left : left + region.width]
         # A copy, since the driver reuses its frame buffer.
-        return np.array(self._roi.crop(self.transform(frame)))
+        return np.array(self.transform(part))
 
     def close(self) -> None:
         """Disarm the camera and hand it back. Safe to call more than once."""
@@ -229,3 +296,21 @@ class ThorlabsCamera(Camera):
             self.close()
         except Exception:
             pass
+
+
+def _window(roi: tuple) -> ROI:
+    """A window as pylablib states it, ``(hstart, hend, vstart, vend, hbin, vbin)``,
+    as an ROI.
+    """
+    left, right, top, bottom = (int(value) for value in roi[:4])
+    return ROI(top, left, bottom - top, right - left)
+
+
+def _holds(outer: ROI, inner: ROI) -> bool:
+    """Whether every pixel of ``inner`` lies in ``outer``."""
+    return (
+        outer.top_row <= inner.top_row
+        and outer.left_column <= inner.left_column
+        and inner.top_row + inner.height <= outer.top_row + outer.height
+        and inner.left_column + inner.width <= outer.left_column + outer.width
+    )
