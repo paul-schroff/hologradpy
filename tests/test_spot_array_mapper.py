@@ -183,22 +183,28 @@ def test_retriever_seeds_random_phases_and_takes_numpy(simulated_setup):
         )
 
 
-def test_retriever_shares_light_by_the_target_intensities(simulated_setup):
-    """Each grating's amplitude is the square root of its intensity, so a spot asked
-    to be four times as bright comes out near four times as bright.
+@pytest.mark.parametrize(
+    ("intensities", "low", "high"), [([1.0, 1.0], 0.9, 1.1), ([1.0, 4.0], 4.0, 50.0)]
+)
+def test_retriever_shares_light_by_the_target_intensities(
+    simulated_setup, intensities, low, high
+):
+    """Each grating's amplitude is the square root of its intensity. Keeping only the
+    phase of the superposition exaggerates unequal intensities: asking for 1:4 gives
+    about 1:13. Squaring the intensities instead, as before, gave about 1:1000.
     """
     _, _, slm_camera_model = simulated_setup
     positions = np.array([[4.0e-4, 0.0], [-4.0e-4, 0.0]])
     LinearSuperpositionPhaseRetriever(
-        slm_camera_model, positions, target_intensities=[1.0, 4.0]
+        slm_camera_model, positions, target_intensities=intensities
     ).retrieve_phase()
     with torch.no_grad():
         intensity = as_image(slm_camera_model().intensity)
     x, y = slm_camera_model.fourier_lens.get_spatial_grid_output()
-    dim, bright = (
+    first, second = (
         intensity[index] for index in coordinates_to_indices(x, y, positions)
     )
-    assert 3.0 < float(bright / dim) < 5.0
+    assert low < float(second / first) < high
 
 
 # --- inverse-variance waist average -------------------------------------------
