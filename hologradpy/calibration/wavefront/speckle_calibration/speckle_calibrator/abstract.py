@@ -259,6 +259,7 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
     def calibrate(
         self,
         speckle_pattern_extent: tuple[float, float] | None = None,
+        speckle_pattern_tilt: tuple[float, float] | None = None,
         number_of_epochs: int = 50,
         batch_size: int = 5,
         subset_indices: Sequence[int] | None = None,
@@ -276,11 +277,14 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
         followed by :meth:`fit_wavefront`.
 
         Args:
-            speckle_pattern_extent: Full width ``(y, x)`` of the speckle at the camera,
-                in metres, setting both the pattern band limit and the region of
-                interest. Defaults to the largest speckle that fits on the
-                sensor, measured from the camera mapping, so an off-axis camera is
-                limited by whichever sensor edge the zeroth order sits closest to.
+            speckle_pattern_extent: Full width ``(y, x)`` of the speckle in the image
+                plane, in metres, setting both the pattern band limit and the region of
+                interest. Defaults to the largest speckle whose image fits on the
+                sensor around the speckle centre, measured through the camera mapping.
+            speckle_pattern_tilt: Image-plane position ``(x, y)`` of the speckle centre
+                in metres, measured from the zeroth order. None, the default, steers the
+                speckle to the sensor centre, and ``(0.0, 0.0)`` keeps it on the zeroth
+                order.
             number_of_epochs: Passes over the dataset.
             batch_size: Patterns per optimizer step.
             subset_indices: Fit only these patterns of the dataset. Defaults to all.
@@ -305,6 +309,7 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
 
         capture_data = self.dataset_generator.generate_dataset(
             speckle_pattern_extent,
+            tilt=speckle_pattern_tilt,
             benchmark_calibration=benchmark_calibration,
             seed=seed,
         )

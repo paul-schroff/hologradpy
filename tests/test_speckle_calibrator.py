@@ -38,6 +38,9 @@ from hologradpy.optics.modules.slm_fields import (
 from hologradpy.optics.modules.pixel_crosstalk import SuperGaussianCrosstalk
 from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
+from hologradpy.profiles.phase import linear_phase
+from hologradpy.grids import get_spatial_grid, plane_center
+from hologradpy.calibration.spot_detection import tilt_to_sensor_center
 from hologradpy.analysis.fitting import remove_tilt
 from hologradpy.geometry import PartialAffineTransform
 from hologradpy.calibration.camera_mapping import (
@@ -150,30 +153,43 @@ def _build_model(
 
 def _synthetic_mapping(
     zeroth_order_position: tuple[float, float] | None = None,
+    scale: float = 1.0,
+    angle_deg: float = 0.0,
 ) -> CameraMapping:
-    """An identity camera -> model mapping with the zeroth order at the (square)
-    camera center, so the affine seed is near identity. The model's output plane is
-    the camera grid, as in :func:`_build_model`.
+    """A camera -> model mapping whose model plane is the camera grid, as in
+    :func:`_build_model`. With the defaults it is the identity, with the zeroth order at
+    the (square) camera center.
+
+    The transform carries the zeroth order onto the centre of the model's output plane,
+    so the image-plane conversions of the mapping agree with its recorded zeroth order.
 
     Args:
         zeroth_order_position: Where the zeroth order sits, ``(y, x)`` in camera pixels.
             Defaults to the sensor center. Pass one to model an off-axis camera.
+        scale: Model pixels per camera pixel.
+        angle_deg: Rotation of the camera against the model plane, in degrees.
     """
-    truth = PartialAffineTransform.from_components(scale=1.0)
-    detected = np.random.default_rng(0).uniform(-50, 50, size=(12, 2))
-    calculated = truth.transform_points(detected)
     # zeroth_order_position is stored (y, x) = (row, col).
-    center = zeroth_order_position or (
+    zeroth = zeroth_order_position or (
         CAMERA_RESOLUTION[0] / 2,
         CAMERA_RESOLUTION[1] / 2,
     )
+    center_x, center_y = plane_center(CAMERA_RESOLUTION)
+    truth = PartialAffineTransform.from_components(
+        scale=scale,
+        angle_deg=angle_deg,
+        shift=(center_x - zeroth[1], center_y - zeroth[0]),
+        center=(zeroth[1], zeroth[0]),
+    )
+    detected = np.random.default_rng(0).uniform(-50, 50, size=(12, 2))
+    calculated = truth.transform_points(detected)
     return CameraMapping(
         timestamp=datetime.now(),
         name="synthetic",
         transform=truth.as_matrix(homogeneous=False),
         detected_points=detected.tolist(),
         calculated_points=calculated.tolist(),
-        zeroth_order_position=center,
+        zeroth_order_position=zeroth,
         spot_fit=FocalSpotFit(waist=CAMERA_PIXEL_SIZE[0] * 2),
         output_pixel_size=CAMERA_PIXEL_SIZE,
         output_resolution=CAMERA_RESOLUTION,
@@ -888,26 +904,25 @@ def test_the_speckle_extent_is_a_width_not_a_radius(tmp_path) -> None:
     assert width == pytest.approx(extent[1], rel=0.1)
 
 
-def test_the_default_extent_is_the_largest_that_fits_an_off_axis_camera(
+def test_the_largest_extent_on_the_zeroth_order_fits_an_off_axis_camera(
     tmp_path,
 ) -> None:
-    """The speckle is centered on the zeroth order, not on the sensor, so the default
-    has to be measured from the mapping. Assuming a centered beam puts a third of the
-    region off the sensor, where it contributes nothing but skews the autoexposure.
+    """A speckle kept on the zeroth order is centred there, not on the sensor, so its
+    largest extent is measured from the zeroth order to the nearest sensor edge.
     """
     slm, camera = _build_hardware()
     # A quarter of the way down, so the top edge is the nearest one.
     zeroth = (CAMERA_RESOLUTION[0] / 4, CAMERA_RESOLUTION[1] / 2)
     generator = _generator_for(_synthetic_mapping(zeroth), slm, camera, tmp_path)
 
-    assert generator.largest_extent_on_sensor() == pytest.approx(
+    assert generator.largest_extent_on_sensor(tilt=(0.0, 0.0)) == pytest.approx(
         (
             2 * zeroth[0] * camera.pixel_size[0],
             CAMERA_RESOLUTION[1] * camera.pixel_size[1],
         )
     )
 
-    generator.generate_phase_patterns(seed=0)
+    generator.generate_phase_patterns(tilt=(0.0, 0.0), seed=0)
 
     rows, columns = np.nonzero(generator.roi_mask)
     # Reaching the nearest edge, to within the pixel the grid convention costs, is what
@@ -980,17 +995,246 @@ def test_a_negative_zeroth_order_mask_is_refused(tmp_path) -> None:
         )
 
 
-def test_a_zeroth_order_off_the_sensor_refuses_to_pick_an_extent(tmp_path) -> None:
+def test_a_zeroth_order_off_the_sensor_refuses_an_extent_around_it(tmp_path) -> None:
     """Coarse mapping extrapolates the zeroth order through the affine, so it can land
-    off the sensor. Nothing centered there fits, and the arithmetic would otherwise hand
-    back a negative width and an empty region.
+    off the sensor. No speckle centred there fits on the sensor.
     """
     slm, camera = _build_hardware()
     off_sensor = (-5.0, CAMERA_RESOLUTION[1] / 2)
     generator = _generator_for(_synthetic_mapping(off_sensor), slm, camera, tmp_path)
 
     with pytest.raises(ValueError, match="Pass an extent explicitly"):
-        generator.largest_extent_on_sensor()
+        generator.largest_extent_on_sensor(tilt=(0.0, 0.0))
+
+
+# --- Steering the speckle with a tilt -----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "zeroth",
+    [
+        (CAMERA_RESOLUTION[0] / 2, CAMERA_RESOLUTION[1] / 2),
+        (CAMERA_RESOLUTION[0] / 4, CAMERA_RESOLUTION[1] / 2),
+        (-5.0, CAMERA_RESOLUTION[1] / 2),
+    ],
+    ids=["centre", "near an edge", "off the sensor"],
+)
+def test_the_default_steers_the_speckle_to_the_sensor_centre(tmp_path, zeroth) -> None:
+    """By default the speckle is steered to the sensor centre, so its region spans the
+    whole sensor wherever the zeroth order sits, off the sensor included.
+    """
+    slm, camera = _build_hardware()
+    mapping = _synthetic_mapping(zeroth)
+    generator = _generator_for(mapping, slm, camera, tmp_path)
+
+    generator.generate_phase_patterns(seed=0, verbose=False)
+
+    assert generator.metadata["speckle_tilt"] == pytest.approx(
+        tilt_to_sensor_center(camera, mapping)
+    )
+    assert generator.metadata["speckle_extent"] == pytest.approx(
+        tuple(n * pitch for n, pitch in zip(CAMERA_RESOLUTION, CAMERA_PIXEL_SIZE))
+    )
+    rows, columns = np.nonzero(generator.roi_mask)
+    # The zeroth-order disc can bite into the top edge, so the other three edges
+    # show the reach, to within the pixel the grid convention costs.
+    assert columns.min() <= 1
+    assert columns.max() >= CAMERA_RESOLUTION[1] - 2
+    assert rows.max() >= CAMERA_RESOLUTION[0] - 2
+
+
+def test_a_tilt_adds_its_linear_phase_to_every_pattern(tmp_path) -> None:
+    slm, camera = _build_hardware()
+    tilt = (4e-4, -2e-4)
+    centred = _generator_for(_synthetic_mapping(), slm, camera, tmp_path)
+    tilted = _generator_for(_synthetic_mapping(), slm, camera, tmp_path)
+
+    centred.generate_phase_patterns(
+        (5e-4, 5e-4), tilt=(0.0, 0.0), seed=0, verbose=False
+    )
+    tilted.generate_phase_patterns((5e-4, 5e-4), tilt=tilt, seed=0, verbose=False)
+
+    slm_grid = get_spatial_grid(
+        SLM_RESOLUTION, torch.tensor(tuple(slm.pixel_size), dtype=torch.float64)
+    )
+    ramp = linear_phase(
+        *slm_grid,
+        *tilt,
+        tilt_units="metres",
+        wavenumber=2 * np.pi / slm.wavelength,
+        focal_length=FOCAL_LENGTH,
+    ).numpy()
+    np.testing.assert_allclose(
+        np.exp(1j * (tilted.phase_patterns[0] - centred.phase_patterns[0])),
+        np.exp(1j * ramp),
+        atol=1e-9,
+    )
+    assert tilted.metadata["speckle_tilt"] == tilt
+
+
+def test_a_tilted_speckle_lands_on_its_region_of_interest(tmp_path) -> None:
+    """The linear phase and the region of interest agree on where the speckle goes.
+    The light falls inside the region, and the region mirrored through the zeroth
+    order, where the opposite tilt puts it, stays dark.
+    """
+    slm, camera = _build_hardware()
+    tilt = (6e-4, 0.0)
+    generator = _generator_for(_synthetic_mapping(), slm, camera, tmp_path)
+    mirrored = _generator_for(_synthetic_mapping(), slm, camera, tmp_path)
+
+    generator.generate_dataset((1.2e-3, 1.2e-3), tilt=tilt, seed=0)
+    mirrored.generate_phase_patterns(
+        (1.2e-3, 1.2e-3), tilt=(-tilt[0], -tilt[1]), seed=0, verbose=False
+    )
+
+    with CaptureStore.open(generator.dataset_path) as store:
+        frame = np.asarray(store.read(0)["camera_image"], dtype=np.float64)
+    inside = frame[generator.roi_mask].mean()
+    opposite = frame[mirrored.roi_mask].mean()
+    # A phase-only pattern without crosstalk sends only the light its quantization
+    # scatters into the mirrored order.
+    assert inside > 20 * opposite
+
+
+def test_a_tilt_keeps_the_spot_at_the_speckle_centre_out_of_the_region(
+    tmp_path,
+) -> None:
+    """Each random pattern leaves part of its light undiffracted, and the tilt carries
+    the focal spot of that light to the speckle centre. The spot outshines the speckle,
+    so a disc of the zeroth-order radius around it leaves the region.
+    """
+    slm, camera = _build_hardware()
+    mapping = _synthetic_mapping()
+    generator = _generator_for(mapping, slm, camera, tmp_path)
+    tilt = (6e-4, 0.0)
+
+    generator.generate_phase_patterns(
+        (1.2e-3, 1.2e-3), tilt=tilt, seed=0, verbose=False
+    )
+
+    radius_pixels = (
+        generator.metadata["zeroth_order_mask_radius"] / camera.pixel_size[0]
+    )
+    centre = mapping.image_plane_to_sensor(tilt)[0]
+    rows, columns = np.indices(generator.roi_mask.shape)
+    distance = np.hypot(rows - centre[0], columns - centre[1])
+    # A pixel of slack either side for the grid convention.
+    assert not generator.roi_mask[distance < radius_pixels - 1].any()
+    assert generator.roi_mask[
+        (distance > radius_pixels + 1) & (distance < radius_pixels + 3)
+    ].all()
+
+
+def test_a_speckle_inside_its_centre_disc_is_refused(tmp_path) -> None:
+    slm, camera = _build_hardware()
+    generator = _generator_for(_synthetic_mapping(), slm, camera, tmp_path)
+
+    with pytest.raises(ValueError, match="region of interest is empty"):
+        generator.generate_phase_patterns(
+            (2e-4, 2e-4), tilt=(6e-4, 0.0), seed=0, verbose=False
+        )
+
+
+def test_a_magnified_mapping_scales_the_extent_and_keeps_the_region(tmp_path) -> None:
+    """The extent is measured in the image plane. A mapping that puts two model pixels
+    on every sensor pixel doubles the largest extent and keeps its region on the same
+    sensor pixels.
+    """
+    slm, camera = _build_hardware()
+    plain = _generator_for(_synthetic_mapping(), slm, camera, tmp_path)
+    magnified = _generator_for(_synthetic_mapping(scale=2.0), slm, camera, tmp_path)
+
+    assert magnified.largest_extent_on_sensor() == pytest.approx(
+        tuple(2 * width for width in plain.largest_extent_on_sensor())
+    )
+
+    plain.generate_phase_patterns(seed=0, verbose=False)
+    magnified.generate_phase_patterns(seed=0, verbose=False)
+
+    np.testing.assert_array_equal(magnified.roi_mask, plain.roi_mask)
+
+
+def test_the_largest_speckle_on_a_rotated_camera_touches_the_sensor_edge(
+    tmp_path,
+) -> None:
+    """The image of the speckle ellipse turns with the camera, so on a rotated camera
+    the ellipse shrinks until its image reaches the nearest sensor edge, and no
+    further.
+    """
+    slm, camera = _build_hardware()
+    zeroth = (CAMERA_RESOLUTION[0] / 4, CAMERA_RESOLUTION[1] / 2)
+    aligned = _generator_for(_synthetic_mapping(zeroth), slm, camera, tmp_path)
+    mapping = _synthetic_mapping(zeroth, angle_deg=30.0)
+    rotated = _generator_for(mapping, slm, camera, tmp_path)
+
+    # Kept on the zeroth order, a quarter of the way down, so the ellipse is twice as
+    # wide as it is tall and its turn matters.
+    height, width = rotated.largest_extent_on_sensor(tilt=(0.0, 0.0))
+
+    angles = np.linspace(0.0, 2 * np.pi, 721)
+    boundary = mapping.image_plane_to_sensor(
+        np.stack([width / 2 * np.cos(angles), height / 2 * np.sin(angles)], axis=1)
+    )
+    clearance = np.minimum(boundary, np.asarray(CAMERA_RESOLUTION) - boundary)
+    assert clearance.min() == pytest.approx(0.0, abs=1e-3)
+    aligned_height, aligned_width = aligned.largest_extent_on_sensor(tilt=(0.0, 0.0))
+    assert height < aligned_height
+    assert width < aligned_width
+
+
+def test_a_tilt_leaves_uniform_patterns_unchanged(tmp_path) -> None:
+    """A uniform pattern fills the whole addressable field, so a tilt has nothing to
+    move.
+    """
+    slm, camera = _build_hardware()
+    centred = _generator_for(_synthetic_mapping(), slm, camera, tmp_path)
+    tilted = _generator_for(_synthetic_mapping(), slm, camera, tmp_path)
+
+    centred.generate_phase_patterns(seed=0, verbose=False, pattern="uniform")
+    tilted.generate_phase_patterns(
+        tilt=(4e-4, 0.0), seed=0, verbose=False, pattern="uniform"
+    )
+
+    np.testing.assert_array_equal(tilted.phase_patterns[0], centred.phase_patterns[0])
+    assert tilted.metadata["speckle_tilt"] is None
+
+
+def test_a_speckle_past_the_addressable_field_is_refused(tmp_path) -> None:
+    """Past ``wavelength * focal_length / (2 * pixel_size)`` from the zeroth order the
+    band of the patterns aliases, and the speckle lands at the wrapped position.
+    """
+    slm, camera = _build_hardware()
+    generator = _generator_for(_synthetic_mapping(), slm, camera, tmp_path)
+    half_field = slm.wavelength * FOCAL_LENGTH / (2 * slm.pixel_size[1])
+
+    with pytest.raises(ValueError, match="field the SLM addresses"):
+        generator.generate_phase_patterns(
+            (5e-4, 5e-4), tilt=(half_field, 0.0), seed=0, verbose=False
+        )
+
+
+def test_the_calibration_steers_its_speckle_with_the_tilt(tmp_path) -> None:
+    slm, camera = _build_hardware()
+    calibrator = PixelwiseSpeckleCalibrator(
+        slm=slm,
+        camera=camera,
+        camera_mapping=_synthetic_mapping(),
+        slm_camera_model=_build_model(slm, camera, FOCAL_LENGTH),
+        dataset_path=tmp_path / "dataset.asdf",
+        number_of_random_patterns=1,
+    )
+
+    calibrator.calibrate(
+        speckle_pattern_extent=(1.2e-3, 1.2e-3),
+        speckle_pattern_tilt=(6e-4, 0.0),
+        number_of_epochs=1,
+        batch_size=1,
+        verbose=False,
+    )
+
+    assert calibrator.capture_data.metadata["speckle_tilt"] == pytest.approx(
+        (6e-4, 0.0)
+    )
 
 
 # --- The benchmark ----------------------------------------------------------------
@@ -1215,6 +1459,8 @@ def _recovery_mapping() -> CameraMapping:
             RECOVERY_CAMERA_RESOLUTION[1] / 2,
         ),
         spot_fit=FocalSpotFit(waist=RECOVERY_CAMERA_PIXEL_SIZE[0] * 2),
+        output_pixel_size=RECOVERY_CAMERA_PIXEL_SIZE,
+        output_resolution=RECOVERY_CAMERA_RESOLUTION,
     )
 
 

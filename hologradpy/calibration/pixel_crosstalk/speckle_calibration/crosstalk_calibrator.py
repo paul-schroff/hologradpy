@@ -210,8 +210,8 @@ class CrosstalkSpeckleCalibrator(SpeckleCalibrator):
         ``dataset_generator.generate_dataset(...)`` followed by :meth:`fit_crosstalk`.
 
         Args:
-            speckle_pattern_extent: Full width ``(y, x)`` of the speckle at the
-                camera, in metres. When None, the patterns are drawn per pixel and
+            speckle_pattern_extent: Full width ``(y, x)`` of the speckle in the image
+                plane, in metres. When None, the patterns are drawn per pixel and
                 fill the whole addressable area. The region of interest is then the
                 sensor minus the zeroth order. With an extent, the patterns are band
                 limited, so the fit loses most of its signal.

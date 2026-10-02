@@ -19,12 +19,13 @@ from ...hardware.slm import SLMData
 from ..wavefront.abstract import WavefrontCalibrationData
 
 from ..camera_mapping import CameraMapping
+from ..spot_detection import tilt_to_sensor_center
 
 from ...datasets import CaptureStore
 from ...profiles.masks import circular_mask, elliptical_mask
-from ...profiles.phase import band_limited_random_phase
+from ...profiles.phase import band_limited_random_phase, linear_phase
 from ...roi import ROI
-from ...fourier_optics import fourier_lens_pixel_size
+from ...fourier_optics import addressable_half_extent, fourier_lens_pixel_size
 from ...grids import get_pixel_grid, get_spatial_grid, pixel_to_metres
 from ...utils import as_image, progress
 
@@ -37,7 +38,8 @@ class DatasetGenerator:
 
     The patterns and the region of interest are defined on the whole sensor,
     independent of the camera's region of interest. Every frame is captured from the
-    whole sensor.
+    whole sensor. A linear phase, the tilt, can move the speckle away from the zeroth
+    order, and the camera mapping carries the speckle region onto the sensor.
     """
 
     def __init__(
@@ -66,7 +68,8 @@ class DatasetGenerator:
                 interest around the zeroth order, in fitted focal-spot waists
                 (``camera_mapping.spot_fit.waist``). The model does not predict the
                 undiffracted light, so the disc has to cover its wings as well as its
-                core. Defaults to 4.
+                core. A tilted speckle loses a disc of the same radius around its
+                centre. Defaults to 4.
 
         Raises:
             ValueError: ``zeroth_order_mask_waists`` is negative.
@@ -92,6 +95,7 @@ class DatasetGenerator:
         self.metadata: dict[str, tuple[float, float] | float | int | None] = {
             "band_radius_bins": None,
             "speckle_extent": None,
+            "speckle_tilt": None,
             "seed": None,
             "exposure_time": None,
         }
@@ -100,6 +104,7 @@ class DatasetGenerator:
     def generate_dataset(
         self,
         extent: tuple[float, float] | None = None,
+        tilt: tuple[float, float] | None = None,
         benchmark_calibration: WavefrontCalibrationData | None = None,
         seed: int | None = None,
         pattern: Literal["band_limited", "uniform"] = "band_limited",
@@ -113,10 +118,13 @@ class DatasetGenerator:
         the SLM.
 
         Args:
-            extent: Full width ``(y, x)`` of the speckle at the camera, in metres. It
-                sets both the pattern band limit and the region of interest. As a full
-                width, it compares directly against the sensor size. Defaults to the
-                largest speckle that fits on the sensor.
+            extent: Full width ``(y, x)`` of the speckle in the image plane, in metres.
+                It sets both the pattern band limit and the region of interest.
+                Defaults to the largest speckle whose image fits on the sensor.
+            tilt: Image-plane position ``(x, y)`` of the speckle centre in metres,
+                measured from the zeroth order, passed to
+                :meth:`generate_phase_patterns`. None, the default, steers the speckle
+                to the sensor centre, and ``(0.0, 0.0)`` keeps it on the zeroth order.
             benchmark_calibration: An existing calibration whose correction, the
                 negative of its phase, is added to every pattern, for measuring the
                 residual of a previous fit.
@@ -133,46 +141,82 @@ class DatasetGenerator:
         """
         self.generate_phase_patterns(
             extent,
+            tilt=tilt,
             benchmark_calibration=benchmark_calibration,
             seed=seed,
             pattern=pattern,
         )
         return self.capture_camera_images(set_fraction=set_fraction)
 
-    def largest_extent_on_sensor(self) -> tuple[float, float]:
-        """The widest speckle ``(y, x)``, in metres, that still fits on the sensor.
+    def largest_extent_on_sensor(
+        self, tilt: tuple[float, float] | None = None
+    ) -> tuple[float, float]:
+        """The widest speckle ``(y, x)`` around ``tilt``, in image-plane metres, whose
+        image fits on the sensor.
+
+        Args:
+            tilt: Image-plane position ``(x, y)`` of the speckle centre in metres,
+                measured from the zeroth order. None, the default, is the position of
+                the sensor centre.
 
         Returns:
-            tuple[float, float]: Full width per axis, twice the distance from the zeroth
-            order to the nearest sensor edge along that axis.
+            tuple[float, float]: Full width per axis.
 
         Raises:
-            ValueError: If the zeroth order lies off the sensor, where no speckle
-                centered on it fits and an extent has to be chosen deliberately.
+            ValueError: The speckle centre lies off the sensor, where no speckle centred
+                on it fits, or the tilt leaves no room inside the addressable field.
         """
-        # In camera pixels, stored (y, x). Coarse mapping extrapolates it through the
-        # affine transform, so it can land off the sensor entirely.
-        zeroth = self.camera_mapping.zeroth_order_position
-        sensor_resolution = tuple(self.camera.sensor_resolution)
-
-        margins = tuple(
-            min(float(zeroth[i]), sensor_resolution[i] - float(zeroth[i]))
-            for i in range(2)
+        if tilt is None:
+            tilt = tilt_to_sensor_center(self.camera, self.camera_mapping)
+        sensor_resolution = np.asarray(self.camera.sensor_resolution, dtype=np.float64)
+        tilt = np.asarray(tilt, dtype=np.float64)
+        # The sensor (row, column) of the speckle centre, and of a step of one metre
+        # along the image-plane x and y, which gives the linear part of the mapping.
+        center, step_x, step_y = self.camera_mapping.image_plane_to_sensor(
+            np.stack([tilt, tilt + (1.0, 0.0), tilt + (0.0, 1.0)])
         )
-        if any(margin <= 0 for margin in margins):
+
+        margins = np.minimum(center, sensor_resolution - center)
+        if np.any(margins <= 0):
             raise ValueError(
-                f"The zeroth order sits at {tuple(float(z) for z in zeroth)} on a "
-                f"{sensor_resolution} sensor, so no speckle centered on it fits. Pass "
-                "an extent explicitly."
+                f"The speckle centre sits at {tuple(float(c) for c in center)} on a "
+                f"{tuple(int(n) for n in sensor_resolution)} sensor, so no speckle "
+                "centred on it fits. Pass an extent explicitly, or a tilt that lands "
+                "on the sensor."
             )
 
-        return tuple(
-            2 * margins[i] * self.camera.pixel_size[i] for i in range(2)
+        # Sensor (row, column) pixels per image-plane metre, along x and along y.
+        pixels_per_metre_x = step_x - center
+        pixels_per_metre_y = step_y - center
+        semi_axes = np.array(
+            [
+                margins[1] / np.linalg.norm(pixels_per_metre_x),
+                margins[0] / np.linalg.norm(pixels_per_metre_y),
+            ]
         )
+        # How far the image of the ellipse reaches along the sensor rows and columns.
+        reach = np.hypot(
+            pixels_per_metre_x * semi_axes[0], pixels_per_metre_y * semi_axes[1]
+        )
+        semi_x, semi_y = semi_axes * np.min(margins / reach)
+
+        addressable_x, addressable_y = addressable_half_extent(
+            self.slm.wavelength, self.focal_length, self.slm.pixel_size
+        )
+        semi_x = min(semi_x, addressable_x - abs(tilt[0]))
+        semi_y = min(semi_y, addressable_y - abs(tilt[1]))
+        if semi_x <= 0 or semi_y <= 0:
+            raise ValueError(
+                f"The tilt {tuple(float(t) for t in tilt)} m leaves no room inside the "
+                f"field the SLM addresses, {addressable_x:.3g} m and "
+                f"{addressable_y:.3g} m from the zeroth order along x and y."
+            )
+        return (2 * float(semi_y), 2 * float(semi_x))
 
     def generate_phase_patterns(
         self,
         extent: tuple[float, float] | None = None,
+        tilt: tuple[float, float] | None = None,
         benchmark_calibration: WavefrontCalibrationData | None = None,
         seed: int | None = None,
         verbose: bool = True,
@@ -180,17 +224,25 @@ class DatasetGenerator:
     ) -> None:
         """Generate a set of random phase patterns.
 
-        Each pattern is white noise band limited to the requested camera-plane extent,
+        Each pattern is white noise band limited to the requested image-plane extent,
         by :func:`~hologradpy.profiles.phase.band_limited_random_phase`. The Fourier
-        lens transforms the SLM plane into the camera plane, so the SLM's own FFT plane
-        is the camera plane up to a scale, and the band limit can be sized directly in
-        camera metres.
+        lens transforms the SLM plane into the image plane, so the SLM's own FFT plane
+        is the image plane up to a scale, and the band limit can be sized directly in
+        image-plane metres. The linear phase of the tilt moves the speckle away from
+        the zeroth order.
 
         Args:
-            extent: Full width ``(y, x)`` of the speckle at the camera, in metres, which
-                sets both the band limit and the region of interest. It is a width, not
-                a radius, so it can be compared directly against the sensor size.
-                Defaults to the largest speckle that fits on the sensor.
+            extent: Full width ``(y, x)`` of the speckle in the image plane, in metres,
+                which sets both the band limit and the region of interest. It is a
+                width, not a radius, so at unit magnification between the image plane
+                and the camera it compares directly against the sensor size. Defaults
+                to the largest speckle that fits on the sensor
+                (:meth:`largest_extent_on_sensor`).
+            tilt: Image-plane position ``(x, y)`` of the speckle centre in metres,
+                measured from the zeroth order, as
+                :func:`~hologradpy.profiles.phase.linear_phase` takes it. None, the
+                default, steers the speckle to the sensor centre, and ``(0.0, 0.0)``
+                keeps it on the zeroth order.
             benchmark_calibration: An existing calibration whose correction, the
                 negative of its phase, is added to every pattern, for measuring the
                 residual of a previous fit.
@@ -206,12 +258,38 @@ class DatasetGenerator:
                 crosstalk. A uniform pattern fills the whole addressable area, so
                 ``extent`` says nothing about where its light goes and the region of
                 interest becomes the sensor minus the zeroth order.
+
+        Raises:
+            ValueError: The requested speckle region reaches past the field the SLM
+                addresses, ``wavelength * focal_length / (2 * pixel_size)`` from the
+                zeroth order, where the band of the patterns aliases.
         """
         uniform = pattern == "uniform"
+        if uniform:
+            tilt = (0.0, 0.0)
+        elif tilt is None:
+            tilt = tilt_to_sensor_center(self.camera, self.camera_mapping)
+        tilt = (float(tilt[0]), float(tilt[1]))
+
         if extent is None and not uniform:
-            extent = self.largest_extent_on_sensor()
+            extent = self.largest_extent_on_sensor(tilt)
+        elif extent is not None and not uniform:
+            addressable_x, addressable_y = addressable_half_extent(
+                self.slm.wavelength, self.focal_length, self.slm.pixel_size
+            )
+            if (
+                abs(tilt[0]) + extent[1] / 2 > addressable_x
+                or abs(tilt[1]) + extent[0] / 2 > addressable_y
+            ):
+                raise ValueError(
+                    f"A speckle {tuple(extent)} m wide around {tilt} m reaches past "
+                    f"the field the SLM addresses, {addressable_x:.3g} m and "
+                    f"{addressable_y:.3g} m from the zeroth order along x and y, where "
+                    "the band of the patterns aliases. Pass a smaller extent or tilt."
+                )
 
         self.metadata["speckle_extent"] = extent
+        self.metadata["speckle_tilt"] = None if uniform else tilt
         self.metadata["seed"] = seed
         self.phase_pattern_type = pattern
 
@@ -255,6 +333,18 @@ class DatasetGenerator:
             )
         self.metadata["band_radius_fft_pixels"] = radius_fft_pixels
 
+        slm_grid = get_spatial_grid(
+            tuple(self.slm.resolution),
+            torch.tensor(tuple(self.slm.pixel_size), dtype=torch.float64),
+        )
+        tilt_phase = linear_phase(
+            *slm_grid,
+            *tilt,
+            tilt_units="metres",
+            wavenumber=2 * np.pi / self.slm.wavelength,
+            focal_length=self.focal_length,
+        ).numpy()
+
         generator = torch.Generator(device=band_mask.device)
         if seed is None:
             generator.seed()
@@ -280,7 +370,7 @@ class DatasetGenerator:
             else:
                 phase = band_limited_random_phase(band_mask, generator=generator)
             phase = np.remainder(
-                phase.cpu().numpy() + benchmark_phase, 2 * np.pi
+                phase.cpu().numpy() + tilt_phase + benchmark_phase, 2 * np.pi
             )
 
             self.phase_patterns.append(phase)
@@ -304,26 +394,56 @@ class DatasetGenerator:
                 device=camera_grid[0].device,
             )
         else:
-            speckle_mask = elliptical_mask(
-                *camera_grid,
-                radius_x=half_extent[1],
-                radius_y=half_extent[0],
-                shift_x=shift_x,
-                shift_y=shift_y,
+            # Each sensor pixel is placed in the image plane through the camera
+            # mapping, so the region follows the camera's rotation, magnification and
+            # offset.
+            rows, columns = np.indices(sensor_resolution)
+            positions = self.camera_mapping.sensor_to_image_plane(
+                np.stack([rows.ravel(), columns.ravel()], axis=1)
+            )
+            speckle_mask = torch.as_tensor(
+                elliptical_mask(
+                    positions[:, 0].reshape(sensor_resolution),
+                    positions[:, 1].reshape(sensor_resolution),
+                    radius_x=half_extent[1],
+                    radius_y=half_extent[0],
+                    shift_x=tilt[0],
+                    shift_y=tilt[1],
+                ),
+                device=camera_grid[0].device,
             )
 
         zeroth_order_mask_radius = (
             self.zeroth_order_mask_waists * self.camera_mapping.spot_fit.waist
         )
         self.metadata["zeroth_order_mask_radius"] = zeroth_order_mask_radius
-        zeroth_order_mask = circular_mask(
+        excluded = circular_mask(
             *camera_grid,
             zeroth_order_mask_radius,
             shift_x=shift_x,
             shift_y=shift_y,
         )
+        if not uniform and any(tilt):
+            centre_row, centre_column = self.camera_mapping.image_plane_to_sensor(
+                tilt
+            )[0]
+            centre_x, centre_y = pixel_to_metres(
+                (centre_column, centre_row), self.camera.pixel_size, sensor_resolution
+            )
+            excluded = excluded | circular_mask(
+                *camera_grid,
+                zeroth_order_mask_radius,
+                shift_x=centre_x,
+                shift_y=centre_y,
+            )
 
-        self.roi_mask = (speckle_mask & ~zeroth_order_mask).cpu().numpy()
+        self.roi_mask = (speckle_mask & ~excluded).cpu().numpy()
+        if not self.roi_mask.any():
+            raise ValueError(
+                "The region of interest is empty, since the speckle region lies inside "
+                "the discs kept out around the zeroth order and the speckle centre. "
+                "Pass a larger extent or a smaller zeroth_order_mask_waists."
+            )
 
     def capture_camera_images(
         self,
