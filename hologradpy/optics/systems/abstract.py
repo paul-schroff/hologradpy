@@ -4,7 +4,7 @@ import math
 import os
 from collections.abc import Generator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, TypeVar
 
 import torch
@@ -75,6 +75,25 @@ class OpticalSystem(nn.Module):
     def device(self) -> torch.device:
         """The device this system currently lives on (follows ``.to(device)``)."""
         return self._device_probe.device
+
+    def _apply(self, fn, *args, **kwargs) -> OpticalSystem:
+        """Move or cast :attr:`input_geometry` with the modules on any ``.to()`` /
+        ``.cuda()`` / dtype change.
+
+        The geometry is a plain attribute, so ``nn.Module`` would leave it behind, and
+        anything that builds on it, such as the SLM-plane grid, would be on the old
+        device.
+        """
+        system = super()._apply(fn, *args, **kwargs)
+        geometry = self.input_geometry
+        self.input_geometry = replace(
+            geometry,
+            wavelength=fn(geometry.wavelength),
+            pixel_size=fn(geometry.pixel_size),
+            origin=None if geometry.origin is None else fn(geometry.origin),
+            rotation=None if geometry.rotation is None else fn(geometry.rotation),
+        )
+        return system
 
     @property
     def init_field(self) -> ComplexAmplitude:

@@ -168,6 +168,16 @@ def test_to_cuda_moves_device_and_init_field() -> None:
     assert model.device.type == "cuda"
     assert model.init_field.device.type == "cuda"
     assert model().device.type == "cuda"  # no-input forward on the moved model
+    assert model.input_geometry.pixel_size.device.type == "cuda"
+    assert model.input_geometry.wavelength.device.type == "cuda"
+
+
+def test_the_input_geometry_follows_a_cast() -> None:
+    """A plain attribute, so ``nn.Module`` alone would leave it behind."""
+    model = _make_slm_czt().to(torch.float64)
+    assert model.input_geometry.pixel_size.dtype == torch.float64
+    assert model.input_geometry.wavelength.dtype == torch.float64
+    assert model.input_geometry.resolution == SLM_RESOLUTION
 
 
 def test_addressable_half_extent_reads_a_per_wavelength_pitch() -> None:

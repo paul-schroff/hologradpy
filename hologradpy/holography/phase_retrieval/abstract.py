@@ -384,20 +384,14 @@ class GradientPhaseRetriever(PhaseRetrieverBase):
 
         Args:
             target: Target intensity, on the model's output grid.
-            signal_region: Region the cost evaluated in.
-
-        Raises:
-            ValueError: Neither this call nor an earlier one supplied a region.
+            signal_region: Region the cost is evaluated in. Defaults to the region set
+                before, or the whole output plane if none was.
         """
         self.target = target.detach()
         if signal_region is not None:
             self.signal_region = signal_region.detach()
-
-        if self.signal_region is None:
-            raise ValueError(
-                f"{type(self).__name__} minimizes a cost masked by a signal region, "
-                "so it needs one. Pass it to set_target, or to the constructor."
-            )
+        elif self.signal_region is None:
+            self.signal_region = torch.ones_like(self.target, dtype=torch.bool)
 
         self.loss_function = self.default_loss_function()
 

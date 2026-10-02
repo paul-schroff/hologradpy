@@ -196,6 +196,18 @@ def test_slm_native_properties():
     assert sim.wavelength == pytest.approx(WAVELENGTH)
 
 
+def test_the_slm_gives_the_geometry_of_a_field_on_it():
+    sim, _ = _build()
+    geometry = sim.to_field_geometry()
+    assert geometry.resolution == (256, 320)
+    assert geometry.pixel_size.dtype == torch.float32
+    torch.testing.assert_close(
+        geometry.pixel_size, torch.tensor([[SLM_PITCH, SLM_PITCH]])
+    )
+    assert float(geometry.wavelength) == pytest.approx(WAVELENGTH)
+    assert sim.to_field_geometry(dtype=torch.float64).pixel_size.dtype == torch.float64
+
+
 # --- Grayscale levels ---------------------------------------------------
 
 

@@ -20,6 +20,7 @@ from hologradpy.profiles.amplitude import (
     gaussian_blur,
     gaussian_beam_intensity,
     gaussian_beam_intensity_1D,
+    gaussian_spot_array,
     top_hat_1D,
     top_hat_2D,
     top_hat_gaussian_shoulders,
@@ -203,6 +204,31 @@ def test_the_line_uses_the_same_gaussian_across_it() -> None:
     expected = np.asarray(gaussian_beam_intensity_1D(AXIS, WAIST, shift=40e-6))
 
     assert np.abs(across - expected).max() < 1e-9
+
+
+def test_a_spot_array_is_centred_where_it_is_shifted_to() -> None:
+    """On a grid in metres. Halving the extent with ``//`` rounded it to zero there, so
+    the array started at the shift instead of being centred on it.
+    """
+    x, y = _numpy_grid()
+    spots = np.asarray(
+        gaussian_spot_array(
+            x,
+            y,
+            number_of_rows=2,
+            number_of_columns=3,
+            shift_x=30e-6,
+            shift_y=-20e-6,
+            spot_separation=80e-6,
+            beam_radius=10e-6,
+        )
+    )
+
+    rows, columns = np.nonzero(spots > 0.5 * spots.max())
+
+    assert AXIS[columns].mean() == pytest.approx(30e-6, abs=1e-6)
+    assert AXIS[rows].mean() == pytest.approx(-20e-6, abs=1e-6)
+    assert AXIS[columns].min() == pytest.approx(30e-6 - 80e-6, abs=10e-6)
 
 
 @pytest.mark.parametrize("beam_radius", [2.0, 3.0, 4.5], ids=["7", "9", "13"])

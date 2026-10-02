@@ -30,7 +30,7 @@ from ....optics import SLMFourierLensModel
 from ....optics.systems import SLMFFT
 from ....optics.modules.virtual_slms import VirtualSLM
 from ....optics.modules.slm_fields import PixelwiseSLMField
-from ....optics.complex_amplitude import ComplexAmplitude, FieldGeometry
+from ....optics.complex_amplitude import ComplexAmplitude
 from ....fourier_optics import addressable_half_extent
 from ....grids import get_spatial_grid, plane_center
 from ....fourier_optics import get_focal_spot_radius
@@ -101,11 +101,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
             )
             for axis in range(2)
         )
-        geometry = FieldGeometry(
-            resolution=tuple(self.slm.resolution),
-            pixel_size=torch.tensor(slm_pitch, device=self.device),
-            wavelength=torch.tensor(wavelength, device=self.device),
-        )
+        geometry = self.slm.to_field_geometry(self.device)
         beam = ComplexAmplitude(
             torch.ones(
                 tuple(self.slm.resolution), dtype=torch.complex64, device=self.device

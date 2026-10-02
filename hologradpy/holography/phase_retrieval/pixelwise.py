@@ -32,7 +32,8 @@ class PixelwisePhaseRetriever(GradientPhaseRetriever):
         Args:
             slm_camera_model: The differentiable model to optimize.
             target: Target intensity on the model's output grid.
-            signal_region: Region the target is optimized in.
+            signal_region: Region the target is optimized in. Defaults to the whole
+                output plane.
             init_slm_phase: Phase to start from. The starting guess decides which
                 minimum is reached. A guess should spread light roughly where the target
                 is so the optimization converges.

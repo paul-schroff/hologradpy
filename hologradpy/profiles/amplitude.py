@@ -115,8 +115,8 @@ def gaussian_spot_array(
     y: ArrayLike,
     number_of_rows: int,
     number_of_columns: int,
-    shift_x: int,
-    shift_y: int,
+    shift_x: float,
+    shift_y: float,
     spot_separation: float,
     beam_radius: float,
 ) -> ArrayLike:
@@ -127,8 +127,8 @@ def gaussian_spot_array(
         y: Y coordinates.
         number_of_rows: Number of array rows.
         number_of_columns: Number of array columns.
-        shift_x: X-offset of the array.
-        shift_y: Y-offset of the array.
+        shift_x: X coordinate of the array's centre.
+        shift_y: Y coordinate of the array's centre.
         spot_separation: Separation between neighboring spots.
         beam_radius: Beam radius of the Gaussian spots.
 
@@ -147,8 +147,8 @@ def gaussian_spot_array(
                 x,
                 y,
                 beam_radius,
-                shift_x=j * spot_separation - horizontal_extent // 2 - shift_x,
-                shift_y=i * spot_separation - vertical_extent // 2 - shift_y,
+                shift_x=shift_x + j * spot_separation - horizontal_extent / 2,
+                shift_y=shift_y + i * spot_separation - vertical_extent / 2,
             )
     return spots
 

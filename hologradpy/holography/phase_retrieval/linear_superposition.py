@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from typing import Literal
+
 import torch
+from numpy.typing import ArrayLike
 
 from .abstract import PhaseRetrieverBase
 from .recorder import RetrievalRun
@@ -12,25 +15,58 @@ from ...utils import ProgressBar
 
 
 class LinearSuperpositionPhaseRetriever(PhaseRetrieverBase):
+    """Superposes one blazed grating per focal spot, without iterating.
+
+    Each grating sends light to one position, with the amplitude for its intensity and
+    its own phase. Gratings to a regular array with equal phases add up symmetrically
+    and make ghost spots, which can by avoided with random phases.
+    """
+
     def __init__(
         self,
         slm_camera_model: SLMFourierLensModel,
-        target_positions: torch.Tensor,
-        target_intensities: torch.Tensor | None = None,
-        target_phases: torch.Tensor | None = None,
+        target_positions: ArrayLike,
+        target_intensities: ArrayLike | None = None,
+        target_phases: ArrayLike | Literal["random"] | None = None,
+        seed: int = 0,
     ) -> None:
+        """
+        Args:
+            slm_camera_model: The model whose virtual SLM is set.
+            target_positions: ``(N, 2)`` focal-plane positions, ``(x, y)`` in metres.
+            target_intensities: ``(N,)`` relative intensities. Defaults to equal ones.
+            target_phases: ``(N,)`` phases in radians, or ``"random"`` for uniformly
+                random ones drawn with ``seed``. Defaults to zero.
+            seed: Seeds the random phases, so the same call gives the same hologram.
+        """
         super().__init__(slm_camera_model)
 
-        self.target_positions: torch.Tensor = target_positions
-        self.number_of_positions: int = target_positions.shape[0]
+        self.target_positions: torch.Tensor = torch.as_tensor(
+            target_positions, dtype=torch.float64, device=self.device
+        )
+        self.number_of_positions: int = self.target_positions.shape[0]
 
         if target_intensities is None:
-            target_intensities = torch.ones_like(target_positions[:, 0])
-        self.target_intensities: torch.Tensor = target_intensities
+            target_intensities = torch.ones(self.number_of_positions)
+        self.target_intensities: torch.Tensor = torch.as_tensor(
+            target_intensities, dtype=torch.float64, device=self.device
+        )
 
         if target_phases is None:
-            target_phases = torch.zeros_like(target_positions[:, 0])
-        self.target_phases: torch.Tensor = target_phases
+            target_phases = torch.zeros(self.number_of_positions)
+        elif isinstance(target_phases, str):
+            if target_phases != "random":
+                raise ValueError(
+                    f'target_phases is phases or "random", got "{target_phases}".'
+                )
+            target_phases = 2 * torch.pi * torch.rand(
+                self.number_of_positions,
+                dtype=torch.float64,
+                generator=torch.Generator().manual_seed(seed),
+            )
+        self.target_phases: torch.Tensor = torch.as_tensor(
+            target_phases, dtype=torch.float64, device=self.device
+        )
 
     def set_target(
         self,
@@ -100,7 +136,7 @@ class LinearSuperpositionPhaseRetriever(PhaseRetrieverBase):
                 focal_length=self.slm_camera_model.focal_length,
             )
 
-            field_superposition += self.target_intensities[i] ** 2 * torch.exp(
+            field_superposition += self.target_intensities[i].sqrt() * torch.exp(
                 1j * (blazed_grating + self.target_phases[i])
             )
 

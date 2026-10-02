@@ -38,8 +38,10 @@ from hologradpy.calibration.camera_mapping import (
     MappingFit,
     SpotArrayMapper,
 )
+from hologradpy.grids import coordinates_to_indices
 from hologradpy.profiles.masks import disc_mask
 from hologradpy.roi import ROI
+from hologradpy.utils import as_image
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -162,6 +164,41 @@ def test_retriever_default_intensities_and_phases(simulated_setup):
 
     assert phase.shape == slm_camera_model.input_geometry.resolution
     assert torch.isfinite(phase).all()
+
+
+def test_retriever_seeds_random_phases_and_takes_numpy(simulated_setup):
+    _, _, slm_camera_model = simulated_setup
+    positions = np.array([[5.0e-4, 3.0e-4], [-2.0e-4, 1.0e-4], [0.0, -4.0e-4]])
+
+    def retrieve(**options):
+        return LinearSuperpositionPhaseRetriever(
+            slm_camera_model, positions, target_phases="random", **options
+        ).retrieve_phase()
+
+    assert torch.equal(retrieve(), retrieve())
+    assert not torch.equal(retrieve(), retrieve(seed=1))
+    with pytest.raises(ValueError, match="random"):
+        LinearSuperpositionPhaseRetriever(
+            slm_camera_model, positions, target_phases="randm"
+        )
+
+
+def test_retriever_shares_light_by_the_target_intensities(simulated_setup):
+    """Each grating's amplitude is the square root of its intensity, so a spot asked
+    to be four times as bright comes out near four times as bright.
+    """
+    _, _, slm_camera_model = simulated_setup
+    positions = np.array([[4.0e-4, 0.0], [-4.0e-4, 0.0]])
+    LinearSuperpositionPhaseRetriever(
+        slm_camera_model, positions, target_intensities=[1.0, 4.0]
+    ).retrieve_phase()
+    with torch.no_grad():
+        intensity = as_image(slm_camera_model().intensity)
+    x, y = slm_camera_model.fourier_lens.get_spatial_grid_output()
+    dim, bright = (
+        intensity[index] for index in coordinates_to_indices(x, y, positions)
+    )
+    assert 3.0 < float(bright / dim) < 5.0
 
 
 # --- inverse-variance waist average -------------------------------------------

@@ -944,7 +944,7 @@ def test_a_starting_phase_can_be_set_on_a_model_that_has_not_run() -> None:
     )
 
 
-def test_target_without_signal_region_raises() -> None:
+def test_target_without_signal_region_covers_the_whole_plane() -> None:
     geometry = _geometry()
     slm = open_slm(SimulatedSLMTorch, input_geometry=geometry, bitdepth=8)
     model = _model(geometry, VirtualSLM.from_slm(slm), _beam(geometry))
@@ -953,13 +953,12 @@ def test_target_without_signal_region_raises() -> None:
     retriever = PixelwisePhaseRetriever(
         slm_camera_model=model,
         target=target,
-        signal_region=torch.ones(CAMERA_RESOLUTION, dtype=torch.bool),
         init_slm_phase=_init_phase(),
         loss_scale=LOSS_SCALE,
     )
-    retriever.signal_region = None
-    with pytest.raises(ValueError, match="signal region"):
-        retriever.set_target(target)
+    assert retriever.signal_region.dtype == torch.bool
+    assert retriever.signal_region.shape == target.shape
+    assert retriever.signal_region.all()
 
 
 # --- The result record and the recorded steps --------------------------------------
