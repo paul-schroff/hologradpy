@@ -5,6 +5,7 @@ from .camera import (
     CameraOrientation,
     GenTLCamera,
     SimulatedCameraTorch,
+    ThorlabsCamera,
 )
 from .slm import SLM, SimulatedSLMTorch
 from ..roi import ROI
@@ -28,6 +29,7 @@ __all__ = [
     "SimulatedSLMTorch",
     "SimulatedCameraTorch",
     "GenTLCamera",
+    "ThorlabsCamera",
     "Camera",
     "CameraOrientation",
     "SLM",

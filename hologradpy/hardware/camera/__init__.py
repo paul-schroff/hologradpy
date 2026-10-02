@@ -7,6 +7,7 @@ from .abstract import (
 from .background import Background, background_at
 from .gentl import GenTLCamera
 from .simulated import SimulatedCameraTorch
+from .thorlabs import ThorlabsCamera
 
 __all__ = [
     "Camera",
@@ -17,4 +18,5 @@ __all__ = [
     "background_at",
     "SimulatedCameraTorch",
     "GenTLCamera",
+    "ThorlabsCamera",
 ]
