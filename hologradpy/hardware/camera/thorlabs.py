@@ -148,31 +148,43 @@ class ThorlabsCamera(Camera):
     def _read_out(self, region: ROI) -> None:
         """Read out the window the camera allows around ``region`` of the raw sensor.
 
-        The camera is disarmed for the change and armed again for one frame per
-        trigger.
+        The camera moves the edges of a window onto a grid of its own, which can cut off
+        the edge rows or columns of the region. The camera is disarmed for the change
+        and armed again for one frame per trigger.
 
         Args:
             region: The raw sensor region to read out, in raw ``(row, col)``
                 coordinates.
 
         Raises:
-            RuntimeError: The window the camera took does not hold ``region``.
+            RuntimeError: No window the camera takes holds ``region``.
         """
         if region == self._sensor_region:
             return
+        margins = (0, 0, 0, 0)  # (top, left, bottom, right)
+        asked = None
         self._device.stop_acquisition()
         try:
-            window = _window(
-                self._device.set_roi(
-                    region.left_column,
-                    region.left_column + region.width,
-                    region.top_row,
-                    region.top_row + region.height,
+            while (ask := _widened(region, margins, self._raw_shape)) != asked:
+                asked = ask
+                window = _window(
+                    self._device.set_roi(
+                        ask.left_column,
+                        ask.left_column + ask.width,
+                        ask.top_row,
+                        ask.top_row + ask.height,
+                    )
                 )
-            )
+                cut_off = _cut_off(window, region)
+                if not any(cut_off):
+                    break
+                margins = tuple(
+                    max(2 * margin, 1) if cut else margin
+                    for margin, cut in zip(margins, cut_off)
+                )
         finally:
             self._device.start_acquisition(frames_per_trigger=1, auto_start=False)
-        if not _holds(window, region):
+        if any(cut_off):
             raise RuntimeError(
                 f"The camera reads out {window}, which does not hold the sensor region "
                 f"{region} asked for."
@@ -306,11 +318,24 @@ def _window(roi: tuple) -> ROI:
     return ROI(top, left, bottom - top, right - left)
 
 
-def _holds(outer: ROI, inner: ROI) -> bool:
-    """Whether every pixel of ``inner`` lies in ``outer``."""
+def _widened(
+    region: ROI, margins: tuple[int, int, int, int], shape: tuple[int, int]
+) -> ROI:
+    """``region`` widened by ``(top, left, bottom, right)`` margins, kept on a sensor
+    of ``shape``.
+    """
+    top = max(region.top_row - margins[0], 0)
+    left = max(region.left_column - margins[1], 0)
+    bottom = min(region.top_row + region.height + margins[2], shape[0])
+    right = min(region.left_column + region.width + margins[3], shape[1])
+    return ROI(top, left, bottom - top, right - left)
+
+
+def _cut_off(window: ROI, region: ROI) -> tuple[bool, bool, bool, bool]:
+    """Which sides of ``region`` ``window`` cuts off, ``(top, left, bottom, right)``."""
     return (
-        outer.top_row <= inner.top_row
-        and outer.left_column <= inner.left_column
-        and inner.top_row + inner.height <= outer.top_row + outer.height
-        and inner.left_column + inner.width <= outer.left_column + outer.width
+        window.top_row > region.top_row,
+        window.left_column > region.left_column,
+        window.top_row + window.height < region.top_row + region.height,
+        window.left_column + window.width < region.left_column + region.width,
     )

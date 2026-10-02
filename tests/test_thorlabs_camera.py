@@ -43,6 +43,14 @@ def fake_frame(exposure_s):
     return np.clip(ramp * exposure_s * 1e6, 0, MAX_COUNT).astype(np.uint16)
 
 
+def snap(start, end, grid, maximum):
+    """Round both edges of one axis of a window to the nearest multiple of ``grid``,
+    as a Zelux does. This can cut off the first or the last row asked for.
+    """
+    end = maximum if end is None else end
+    return tuple(grid * int(np.floor(edge / grid + 0.5)) for edge in (start, end))
+
+
 def truncate(start, end, minimum, maximum):
     """The truncation pylablib applies to one axis of a window, for a position step of
     one: clip to the sensor, then grow to the minimum size.
@@ -76,6 +84,7 @@ class FakeTLCamera:
         self.timeouts = []
         self.pending = []
         self.pattern = None  # What the sensor sees, or None for the exposure ramp.
+        self.grid = 1  # The window's edges are rounded to multiples of this.
 
     def get_device_info(self):
         return TDeviceInfo("CS165MU", "Zelux", self.serial or "00001", "1.0")
@@ -87,6 +96,8 @@ class FakeTLCamera:
         self.roi_calls.append((hstart, hend, vstart, vend))
         was_armed = self.armed
         self.stop_acquisition()
+        hstart, hend = snap(hstart, hend, self.grid, SENSOR_WIDTH)
+        vstart, vend = snap(vstart, vend, self.grid, SENSOR_HEIGHT)
         hstart, hend = truncate(hstart, hend, MIN_WINDOW_WIDTH, SENSOR_WIDTH)
         vstart, vend = truncate(vstart, vend, MIN_WINDOW_HEIGHT, SENSOR_HEIGHT)
         self.window = (hstart, hend, vstart, vend)
@@ -351,6 +362,36 @@ def test_a_window_grown_at_the_sensor_edge_still_holds_the_region(camera):
         SENSOR_HEIGHT,
     )
     np.testing.assert_array_equal(frame, region.crop(NUMBERED))
+
+
+def test_a_window_moved_onto_the_camera_grid_is_widened_where_it_cuts_off(camera):
+    """Asked for rows from 35, the camera starts the window at 36. The top is asked
+    for again further out until the window holds row 35, and only the top.
+    """
+    device, fake = camera
+    fake.pattern = NUMBERED
+    fake.grid = 4
+    region = ROI(top_row=35, left_column=33, height=23, width=25)
+    device.set_roi(region)
+
+    frame = device.get_image()
+
+    assert fake.window == (32, 60, 32, 60)  # (hstart, hend, vstart, vend)
+    np.testing.assert_array_equal(frame, region.crop(NUMBERED))
+
+
+@pytest.mark.parametrize("orientation", CameraOrientation.dihedral(), ids=repr)
+def test_a_window_moved_onto_the_camera_grid_in_every_orientation(camera, orientation):
+    device, fake = camera
+    fake.pattern = NUMBERED
+    fake.grid = 4
+    device.set_orientation(orientation)
+    region = ROI(top_row=37, left_column=53, height=61, width=97)
+    device.set_roi(region)
+
+    np.testing.assert_array_equal(
+        device.get_image(), region.crop(orientation.transformation()(NUMBERED))
+    )
 
 
 def test_a_window_that_does_not_hold_the_region_is_an_error(camera):
