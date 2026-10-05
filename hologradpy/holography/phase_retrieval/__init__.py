@@ -11,6 +11,7 @@ from .pixelwise import PixelwisePhaseRetriever
 from .zernike import ZernikePhaseRetriever
 from .linear_superposition import LinearSuperpositionPhaseRetriever
 from .optimal_transport import OptimalTransportPhaseRetriever
+from .weighted_gerchberg_saxton import WeightedGerchbergSaxtonPhaseRetriever
 
 __all__ = [
     "MODEL_CHECKPOINT_NAME",
@@ -26,4 +27,5 @@ __all__ = [
     "ZernikePhaseRetriever",
     "LinearSuperpositionPhaseRetriever",
     "OptimalTransportPhaseRetriever",
+    "WeightedGerchbergSaxtonPhaseRetriever",
 ]
