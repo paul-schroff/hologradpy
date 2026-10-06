@@ -718,8 +718,8 @@ class CoarseMapper(CameraMapper):
         leaves fixed background untouched. The spot is the zeroth order when its peak
         within the zeroth-order mask falls below half under the grating. A spot within
         a detection window of the sensor edge counts as off the sensor, since the centre
-        search cannot start from it. The camera's exposure and region of interest are put
-        back afterwards.
+        search cannot start from it. The camera's exposure and region of interest are
+        put back afterwards.
 
         Args:
             focal_length: Focal length of the Fourier lens in metres.
@@ -761,7 +761,8 @@ class CoarseMapper(CameraMapper):
         centre search cannot measure how it moves. The search step leaves room for a
         spot clear of the edge.
         """
-        margin = _WINDOW_SPOT_RADII * spot_radius / float(np.min(self.camera.pixel_size))
+        pixel_pitch = float(np.min(self.camera.pixel_size))
+        margin = _WINDOW_SPOT_RADII * spot_radius / pixel_pitch
         height, width = shape[:2]
         return (
             margin <= row <= height - 1 - margin
