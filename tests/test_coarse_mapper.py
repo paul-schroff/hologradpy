@@ -719,6 +719,32 @@ def test_coarse_mapping_with_zeroth_order_off_sensor():
     assert np.asarray(mapping.fit.reprojection_rms) < 1.0
 
 
+@pytest.mark.parametrize(
+    ("camera_angle", "camera_shift", "camera_resolution"),
+    [
+        (10.0, (70, 10), (160, 80)),
+        (0.0, (60, 0), (120, 80)),
+        (5.0, (0, 60), (80, 160)),
+    ],
+)
+def test_coarse_mapping_starts_clear_of_the_sensor_edge(
+    camera_angle, camera_shift, camera_resolution
+):
+    """On a sensor that is narrow against the spot, light at its edge can be the
+    clipped tail of a spot, or of the zeroth order, just off it. The centre search
+    cannot measure from there, so the mapping starts from a spot clear of the edge.
+    """
+    slm, camera, model = _build_setup(
+        camera_angle=camera_angle,
+        camera_shift=camera_shift,
+        camera_resolution=camera_resolution,
+    )
+    coarse = CoarseMapper(slm, camera, model).map_camera()
+
+    assert coarse.rotation_degrees == pytest.approx(-camera_angle, abs=0.5)
+    assert coarse.fit.reprojection_rms < 1.0
+
+
 def test_coarse_mapping_survives_pointing_instability():
     """Real beam-pointing drift jitters the focal spot frame-to-frame. The
     probe search (and _is_static_background in particular) must still find and

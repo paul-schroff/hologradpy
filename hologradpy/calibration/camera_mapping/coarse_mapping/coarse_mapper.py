@@ -716,8 +716,10 @@ class CoarseMapper(CameraMapper):
         frame cannot misplace it. A 2-pixel-period 0/pi binary grating has no DC term
         (``exp(1j*0) + exp(1j*pi) = 0``), so it strongly suppresses the zeroth order and
         leaves fixed background untouched. The spot is the zeroth order when its peak
-        within the zeroth-order mask falls below half under the grating. The camera's
-        exposure and region of interest are put back afterwards.
+        within the zeroth-order mask falls below half under the grating. A spot within
+        a detection window of the sensor edge counts as off the sensor, since the centre
+        search cannot start from it. The camera's exposure and region of interest are put
+        back afterwards.
 
         Args:
             focal_length: Focal length of the Fourier lens in metres.
@@ -733,6 +735,8 @@ class CoarseMapper(CameraMapper):
             self.camera.autoexpose(set_fraction=0.5, raise_on_rail=False, verbose=False)
             metered = np.asarray(self.camera.get_image(), dtype=np.float64)
             row, column = _brightest_pixel(metered)
+            if not self._clear_of_the_edge(metered.shape, row, column, spot_radius):
+                return None
 
             def window_peak(frame: NDArray) -> float:
                 top, left = max(row - half, 0), max(column - half, 0)
@@ -746,6 +750,23 @@ class CoarseMapper(CameraMapper):
         if window_peak(suppressed) < 0.5 * peak:
             return (float(row), float(column))
         return None
+
+    def _clear_of_the_edge(
+        self, shape: tuple[int, ...], row: float, column: float, spot_radius: float
+    ) -> bool:
+        """Whether a spot peaking at ``(row, column)`` lies a detection window,
+        ``_WINDOW_SPOT_RADII`` focal-spot radii, inside a frame of ``shape``.
+
+        A spot nearer the edge can be the clipped tail of one off the sensor, and the
+        centre search cannot measure how it moves. The search step leaves room for a
+        spot clear of the edge.
+        """
+        margin = _WINDOW_SPOT_RADII * spot_radius / float(np.min(self.camera.pixel_size))
+        height, width = shape[:2]
+        return (
+            margin <= row <= height - 1 - margin
+            and margin <= column <= width - 1 - margin
+        )
 
     def _default_search_step(
         self, spot_radius: float, field_of_view: tuple[float, float]
@@ -818,6 +839,10 @@ class CoarseMapper(CameraMapper):
                 tilt, focal_length, exposure_time, spot_radius
             )
             if image is None:
+                continue
+            if not self._clear_of_the_edge(
+                image.shape, *_brightest_pixel(image), spot_radius
+            ):
                 continue
             if self._is_static_background(
                 tilt, image, focal_length, probe_shift, spot_radius,
@@ -907,8 +932,12 @@ class CoarseMapper(CameraMapper):
         center = np.array([(camera_shape[1] - 1) / 2, (camera_shape[0] - 1) / 2])
         exposure = float(self.camera.get_exposure())
         # Deflect by twice the detection window, so the offset spot lies well clear of
-        # the zeroth-order mask applied in the derivative captures.
-        offset = 2.0 * _WINDOW_SPOT_RADII * spot_radius
+        # the zeroth-order mask applied in the derivative captures. On a sensor that is
+        # small against the spot, the step is held to a quarter of its smaller side, so
+        # the offset spot stays on the sensor on at least one side.
+        pixel_size = np.asarray(self.camera.pixel_size, dtype=float)  # (y, x) metres
+        smaller_side = float(np.min(np.asarray(camera_shape) * pixel_size))
+        offset = min(2.0 * _WINDOW_SPOT_RADII * spot_radius, 0.25 * smaller_side)
         mask_radius_px = zeroth_order_mask_radius(spot_radius, self.camera.pixel_size)
 
         def measure(
