@@ -61,7 +61,7 @@ def expose_until_spot(
             return image
         peak = float(image.max())
         exposure = float(camera.get_exposure())
-        if peak >= full_scale:
+        if peak >= camera.saturation_level:
             desired = exposure * saturation_step_fraction
         elif peak < dark_threshold_fraction * full_scale:
             desired = exposure / saturation_step_fraction

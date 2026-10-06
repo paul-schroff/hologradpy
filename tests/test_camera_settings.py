@@ -136,8 +136,24 @@ def test_an_averaged_capture_is_overexposed_where_every_frame_was() -> None:
     camera.get_image(averaging=3)
     assert camera.overexposed
 
-    frame[3, 4] = 254
+    frame[3, 4] = 252
     camera.get_image(averaging=3)
+    assert not camera.overexposed
+
+
+def test_a_pixel_clipped_just_below_full_scale_is_overexposed() -> None:
+    """From 99 % of full scale, as a sensor can clip a count or two short of it: 253 of
+    255 here.
+    """
+    frame = np.full(SENSOR_RESOLUTION, 100, dtype=np.uint16)
+    frame[3, 4] = 253
+    camera = _FrameCamera(frame)
+
+    camera.get_image()
+    assert camera.overexposed
+
+    frame[3, 4] = 252
+    camera.get_image()
     assert not camera.overexposed
 
 

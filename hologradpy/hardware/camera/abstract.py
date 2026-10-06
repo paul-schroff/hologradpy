@@ -27,6 +27,10 @@ from ...serialization import SaveableRecord, record_type
 # passes longer bounds.
 DEFAULT_MAX_EXPOSURE = 1.0
 
+# A pixel counts as overexposed from this fraction of the largest count. Some sensors
+# clip a count or two short of it, such as a 10-bit Thorlabs Zelux at 1022 of 1023.
+SATURATION_FRACTION = 0.99
+
 # The relative tolerance of the response test in stuck-pixel detection. A working
 # pixel rises by the ratio of two exposures within this tolerance.
 STUCK_PIXEL_RESPONSE_TOLERANCE = 0.2
@@ -117,6 +121,13 @@ class Camera(ABC):
     @abstractmethod
     def max_pixel_value(self) -> int:
         """The largest count a pixel can report (``2 ** bitdepth - 1``)."""
+
+    @property
+    def saturation_level(self) -> float:
+        """The count from which a pixel counts as overexposed, ``SATURATION_FRACTION``
+        of :attr:`max_pixel_value`.
+        """
+        return SATURATION_FRACTION * self.max_pixel_value
 
     @property
     @abstractmethod
@@ -335,8 +346,8 @@ class Camera(ABC):
     def overexposed(self) -> bool:
         """Whether the last frame from :meth:`get_image` was overexposed.
 
-        A pixel is overexposed when it reads :attr:`max_pixel_value`. Only the pixels
-        where the ``mask`` of that capture is True are checked, and the
+        A pixel is overexposed when it reads :attr:`saturation_level` or more. Only the
+        pixels where the ``mask`` of that capture is True are checked, and the
         :attr:`excluded_pixels` are left out. Set by every capture. False before the
         first capture.
         """
@@ -350,14 +361,14 @@ class Camera(ABC):
     ) -> bool:
         """Whether ``frame`` holds an overexposed pixel.
 
-        ``frame`` is the sum of ``averaging`` frames. A pixel is overexposed when it
-        reads :attr:`max_pixel_value` in every one of them. Only the pixels where
-        ``mask`` is True are checked, and the excluded pixels are left out.
+        ``frame`` is the sum of ``averaging`` frames. A pixel is overexposed when its
+        mean over them reaches :attr:`saturation_level`. Only the pixels where ``mask``
+        is True are checked, and the excluded pixels are left out.
 
         Raises:
             ValueError: ``mask`` does not have the shape of ``frame``.
         """
-        threshold = max(1, int(averaging)) * self.max_pixel_value
+        threshold = max(1, int(averaging)) * self.saturation_level
         if isinstance(frame, torch.Tensor):
             at_full_scale = frame.detach() >= threshold
         else:
@@ -548,23 +559,24 @@ class Camera(ABC):
         frames = frames[distinct]
 
         full_scale = self.max_pixel_value
+        saturation = self.saturation_level
         frames_min = frames.min(axis=0)
         frames_max = frames.max(axis=0)
 
         # A working pixel scales with the exposure. Each frame is compared with the
         # frame at the next longer exposure. A pixel is tested when it reads above
-        # lower_threshold of full scale (signal, not noise) and stays below full scale
+        # lower_threshold of full scale (signal, not noise) and stays below saturation
         # at the longer exposure. A working pixel then rises by the exposure ratio
-        # within tolerance. A pixel that climbs to full scale from below also responds,
+        # within tolerance. A pixel that climbs to saturation from below also responds,
         # and a stuck pixel does neither. Neighbouring exposures are compared on
-        # readings below full scale, so the comparison holds over a wide sweep.
-        responding = (frames_max >= full_scale) & (frames_min < full_scale)
+        # readings below saturation, so the comparison holds over a wide sweep.
+        responding = (frames_max >= saturation) & (frames_min < saturation)
         for shorter, longer, exposure_short, exposure_long in zip(
             frames[:-1], frames[1:], exposures[:-1], exposures[1:]
         ):
             ratio = exposure_long / exposure_short
             testable = (shorter > lower_threshold * full_scale) & (
-                shorter < full_scale / ratio
+                shorter < saturation / ratio
             )
             expected = shorter * ratio
             rose_as_expected = np.abs(longer - expected) <= tolerance * expected
@@ -573,7 +585,7 @@ class Camera(ABC):
 
         # A large connected region saturated even at the lowest exposure means the
         # camera is overexposed, not a field of hot pixels.
-        saturated = frames_min >= full_scale
+        saturated = frames_min >= saturation
 
         # The connected components of the saturated pixels, and their sizes in pixels.
         components, count = label(saturated)
@@ -655,13 +667,13 @@ class Camera(ABC):
         bounds, or from the lower bound when the camera sits at zero, or from the upper
         bound when the lower one is zero too. Each step sets an exposure, reads back the
         applied exposure, and measures one frame, so the search measures at most
-        ``1 + max_iterations`` frames. An overexposed peak cuts the exposure by
-        ``overexposed_factor`` until a frame peaks below full scale. From then on, an
-        overexposed peak steps to the geometric mean of the longest exposure below full
-        scale and the shortest overexposed one, when the first is the shorter. A peak
-        below full scale scales the exposure to the target, up to ``set_fraction`` times
-        the shortest exposure that overexposed the region. The target lies at or below
-        this cap for a linear sensor.
+        ``1 + max_iterations`` frames. A peak at :attr:`saturation_level` or above is
+        overexposed, and cuts the exposure by ``overexposed_factor`` until a frame
+        peaks below it. From then on, an overexposed peak steps to the geometric mean of
+        the longest exposure that was not overexposed and the shortest overexposed one,
+        when the first is the shorter. A peak below saturation scales the exposure to
+        the target, up to ``set_fraction`` times the shortest exposure that overexposed
+        the region. The target lies at or below this cap for a linear sensor.
 
         A step cut short by the bounds lands on the bound and measures it. The search
         has railed when its next step asks to pass an already measured bound, when the
@@ -709,8 +721,9 @@ class Camera(ABC):
             float: The final exposure in seconds, as read back from the camera.
 
         Raises:
-            ValueError: The bounds leave no positive exposure, or the region, the mask
-                or an excluded pixel does not fit the frame. Nothing is captured then.
+            ValueError: The bounds leave no positive exposure, ``set_fraction`` is not
+                below ``SATURATION_FRACTION``, or the region, the mask or an excluded
+                pixel does not fit the frame. Nothing is captured then.
             RuntimeError: The search railed and ``raise_on_rail`` is set.
         """
         requested_bounds = (
@@ -727,8 +740,14 @@ class Camera(ABC):
                 f"camera's bounds {stated_bounds} s, leave no positive exposure to "
                 "search."
             )
+        if not 0.0 < set_fraction < SATURATION_FRACTION:
+            raise ValueError(
+                f"The target set_fraction {set_fraction} has to lie between 0 and "
+                f"the saturation fraction {SATURATION_FRACTION}."
+            )
 
         full_scale = self.max_pixel_value
+        saturation = self.saturation_level
         set_value = set_fraction * full_scale
         stored_exposure = float(self.get_exposure())
         # The peak of the measured region at every applied exposure.
@@ -781,7 +800,7 @@ class Camera(ABC):
                 steps = 0
                 while True:
                     if (
-                        peak < full_scale
+                        peak < saturation
                         and abs(peak - set_value) <= tolerance * full_scale
                     ):
                         outcome = "converged"
@@ -789,14 +808,14 @@ class Camera(ABC):
                     overexposed_at = [
                         measured_exposure
                         for measured_exposure, measured_peak in peak_by_exposure.items()
-                        if measured_exposure > 0.0 and measured_peak >= full_scale
+                        if measured_exposure > 0.0 and measured_peak >= saturation
                     ]
-                    below_full_scale_at = [
+                    below_saturation_at = [
                         measured_exposure
                         for measured_exposure, measured_peak in peak_by_exposure.items()
-                        if measured_exposure > 0.0 and measured_peak < full_scale
+                        if measured_exposure > 0.0 and measured_peak < saturation
                     ]
-                    if peak >= full_scale:
+                    if peak >= saturation:
                         # An overexposed peak hides the true one, so no proportional
                         # step can be computed. Once a shorter exposure has kept the
                         # peak below full scale, the step goes to the geometric mean of
@@ -804,11 +823,11 @@ class Camera(ABC):
                         # overexposed one.
                         if (
                             overexposed_at
-                            and below_full_scale_at
-                            and max(below_full_scale_at) < min(overexposed_at)
+                            and below_saturation_at
+                            and max(below_saturation_at) < min(overexposed_at)
                         ):
                             desired = float(
-                                np.sqrt(max(below_full_scale_at) * min(overexposed_at))
+                                np.sqrt(max(below_saturation_at) * min(overexposed_at))
                             )
                         else:
                             desired = exposure * overexposed_factor
@@ -835,7 +854,7 @@ class Camera(ABC):
                     measured_bound = requested if requested in (low, high) else None
                     if exposure <= 0.0 or repeated:
                         every_frame_overexposed = all(
-                            peak_by_exposure[measured_exposure] >= full_scale
+                            peak_by_exposure[measured_exposure] >= saturation
                             for measured_exposure in peak_by_exposure
                             if measured_exposure > 0.0
                         )
@@ -867,16 +886,16 @@ class Camera(ABC):
                             "autoexposure took no frame at a positive exposure, so it "
                             "has no exposure to settle on."
                         )
-                    peaks_below_full_scale = {
+                    peaks_below_saturation = {
                         measured_exposure: measured_peak
                         for measured_exposure, measured_peak in positive_peaks.items()
-                        if measured_peak < full_scale
+                        if measured_peak < saturation
                     }
-                    if peaks_below_full_scale:
+                    if peaks_below_saturation:
                         settled = min(
-                            peaks_below_full_scale,
+                            peaks_below_saturation,
                             key=lambda candidate: abs(
-                                peaks_below_full_scale[candidate] - set_value
+                                peaks_below_saturation[candidate] - set_value
                             ),
                         )
                     else:

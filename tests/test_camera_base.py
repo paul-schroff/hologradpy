@@ -524,6 +524,33 @@ def test_autoexpose_steps_between_the_exposures_either_side_of_full_scale() -> N
     assert abs(camera.get_image().max() - 0.95 * 255) <= 0.05 * 255
 
 
+def test_autoexpose_cuts_the_exposure_when_the_sensor_clips_below_full_scale() -> None:
+    """A 10-bit sensor that clips at 1022, as a Thorlabs Zelux does, is overexposed
+    there. The search cuts the exposure by overexposed_factor, rather than scaling the
+    clipped peak towards the target by 0.8 a frame.
+    """
+    camera = _ResponsiveCamera(
+        lambda exposure: min(4e5 * exposure, 1022.0),
+        max_pixel_value=1023,
+        exposure_bounds=(1e-6, 1.0),
+        exposure_s=0.268,
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        camera.autoexpose(set_fraction=0.8)
+
+    assert camera.frame_exposures[:3] == pytest.approx([0.268, 2.68e-3, 2.68e-5])
+    assert abs(camera.get_image().max() - 0.8 * 1023) <= 0.05 * 1023
+
+
+def test_autoexpose_needs_a_target_below_saturation() -> None:
+    camera = _ResponsiveCamera(_saturated)
+    with pytest.raises(ValueError, match="set_fraction"):
+        camera.autoexpose(set_fraction=0.995)
+    assert camera.captured_frames == 0
+
+
 def test_autoexpose_starts_from_a_bound_when_the_exposure_is_zero() -> None:
     """From the lower bound when it is positive, and from the upper bound when the
     lower one is zero.
