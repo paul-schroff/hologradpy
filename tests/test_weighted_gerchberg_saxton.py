@@ -1,7 +1,8 @@
-"""WeightedGerchbergSaxtonPhaseRetriever on a small FFT model.
+"""WeightedGerchbergSaxtonPhaseRetriever on a small FFT model, which simulates the field
+of each hologram.
 
-The model's focal plane is the retriever's own grid, an FFT padded to the same size, so
-each spot should land exactly on its pixel.
+The positions lie on pixels of the model's focal plane, so the model shows each spot on
+its pixel. One test puts the positions between the pixels of a coarser grid.
 """
 
 from __future__ import annotations
@@ -25,12 +26,12 @@ WAVELENGTH = 1e-6
 FOCAL_LENGTH = 0.1
 PADDED = (256, 256)
 FOCAL_PITCH = WAVELENGTH * FOCAL_LENGTH / (PADDED[0] * PITCH)  # 31.25 um
-# Not symmetric, so a mirrored or transposed array would show.
+# Not symmetric, so a mirrored or transposed hologram misses the sites.
 POSITIONS = FOCAL_PITCH * np.array([[-20.0, -12.0], [-8.0, -12.0], [-20.0, 5.0]])
 WEIGHTS = np.array([1.0, 2.0, 1.0])
 
 
-def _model(aberrated: bool = False) -> SLMFFT:
+def _model(aberrated: bool = False, padded_resolution=PADDED) -> SLMFFT:
     geometry = FieldGeometry(
         resolution=SLM_RESOLUTION,
         pixel_size=torch.tensor([PITCH, PITCH]),
@@ -49,16 +50,18 @@ def _model(aberrated: bool = False) -> SLMFFT:
         virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         slm_field=PixelwiseSLMField(beam),
         focal_length=FOCAL_LENGTH,
-        padded_resolution=PADDED,
+        padded_resolution=padded_resolution,
     )
 
 
-def _site_intensities(model: SLMFFT) -> tuple[np.ndarray, bool]:
+def _site_intensities(
+    model: SLMFFT, positions: np.ndarray = POSITIONS
+) -> tuple[np.ndarray, bool]:
     """The intensity at each site, and whether each site is the peak around it."""
     with torch.no_grad():
         intensity = gpu_to_numpy(as_image(model().intensity))
     x, y = model.fourier_lens.get_spatial_grid_output()
-    sites = [(int(r), int(c)) for r, c in coordinates_to_indices(x, y, POSITIONS)]
+    sites = [(int(r), int(c)) for r, c in coordinates_to_indices(x, y, positions)]
     peaked = all(
         intensity[row, column]
         == intensity[row - 3 : row + 4, column - 3 : column + 4].max()
@@ -71,11 +74,27 @@ def _site_intensities(model: SLMFFT) -> tuple[np.ndarray, bool]:
 def test_spots_land_on_their_pixels_in_the_ratios_asked_for(aberrated) -> None:
     """With an aberrated beam too, whose phase the retriever corrects on the SLM."""
     model = _model(aberrated)
-    WeightedGerchbergSaxtonPhaseRetriever(
-        model, POSITIONS, WEIGHTS, padded_resolution=PADDED
-    ).retrieve_phase(50, verbose=False)
+    WeightedGerchbergSaxtonPhaseRetriever(model, POSITIONS, WEIGHTS).retrieve_phase(
+        50, verbose=False
+    )
 
     intensities, peaked = _site_intensities(model)
+    assert peaked
+    np.testing.assert_allclose(
+        intensities / intensities.mean(), WEIGHTS / WEIGHTS.mean(), rtol=0.02
+    )
+
+
+def test_spots_between_the_pixels_of_an_fft_grid_land_where_asked() -> None:
+    """Half a pixel of the 256 grid off its pixels, on a model four times finer."""
+    offsets = FOCAL_PITCH * np.array([[0.5, 0.0], [0.0, 0.5], [0.5, 0.5]])
+    positions = POSITIONS + offsets
+    model = _model(padded_resolution=(1024, 1024))
+    WeightedGerchbergSaxtonPhaseRetriever(model, positions, WEIGHTS).retrieve_phase(
+        50, verbose=False
+    )
+
+    intensities, peaked = _site_intensities(model, positions)
     assert peaked
     np.testing.assert_allclose(
         intensities / intensities.mean(), WEIGHTS / WEIGHTS.mean(), rtol=0.02
@@ -88,14 +107,13 @@ def test_a_hologram_is_corrected_from_where_it_was() -> None:
     """
     model = _model()
     phase = WeightedGerchbergSaxtonPhaseRetriever(
-        model, POSITIONS, WEIGHTS, padded_resolution=PADDED
+        model, POSITIONS, WEIGHTS
     ).retrieve_phase(50, verbose=False)
     corrected = np.array([1.0, 1.0, 2.0])
     WeightedGerchbergSaxtonPhaseRetriever(
         model,
         POSITIONS,
         corrected,
-        padded_resolution=PADDED,
         init_slm_phase=phase,
         focal_phase_iterations=1,
     ).retrieve_phase(20, verbose=False)
@@ -109,7 +127,7 @@ def test_a_hologram_is_corrected_from_where_it_was() -> None:
 def test_the_random_start_is_seeded() -> None:
     def retrieve(seed):
         return WeightedGerchbergSaxtonPhaseRetriever(
-            _model(), POSITIONS, WEIGHTS, padded_resolution=PADDED, seed=seed
+            _model(), POSITIONS, WEIGHTS, seed=seed
         ).retrieve_phase(3, verbose=False)
 
     assert torch.equal(retrieve(0), retrieve(0))
@@ -118,7 +136,7 @@ def test_the_random_start_is_seeded() -> None:
 
 def test_the_record_holds_a_falling_loss() -> None:
     record = WeightedGerchbergSaxtonPhaseRetriever(
-        _model(), POSITIONS, WEIGHTS, padded_resolution=PADDED
+        _model(), POSITIONS, WEIGHTS
     ).retrieve(30, verbose=False)
 
     assert record.phase.shape == SLM_RESOLUTION
@@ -126,9 +144,44 @@ def test_the_record_holds_a_falling_loss() -> None:
     assert record.loss_history[-1] < record.loss_history[0]
 
 
-def test_positions_off_the_focal_plane_are_refused() -> None:
-    retriever = WeightedGerchbergSaxtonPhaseRetriever(
-        _model(), [[200 * FOCAL_PITCH, 0.0]], padded_resolution=PADDED
+def test_the_recorded_steps_follow_the_iterations(tmp_path) -> None:
+    """Each step is read off the SLM, so the last one holds the levels the retrieval
+    ends on.
+    """
+    model = _model()
+    record = WeightedGerchbergSaxtonPhaseRetriever(model, POSITIONS, WEIGHTS).retrieve(
+        4, verbose=False, step_stride=2, step_directory=tmp_path
     )
-    with pytest.raises(ValueError, match="off the focal plane"):
-        retriever.retrieve_phase(1, verbose=False)
+
+    assert record.step_iterations == [2, 4]
+    first, last = (record.load_step(i, tmp_path) for i in record.step_iterations)
+    assert not np.array_equal(first, last)
+    np.testing.assert_array_equal(last, gpu_to_numpy(model.virtual_slm.levels))
+
+
+def test_positions_beyond_the_addressable_field_are_refused() -> None:
+    with pytest.raises(ValueError, match="beyond the field the SLM addresses"):
+        WeightedGerchbergSaxtonPhaseRetriever(_model(), [[200 * FOCAL_PITCH, 0.0]])
+
+
+def test_repeated_positions_are_refused() -> None:
+    positions = [[0.0, 0.0], [FOCAL_PITCH, 0.0], [0.0, 0.0]]
+    with pytest.raises(ValueError, match=r"Positions \[0, 2\] each repeat"):
+        WeightedGerchbergSaxtonPhaseRetriever(_model(), positions)
+
+
+@pytest.mark.parametrize(
+    "intensity", [0.0, -1.0, np.inf, np.nan], ids=["zero", "negative", "inf", "nan"]
+)
+def test_intensities_that_are_not_positive_and_finite_are_refused(intensity) -> None:
+    with pytest.raises(ValueError, match=r"Intensities \[1\]"):
+        WeightedGerchbergSaxtonPhaseRetriever(
+            _model(), POSITIONS, [1.0, intensity, 1.0]
+        )
+
+
+def test_focal_phase_iterations_below_one_are_refused() -> None:
+    with pytest.raises(ValueError, match="at least 1"):
+        WeightedGerchbergSaxtonPhaseRetriever(
+            _model(), POSITIONS, focal_phase_iterations=0
+        )

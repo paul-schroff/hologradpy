@@ -13,10 +13,10 @@ from .recorder import RetrievalRun
 class WeightedGerchbergSaxtonPhaseRetriever(PhaseRetrieverBase):
     """Focal spots of set relative intensities, by adaptive weighted Gerchberg-Saxton.
 
-    The algorithm of D. Kim et al., Opt. Lett. 44, 3178 (2019). The SLM plane
-    and the focal plane are related by an FFT on a grid padded around the SLM, so each
-    spot lands on the nearest pixel of the focal-plane grid, whose pitch is
-    ``wavelength * focal_length / (N * pitch)``.
+    The algorithm of D. Kim et al., Opt. Lett. 44, 3178 (2019). The field is evaluated
+    at the spots only, as a sum over the SLM pixels (R. Di Leonardo et al., Opt.
+    Express 15, 1913 (2007)), so each spot lands exactly at its position. An iteration
+    costs two matrix products, whose size grows with the number of spots.
 
     The beam is the model's SLM field. Light falls on the SLM only, and the phase of the
     beam is corrected on the SLM.
@@ -27,7 +27,6 @@ class WeightedGerchbergSaxtonPhaseRetriever(PhaseRetrieverBase):
         slm_camera_model: SLMFourierLensModel,
         target_positions: ArrayLike,
         target_intensities: ArrayLike | None = None,
-        padded_resolution: tuple[int, int] = (4096, 4096),
         init_slm_phase: torch.Tensor | None = None,
         focal_phase_iterations: int = 20,
         seed: int = 0,
@@ -36,16 +35,21 @@ class WeightedGerchbergSaxtonPhaseRetriever(PhaseRetrieverBase):
         Args:
             slm_camera_model: The model of the optical system. Its SLM field, virtual
                 SLM and focal length are used.
-            target_positions: ``(N, 2)`` focal-plane positions, ``(x, y)`` in metres.
+            target_positions: ``(N, 2)`` focal-plane positions, ``(x, y)`` in metres
+                from the zeroth order, within the field the SLM addresses.
             target_intensities: ``(N,)`` relative intensities. Defaults to equal ones.
-            padded_resolution: The ``(height, width)`` of the FFT grid, at least the
-                SLM's. A larger grid gives a finer focal-plane grid.
             init_slm_phase: The SLM phase to start from, such as the hologram being
                 corrected. Defaults to a random phase drawn with ``seed``.
             focal_phase_iterations: For how many iterations the focal-plane phase
-                follows the field, before it is held. The adaptive part of the
-                algorithm. Starting from a hologram, 1 keeps its focal-plane phase.
+                follows the field, at least 1. After them it is held while the weights
+                keep adapting. With ``init_slm_phase``, 1 holds the focal-plane phase
+                of that hologram.
             seed: Seeds the random starting phase.
+
+        Raises:
+            ValueError: The intensities are not one per position, or one is zero,
+                negative or not finite. A position repeats another or lies beyond the
+                field the SLM addresses. ``focal_phase_iterations`` is below 1.
         """
         super().__init__(slm_camera_model)
 
@@ -61,23 +65,41 @@ class WeightedGerchbergSaxtonPhaseRetriever(PhaseRetrieverBase):
                 f"There are {number_of_positions} positions, got intensities of shape "
                 f"{self.target_intensities.shape}."
             )
-        self.padded_resolution: tuple[int, int] = tuple(padded_resolution)
+        positive_and_finite = np.isfinite(self.target_intensities) & (
+            self.target_intensities > 0
+        )
+        if not positive_and_finite.all():
+            raise ValueError(
+                f"Intensities {np.flatnonzero(~positive_and_finite).tolist()} are "
+                "zero, negative or not finite."
+            )
+        half_x, half_y = slm_camera_model.addressable_half_extent()
+        beyond = (np.abs(self.target_positions[:, 0]) > half_x) | (
+            np.abs(self.target_positions[:, 1]) > half_y
+        )
+        if beyond.any():
+            raise ValueError(
+                f"Positions {np.flatnonzero(beyond).tolist()} lie beyond the field the "
+                f"SLM addresses, {half_x:.3g} m and {half_y:.3g} m from the zeroth "
+                "order along x and y."
+            )
+        _, group_of_position, positions_in_group = np.unique(
+            self.target_positions, axis=0, return_inverse=True, return_counts=True
+        )
+        repeated = positions_in_group[group_of_position.reshape(-1)] > 1
+        if repeated.any():
+            raise ValueError(
+                f"Positions {np.flatnonzero(repeated).tolist()} each repeat another "
+                "position."
+            )
+        if focal_phase_iterations < 1:
+            raise ValueError(
+                "focal_phase_iterations must be at least 1, got "
+                f"{focal_phase_iterations}."
+            )
         self.init_slm_phase: torch.Tensor | None = init_slm_phase
         self.focal_phase_iterations: int = focal_phase_iterations
         self.seed: int = seed
-
-    def focal_plane_pitch(self) -> tuple[float, float]:
-        """The ``(y, x)`` pitch of the focal-plane grid the spots land on, in metres."""
-        geometry = self.slm_camera_model.input_geometry
-        pitch = geometry.pixel_size.reshape(-1, 2)[0].tolist()
-        scale = (
-            float(geometry.wavelength.reshape(-1)[0])
-            * self.slm_camera_model.focal_length
-        )
-        return tuple(
-            scale / (padded * pitch)
-            for padded, pitch in zip(self.padded_resolution, pitch)
-        )
 
     def retrieve_phase(
         self,
@@ -99,9 +121,6 @@ class WeightedGerchbergSaxtonPhaseRetriever(PhaseRetrieverBase):
 
         Returns:
             torch.Tensor: The phase the SLM is now showing.
-
-        Raises:
-            ValueError: A position lies off the focal-plane grid.
         """
         self.timer.start()
         self.run = run if run is not None else RetrievalRun()
@@ -116,102 +135,108 @@ class WeightedGerchbergSaxtonPhaseRetriever(PhaseRetrieverBase):
             ).__enter__()
         self.run.progress_bar = progress_bar
         try:
-            phase = self._iterate(number_of_iterations)
+            self._iterate(number_of_iterations)
         finally:
             self.run.progress_bar = None
             if not borrowed:
                 progress_bar.close()
 
-        virtual_slm = self.slm_camera_model.virtual_slm
-        virtual_slm.set_phase(phase.to(torch.float32))
         self.timer.stop()
-        return virtual_slm.get_phase().detach()
+        return self.slm_camera_model.virtual_slm.get_phase().detach()
 
-    def _iterate(self, number_of_iterations: int) -> torch.Tensor:
-        """The SLM phase after ``number_of_iterations``, beam phase corrected."""
+    def _spot_phasors(
+        self, height: int, width: int, dtype: torch.dtype
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """The phase factors that carry the SLM field to the spots, ``(N, height)``
+        along the rows of the SLM and ``(N, width)`` along its columns.
+
+        The field at spot ``n`` is the sum over the SLM of the field times
+        ``row_phasors[n, :, None] * column_phasors[n, None, :]``, which is the Fourier
+        transform of the lens evaluated at the position of the spot.
+        """
+        geometry = self.slm_camera_model.input_geometry
+        pitch_y, pitch_x = geometry.pixel_size.reshape(-1, 2)[0].tolist()
+        wavelength = float(geometry.wavelength.reshape(-1)[0])
+        # Radians per metre of focal-plane position and per metre across the SLM.
+        scale = 2 * np.pi / (wavelength * self.slm_camera_model.focal_length)
+        positions = torch.as_tensor(
+            self.target_positions, dtype=torch.float64, device=self.device
+        )
+        rows = torch.arange(height, dtype=torch.float64, device=self.device)
+        columns = torch.arange(width, dtype=torch.float64, device=self.device)
+        rows = (rows - height // 2) * pitch_y
+        columns = (columns - width // 2) * pitch_x
+        row_phasors = torch.exp(-1j * scale * positions[:, 1:] * rows)
+        column_phasors = torch.exp(-1j * scale * positions[:, :1] * columns)
+        return row_phasors.to(dtype), column_phasors.to(dtype)
+
+    def _iterate(self, number_of_iterations: int) -> None:
+        """Iterate, and set the virtual SLM to the result, beam phase corrected.
+
+        A recorded step is read off the SLM, so the SLM is also set at every iteration
+        while steps are recorded.
+        """
         model = self.slm_camera_model
         with torch.no_grad():
             beam = model.slm_field.get_wavefront().detach().to(self.device)
         height, width = beam.shape[-2:]
-        padded_height, padded_width = self.padded_resolution
-        if padded_height < height or padded_width < width:
-            raise ValueError(
-                f"The padded resolution {self.padded_resolution} is smaller than the "
-                f"SLM's {(height, width)}."
-            )
-        # The SLM's centre pixel, height // 2, sits on the grid's, padded_height // 2.
-        slm = (
-            slice(
-                padded_height // 2 - height // 2,
-                padded_height // 2 - height // 2 + height,
-            ),
-            slice(
-                padded_width // 2 - width // 2, padded_width // 2 - width // 2 + width
-            ),
-        )
-        amplitude = torch.zeros(
-            self.padded_resolution, dtype=beam.real.dtype, device=self.device
-        )
-        amplitude[slm] = beam.abs()
+        amplitude = beam.abs()
+        row_phasors, column_phasors = self._spot_phasors(height, width, beam.dtype)
 
-        pitch_y, pitch_x = self.focal_plane_pitch()
-        rows = np.rint(self.target_positions[:, 1] / pitch_y).astype(int)
-        columns = np.rint(self.target_positions[:, 0] / pitch_x).astype(int)
-        rows += padded_height // 2
-        columns += padded_width // 2
-        off = (
-            (rows < 0)
-            | (rows >= padded_height)
-            | (columns < 0)
-            | (columns >= padded_width)
-        )
-        if off.any():
-            raise ValueError(
-                f"Positions {np.flatnonzero(off).tolist()} lie off the focal plane."
-            )
-        sites = (
-            torch.as_tensor(rows, device=self.device),
-            torch.as_tensor(columns, device=self.device),
-        )
+        def propagate_to_spots(field: torch.Tensor) -> torch.Tensor:
+            """The ``(N,)`` field at the spots."""
+            return (row_phasors * (field @ column_phasors.T).T).sum(-1)
+
+        def propagate_from_spots(spot_field: torch.Tensor) -> torch.Tensor:
+            """The ``(height, width)`` SLM field, by the adjoint of
+            ``propagate_to_spots``.
+            """
+            return (row_phasors.conj().T * spot_field) @ column_phasors.conj()
+
+        def set_slm_phase(field_phase: torch.Tensor) -> None:
+            """Set the SLM to the phase that turns the beam into a field of phase
+            ``field_phase``.
+            """
+            phase = torch.remainder(field_phase - beam.angle(), 2 * torch.pi)
+            model.virtual_slm.set_phase(phase.to(torch.float32))
 
         weights = torch.as_tensor(
             self.target_intensities, dtype=amplitude.dtype, device=self.device
         )
         weights = weights / weights.sum()
-        target_amplitude = torch.zeros_like(amplitude)
-        target_amplitude[sites] = weights.sqrt()
+        target_amplitude = weights.sqrt()
 
         if self.init_slm_phase is None:
             generator = torch.Generator().manual_seed(self.seed)
-            phase = (
-                2 * torch.pi * torch.rand(self.padded_resolution, generator=generator)
+            field_phase = (
+                2 * torch.pi * torch.rand((height, width), generator=generator)
             )
-            phase = phase.to(device=self.device, dtype=amplitude.dtype)
+            field_phase = field_phase.to(device=self.device, dtype=amplitude.dtype)
         else:
-            phase = torch.zeros_like(amplitude)
-            phase[slm] = (
+            field_phase = (
                 torch.as_tensor(
                     self.init_slm_phase, dtype=amplitude.dtype, device=self.device
                 )
                 + beam.angle()
             )
-        field = amplitude * torch.exp(1j * phase)
 
         focal_phase = None
         for iteration in range(number_of_iterations):
-            focal = torch.fft.fftshift(torch.fft.fft2(field))
-            site_intensity = focal[sites].abs() ** 2
-            fractions = site_intensity / site_intensity.sum()
+            spot_field = propagate_to_spots(amplitude * torch.exp(1j * field_phase))
+            spot_intensity = spot_field.abs() ** 2
+            fractions = spot_intensity / spot_intensity.sum()
             self.run.record_loss(float(((fractions - weights) ** 2).sum()))
 
-            # Kim et al.: weight each spot's target amplitude by how far it falls short.
-            shortfall = (site_intensity / weights).sqrt()
-            target_amplitude[sites] *= shortfall.mean() / shortfall
+            # Each spot's target amplitude is weighted by how far it falls short, as
+            # in Kim et al.
+            shortfall = (spot_intensity / weights).sqrt()
+            target_amplitude = target_amplitude * shortfall.mean() / shortfall
             if iteration < self.focal_phase_iterations or focal_phase is None:
-                focal_phase = torch.exp(1j * focal.angle())
+                focal_phase = torch.exp(1j * spot_field.angle())
 
-            back = torch.fft.ifft2(torch.fft.ifftshift(target_amplitude * focal_phase))
-            field = amplitude * torch.exp(1j * back.angle())
+            field_phase = propagate_from_spots(target_amplitude * focal_phase).angle()
+            if self.run.steps is not None:
+                set_slm_phase(field_phase)
             self.run.record_iteration(iteration + 1, model)
 
-        return torch.remainder(field.angle()[slm] - beam.angle(), 2 * torch.pi)
+        set_slm_phase(field_phase)

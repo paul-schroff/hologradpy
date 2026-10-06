@@ -19,7 +19,7 @@ class LinearSuperpositionPhaseRetriever(PhaseRetrieverBase):
 
     Each grating sends light to one position, with the amplitude for its intensity and
     its own phase. Gratings to a regular array with equal phases add up symmetrically
-    and make ghost spots, which can by avoided with random phases.
+    and make ghost spots, which random phases avoid.
     """
 
     def __init__(

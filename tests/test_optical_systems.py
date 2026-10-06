@@ -173,7 +173,7 @@ def test_to_cuda_moves_device_and_init_field() -> None:
 
 
 def test_the_input_geometry_follows_a_cast() -> None:
-    """A plain attribute, so ``nn.Module`` alone would leave it behind."""
+    """The geometry is a plain attribute, so the system casts it with its modules."""
     model = _make_slm_czt().to(torch.float64)
     assert model.input_geometry.pixel_size.dtype == torch.float64
     assert model.input_geometry.wavelength.dtype == torch.float64

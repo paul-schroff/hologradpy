@@ -80,9 +80,9 @@ class OpticalSystem(nn.Module):
         """Move or cast :attr:`input_geometry` with the modules on any ``.to()`` /
         ``.cuda()`` / dtype change.
 
-        The geometry is a plain attribute, so ``nn.Module`` would leave it behind, and
-        anything that builds on it, such as the SLM-plane grid, would be on the old
-        device.
+        ``nn.Module`` moves only parameters and buffers, and the geometry is a plain
+        attribute, so it is moved here. Anything built on it, such as the SLM-plane
+        grid, then follows it to the new device.
         """
         system = super()._apply(fn, *args, **kwargs)
         geometry = self.input_geometry

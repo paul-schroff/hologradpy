@@ -210,7 +210,7 @@ def test_capture_triggers_once_and_keeps_the_camera_armed(camera):
     frames = [device.get_image() for _ in range(3)]
 
     assert fake.triggers == 3
-    # Armed once and never disarmed, which is what makes a frame cheap.
+    # Armed once and never disarmed, so a frame is cheap.
     assert fake.arms == 1
     assert fake.disarms == 0
     for frame in frames:

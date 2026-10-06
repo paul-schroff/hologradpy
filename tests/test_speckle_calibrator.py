@@ -158,7 +158,7 @@ def _synthetic_mapping(
 ) -> CameraMapping:
     """A camera -> model mapping whose model plane is the camera grid, as in
     :func:`_build_model`. With the defaults it is the identity, with the zeroth order at
-    the (square) camera center.
+    the (square) camera centre.
 
     The transform carries the zeroth order onto the centre of the model's output plane,
     so the image-plane conversions of the mapping agree with its recorded zeroth order.

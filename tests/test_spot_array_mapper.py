@@ -190,8 +190,8 @@ def test_retriever_shares_light_by_the_target_intensities(
     simulated_setup, intensities, low, high
 ):
     """Each grating's amplitude is the square root of its intensity. Keeping only the
-    phase of the superposition exaggerates unequal intensities: asking for 1:4 gives
-    about 1:13. Squaring the intensities instead, as before, gave about 1:1000.
+    phase of the superposition exaggerates unequal intensities, so asking for 1:4 gives
+    about 1:13.
     """
     _, _, slm_camera_model = simulated_setup
     positions = np.array([[4.0e-4, 0.0], [-4.0e-4, 0.0]])

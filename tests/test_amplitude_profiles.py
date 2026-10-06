@@ -207,8 +207,8 @@ def test_the_line_uses_the_same_gaussian_across_it() -> None:
 
 
 def test_a_spot_array_is_centred_where_it_is_shifted_to() -> None:
-    """On a grid in metres. Halving the extent with ``//`` rounded it to zero there, so
-    the array started at the shift instead of being centred on it.
+    """On a grid in metres, the array is centred on its shift, and its outer columns
+    sit one spot separation either side.
     """
     x, y = _numpy_grid()
     spots = np.asarray(
