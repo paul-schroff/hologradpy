@@ -24,7 +24,8 @@ class ThorlabsCamera(Camera):
     The camera is armed for one frame per software trigger, and every frame is taken
     with a trigger. Only the part of the sensor under the region of interest is read
     out, which shortens the transfer of every frame. The pixel pitch and the exposure
-    bounds are passed in, since the driver does not report them.
+    bounds are passed in, since the driver does not report them. The gain range is read
+    from the camera.
     """
 
     def __init__(
@@ -32,6 +33,7 @@ class ThorlabsCamera(Camera):
         pixel_size: tuple[float, float],
         serial: str | None = None,
         exposure_bounds: tuple[float, float] | None = None,
+        gain: float = 0.0,
     ) -> None:
         """Open the camera and arm it for software triggers.
 
@@ -42,6 +44,8 @@ class ThorlabsCamera(Camera):
                 first one found.
             exposure_bounds: The ``(min, max)`` exposure in seconds to keep to, from the
                 datasheet. Defaults to None, which states no bounds.
+            gain: The gain in dB to open the camera at. Defaults to 0 dB. A camera
+                that states no gain range keeps its own gain.
 
         Raises:
             ImportError: If ``pylablib`` is not installed.
@@ -70,6 +74,9 @@ class ThorlabsCamera(Camera):
             if exposure_bounds is None
             else (float(exposure_bounds[0]), float(exposure_bounds[1]))
         )
+        self._gain_bounds = self._read_gain_range()
+        if self._gain_bounds is not None:
+            self.set_gain(gain)
 
         self._sensor_resolution: tuple[int, int] = self._raw_shape
         self._pixel_size = self._raw_pixel_size
@@ -245,6 +252,58 @@ class ThorlabsCamera(Camera):
             )
             exposure = clipped
         self._device.set_exposure(exposure)
+
+    def _read_gain_range(self) -> tuple[float, float] | None:
+        """The ``(min, max)`` gain in dB the camera states, or None when it states no
+        range or a range of a single gain.
+        """
+        try:
+            low, high = (float(gain) for gain in self._device.get_gain_range())
+        except self._device.Error:
+            return None
+        return (low, high) if high > low else None
+
+    @property
+    def gain_bounds(self) -> tuple[float, float] | None:
+        """The ``(min, max)`` gain in dB, read from the camera when it was opened, or
+        None for a camera whose gain cannot be set.
+        """
+        return self._gain_bounds
+
+    def get_gain(self) -> float:
+        """The current gain in dB, or 0 dB for a camera whose gain cannot be set."""
+        if self._gain_bounds is None:
+            return 0.0
+        return float(self._device.get_gain())
+
+    def set_gain(self, gain: float) -> None:
+        """Set the gain in dB, from the next frame on.
+
+        The acquisition keeps running. A gain outside :attr:`gain_bounds` is clipped
+        into them with a warning. The camera sets the gain in steps of its own, and
+        :meth:`get_gain` reads back the step it applied.
+
+        Args:
+            gain: The gain in dB.
+
+        Raises:
+            NotImplementedError: The camera states no gain range.
+        """
+        bounds = self._gain_bounds
+        if bounds is None:
+            raise NotImplementedError(
+                f"The {self.name} states no gain range, so its gain cannot be set."
+            )
+        gain = float(gain)
+        if not bounds[0] <= gain <= bounds[1]:
+            clipped = min(max(gain, bounds[0]), bounds[1])
+            warnings.warn(
+                f"A gain of {gain} dB is outside the camera's gain range {bounds} dB, "
+                f"so {clipped} dB is applied.",
+                stacklevel=2,
+            )
+            gain = clipped
+        self._device.set_gain(gain)
 
     def _get_image(
         self, exposure: float | None = None, averaging: int = 1

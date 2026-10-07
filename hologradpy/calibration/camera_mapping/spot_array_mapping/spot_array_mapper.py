@@ -107,9 +107,9 @@ class SpotArrayMapper(CameraMapper):
         :meth:`~hologradpy.optics.systems.SLMFourierLensModel.bypass_partial_affine`),
         so it describes the camera against the model without its partial affine. The
         geometry of the simulated image is read from the model's output layer. The
-        whole sensor is read out while the camera is mapped, and its exposure and
+        whole sensor is read out while the camera is mapped, and its exposure, gain and
         region of interest are put back afterwards
-        (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_and_roi`).
+        (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_gain_and_roi`).
 
         Args:
             number_of_spots: Number of focal spots in the array.
@@ -139,7 +139,7 @@ class SpotArrayMapper(CameraMapper):
             uncertainty-weighted average waist.
         """
         with (
-            self.camera.preserve_exposure_and_roi(full_sensor=True),
+            self.camera.preserve_exposure_gain_and_roi(full_sensor=True),
             self.slm_camera_model.bypass_partial_affine(),
         ):
             pixel_size_out, resolution_out = self._model_output_geometry()

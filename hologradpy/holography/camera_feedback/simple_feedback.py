@@ -69,8 +69,8 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
                 leave it as set.
             autoexpose: Autoexpose on the signal region of every hologram before it is
                 measured. The potential's peak moves as the corrections change it, so
-                each frame is metered on its own. The exposures are recorded in the
-                result's metadata.
+                each frame is metered on its own. The exposures and the gains of the
+                camera are recorded in the result's metadata.
             averages: Camera frames to average per measurement. Each frame is
                 captured on its own. A measurement counts as overexposed when a pixel
                 of the signal region reaches full scale in any of its frames
@@ -101,8 +101,9 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
 
         Returns:
             CameraFeedbackData: The corrected hologram, and the whole run behind it.
-            Its metadata holds the exposure of every measurement under ``"exposures"``.
-            The iterations with an overexposed measurement inside the signal region are
+            Its metadata holds the exposure of every measurement under ``"exposures"``,
+            and the gain of the camera in dB under ``"camera_gains"``. The iterations
+            with an overexposed measurement inside the signal region are
             listed under ``"overexposed_iterations"``. The measured images are raw, and
             the background subtracted from each is kept in ``background_images``.
         """
@@ -132,6 +133,7 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
         background_images: list[NDArray] = []
         full_frames: list[NDArray] = []
         exposures: list[float] = []
+        camera_gains: list[float] = []
         overexposed_iterations: list[int] = []
         final_camera_image: NDArray | None = None
 
@@ -143,9 +145,10 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
             leave=False,
         )
         # The whole sensor is read out, since the model predicts all of it. The
-        # camera's exposure and region of interest are put back when the loop ends.
+        # camera's exposure, gain and region of interest are put back when the loop
+        # ends.
         with (
-            self.camera.preserve_exposure_and_roi(full_sensor=True),
+            self.camera.preserve_exposure_gain_and_roi(full_sensor=True),
             ProgressBar(
                 total=iterations,
                 description="Camera feedback",
@@ -193,6 +196,7 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
                     exposure, averages, region_mask
                 )
                 exposures.append(float(self.camera.get_exposure()))
+                camera_gains.append(float(self.camera.get_gain()))
                 if overexposed:
                     overexposed_iterations.append(iteration)
 
@@ -249,6 +253,7 @@ class SimpleFeedbackCorrector(FeedbackCorrectorBase):
             },
             metadata={
                 "exposures": exposures,
+                "camera_gains": camera_gains,
                 "overexposed_iterations": overexposed_iterations,
             },
         )

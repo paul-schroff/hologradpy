@@ -30,9 +30,9 @@ class GenTLCamera(Camera):
     Every frame is taken with a software trigger, so a capture is one exposure the
     caller asked for rather than whatever the free-running sensor last produced.
 
-    Geometry, dynamic range and exposure bounds are read from the node map, so nothing
-    here is specific to one sensor. The pixel pitch is the exception, since GenICam has
-    no standard node for it.
+    Geometry, dynamic range, exposure bounds and the gain range are read from the node
+    map, so nothing here is specific to one sensor. The pixel pitch is the exception,
+    since GenICam has no standard node for it.
     """
 
     def __init__(
@@ -55,7 +55,7 @@ class GenTLCamera(Camera):
                 first one the producer reports.
             pixel_format: The format to stream in, for example ``"Mono16"``.
             roi: The region to read out. Defaults to the whole sensor.
-            gain: Analog gain, in the units the camera states it in.
+            gain: The gain to open the camera at, in the unit of its ``Gain`` node.
             frames_before_restart: Cycle acquisition after this many frames. A
                 workaround for a producer that stops streaming after a fixed count.
                 Defaults to None, which never restarts.
@@ -320,6 +320,55 @@ class GenTLCamera(Camera):
                     stacklevel=2,
                 )
         self._write("ExposureTime", exposure_us)
+
+    def _gain_node_in_db(self):
+        """The ``Gain`` node when the camera states it in dB, or None."""
+        node = self._node("Gain")
+        unit = str(getattr(node, "unit", "")).strip()
+        return node if unit.lower() == "db" else None
+
+    @property
+    def gain_bounds(self) -> tuple[float, float] | None:
+        """The ``(min, max)`` gain in dB from the ``Gain`` node, or None when the
+        camera has no ``Gain`` node or states it in another unit.
+        """
+        node = self._gain_node_in_db()
+        if node is None:
+            return None
+        return (float(node.min), float(node.max))
+
+    def get_gain(self) -> float:
+        """The current gain in dB, or 0 dB when :attr:`gain_bounds` is None."""
+        node = self._gain_node_in_db()
+        return 0.0 if node is None else float(node.value)
+
+    def set_gain(self, gain: float) -> None:
+        """Set the gain in dB.
+
+        A gain outside :attr:`gain_bounds` is clipped into them with a warning, since
+        the camera rejects a value outside its node's range.
+
+        Args:
+            gain: The gain in dB.
+
+        Raises:
+            NotImplementedError: The camera has no ``Gain`` node in dB.
+        """
+        bounds = self.gain_bounds
+        if bounds is None:
+            raise NotImplementedError(
+                "This camera has no Gain node in dB, so its gain cannot be set."
+            )
+        gain = float(gain)
+        if not bounds[0] <= gain <= bounds[1]:
+            clipped = min(max(gain, bounds[0]), bounds[1])
+            warnings.warn(
+                f"A gain of {gain} dB is outside the camera's gain range {bounds} dB, "
+                f"so {clipped} dB is applied.",
+                stacklevel=2,
+            )
+            gain = clipped
+        self._write("Gain", gain)
 
     def _get_image(
         self, exposure: float | None = None, averaging: int = 1

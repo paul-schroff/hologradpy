@@ -73,9 +73,9 @@ class CheckerboardMapper(CameraMapper):
         The mapping is measured with the model's focal-plane affine at identity (see
         :meth:`~hologradpy.optics.systems.SLMFourierLensModel.bypass_partial_affine`),
         so it describes the camera against the model without its partial affine. The
-        whole sensor is read out while the camera is mapped, and its exposure and
+        whole sensor is read out while the camera is mapped, and its exposure, gain and
         region of interest are put back afterwards
-        (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_and_roi`).
+        (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_gain_and_roi`).
 
         Args:
             number_of_squares: Squares in (rows, columns). Defaults to (7, 9).
@@ -98,7 +98,7 @@ class CheckerboardMapper(CameraMapper):
             CameraMapping with the affine transform and corner correspondences.
         """
         with (
-            self.camera.preserve_exposure_and_roi(full_sensor=True),
+            self.camera.preserve_exposure_gain_and_roi(full_sensor=True),
             self.slm_camera_model.bypass_partial_affine(),
         ):
             number_of_corners = tuple([i - 1 for i in number_of_squares])

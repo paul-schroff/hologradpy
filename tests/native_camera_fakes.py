@@ -34,12 +34,21 @@ class CroppingCamera(Camera):
     behave as on a real camera. A single frame keeps the rendered dtype, and a sum of
     several frames is float64.
 
+    A camera built with ``gain_bounds`` sets its gain, and every gain is recorded in
+    :attr:`requested_gains`. A subclass renders its counts from
+    :meth:`get_equivalent_exposure`, so the gain scales them.
+
     Args:
         sensor_resolution: The ``(height, width)`` of the sensor.
         max_pixel_value: The largest count a pixel reports.
         exposure_bounds: The ``(min, max)`` exposure in seconds, or None for a camera
             that states no bounds.
         exposure_s: The starting exposure in seconds.
+        gain_bounds: The ``(min, max)`` gain in dB, or None for a camera whose gain
+            cannot be set.
+        gain: The starting gain in dB.
+        gain_step: The step in dB that every gain is rounded to, or None to apply each
+            gain as asked.
     """
 
     def __init__(
@@ -49,6 +58,9 @@ class CroppingCamera(Camera):
         max_pixel_value: int = 255,
         exposure_bounds: tuple[float, float] | None = (1e-4, 1.0),
         exposure_s: float = 1e-3,
+        gain_bounds: tuple[float, float] | None = None,
+        gain: float = 0.0,
+        gain_step: float | None = None,
     ) -> None:
         self._sensor_resolution = (int(sensor_resolution[0]), int(sensor_resolution[1]))
         self._max_pixel_value = int(max_pixel_value)
@@ -58,12 +70,20 @@ class CroppingCamera(Camera):
             else (float(exposure_bounds[0]), float(exposure_bounds[1]))
         )
         self._exposure_s = float(exposure_s)
+        self._gain_bounds = (
+            None
+            if gain_bounds is None
+            else (float(gain_bounds[0]), float(gain_bounds[1]))
+        )
+        self._current_gain = float(gain)
+        self._gain_step = gain_step
+        self.requested_gains: list[float] = []
         self._roi = ROI(0, 0, *self._sensor_resolution)
         self.captured_frames = 0
 
     @abstractmethod
     def render_sensor_frame(self) -> NDArray:
-        """One frame of the whole sensor at the current exposure."""
+        """One frame of the whole sensor at the current exposure and gain."""
 
     @property
     def pixel_size(self) -> NDArray[np.float64]:
@@ -113,6 +133,32 @@ class CroppingCamera(Camera):
             return
         low, high = self._exposure_bounds
         self._exposure_s = float(min(max(exposure_s, low), high))
+
+    @property
+    def gain_bounds(self) -> tuple[float, float] | None:
+        """The ``(min, max)`` gain in dB, or None for a camera whose gain cannot be
+        set.
+        """
+        return self._gain_bounds
+
+    def get_gain(self) -> float:
+        """The current gain in dB."""
+        return self._current_gain
+
+    def set_gain(self, gain: float) -> None:
+        """Set the gain in dB, clamped into the bounds and rounded to the gain step.
+
+        Raises:
+            NotImplementedError: The camera was built without gain bounds.
+        """
+        if self._gain_bounds is None:
+            super().set_gain(gain)
+        self.requested_gains.append(float(gain))
+        low, high = self._gain_bounds
+        applied = min(max(float(gain), low), high)
+        if self._gain_step is not None:
+            applied = round(applied / self._gain_step) * self._gain_step
+        self._current_gain = float(applied)
 
     def _get_image(self, exposure: float | None = None, averaging: int = 1) -> NDArray:
         """Capture ``averaging`` fresh frames cropped to the region, and sum them.
