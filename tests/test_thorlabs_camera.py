@@ -30,12 +30,21 @@ TDeviceInfo = namedtuple(
     "TDeviceInfo", ["model", "name", "serial_number", "firmware_version"]
 )
 TSensorInfo = namedtuple("TSensorInfo", ["sensor_type", "bit_depth"])
+# The gain range of the fake in dB, and its step, since the SDK sets the gain through an
+# integer index.
+GAIN_RANGE_DB = (0.0, 48.0)
+GAIN_STEP_DB = 0.1
+
+
+class FakeTLCameraError(RuntimeError):
+    """What the pylablib driver raises for a request the camera refuses."""
 
 
 def fake_frame(exposure_s):
     """A ramp that brightens with exposure and saturates, as a sensor does.
 
-    Responding to exposure is what lets autoexpose be exercised against the driver.
+    Responding to exposure is what lets autoexpose be exercised against the driver. The
+    fake camera passes its equivalent exposure, the exposure times the linear gain.
     """
     ramp = np.linspace(0.0, 1.0, SENSOR_HEIGHT * SENSOR_WIDTH).reshape(
         SENSOR_HEIGHT, SENSOR_WIDTH
@@ -66,11 +75,20 @@ def truncate(start, end, minimum, maximum):
 class FakeTLCamera:
     """The pylablib ThorlabsTLCamera calls ThorlabsCamera makes, on a sensor that
     exposes one frame per software trigger while armed and reads out its window.
+
+    The gain is held as an index of ``GAIN_STEP_DB`` steps and starts at 3 dB, so
+    opening at another gain shows. A ``gain_range`` of None makes a camera without
+    gain, whose range request raises the driver's error.
     """
+
+    Error = FakeTLCameraError
+    gain_range = GAIN_RANGE_DB
 
     def __init__(self, serial=None):
         self.serial = serial
         self.exposure = 1e-4
+        self.gain_index = 30
+        self.gain_requests = []
         self.trigger_mode = "ext"
         self.roi_calls = []
         # (hstart, hend, vstart, vend), as pylablib states a window.
@@ -134,11 +152,32 @@ class FakeTLCamera:
         self.exposure = exposure
         return exposure
 
+    def get_gain_range(self):
+        if self.gain_range is None:
+            raise FakeTLCameraError("This camera has no gain.")
+        return self.gain_range
+
+    def get_gain(self):
+        return self.gain_index * GAIN_STEP_DB
+
+    def set_gain(self, gain, truncate=True):
+        """Takes the gain in dB and applies the nearest index, as pylablib does."""
+        self.gain_requests.append(gain)
+        index = int(round(gain / GAIN_STEP_DB))
+        if truncate:
+            low, high = (int(round(limit / GAIN_STEP_DB)) for limit in self.gain_range)
+            index = max(low, min(index, high))
+        self.gain_index = index
+        return self.get_gain()
+
     def send_software_trigger(self):
         if not self.armed or self.trigger_mode != "int":
             raise RuntimeError("A software trigger needs the armed camera in 'int'.")
         self.triggers += 1
-        whole = fake_frame(self.exposure) if self.pattern is None else self.pattern
+        equivalent_exposure = self.exposure * 10.0 ** (self.get_gain() / 20.0)
+        whole = (
+            fake_frame(equivalent_exposure) if self.pattern is None else self.pattern
+        )
         hstart, hend, vstart, vend = self.window
         self.pending.append(whole[vstart:vend, hstart:hend])
 
@@ -517,3 +556,70 @@ def test_autoexpose_runs_through_the_base_class(camera):
     device.autoexpose(set_fraction=0.5)
     low, high = device.exposure_search_bounds
     assert low <= device.get_exposure() <= high
+
+
+def test_opens_at_zero_db_and_reads_the_gain_range(camera):
+    device, fake = camera
+    assert device.gain_bounds == GAIN_RANGE_DB
+    assert fake.get_gain() == 0.0
+    assert device.get_gain() == 0.0
+
+
+def test_opens_at_the_gain_asked_for(fake_pylablib):
+    from hologradpy.hardware.camera.thorlabs import ThorlabsCamera
+
+    device = ThorlabsCamera(PIXEL_SIZE, gain=6.0)
+    try:
+        assert device.get_gain() == pytest.approx(6.0)
+        assert CameraData.from_camera(device).gain == pytest.approx(6.0)
+    finally:
+        device.close()
+
+
+def test_a_gain_is_applied_in_the_steps_of_the_camera(camera):
+    device, fake = camera
+    device.set_gain(6.04)
+    assert fake.gain_requests[-1] == 6.04
+    assert device.get_gain() == pytest.approx(6.0)
+    assert fake.disarms == 0
+
+
+def test_a_gain_outside_the_range_is_clipped_with_a_warning(camera):
+    device, _ = camera
+
+    with pytest.warns(UserWarning, match="outside the camera's gain range"):
+        device.set_gain(60.0)
+    assert device.get_gain() == pytest.approx(48.0)
+
+    with pytest.warns(UserWarning, match="outside the camera's gain range"):
+        device.set_gain(-3.0)
+    assert device.get_gain() == 0.0
+
+
+def test_a_camera_without_a_gain_range_keeps_its_gain(fake_pylablib, monkeypatch):
+    from hologradpy.hardware.camera.thorlabs import ThorlabsCamera
+
+    monkeypatch.setattr(FakeTLCamera, "gain_range", None)
+    device = ThorlabsCamera(PIXEL_SIZE)
+    try:
+        assert device.gain_bounds is None
+        assert device.get_gain() == 0.0
+        with pytest.raises(NotImplementedError, match="no gain range"):
+            device.set_gain(6.0)
+        assert fake_pylablib["device"].gain_requests == []
+    finally:
+        device.close()
+
+
+def test_autoexpose_raises_the_gain_through_the_driver(camera):
+    """With the exposure held at 200 us, the scene needs a factor 2.56 of gain, about
+    8.2 dB, to reach its target of 511 counts.
+    """
+    device, _ = camera
+
+    exposure = device.autoexpose(set_fraction=0.5, exposure_bounds=(40e-6, 200e-6))
+
+    assert exposure == pytest.approx(200e-6, rel=0.06)
+    assert device.get_gain() == pytest.approx(20.0 * np.log10(2.56), abs=0.5)
+    peak = float(device.get_image().max())
+    assert abs(peak - 0.5 * MAX_COUNT) <= 0.05 * MAX_COUNT

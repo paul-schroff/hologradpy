@@ -55,6 +55,7 @@ class SimulatedCameraTorch(Camera):
         slm_camera_model: SLMFourierLensModel,
         name: str = "SimulatedCameraTorch",
         exposure_bounds: tuple[float, float] | None = (0.0, 1.0),
+        gain_bounds: tuple[float, float] | None = None,
         orientation: CameraOrientation = CameraOrientation(),
         background_scatter_power: float | None = None,
         background_scatter_grain_radius: float = 5e-6,
@@ -75,6 +76,11 @@ class SimulatedCameraTorch(Camera):
         ``exposure_bounds`` defaults to ``(0.0, 1.0)``, so the simulated camera states
         a 1 s maximum integration like real hardware, and :meth:`set_exposure` clips an
         exposure into the bounds with a warning.
+
+        ``gain_bounds`` is the ``(min, max)`` gain in dB that :meth:`set_gain` accepts.
+        The default None keeps the gain of the sensor fixed, so :meth:`autoexpose`
+        searches the exposure alone. A gain of ``g`` dB sets the sensor's linear
+        ``gain`` to ``10 ** (g / 20)``.
 
         When ``background_scatter_power`` is given, a static laser-speckle
         stray-light background of that total power [W] (grain
@@ -128,6 +134,11 @@ class SimulatedCameraTorch(Camera):
         self._exposure_bounds = (
             (float(np.min(exposure_bounds)), float(np.max(exposure_bounds)))
             if exposure_bounds is not None
+            else None
+        )
+        self._gain_bounds = (
+            (float(np.min(gain_bounds)), float(np.max(gain_bounds)))
+            if gain_bounds is not None
             else None
         )
         self.exposure: float = 1.0  # Default to 1 s like a real simulated camera.
@@ -227,9 +238,12 @@ class SimulatedCameraTorch(Camera):
         # Mount the lazy modules, so their weights are in the state dict to be saved.
         _ = self.slm_camera_model()
 
+        spec = self.get_checkpoint_spec()
+        # The sensor is rebuilt at its current gain, which set_gain can have changed.
+        spec["gain"] = float(self.sensor.gain)
         checkpoint = SimulatedCameraCheckpoint(
             class_name=type(self).__name__,
-            spec=self.get_checkpoint_spec(),
+            spec=spec,
             model_class_name=self._model_class_name,
             model_spec=self._model_spec,
             state_dict=self.slm_camera_model.state_dict(),
@@ -256,7 +270,8 @@ class SimulatedCameraTorch(Camera):
             **kwargs: Overrides for the saved camera arguments.
 
         Returns:
-            SimulatedCameraTorch: The camera, at the exposure and ROI it was saved with.
+            SimulatedCameraTorch: The camera, at the exposure, the gain and the ROI it
+            was saved with.
 
         Raises:
             ValueError: The file was written by a different camera class.
@@ -456,6 +471,45 @@ class SimulatedCameraTorch(Camera):
             )
             exposure = clipped
         self.exposure = exposure
+
+    @property
+    def gain_bounds(self) -> tuple[float, float] | None:
+        """The ``(min, max)`` gain in dB that :meth:`set_gain` applies, or None for a
+        camera built without gain bounds, whose gain stays fixed.
+        """
+        return self._gain_bounds
+
+    def get_gain(self) -> float:
+        """The gain in dB, ``20 * log10`` of the sensor's linear ``gain``."""
+        return 20.0 * float(np.log10(self.sensor.gain))
+
+    def set_gain(self, gain: float) -> None:
+        """Set the gain in dB, which sets the sensor's linear ``gain`` to
+        ``10 ** (gain / 20)``.
+
+        A gain outside :attr:`gain_bounds` is clipped into them with a warning.
+
+        Args:
+            gain: The gain in dB.
+
+        Raises:
+            NotImplementedError: The camera was built without gain bounds.
+        """
+        bounds = self._gain_bounds
+        if bounds is None:
+            raise NotImplementedError(
+                f"{self.name} was built without gain_bounds, so its gain stays fixed."
+            )
+        gain = float(gain)
+        if not bounds[0] <= gain <= bounds[1]:
+            clipped = min(max(gain, bounds[0]), bounds[1])
+            warnings.warn(
+                f"A gain of {gain} dB is outside the camera's gain range {bounds} dB, "
+                f"so {clipped} dB is applied.",
+                stacklevel=2,
+            )
+            gain = clipped
+        self.sensor.gain = 10.0 ** (gain / 20.0)
 
     # Capture
 

@@ -3,10 +3,10 @@
 The fakes build on ``CroppingCamera`` (``tests/native_camera_fakes.py``), so a region of
 interest crops each frame and an exposure stays inside the bounds, as on a real camera.
 The tests cover the ``exposure_search_bounds`` ceiling and ``sensor_resolution``, then
-``preserve_roi`` and ``preserve_exposure_and_roi``. The exposure search of
+``preserve_roi`` and ``preserve_exposure_gain_and_roi``. The exposure search of
 ``autoexpose`` follows, with its rails, its final exposure and the final state of the
-camera. The last tests cover ``get_averaged_image``, ``excluded_pixels`` and
-``find_stuck_pixels``.
+camera, and then the gain it raises past ``gain_onset_exposure``. The last tests cover
+``get_averaged_image``, ``excluded_pixels`` and ``find_stuck_pixels``.
 """
 
 from __future__ import annotations
@@ -18,7 +18,12 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from hologradpy.hardware.camera.abstract import DEFAULT_MAX_EXPOSURE, Camera
+from hologradpy.hardware.camera.abstract import (
+    DEFAULT_GAIN_ONSET_EXPOSURE,
+    DEFAULT_MAX_EXPOSURE,
+    Camera,
+    CameraData,
+)
 from hologradpy.roi import ROI
 from tests.native_camera_fakes import CroppingCamera
 
@@ -34,7 +39,8 @@ DEFAULT_TOLERANCE_COUNTS = 0.05 * 255
 
 
 class _LinearSensorCamera(CroppingCamera):
-    """A sensor whose counts grow in proportion to the exposure and clip at full scale.
+    """A sensor whose counts grow in proportion to the equivalent exposure and clip at
+    full scale.
 
     Args:
         rate: The counts per second at each pixel, a ``(height, width)`` array.
@@ -62,7 +68,7 @@ class _LinearSensorCamera(CroppingCamera):
         self.rendered_frames: list[NDArray[np.uint16]] = []
 
     def render_sensor_frame(self) -> NDArray[np.uint16]:
-        counts = self._rate * self.get_exposure()
+        counts = self._rate * self.get_equivalent_exposure()
         if self._read_noise > 0:
             counts = counts + self._noise.normal(0.0, self._read_noise, counts.shape)
         counts = np.clip(np.rint(counts), 0, self.max_pixel_value)
@@ -75,15 +81,16 @@ class _LinearSensorCamera(CroppingCamera):
 
 class _ResponsiveCamera(CroppingCamera):
     """An 8-bit camera for the exposure search, whose counts follow a response of the
-    applied exposure.
+    applied equivalent exposure.
 
-    The count of a pixel is ``response(exposure) * scene``, rounded, clipped at full
-    scale and stored in ``uint16``. The camera records every requested exposure, the
-    exposure of every rendered frame and every region written to it.
+    The count of a pixel is ``response(e) * scene`` for the equivalent exposure ``e``,
+    rounded, clipped at full scale and stored in ``uint16``. The camera records every
+    requested exposure, the exposure and the gain of every rendered frame, and every
+    region written to it.
 
     Args:
-        response: The counts of a pixel of scene value 1 at an applied exposure in
-            seconds.
+        response: The counts of a pixel of scene value 1 at an applied equivalent
+            exposure in seconds.
         scene: The relative brightness of each pixel, a ``(height, width)`` array, or
             None for a uniform scene of 1.
         exposure_bounds: The ``(min, max)`` exposure stated by the camera, or None.
@@ -124,6 +131,7 @@ class _ResponsiveCamera(CroppingCamera):
             self._exposure_s = round(exposure_s * 1e6) / 1e6
         self.requested_exposures: list[float] = []
         self.frame_exposures: list[float] = []
+        self.frame_gains: list[float] = []
         self.written_regions: list[ROI | None] = []
 
     def set_exposure(self, exposure_s: float) -> None:
@@ -142,9 +150,10 @@ class _ResponsiveCamera(CroppingCamera):
 
     def render_sensor_frame(self) -> NDArray[np.uint16]:
         self.frame_exposures.append(self.get_exposure())
+        self.frame_gains.append(self.get_gain())
         if len(self.frame_exposures) == self._failing_frame:
             raise TimeoutError("The fake camera returned no frame.")
-        counts = self._response(self.get_exposure()) * self._scene
+        counts = self._response(self.get_equivalent_exposure()) * self._scene
         return np.clip(np.rint(counts), 0, self.max_pixel_value).astype(np.uint16)
 
 
@@ -191,39 +200,43 @@ def test_a_camera_states_its_sensor_resolution() -> None:
     assert "sensor_resolution" in Camera.__abstractmethods__
 
 
-# --- restoring the region and the exposure -------------------------------------------
+# --- restoring the region, the exposure and the gain ---------------------------------
 
 
-def test_preserve_exposure_and_roi_puts_both_back() -> None:
-    camera = _ResponsiveCamera(_saturated)
+def test_preserve_exposure_gain_and_roi_puts_all_three_back() -> None:
+    camera = _ResponsiveCamera(_saturated, gain_bounds=(0.0, 24.0), gain=3.0)
     camera.set_roi(ROI(2, 3, 10, 8))
     camera.set_exposure(1e-3)
 
-    with camera.preserve_exposure_and_roi():
+    with camera.preserve_exposure_gain_and_roi():
         camera.set_roi(None)
         camera.set_exposure(5e-3)
+        camera.set_gain(9.0)
 
     assert camera.roi == ROI(2, 3, 10, 8)
     assert camera.get_exposure() == 1e-3
+    assert camera.get_gain() == 3.0
 
 
-def test_preserve_exposure_and_roi_puts_both_back_after_an_error() -> None:
-    camera = _ResponsiveCamera(_saturated)
+def test_preserve_exposure_gain_and_roi_puts_all_three_back_after_an_error() -> None:
+    camera = _ResponsiveCamera(_saturated, gain_bounds=(0.0, 24.0))
     camera.set_roi(ROI(2, 3, 10, 8))
     camera.set_exposure(1e-3)
 
     with pytest.raises(RuntimeError, match="inside the block"):
-        with camera.preserve_exposure_and_roi(full_sensor=True):
+        with camera.preserve_exposure_gain_and_roi(full_sensor=True):
             camera.set_exposure(5e-3)
+            camera.set_gain(9.0)
             raise RuntimeError("An error inside the block.")
 
     assert camera.roi == ROI(2, 3, 10, 8)
     assert camera.get_exposure() == 1e-3
+    assert camera.get_gain() == 0.0
 
 
-def test_the_exposure_is_restored_when_restoring_the_roi_fails() -> None:
+def test_the_exposure_and_the_gain_are_restored_when_restoring_the_roi_fails() -> None:
     """A device can refuse a region write, for example through a Thorlabs window
-    assert or a GenTL restart. The exposure is still put back.
+    assert or a GenTL restart. The exposure and the gain are still put back.
     """
 
     class _RefusingCamera(_ResponsiveCamera):
@@ -234,16 +247,18 @@ def test_the_exposure_is_restored_when_restoring_the_roi_fails() -> None:
                 raise RuntimeError("The camera refused the region.")
             super().set_roi(roi)
 
-    camera = _RefusingCamera(_saturated)
+    camera = _RefusingCamera(_saturated, gain_bounds=(0.0, 24.0))
     camera.set_roi(ROI(2, 3, 10, 8))
     camera.set_exposure(1e-3)
 
     with pytest.raises(RuntimeError, match="refused the region"):
-        with camera.preserve_exposure_and_roi(full_sensor=True):
+        with camera.preserve_exposure_gain_and_roi(full_sensor=True):
             camera.set_exposure(5e-3)
+            camera.set_gain(9.0)
             camera.refuse_regions = True
 
     assert camera.get_exposure() == 1e-3
+    assert camera.get_gain() == 0.0
 
 
 def test_full_sensor_reads_out_the_whole_sensor_inside_the_block() -> None:
@@ -259,14 +274,15 @@ def test_full_sensor_reads_out_the_whole_sensor_inside_the_block() -> None:
 
 
 def test_unchanged_settings_are_not_written_again() -> None:
-    camera = _ResponsiveCamera(_saturated)
+    camera = _ResponsiveCamera(_saturated, gain_bounds=(0.0, 24.0))
     camera.written_regions.clear()
 
-    with camera.preserve_exposure_and_roi(full_sensor=True):
+    with camera.preserve_exposure_gain_and_roi(full_sensor=True):
         camera.get_image()
 
     assert camera.written_regions == []
     assert camera.requested_exposures == []
+    assert camera.requested_gains == []
 
 
 # --- autoexpose: bounds and rails ----------------------------------------------------
@@ -690,6 +706,229 @@ def test_autoexpose_warns_when_one_exposure_is_too_few_for_detection() -> None:
 
     assert camera.frame_exposures == [1e-3]
     assert camera.excluded_pixels == [(0, 1)]
+
+
+# --- the equivalent exposure and the gain --------------------------------------------
+
+
+def _target_at(equivalent_exposure: float) -> Callable[[float], float]:
+    """A linear response that reaches the default target at ``equivalent_exposure``."""
+    return lambda exposure: DEFAULT_TARGET_COUNTS * exposure / equivalent_exposure
+
+
+def _on_target(camera: Camera) -> bool:
+    """Whether a fresh frame of ``camera`` peaks within the default tolerance."""
+    peak = float(camera.get_image().max())
+    return abs(peak - DEFAULT_TARGET_COUNTS) <= DEFAULT_TOLERANCE_COUNTS
+
+
+def test_a_camera_without_gain_control_keeps_its_gain() -> None:
+    camera = _ResponsiveCamera(_saturated, exposure_s=2e-3)
+
+    assert camera.gain_bounds is None
+    assert camera.get_gain() == 0.0
+    assert camera.get_equivalent_exposure() == 2e-3
+    with pytest.raises(NotImplementedError, match="gain"):
+        camera.set_gain(6.0)
+
+    camera.set_equivalent_exposure(0.5)
+    assert camera.get_exposure() == 0.5
+
+
+@pytest.mark.parametrize(
+    ("equivalent_exposure", "exposure", "gain"),
+    [
+        (1e-6, 1e-4, 0.0),
+        (0.05, 0.05, 0.0),
+        (0.4, DEFAULT_GAIN_ONSET_EXPOSURE, 20.0 * np.log10(4.0)),
+        (5.0, 0.5, 20.0),
+        (50.0, 1.0, 20.0),
+    ],
+    ids=[
+        "below-the-shortest-exposure",
+        "below-the-onset",
+        "between-the-onset-and-the-largest-gain",
+        "past-the-largest-gain",
+        "past-the-longest-exposure",
+    ],
+)
+def test_set_equivalent_exposure_raises_the_gain_past_the_onset(
+    equivalent_exposure: float, exposure: float, gain: float
+) -> None:
+    """The gain stays at 0 dB up to the onset of 100 ms. The exposure then holds and
+    the gain rises to its largest value of 20 dB, after which the exposure rises again.
+    Requests past either end land on the bounds.
+    """
+    camera = _ResponsiveCamera(_saturated, gain_bounds=(0.0, 20.0), gain=6.0)
+
+    camera.set_equivalent_exposure(equivalent_exposure)
+
+    assert camera.get_exposure() == pytest.approx(exposure)
+    assert camera.get_gain() == pytest.approx(gain)
+
+
+def test_the_gain_onset_is_clipped_into_the_exposure_bounds() -> None:
+    camera = _ResponsiveCamera(
+        _saturated, exposure_bounds=(1e-4, 0.05), gain_bounds=(0.0, 24.0)
+    )
+
+    camera.set_equivalent_exposure(0.2)
+
+    assert camera.get_exposure() == pytest.approx(0.05)
+    assert camera.get_gain() == pytest.approx(20.0 * np.log10(4.0))
+
+
+def test_the_gain_floor_is_the_lowest_gain_of_the_camera_above_zero() -> None:
+    camera = _ResponsiveCamera(_saturated, gain_bounds=(3.0, 24.0), gain=12.0)
+
+    camera.set_equivalent_exposure(0.05)
+
+    assert camera.get_gain() == 3.0
+    assert camera.get_equivalent_exposure() == pytest.approx(0.05)
+
+
+@pytest.mark.parametrize("onset", [0.0, -0.1, float("nan"), float("inf")])
+def test_the_gain_onset_is_a_positive_exposure_or_none(onset: float) -> None:
+    camera = _ResponsiveCamera(_saturated, gain_bounds=(0.0, 24.0))
+
+    with pytest.raises(ValueError, match="gain_onset_exposure"):
+        camera.gain_onset_exposure = onset
+    assert camera.gain_onset_exposure == DEFAULT_GAIN_ONSET_EXPOSURE
+
+    camera.gain_onset_exposure = None
+    assert camera.gain_onset_exposure is None
+    camera.gain_onset_exposure = 0.2
+    assert camera.gain_onset_exposure == 0.2
+
+
+def test_autoexpose_keeps_the_gain_at_zero_below_the_onset() -> None:
+    camera = _ResponsiveCamera(_target_at(0.01), gain_bounds=(0.0, 24.0))
+
+    exposure = camera.autoexpose()
+
+    assert exposure == pytest.approx(0.01, rel=0.1)
+    assert camera.requested_gains == []
+    assert camera.get_gain() == 0.0
+    assert _on_target(camera)
+
+
+def test_autoexpose_returns_a_raised_gain_to_zero_below_the_onset() -> None:
+    """The camera starts at 12 dB, and its first frame is already taken at 0 dB."""
+    camera = _ResponsiveCamera(_target_at(0.01), gain_bounds=(0.0, 24.0), gain=12.0)
+
+    camera.autoexpose()
+
+    assert camera.frame_gains[0] == 0.0
+    assert camera.get_gain() == 0.0
+    assert _on_target(camera)
+
+
+def test_autoexpose_raises_the_gain_past_the_onset() -> None:
+    """The scene needs an equivalent exposure of 1 s, so the exposure holds at the
+    onset of 100 ms and the gain rises by a factor ten, or 20 dB.
+    """
+    camera = _ResponsiveCamera(_target_at(1.0), gain_bounds=(0.0, 24.0))
+
+    exposure = camera.autoexpose()
+
+    assert exposure == pytest.approx(DEFAULT_GAIN_ONSET_EXPOSURE)
+    assert camera.get_gain() == pytest.approx(20.0, abs=1.0)
+    assert _on_target(camera)
+
+
+def test_autoexpose_lengthens_the_exposure_past_the_largest_gain() -> None:
+    """With the gain held at 12 dB, a factor 3.98, the exposure reaches the 1 s the
+    scene needs.
+    """
+    camera = _ResponsiveCamera(_target_at(1.0), gain_bounds=(0.0, 12.0))
+
+    exposure = camera.autoexpose()
+
+    assert camera.get_gain() == 12.0
+    assert exposure == pytest.approx(1.0 / 10.0 ** (12.0 / 20.0), rel=0.1)
+    assert _on_target(camera)
+
+
+def test_autoexpose_rails_at_the_longest_exposure_and_the_largest_gain() -> None:
+    """The scene needs 100 s, and the search reaches 1 s at 12 dB, about 4 s."""
+    camera = _ResponsiveCamera(_target_at(100.0), gain_bounds=(0.0, 12.0))
+
+    with pytest.raises(RuntimeError, match=r"gain range \(0\.0, 12\.0\) dB"):
+        camera.autoexpose()
+    assert camera.get_exposure() == 1e-3
+    assert camera.get_gain() == 0.0
+
+    camera = _ResponsiveCamera(_target_at(100.0), gain_bounds=(0.0, 12.0))
+    with pytest.warns(UserWarning, match="railed"):
+        exposure = camera.autoexpose(raise_on_rail=False)
+    assert exposure == 1.0
+    assert camera.get_gain() == 12.0
+
+
+def test_autoexpose_leaves_the_gain_while_the_onset_is_none() -> None:
+    """The gain stays at 6 dB, a factor 2, so the exposure reaches 200 ms alone."""
+    camera = _ResponsiveCamera(_target_at(0.4), gain_bounds=(0.0, 24.0), gain=6.0)
+    camera.gain_onset_exposure = None
+
+    exposure = camera.autoexpose()
+
+    assert camera.requested_gains == []
+    assert camera.get_gain() == 6.0
+    assert exposure == pytest.approx(0.4 / 10.0 ** (6.0 / 20.0), rel=0.1)
+    assert _on_target(camera)
+
+
+def test_the_exposure_takes_up_the_steps_of_the_gain() -> None:
+    """The camera rounds every gain to whole dB. The exposure is calculated from the
+    rounded gain, so the search still converges, with the exposure within half a gain
+    step, 6 %, of the onset.
+    """
+    camera = _ResponsiveCamera(
+        _target_at(0.5), gain_bounds=(0.0, 24.0), gain_step=1.0
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        camera.autoexpose()
+
+    assert camera.get_gain() == pytest.approx(round(camera.get_gain()))
+    assert camera.get_exposure() == pytest.approx(DEFAULT_GAIN_ONSET_EXPOSURE, rel=0.06)
+    assert _on_target(camera)
+
+
+def test_autoexpose_puts_the_gain_back_when_a_capture_fails() -> None:
+    camera = _ResponsiveCamera(
+        _target_at(1.0), gain_bounds=(0.0, 24.0), failing_frame=2
+    )
+
+    with pytest.raises(TimeoutError, match="no frame"):
+        camera.autoexpose()
+
+    assert camera.requested_gains[0] > 0.0
+    assert camera.get_gain() == 0.0
+    assert camera.get_exposure() == 1e-3
+
+
+def test_stuck_pixels_are_found_in_frames_at_different_gains() -> None:
+    """The search takes frames at 0 dB, at 2 dB and at 12 dB. Compared by their
+    equivalent exposures, the working pixels respond and the stuck one does not.
+    """
+    rate = np.full(SENSOR_RESOLUTION, DEFAULT_TARGET_COUNTS / 0.4)
+    camera = _LinearSensorCamera(
+        rate, stuck_pixels={(0, 0): 60}, gain_bounds=(0.0, 24.0)
+    )
+    measured = np.ones(SENSOR_RESOLUTION, dtype=bool)
+    measured[0, 0] = False
+
+    camera.autoexpose(mask=measured, detect_stuck_pixels=True)
+
+    assert camera.get_gain() > 0.0
+    assert camera.excluded_pixels == [(0, 0)]
+
+
+def test_a_camera_record_holds_the_gain() -> None:
+    camera = _ResponsiveCamera(_saturated, gain_bounds=(0.0, 24.0), gain=7.5)
+    assert CameraData.from_camera(camera).gain == 7.5
 
 
 # --- averaged frames, excluded pixels and stuck pixels -------------------------------

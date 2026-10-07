@@ -244,9 +244,9 @@ def get_diffraction_spot_position(
     fitting a Gaussian to the camera image.
 
     The whole sensor is read out while the spot is measured, so every position, mask
-    and region is in whole-sensor pixels. The camera's exposure and region of interest
-    are put back afterwards
-    (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_and_roi`).
+    and region is in whole-sensor pixels. The camera's exposure, gain and region of
+    interest are put back afterwards
+    (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_gain_and_roi`).
 
     Args:
         slm: Instance of your SLM subclass.
@@ -315,7 +315,7 @@ def get_diffraction_spot_position(
     )
 
     # The whole sensor is read out, so the spot can be located anywhere on it.
-    with camera.preserve_exposure_and_roi(full_sensor=True):
+    with camera.preserve_exposure_gain_and_roi(full_sensor=True):
         sensor_resolution = tuple(camera.resolution)
         searched_region = (
             ROI(0, 0, *sensor_resolution)
@@ -422,10 +422,10 @@ def get_diffraction_spot_position(
 def _meter_and_capture(
     camera: Camera, roi: ROI, set_fraction: float
 ) -> NDArray[np.float64]:
-    """One frame, metered on ``roi``, with the camera's exposure and region of interest
-    put back afterwards.
+    """One frame, metered on ``roi``, with the camera's exposure, gain and region of
+    interest put back afterwards.
     """
-    with camera.preserve_exposure_and_roi():
+    with camera.preserve_exposure_gain_and_roi():
         camera.autoexpose(set_fraction=set_fraction, roi=roi)
         return np.asarray(camera.get_image(), dtype=float)
 
@@ -500,9 +500,9 @@ def capture_focal_spot(
 
     A linear phase steers the spot to the sensor centre.
 
-    The whole sensor is read out while the spot is captured, and the camera's exposure
-    and region of interest are put back afterwards
-    (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_and_roi`).
+    The whole sensor is read out while the spot is captured, and the camera's exposure,
+    gain and region of interest are put back afterwards
+    (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_gain_and_roi`).
 
     Args:
         slm: The SLM, or a driver that :func:`~hologradpy.hardware.as_native.as_slm`
@@ -530,7 +530,7 @@ def capture_focal_spot(
         kernel_size = (kernel_size, kernel_size)
     height, width = int(kernel_size[0]), int(kernel_size[1])
 
-    with camera.preserve_exposure_and_roi(full_sensor=True):
+    with camera.preserve_exposure_gain_and_roi(full_sensor=True):
         sensor = tuple(camera.sensor_resolution)
         center = (sensor[0] / 2.0, sensor[1] / 2.0)
 

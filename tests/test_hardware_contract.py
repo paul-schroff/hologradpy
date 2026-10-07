@@ -108,12 +108,35 @@ def test_an_exposure_inside_the_bounds_reads_back(camera: Camera) -> None:
     low, high = camera.exposure_search_bounds
     exposures = np.geomspace(max(low, 1e-5), min(high, 0.1), 5)
 
-    with camera.preserve_exposure_and_roi():
+    with camera.preserve_exposure_gain_and_roi():
         for exposure in exposures:
             camera.set_exposure(float(exposure))
             assert camera.get_exposure() == pytest.approx(
                 exposure, rel=1e-2, abs=1e-6
             )
+
+
+def test_a_gain_inside_the_bounds_reads_back(camera: Camera) -> None:
+    """A gain inside the camera's range reads back inside it, and a higher request
+    never reads back lower. A gain read back is a step of the camera, so setting it
+    again reads it back unchanged. A camera whose gain cannot be set states 0 dB.
+    """
+    bounds = camera.gain_bounds
+    if bounds is None:
+        assert camera.get_gain() == 0.0
+        return
+    low, high = bounds
+
+    applied = []
+    with camera.preserve_exposure_gain_and_roi():
+        for gain in np.linspace(low, high, 5):
+            camera.set_gain(float(gain))
+            applied.append(camera.get_gain())
+            camera.set_gain(applied[-1])
+            assert camera.get_gain() == applied[-1]
+
+    assert all(low <= gain <= high for gain in applied)
+    assert applied == sorted(applied)
 
 
 def test_a_region_round_trips(camera: Camera) -> None:
@@ -152,6 +175,7 @@ def test_a_camera_snapshot_describes_the_camera(camera: Camera) -> None:
     assert record.resolution == tuple(camera.resolution)
     assert record.pixel_size == pytest.approx(tuple(camera.pixel_size))
     assert record.exposure == pytest.approx(camera.get_exposure())
+    assert record.gain == pytest.approx(camera.get_gain())
 
 
 # --- SLM ---------------------------------------------------------------------------

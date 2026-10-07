@@ -4,7 +4,7 @@ overexposure.
 ``background_at`` evaluates a background for a frame. The background is given as one
 level, a whole-sensor frame or a function of the exposure. ``Camera.overexposed`` tells
 whether the last frame held a pixel at full scale. The ``preserve_roi`` and
-``preserve_exposure_and_roi`` blocks are tested in ``tests/test_camera_base.py``.
+``preserve_exposure_gain_and_roi`` blocks are tested in ``tests/test_camera_base.py``.
 """
 
 from __future__ import annotations

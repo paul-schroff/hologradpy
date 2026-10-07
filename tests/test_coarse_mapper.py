@@ -72,6 +72,7 @@ def _build_setup(
     background_scatter_power: float | None = None,
     background_scatter_grain_radius: float = 5e-6,
     pixel_crosstalk: PixelCrosstalk | None = None,
+    gain_bounds: tuple[float, float] | None = None,
 ):
     torch.manual_seed(0)
     geometry = FieldGeometry(
@@ -106,6 +107,7 @@ def _build_setup(
     )
     camera = SimulatedCameraTorch(
         simulated_camera_model,
+        gain_bounds=gain_bounds,
         orientation=CameraOrientation(rot, fliplr=fliplr),
         background_scatter_power=background_scatter_power,
         background_scatter_grain_radius=background_scatter_grain_radius,
@@ -879,6 +881,75 @@ def test_calibrate_exposure_falls_back_on_autoexposure_rail(monkeypatch):
 
     monkeypatch.setattr(camera, "autoexpose", rail)
     assert mapper._calibrate_exposure(*_calibration_args(slm, (120, 160))) is None
+
+
+def test_the_main_order_is_found_by_its_equivalent_exposure(monkeypatch):
+    """Both orders need gain, so both autoexposures end at the onset of 100 ms. The
+    mirrored order needs 20 dB less gain, so it is the brighter one.
+    """
+    slm, camera, model = _build_setup(gain_bounds=(0.0, 48.0))
+    mapper = CoarseMapper(slm, camera, model)
+    tilt = (1e-3, 0.0)
+    settings = {tilt: (0.1, 30.0), (-tilt[0], -tilt[1]): (0.1, 10.0)}
+    displayed = []
+
+    def display(tilt, focal_length):
+        displayed.append(tilt)
+
+    def autoexpose(**options):
+        exposure, gain = settings[displayed[-1]]
+        camera.set_exposure(exposure)
+        camera.set_gain(gain)
+        return exposure
+
+    monkeypatch.setattr(mapper, "_display_tilt", display)
+    monkeypatch.setattr(camera, "autoexpose", autoexpose)
+
+    assert mapper._prefer_main_order(tilt, focal_length=0.25) == (-1e-3, -0.0)
+
+
+def test_the_probes_run_at_the_gain_of_their_exposure(monkeypatch):
+    """The centre search leaves the camera at the gain of its own autoexposure. The
+    probes run at the exposure calibrated on the spot array, so they get its gain back.
+    """
+    slm, camera, model = _build_setup(
+        camera_angle=10.0,
+        camera_shift=(60, 100),
+        camera_resolution=(120, 160),
+        gain_bounds=(0.0, 24.0),
+    )
+    mapper = CoarseMapper(slm, camera, model)
+    gains = {}
+
+    calibrate_exposure = mapper._calibrate_exposure
+
+    def calibrate_and_record(*arguments, **options):
+        exposure = calibrate_exposure(*arguments, **options)
+        gains["calibrated"] = camera.get_gain()
+        return exposure
+
+    center_search = mapper._center_search
+
+    def search_and_raise_the_gain(*arguments, **options):
+        result = center_search(*arguments, **options)
+        camera.set_gain(12.0)
+        return result
+
+    measure_probes = mapper._measure_probes
+
+    def record_and_measure(*arguments, **options):
+        gains["probes"] = camera.get_gain()
+        return measure_probes(*arguments, **options)
+
+    monkeypatch.setattr(mapper, "_calibrate_exposure", calibrate_and_record)
+    monkeypatch.setattr(mapper, "_center_search", search_and_raise_the_gain)
+    monkeypatch.setattr(mapper, "_measure_probes", record_and_measure)
+
+    coarse = mapper.map_camera()
+
+    assert gains["probes"] == gains["calibrated"]
+    assert coarse.rotation_degrees == pytest.approx(-10.0, abs=0.5)
+    assert camera.get_gain() == 0.0
 
 
 def test_map_camera_falls_back_to_ladder_when_calibration_returns_none(monkeypatch):

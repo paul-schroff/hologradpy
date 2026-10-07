@@ -27,6 +27,10 @@ from ...serialization import SaveableRecord, record_type
 # passes longer bounds.
 DEFAULT_MAX_EXPOSURE = 1.0
 
+# The exposure in seconds from which an exposure search raises the gain, on a camera
+# whose gain can be set (Camera.gain_onset_exposure).
+DEFAULT_GAIN_ONSET_EXPOSURE = 0.1
+
 # A pixel counts as overexposed from this fraction of the largest count. Some sensors
 # clip a count or two short of it, such as a 10-bit Thorlabs Zelux at 1022 of 1023.
 SATURATION_FRACTION = 0.99
@@ -63,19 +67,28 @@ def _select_distinct_exposures(
     return np.asarray(kept, dtype=np.intp)
 
 
+def _linear_gain(gain: float) -> float:
+    """The factor ``10 ** (gain / 20)`` by which a gain of ``gain`` dB multiplies the
+    counts above the black level.
+    """
+    return 10.0 ** (float(gain) / 20.0)
+
+
 class Camera(ABC):
     """A HoloGradPy-native camera: SI units, ``(y, x)`` geometry, ``(row, col)`` ROI.
 
-    A device implements the geometry / exposure / capture abstract members below. The
-    ``get_spatial_grid`` and ``autoexpose`` template methods are provided here, so every
-    camera shares them. A device captures a frame in :meth:`_get_image`.
-    :meth:`get_image` calls it and checks the frame for overexposure. Third-party
-    devices subclass this base or register a wrapper with
-    :func:`hologradpy.hardware.as_native.as_camera`.
+    A device implements the geometry / exposure / capture abstract members below. A
+    device whose gain can be set also overrides :attr:`gain_bounds`, :meth:`get_gain`
+    and :meth:`set_gain`, which state the gain in dB. The ``get_spatial_grid`` and
+    ``autoexpose`` template methods are provided here, so every camera shares them. A
+    device captures a frame in :meth:`_get_image`. :meth:`get_image` calls it and
+    checks the frame for overexposure. Third-party devices subclass this base or
+    register a wrapper with :func:`hologradpy.hardware.as_native.as_camera`.
     """
 
     _excluded_pixels: list[tuple[int, int]] | None = None
     _overexposed: bool = False
+    _gain_onset_exposure: float | None = DEFAULT_GAIN_ONSET_EXPOSURE
 
     @property
     @abstractmethod
@@ -155,6 +168,166 @@ class Camera(ABC):
     @abstractmethod
     def set_exposure(self, exposure_s: float) -> None:
         """Set the exposure time in seconds."""
+
+    @property
+    def gain_bounds(self) -> tuple[float, float] | None:
+        """The ``(min, max)`` gain in dB that the device accepts, or None when its gain
+        cannot be set.
+
+        The base camera states None. A device whose gain can be set overrides this
+        property, :meth:`get_gain` and :meth:`set_gain`.
+        """
+        return None
+
+    def get_gain(self) -> float:
+        """The current gain in dB. The base camera states 0 dB."""
+        return 0.0
+
+    def set_gain(self, gain: float) -> None:
+        """Set the gain in dB.
+
+        Args:
+            gain: The gain in dB.
+
+        Raises:
+            NotImplementedError: The gain of this camera cannot be set.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support setting the gain."
+        )
+
+    @property
+    def gain_onset_exposure(self) -> float | None:
+        """The exposure in seconds from which :meth:`set_equivalent_exposure` and
+        :meth:`autoexpose` raise the gain, or None to leave the gain as it is.
+
+        Up to this exposure the gain stays at 0 dB, or at the lowest gain of the camera
+        when that lies above 0 dB. The onset is ``DEFAULT_GAIN_ONSET_EXPOSURE`` until it
+        is set, and it acts only on a camera whose gain can be set
+        (:attr:`gain_bounds`). Setting a value that is not a positive finite number
+        raises ``ValueError`` and leaves the onset as it was.
+        """
+        return self._gain_onset_exposure
+
+    @gain_onset_exposure.setter
+    def gain_onset_exposure(self, exposure: float | None) -> None:
+        if exposure is not None:
+            exposure = float(exposure)
+            if not (np.isfinite(exposure) and exposure > 0.0):
+                raise ValueError(
+                    "gain_onset_exposure is an exposure in seconds, so it has to be a "
+                    f"positive finite number, or None. Got {exposure}."
+                )
+        self._gain_onset_exposure = exposure
+
+    def get_equivalent_exposure(self) -> float:
+        """The equivalent exposure in seconds, the exposure at 0 dB that gives the
+        counts of the current exposure and gain.
+
+        It is ``get_exposure() * 10 ** (get_gain() / 20)``. The counts above the black
+        level grow in proportion to it, so the brightness of frames taken at different
+        gains is compared through it.
+        """
+        return float(self.get_exposure()) * _linear_gain(self.get_gain())
+
+    def set_equivalent_exposure(
+        self,
+        equivalent_exposure: float,
+        exposure_bounds: tuple[float, float] | None = None,
+    ) -> None:
+        """Set the exposure and the gain that give the counts of an exposure of
+        ``equivalent_exposure`` seconds at 0 dB (:meth:`get_equivalent_exposure`).
+
+        The gain stays at its floor up to an exposure of :attr:`gain_onset_exposure`.
+        The floor is 0 dB, or the lowest gain of the camera when that lies above 0 dB.
+        Beyond the onset, the exposure holds there and the gain rises up to the largest
+        gain of the camera. Beyond the largest gain, the exposure rises again up to the
+        upper bound. The onset is clipped into the bounds. A camera whose gain cannot be
+        set, or whose onset is None, keeps its gain, and its exposure alone is set.
+
+        The gain is set first and read back, and the exposure is calculated from the
+        applied gain, so the exposure takes up the step size of the gain. The exposure
+        is clipped into the bounds. Each setting is written only when it differs from
+        the value the camera reads back.
+
+        Args:
+            equivalent_exposure: The exposure in seconds at 0 dB to reach.
+            exposure_bounds: The ``(min, max)`` exposure in seconds to stay within,
+                narrowed to the camera's :attr:`exposure_bounds`, or None for
+                :attr:`exposure_search_bounds`.
+
+        Raises:
+            ValueError: The bounds leave no positive exposure.
+        """
+        low, high = self._narrow_exposure_bounds(exposure_bounds)
+        gain_range = self._gain_floor_and_ceiling
+        if gain_range is not None:
+            floor, ceiling = gain_range
+            onset = min(max(float(self.gain_onset_exposure), low), high)
+            gain = floor
+            if equivalent_exposure > onset * _linear_gain(floor):
+                gain = min(
+                    20.0 * float(np.log10(equivalent_exposure / onset)), ceiling
+                )
+            if gain != float(self.get_gain()):
+                self.set_gain(gain)
+        exposure = equivalent_exposure / _linear_gain(self.get_gain())
+        exposure = min(max(exposure, low), high)
+        if exposure != float(self.get_exposure()):
+            self.set_exposure(exposure)
+
+    @property
+    def _gain_floor_and_ceiling(self) -> tuple[float, float] | None:
+        """The lowest and the highest gain in dB that :meth:`set_equivalent_exposure`
+        sets, or None when it leaves the gain as it is.
+
+        The floor is 0 dB, raised to the lowest gain of the camera when that lies above
+        0 dB. The ceiling is the largest gain of the camera. The gain is left as it is
+        on a camera whose gain cannot be set, and while :attr:`gain_onset_exposure` is
+        None.
+        """
+        bounds = self.gain_bounds
+        if bounds is None or self.gain_onset_exposure is None:
+            return None
+        lowest, highest = float(bounds[0]), float(bounds[1])
+        return min(max(0.0, lowest), highest), highest
+
+    def _narrow_exposure_bounds(
+        self, exposure_bounds: tuple[float, float] | None
+    ) -> tuple[float, float]:
+        """``exposure_bounds`` narrowed to the camera's own :attr:`exposure_bounds`, or
+        :attr:`exposure_search_bounds` for None.
+
+        Raises:
+            ValueError: The narrowed bounds leave no positive exposure.
+        """
+        requested_bounds = (
+            self.exposure_search_bounds if exposure_bounds is None else exposure_bounds
+        )
+        low, high = float(requested_bounds[0]), float(requested_bounds[1])
+        stated_bounds = self.exposure_bounds
+        if stated_bounds is not None:
+            low = max(low, float(stated_bounds[0]))
+            high = min(high, float(stated_bounds[1]))
+        if not (0.0 <= low <= high and high > 0.0):
+            raise ValueError(
+                f"The exposure bounds {tuple(requested_bounds)} s, narrowed to the "
+                f"camera's bounds {stated_bounds} s, leave no positive exposure."
+            )
+        return low, high
+
+    def _set_exposure_and_gain(self, exposure: float, gain: float) -> None:
+        """Set ``gain`` in dB and then ``exposure`` in seconds, each only when it
+        differs from the value the camera reads back.
+
+        The exposure is set even when setting the gain fails.
+        """
+        try:
+            if float(self.get_gain()) != gain:
+                self.set_gain(gain)
+        finally:
+            if float(self.get_exposure()) != exposure:
+                self.set_exposure(exposure)
 
     def get_image(
         self,
@@ -238,16 +411,16 @@ class Camera(ABC):
                 self.set_roi(stored_roi)
 
     @contextmanager
-    def preserve_exposure_and_roi(
+    def preserve_exposure_gain_and_roi(
         self, full_sensor: bool = False
     ) -> Generator[Camera, None, None]:
-        """Restore the exposure and the region of interest when the block ends, whether
-        the block finishes or raises.
+        """Restore the exposure, the gain and the region of interest when the block
+        ends, whether the block finishes or raises.
 
         A setting is written back only when the block changed it. The region is
         restored first (:meth:`preserve_roi`), since a device can bound the exposure by
-        its readout window. The exposure is restored even when restoring the region
-        fails.
+        its readout window. The gain and then the exposure are restored even when
+        restoring the region fails, and the exposure even when restoring the gain fails.
 
         Args:
             full_sensor: Read out the whole sensor inside the block, as in
@@ -257,12 +430,12 @@ class Camera(ABC):
             Camera: This camera.
         """
         stored_exposure = float(self.get_exposure())
+        stored_gain = float(self.get_gain())
         try:
             with self.preserve_roi(full_sensor=full_sensor):
                 yield self
         finally:
-            if float(self.get_exposure()) != stored_exposure:
-                self.set_exposure(stored_exposure)
+            self._set_exposure_and_gain(stored_exposure, stored_gain)
 
     def orientation_matrix(self) -> NDArray:
         """The ``(2, 3)`` pixel-space affine of this camera's frame transform.
@@ -445,10 +618,11 @@ class Camera(ABC):
     def _capture_exposure_sweep(
         self, exposures: list[float] | None = None, *, steps: int = 7
     ) -> tuple[NDArray, list[float]]:
-        """Capture whole frames across an exposure sweep from short to long.
+        """Capture whole frames across an exposure sweep from short to long, at the
+        current gain.
 
         The whole sensor is read out for the sweep, and the region of interest and the
-        exposure are put back afterwards (:meth:`preserve_exposure_and_roi`).
+        exposure are put back afterwards (:meth:`preserve_exposure_gain_and_roi`).
 
         Args:
             exposures: The exposures in seconds to capture at. None gives ``steps``
@@ -482,7 +656,7 @@ class Camera(ABC):
 
         frames = []
         applied_exposures = []
-        with self.preserve_exposure_and_roi(full_sensor=True):
+        with self.preserve_exposure_gain_and_roi(full_sensor=True):
             for exposure in exposures:
                 self.set_exposure(exposure)
                 applied_exposures.append(float(self.get_exposure()))
@@ -522,7 +696,9 @@ class Camera(ABC):
             frames: A stack ``(n, height, width)`` of whole frames, from
                 :meth:`_capture_exposure_sweep` or from the search of
                 :meth:`autoexpose` with ``detect_stuck_pixels=True``.
-            exposures: The ``n`` exposures in seconds.
+            exposures: The ``n`` exposures in seconds. Frames taken at different
+                gains are given their equivalent exposures
+                (:meth:`get_equivalent_exposure`).
             lower_threshold: The fraction of full scale above which a pixel carries
                 signal.
             tolerance: The relative tolerance of the response test.
@@ -653,27 +829,36 @@ class Camera(ABC):
         detect_stuck_pixels: bool = False,
         verbose: bool = False,
     ) -> float:
-        """Set the exposure so the peak of the measured region sits at ``set_fraction``
-        of full scale, and return it.
+        """Set the exposure and the gain so the peak of the measured region sits at
+        ``set_fraction`` of full scale, and return the exposure.
+
+        The search runs on the equivalent exposure, the exposure at 0 dB that gives the
+        same counts (:meth:`get_equivalent_exposure`). Each step is set through
+        :meth:`set_equivalent_exposure`, so the gain stays at 0 dB up to an exposure of
+        :attr:`gain_onset_exposure` and rises beyond it. A camera whose gain cannot be
+        set keeps its gain, and the search runs on its exposure. Every exposure in the
+        rest of this description is an equivalent exposure.
 
         The region is the whole frame, cropped to ``roi`` and reduced to the pixels
         where ``mask`` is True, and the camera's :attr:`excluded_pixels` are always left
         out. The whole sensor is read out for the search, and the region of interest is
         put back afterwards (:meth:`preserve_roi`). An exception from the search also
-        puts the exposure back where the search started.
+        puts the exposure and the gain back where the search started.
 
-        The search works within ``exposure_bounds``, narrowed to the camera's own
-        :attr:`exposure_bounds`. It starts from the current exposure clipped into those
-        bounds, or from the lower bound when the camera sits at zero, or from the upper
-        bound when the lower one is zero too. Each step sets an exposure, reads back the
-        applied exposure, and measures one frame, so the search measures at most
-        ``1 + max_iterations`` frames. A peak at :attr:`saturation_level` or above is
-        overexposed, and cuts the exposure by ``overexposed_factor`` until a frame
-        peaks below it. From then on, an overexposed peak steps to the geometric mean of
-        the longest exposure that was not overexposed and the shortest overexposed one,
-        when the first is the shorter. A peak below saturation scales the exposure to
-        the target, up to ``set_fraction`` times the shortest exposure that overexposed
-        the region. The target lies at or below this cap for a linear sensor.
+        The camera's exposure stays within ``exposure_bounds``, narrowed to its own
+        :attr:`exposure_bounds`. The search therefore reaches from the lower bound at
+        the gain floor to the upper bound at the largest gain. It starts from the
+        current exposure clipped into this range, or from the lower end of the range
+        when the camera sits at zero, or from the upper end when the lower end is zero
+        too. Each step sets an exposure, reads back the applied exposure, and measures
+        one frame, so the search measures at most ``1 + max_iterations`` frames. A peak
+        at :attr:`saturation_level` or above is overexposed, and cuts the exposure by
+        ``overexposed_factor`` until a frame peaks below it. From then on, an
+        overexposed peak steps to the geometric mean of the longest exposure that was
+        not overexposed and the shortest overexposed one, when the first is the
+        shorter. A peak below saturation scales the exposure to the target, up to
+        ``set_fraction`` times the shortest exposure that overexposed the region. The
+        target lies at or below this cap for a linear sensor.
 
         A step cut short by the bounds lands on the bound and measures it. The search
         has railed when its next step asks to pass an already measured bound, when the
@@ -685,16 +870,17 @@ class Camera(ABC):
 
         The search settles on a measured exposure when it does not converge. It picks
         the exposure whose peak lies below full scale and closest to the target, or the
-        shortest exposure when every frame was overexposed. The applied exposure is
-        read back, and one more frame is measured when the camera lands on an
-        unmeasured exposure. A warning then reports the final exposure and the peak of
-        its frame.
+        shortest exposure when every frame was overexposed. The exposure and the gain of
+        that frame are set again and read back, and one more frame is measured when the
+        camera lands on an unmeasured exposure. A warning then reports the final
+        exposure, the gain and the peak of its frame.
 
         The frames of the search are analysed for stuck pixels
         (:meth:`find_stuck_pixels`) when ``detect_stuck_pixels`` is set and the search
-        did not rail. The analysis fills :attr:`excluded_pixels` without a second
-        sweep. The detection is skipped with a warning when the frames span fewer than
-        two exposures far enough apart to compare.
+        did not rail. The analysis compares the frames by their equivalent exposures,
+        and fills :attr:`excluded_pixels` without a second sweep. The detection is
+        skipped with a warning when the frames span fewer than two exposures far enough
+        apart to compare.
 
         Args:
             set_fraction: The target peak as a fraction of :attr:`max_pixel_value`.
@@ -705,9 +891,10 @@ class Camera(ABC):
             mask: True at the pixels of the region to measure, in the region's shape.
                 For example, a mask can select everything outside a zeroth order. None
                 measures every pixel.
-            exposure_bounds: The ``(min, max)`` exposure in seconds to search within,
-                or None for :attr:`exposure_search_bounds`. A maximum above
-                ``DEFAULT_MAX_EXPOSURE`` is reached only through these bounds.
+            exposure_bounds: The ``(min, max)`` exposure in seconds that the camera is
+                set within, or None for :attr:`exposure_search_bounds`. A maximum above
+                ``DEFAULT_MAX_EXPOSURE`` is reached only through these bounds. The gain
+                onset is clipped into them.
             overexposed_factor: The factor that multiplies the exposure after an
                 overexposed peak, until a frame peaks below full scale.
             raise_on_rail: Whether a rail raises ``RuntimeError``. Otherwise the search
@@ -715,10 +902,12 @@ class Camera(ABC):
             max_iterations: The number of exposure steps after the first frame.
             detect_stuck_pixels: Whether to find stuck pixels in the frames of the
                 search.
-            verbose: Whether to print the exposure and the peak of every frame.
+            verbose: Whether to print the exposure and the peak of every frame, and
+                the gain when the search sets it.
 
         Returns:
-            float: The final exposure in seconds, as read back from the camera.
+            float: The final exposure in seconds, as read back from the camera. The
+            gain it was reached with is :meth:`get_gain`.
 
         Raises:
             ValueError: The bounds leave no positive exposure, ``set_fraction`` is not
@@ -726,20 +915,7 @@ class Camera(ABC):
                 pixel does not fit the frame. Nothing is captured then.
             RuntimeError: The search railed and ``raise_on_rail`` is set.
         """
-        requested_bounds = (
-            self.exposure_search_bounds if exposure_bounds is None else exposure_bounds
-        )
-        low, high = float(requested_bounds[0]), float(requested_bounds[1])
-        stated_bounds = self.exposure_bounds
-        if stated_bounds is not None:
-            low = max(low, float(stated_bounds[0]))
-            high = min(high, float(stated_bounds[1]))
-        if not (0.0 <= low <= high and high > 0.0):
-            raise ValueError(
-                f"The exposure bounds {tuple(requested_bounds)} s, narrowed to the "
-                f"camera's bounds {stated_bounds} s, leave no positive exposure to "
-                "search."
-            )
+        low, high = self._narrow_exposure_bounds(exposure_bounds)
         if not 0.0 < set_fraction < SATURATION_FRACTION:
             raise ValueError(
                 f"The target set_fraction {set_fraction} has to lie between 0 and "
@@ -750,8 +926,21 @@ class Camera(ABC):
         saturation = self.saturation_level
         set_value = set_fraction * full_scale
         stored_exposure = float(self.get_exposure())
-        # The peak of the measured region at every applied exposure.
+        stored_gain = float(self.get_gain())
+        # The gain moves between its floor and its ceiling, or stays where it is.
+        gain_range = self._gain_floor_and_ceiling
+        if gain_range is None:
+            floor_factor = ceiling_factor = _linear_gain(stored_gain)
+        else:
+            floor_factor, ceiling_factor = (_linear_gain(gain) for gain in gain_range)
+        # Every exposure of the search is an equivalent exposure, the exposure at 0 dB
+        # that gives the same counts. The search reaches from the lower bound at the
+        # gain floor to the upper bound at the gain ceiling.
+        lowest, highest = low * floor_factor, high * ceiling_factor
+        # The peak of the measured region at every applied exposure, and the exposure
+        # and the gain the camera read back for it.
         peak_by_exposure: dict[float, float] = {}
+        setting_by_exposure: dict[float, tuple[float, float]] = {}
         recorded_frames: list[NDArray] = []
         recorded_exposures: list[float] = []
         finished = False
@@ -767,8 +956,10 @@ class Camera(ABC):
                     and whether that exposure was measured before.
                     """
                     if requested is not None:
-                        self.set_exposure(requested)
-                    applied = float(self.get_exposure())
+                        self.set_equivalent_exposure(requested, (low, high))
+                    applied_exposure = float(self.get_exposure())
+                    applied_gain = float(self.get_gain())
+                    applied = applied_exposure * _linear_gain(applied_gain)
                     image = self.get_image()
                     repeated = applied in peak_by_exposure
                     if detect_stuck_pixels and applied > 0.0 and not repeated:
@@ -779,23 +970,28 @@ class Camera(ABC):
                         pixels = np.where(keep, pixels, 0)
                     peak = float(np.amax(pixels))
                     peak_by_exposure[applied] = peak
+                    setting_by_exposure[applied] = (applied_exposure, applied_gain)
                     if verbose:
+                        gain_text = ""
+                        if gain_range is not None:
+                            gain_text = f"gain = {applied_gain:.2f} dB, "
                         print(
-                            f"Autoexposure: exposure = {applied:<.3e} s, "
-                            f"peak = {peak:.0f}/{full_scale}."
+                            f"Autoexposure: exposure = {applied_exposure:<.3e} s, "
+                            f"{gain_text}peak = {peak:.0f}/{full_scale}."
                         )
                     return applied, peak, repeated
 
-                start = float(np.clip(stored_exposure, low, high))
+                stored_equivalent = stored_exposure * _linear_gain(stored_gain)
+                start = float(np.clip(stored_equivalent, lowest, highest))
                 if start <= 0.0:
                     # A zero start after the clip means the lower bound is zero.
-                    start = high
-                exposure, peak, _ = measure(
-                    None if start == stored_exposure else start
-                )
+                    start = highest
+                # The first frame is taken at the exposure and the gain set for the
+                # start, which writes only the settings that differ.
+                exposure, peak, _ = measure(start)
                 # The bound of the last request, or None for a request inside the
                 # bounds. A step asking past this bound again has railed.
-                measured_bound = start if start in (low, high) else None
+                measured_bound = start if start in (lowest, highest) else None
 
                 steps = 0
                 while True:
@@ -842,7 +1038,7 @@ class Camera(ABC):
                             desired = min(
                                 desired, set_fraction * min(overexposed_at)
                             )
-                    requested = float(np.clip(desired, low, high))
+                    requested = float(np.clip(desired, lowest, highest))
                     if requested != desired and requested == measured_bound:
                         outcome = "rail"
                         break
@@ -851,7 +1047,9 @@ class Camera(ABC):
                         break
                     steps += 1
                     exposure, peak, repeated = measure(requested)
-                    measured_bound = requested if requested in (low, high) else None
+                    measured_bound = (
+                        requested if requested in (lowest, highest) else None
+                    )
                     if exposure <= 0.0 or repeated:
                         every_frame_overexposed = all(
                             peak_by_exposure[measured_exposure] >= saturation
@@ -868,9 +1066,11 @@ class Camera(ABC):
 
                 if outcome == "rail" and raise_on_rail:
                     raise RuntimeError(
-                        f"autoexposure has railed at {exposure:.3e} s: the region "
+                        "autoexposure has railed at "
+                        f"{self._describe_exposure_and_gain(gain_range)}: the region "
                         f"peaks at {peak:.0f} of {full_scale} there, and the target "
-                        f"lies beyond the exposure bounds {(low, high)} s."
+                        "lies beyond "
+                        f"{self._describe_search_bounds(low, high, gain_range)}."
                     )
 
                 if outcome != "converged":
@@ -901,29 +1101,30 @@ class Camera(ABC):
                     else:
                         settled = min(positive_peaks)
                     if settled != exposure:
-                        self.set_exposure(settled)
-                        exposure = float(self.get_exposure())
+                        self._set_exposure_and_gain(*setting_by_exposure[settled])
+                        exposure = self.get_equivalent_exposure()
                         if exposure in peak_by_exposure:
                             peak = peak_by_exposure[exposure]
                         else:
                             exposure, peak, _ = measure(None)
             finished = True
         finally:
-            if not finished and float(self.get_exposure()) != stored_exposure:
-                self.set_exposure(stored_exposure)
+            if not finished:
+                self._set_exposure_and_gain(stored_exposure, stored_gain)
 
         if outcome != "converged":
             reason = {
-                "rail": f"the exposure railed against its bounds {(low, high)} s",
+                "rail": "the search railed against "
+                + self._describe_search_bounds(low, high, gain_range),
                 "budget": f"the budget of {max_iterations} exposure steps ran out",
                 "no finer step": "the camera has no finer exposure step to take",
             }[outcome]
             warnings.warn(
                 f"Autoexposure did not reach its target: {reason}. The region peaks at "
                 f"{peak:.0f} of {full_scale} ({peak / full_scale:.1%}) against a "
-                f"target of {set_fraction:.0%}, at an exposure of {exposure:.3e} s. "
-                "The frames that follow are exposed as reported here, not as asked "
-                "for.",
+                f"target of {set_fraction:.0%}, at "
+                f"{self._describe_exposure_and_gain(gain_range)}. The frames that "
+                "follow are exposed as reported here, not as asked for.",
                 stacklevel=2,
             )
 
@@ -944,7 +1145,28 @@ class Camera(ABC):
                     stacklevel=2,
                 )
 
-        return exposure
+        return float(self.get_exposure())
+
+    def _describe_exposure_and_gain(
+        self, gain_range: tuple[float, float] | None
+    ) -> str:
+        """The current exposure for a message, with the gain when the search sets it."""
+        exposure = f"an exposure of {float(self.get_exposure()):.3e} s"
+        if gain_range is None:
+            return exposure
+        return f"{exposure} and a gain of {float(self.get_gain()):.2f} dB"
+
+    @staticmethod
+    def _describe_search_bounds(
+        low: float, high: float, gain_range: tuple[float, float] | None
+    ) -> str:
+        """The exposure bounds of a search for a message, with the gain range when the
+        search sets the gain.
+        """
+        bounds = f"the exposure bounds {(low, high)} s"
+        if gain_range is None:
+            return bounds
+        return f"{bounds} and the gain range {gain_range} dB"
 
     def _select_measured_region(
         self, roi: ROI | None, mask: NDArray[np.bool_] | None
@@ -1159,7 +1381,10 @@ def reorient_pixels(
 @record_type("camera_data")
 @dataclass(frozen=True, unsafe_hash=True)
 class CameraData(SaveableRecord):
-    """A native snapshot of a camera's geometry and exposure state."""
+    """A native snapshot of a camera's geometry, exposure and gain.
+
+    The gain is in dB.
+    """
 
     name: str
     sensor_resolution: tuple[int, int]
@@ -1169,6 +1394,7 @@ class CameraData(SaveableRecord):
     exposure_bounds: tuple[float, float] | None
     roi: ROI
     orientation: NDArray = field(compare=False, hash=False)
+    gain: float = 0.0
 
     @property
     def resolution(self) -> tuple[int, int]:
@@ -1199,4 +1425,5 @@ class CameraData(SaveableRecord):
             exposure_bounds=camera.exposure_bounds,
             roi=camera.roi,
             orientation=camera.orientation_matrix(),
+            gain=float(camera.get_gain()),
         )

@@ -115,9 +115,9 @@ class CoarseMapper(CameraMapper):
         The mapping is measured with the model's focal-plane affine at identity (see
         :meth:`~hologradpy.optics.systems.SLMFourierLensModel.bypass_partial_affine`),
         so it describes the camera against the model without its partial affine. The
-        whole sensor is read out while the camera is mapped, and its exposure and
+        whole sensor is read out while the camera is mapped, and its exposure, gain and
         region of interest are put back afterwards
-        (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_and_roi`).
+        (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_gain_and_roi`).
 
         Args:
             exposure_time: Camera exposure in seconds per probe. If None, exposure is 
@@ -150,7 +150,7 @@ class CoarseMapper(CameraMapper):
             reprojection residuals.
         """
         with (
-            self.camera.preserve_exposure_and_roi(full_sensor=True),
+            self.camera.preserve_exposure_gain_and_roi(full_sensor=True),
             self.slm_camera_model.bypass_partial_affine(),
         ):
             # Reset the per-stage captures recorded for CoarseMapperVisualizer.
@@ -249,21 +249,26 @@ class CoarseMapper(CameraMapper):
                     )
                 tilt_on_sensor = initial_tilt
 
-            # Measuring the focal spot radius from a Gaussian fit. The center search
-            # uses this to scale its probe offset and detection window.
-            spot_radius = self._measure_spot_radius(
-                tilt_on_sensor, focal_length, spot_radius
-            )
+            # The spot radius and the centre search run at an exposure and a gain
+            # autoexposed on the found spot. The block then puts back the probe
+            # exposure and its gain, so the probes run at the gain the probe exposure
+            # was calculated for.
+            with self.camera.preserve_exposure_gain_and_roi():
+                # Measuring the focal spot radius from a Gaussian fit. The center
+                # search uses this to scale its probe offset and detection window.
+                spot_radius = self._measure_spot_radius(
+                    tilt_on_sensor, focal_length, spot_radius
+                )
 
-            # Finding the center of the camera sensor and the local tilt that places
-            # the probe spots.
-            center_tilt, jacobian = self._center_search(
-                tilt=tilt_on_sensor,
-                focal_length=focal_length,
-                camera_shape=camera_shape,
-                spot_radius=spot_radius,
-                zeroth_order_position=zeroth_order_position,
-            )
+                # Finding the center of the camera sensor and the local tilt that
+                # places the probe spots.
+                center_tilt, jacobian = self._center_search(
+                    tilt=tilt_on_sensor,
+                    focal_length=focal_length,
+                    camera_shape=camera_shape,
+                    spot_radius=spot_radius,
+                    zeroth_order_position=zeroth_order_position,
+                )
             if jacobian is None:
                 # Fall back to a nominal ~1:1, un-rotated tilt to pixel map in the rare
                 # case that the Jacobian could not be computed. The affine fit still
@@ -650,11 +655,15 @@ class CoarseMapper(CameraMapper):
 
         A spot array covering the entire addressable area is displayed, and the camera
         autoexposes on it. A phase-only superposition of N spots makes each spot ~1/N
-        as bright as a single-spot probe, so the per-probe exposure is calculated as
-        ``t_array / N``.
+        as bright as a single-spot probe, so the per-probe equivalent exposure is the
+        array's divided by N
+        (:meth:`~hologradpy.hardware.camera.Camera.get_equivalent_exposure`). It is set
+        through :meth:`~hologradpy.hardware.camera.Camera.set_equivalent_exposure`, so a
+        gain raised for the dim array returns to 0 dB when the per-probe exposure lies
+        below the gain onset.
 
-        Returns the per-probe exposure in seconds, or None to fall back to the
-        adaptive per-probe ladder.
+        Returns the per-probe exposure in seconds, at the gain left set here, or None
+        to fall back to the adaptive per-probe ladder.
         """
         # Display the full probe array and autoexpose once.
         tilts = [
@@ -678,9 +687,7 @@ class CoarseMapper(CameraMapper):
         ).retrieve_phase()
         self.slm.set_phase(gpu_to_numpy(phase))
         try:
-            array_exposure = self.camera.autoexpose(
-                set_fraction=0.5, raise_on_rail=False, verbose=False
-            )
+            self.camera.autoexpose(set_fraction=0.5, raise_on_rail=False, verbose=False)
         except RuntimeError:
             return None  # An autoexposure that raises has found no signal.
 
@@ -690,19 +697,25 @@ class CoarseMapper(CameraMapper):
         if not has_prominent_peak(array_image, self.camera):
             return None
 
-        exposure = float(array_exposure) / targets.shape[0]
+        probe_exposure = self.camera.get_equivalent_exposure() / targets.shape[0]
+        self.camera.set_equivalent_exposure(probe_exposure)
+        exposure = float(self.camera.get_exposure())
+        # The exposure is held at the hardware minimum, and the frames come out
+        # brighter than the probe exposure asks for.
         bounds = self.camera.exposure_bounds
-        hardware_minimum = bounds[0] if bounds is not None else None
-        if hardware_minimum is not None and exposure < hardware_minimum:
+        if (
+            bounds is not None
+            and exposure <= bounds[0]
+            and self.camera.get_equivalent_exposure() > probe_exposure
+        ):
             warnings.warn(
-                f"The calibrated per-probe exposure ({exposure * 1e6:.2f} us) is "
-                "below the camera's minimum hardware exposure "
-                f"({hardware_minimum * 1e6:.2f} us); probe spots will be "
-                "over-exposed. Attenuate the beam (lower power or a denser ND "
-                "filter) to bring the exposure into range.",
+                f"The calibrated per-probe exposure ({probe_exposure * 1e6:.2f} us at "
+                "0 dB) is below the camera's minimum exposure "
+                f"({bounds[0] * 1e6:.2f} us), so the probe spots are overexposed. "
+                "Attenuate the beam with less power or a denser ND filter to bring the "
+                "exposure into range.",
                 stacklevel=2,
             )
-            exposure = hardware_minimum
         return exposure
 
     def _locate_zeroth_order(
@@ -718,8 +731,8 @@ class CoarseMapper(CameraMapper):
         leaves fixed background untouched. The spot is the zeroth order when its peak
         within the zeroth-order mask falls below half under the grating. A spot within
         a detection window of the sensor edge counts as off the sensor, since the centre
-        search cannot start from it. The camera's exposure and region of interest are
-        put back afterwards.
+        search cannot start from it. The camera's exposure, gain and region of interest
+        are put back afterwards.
 
         Args:
             focal_length: Focal length of the Fourier lens in metres.
@@ -731,7 +744,7 @@ class CoarseMapper(CameraMapper):
         mask_radius = zeroth_order_mask_radius(spot_radius, self.camera.pixel_size)
         half = int(np.ceil(mask_radius))
 
-        with self.camera.preserve_exposure_and_roi():
+        with self.camera.preserve_exposure_gain_and_roi():
             self.camera.autoexpose(set_fraction=0.5, raise_on_rail=False, verbose=False)
             metered = np.asarray(self.camera.get_image(), dtype=np.float64)
             row, column = _brightest_pixel(metered)
@@ -863,19 +876,23 @@ class CoarseMapper(CameraMapper):
         Its main order then sits at the mirrored tilt.
 
         The camera is autoexposed on the frame of each tilt, and a brighter spot needs a
-        shorter exposure to reach the same peak. The mirrored tilt is preferred when its
-        exposure is shorter than the found spot's by more than
-        ``_MAIN_ORDER_BRIGHTNESS_RATIO``. If both orders land on the sensor with similar
-        brightness, either choice is a genuine spot. The found tilt is kept when both
-        spots are overexposed even at the shortest exposure. The camera's exposure and
-        region of interest are put back afterwards.
+        shorter equivalent exposure to reach the same peak
+        (:meth:`~hologradpy.hardware.camera.Camera.get_equivalent_exposure`). The
+        mirrored tilt is preferred when its equivalent exposure is shorter than the
+        found spot's by more than ``_MAIN_ORDER_BRIGHTNESS_RATIO``. If both orders land
+        on the sensor with similar brightness, either choice is a genuine spot. The
+        found tilt is kept when both spots are overexposed even at the shortest
+        exposure. The camera's exposure, gain and region of interest are put back
+        afterwards.
         """
         mirrored = (-tilt[0], -tilt[1])
-        with self.camera.preserve_exposure_and_roi(full_sensor=True):
+        with self.camera.preserve_exposure_gain_and_roi(full_sensor=True):
             self._display_tilt(tilt, focal_length)
-            found_exposure = self.camera.autoexpose(raise_on_rail=False)
+            self.camera.autoexpose(raise_on_rail=False)
+            found_exposure = self.camera.get_equivalent_exposure()
             self._display_tilt(mirrored, focal_length)
-            mirrored_exposure = self.camera.autoexpose(raise_on_rail=False)
+            self.camera.autoexpose(raise_on_rail=False)
+            mirrored_exposure = self.camera.get_equivalent_exposure()
         if found_exposure > _MAIN_ORDER_BRIGHTNESS_RATIO * mirrored_exposure:
             return mirrored
         return tilt

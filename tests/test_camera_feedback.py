@@ -1618,8 +1618,8 @@ def test_run_result_renders(feedback_run: CameraFeedbackData) -> None:
 
 
 def test_every_iteration_is_exposed_and_recorded() -> None:
-    """Each hologram is metered on its own, and the exposure of every measurement is
-    recorded, whether it was metered or given.
+    """Each hologram is metered on its own, and the exposure and the gain of every
+    measurement are recorded, whether the exposure was metered or given.
     """
     feedback = _feedback()
     entry_exposure = feedback.camera.get_exposure()
@@ -1627,6 +1627,7 @@ def test_every_iteration_is_exposed_and_recorded() -> None:
     data = feedback.run(retriever_iterations=[5] * 3, averages=1, verbose=False)
 
     assert len(data.metadata["exposures"]) == 3
+    assert data.metadata["camera_gains"] == [feedback.camera.get_gain()] * 3
     assert data.metadata["overexposed_iterations"] == []
     assert all(exposure > 0.0 for exposure in data.metadata["exposures"])
     assert data.background_images is None

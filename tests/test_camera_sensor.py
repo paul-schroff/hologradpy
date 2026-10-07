@@ -340,6 +340,70 @@ def test_autoexpose_never_accepts_a_saturated_frame() -> None:
     assert image.max() < camera.adu_levels - 1             # and is not overexposed
 
 
+def test_a_simulated_camera_without_gain_bounds_keeps_its_gain() -> None:
+    camera = SimulatedCameraTorch(_make_model(), full_well_capacity=1e6)
+
+    assert camera.gain_bounds is None
+    assert camera.get_gain() == 0.0
+    with pytest.raises(NotImplementedError, match="gain_bounds"):
+        camera.set_gain(6.0)
+
+
+def test_the_simulated_gain_scales_the_counts() -> None:
+    """6 dB doubles the counts, by a factor ``10 ** (6 / 20)``. The full well is far
+    above the signal, so no pixel is clipped.
+    """
+    camera = SimulatedCameraTorch(
+        _make_model(),
+        gain_bounds=(0.0, 24.0),
+        add_noise=False,
+        quantize=False,
+        full_well_capacity=1e12,
+    )
+    camera.set_exposure(1e-3)
+    at_zero_db = np.asarray(camera.get_image(), dtype=float)
+
+    camera.set_gain(6.0)
+
+    assert camera.get_gain() == pytest.approx(6.0)
+    assert camera.sensor.gain == pytest.approx(10.0 ** (6.0 / 20.0))
+    np.testing.assert_allclose(
+        np.asarray(camera.get_image(), dtype=float),
+        at_zero_db * 10.0 ** (6.0 / 20.0),
+        rtol=1e-5,
+    )
+
+
+def test_the_simulated_gain_is_clipped_into_its_bounds_with_a_warning() -> None:
+    camera = SimulatedCameraTorch(_make_model(), gain_bounds=(0.0, 24.0))
+
+    with pytest.warns(UserWarning, match="outside the camera's gain range"):
+        camera.set_gain(30.0)
+
+    assert camera.get_gain() == pytest.approx(24.0)
+
+
+def test_autoexpose_raises_the_simulated_gain_past_the_onset() -> None:
+    """An ND filter of OD 5.7 leaves the spot needing about 1 s at 0 dB. The exposure
+    holds at the onset of 100 ms, and the gain makes up the rest, about 20 dB.
+    """
+    camera = SimulatedCameraTorch(
+        _make_model(),
+        gain_bounds=(0.0, 24.0),
+        bitdepth=8,
+        add_noise=False,
+        nd_filter_optical_density=5.7,
+    )
+    camera.set_exposure(1e-3)
+
+    exposure = camera.autoexpose(max_iterations=10)
+
+    assert exposure == pytest.approx(0.1)
+    assert camera.get_gain() == pytest.approx(20.0, abs=2.0)
+    peak = float(np.asarray(camera.get_image()).max())
+    assert abs(peak - 0.5 * camera.max_pixel_value) <= 0.05 * camera.max_pixel_value
+
+
 def test_a_field_vector_reads_as_the_sum_of_its_components() -> None:
     """A sensor measures irradiance, so the three components of a field vector land in
     one frame and add. Nothing about the frame says the field was a vector.

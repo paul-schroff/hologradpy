@@ -172,6 +172,22 @@ def test_the_exposure_and_roi_come_back(tmp_path) -> None:
     assert reloaded.roi == camera.roi
 
 
+def test_the_gain_comes_back(tmp_path) -> None:
+    """A gain set after the camera was built is saved with the sensor."""
+    camera = SimulatedCameraTorch(
+        slm_camera_model=_czt(), gain_bounds=(0.0, 24.0), read_noise=4
+    )
+    camera.set_gain(9.5)
+    camera.slm_camera_model()
+
+    path = tmp_path / "camera.pt"
+    camera.save(path)
+    reloaded = SimulatedCameraTorch.load(path)
+
+    assert reloaded.get_gain() == pytest.approx(9.5)
+    assert reloaded.gain_bounds == (0.0, 24.0)
+
+
 def test_the_sensor_and_noise_settings_come_back(tmp_path) -> None:
     """The constructor arguments describing the imperfections are stored too."""
     _, reloaded = _saved_and_reloaded(

@@ -374,7 +374,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
         Each spot offset is measured in camera-plane metres and converted into
         focal-plane metres through the camera mapping, since the tilts are in
         focal-plane metres. A coarse mapping is measured when the calibrator holds
-        none. The camera's exposure and region of interest are put back afterwards.
+        none. The camera's exposure, gain and region of interest are put back
+        afterwards.
 
         The detection window is centered on ``spot_center_pixels`` (the camera spot the
         full SLM produces for ``lattice_phase_tilt``, i.e. the real, aberrated lattice
@@ -406,7 +407,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
             (center_y, center_x), (window_height, window_width)
         ).moved_inside(self.camera.sensor_resolution)
         window_y0, window_x0 = window.top_row, window.left_column
-        with self.camera.preserve_exposure_and_roi(full_sensor=True):
+        with self.camera.preserve_exposure_gain_and_roi(full_sensor=True):
             self.camera.set_roi(window)
 
             autoexposure_roi = window
@@ -576,9 +577,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
         intensity of each diffraction spot is measured using the camera. Read the SI of
         https://doi.org/10.1038/s41598-023-30296-6 for details.
 
-        The camera's exposure and region of interest are put back when the scan ends,
-        whether it finishes or raises
-        (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_and_roi`).
+        The camera's exposure, gain and region of interest are put back when the scan
+        ends, whether it finishes or raises
+        (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_gain_and_roi`).
 
         Args:
             number_of_superpixels_x: Number of superpixels along x.
@@ -629,7 +630,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
             if verbose:
                 print(f"Auto linear_phase_tilt (m): {linear_phase_tilt}")
 
-        with self.camera.preserve_exposure_and_roi(full_sensor=True):
+        with self.camera.preserve_exposure_gain_and_roi(full_sensor=True):
             spot_center, _, _, _ = get_diffraction_spot_position(
                 self.slm,
                 self.camera,
@@ -749,6 +750,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 roi=autoexposure_roi,
                 max_iterations=self.autoexposure_max_iterations,
             )
+            # The counts are divided by the equivalent exposure, so the profile keeps
+            # its scale when the autoexposure raises the gain.
+            equivalent_exposure = self.camera.get_equivalent_exposure()
 
             camera_images = np.zeros(
                 (
@@ -800,7 +804,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 else:
                     camera_images[i, ...] = image
                     superpixel_power[superpixel_slice] += np.sum(image) / (
-                        np.size(image) * exposure_time
+                        np.size(image) * equivalent_exposure
                     )
 
         # Per-frame reference powers, kept for laser-drift diagnostics.
@@ -848,9 +852,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
         out of the phase unwrapping, with a warning. The SLM pixels that no valid fit
         covers are inpainted from the measured pixels around them.
 
-        The camera's exposure and region of interest are put back when the scan ends,
-        whether it finishes or raises
-        (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_and_roi`).
+        The camera's exposure, gain and region of interest are put back when the scan
+        ends, whether it finishes or raises
+        (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_gain_and_roi`).
 
         Args:
             number_of_superpixels_x: Number of superpixels along x.
@@ -1047,7 +1051,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 "(brightest) superpixel. Reduce lattice_superpixel_size."
             )
 
-        with self.camera.preserve_exposure_and_roi(full_sensor=True):
+        with self.camera.preserve_exposure_gain_and_roi(full_sensor=True):
             # Set the camera window of interest. When compensating, enlarge it to bound
             # both the main interference spot and the offset lattice spot.
             main_center, _, _, _ = get_diffraction_spot_position(

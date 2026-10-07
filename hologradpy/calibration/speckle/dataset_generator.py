@@ -455,17 +455,18 @@ class DatasetGenerator:
         Call :meth:`generate_phase_patterns` first. It generates the patterns and the
         region of interest for the autoexposure.
 
-        The exposure is metered on the first pattern (:meth:`_expose_for_patterns`) and
-        held for the whole capture. The frames stream into the dataset file as they are
-        captured, so an interrupted run keeps its captured frames. The exposure is set
-        before the file is opened, because everything but the streamed frames goes into
-        the tree first.
+        The exposure and the gain are metered on the first pattern
+        (:meth:`_expose_for_patterns`) and held for the whole capture. The frames stream
+        into the dataset file as they are captured, so an interrupted run keeps its
+        captured frames. The exposure is set before the file is opened, because
+        everything but the streamed frames goes into the tree first.
 
-        The whole sensor is read out for the capture, and the camera's exposure and
-        region of interest are put back afterwards
-        (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_and_roi`). Frames
-        are stored raw. The metadata records the exposure and how it was metered, so a
-        fit can subtract a background measured at that exposure.
+        The whole sensor is read out for the capture, and the camera's exposure, gain
+        and region of interest are put back afterwards
+        (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_gain_and_roi`).
+        Frames are stored raw. The metadata records the exposure and how it was metered,
+        and the camera record holds the gain, so a fit can subtract a background
+        measured at that exposure.
 
         Args:
             verbose: Show a progress bar while the frames are captured.
@@ -491,7 +492,7 @@ class DatasetGenerator:
             self.slm.phase_to_levels(pattern) for pattern in self.phase_patterns
         ]
 
-        with self.camera.preserve_exposure_and_roi(full_sensor=True):
+        with self.camera.preserve_exposure_gain_and_roi(full_sensor=True):
             # The exposure is metered before the capture, since it goes into the
             # record. The record is written before the first frame.
             self.metadata["exposure_time"] = self._expose_for_patterns(set_fraction)
@@ -519,7 +520,8 @@ class DatasetGenerator:
         """Meter the exposure on the first pattern.
 
         The camera autoexposes on the region of interest of the first pattern, in up
-        to ``_AUTOEXPOSURE_MAX_ITERATIONS`` steps, and stays at the final exposure.
+        to ``_AUTOEXPOSURE_MAX_ITERATIONS`` steps, and stays at the final exposure and
+        gain.
 
         Args:
             set_fraction: The peak of the first pattern is exposed to this fraction of

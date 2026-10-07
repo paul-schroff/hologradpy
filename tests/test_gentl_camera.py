@@ -20,17 +20,24 @@ class OutOfRangeException(Exception):
 
 
 class FakeNode:
-    """One GenICam feature node, with the bounds and the increment a real one
-    enforces.
+    """One GenICam feature node, with the bounds, the increment and the unit a real one
+    states.
     """
 
     def __init__(
-        self, value, minimum=None, maximum=None, on_write=None, increment=None
+        self,
+        value,
+        minimum=None,
+        maximum=None,
+        on_write=None,
+        increment=None,
+        unit="",
     ):
         self._value = value
         self.min = minimum
         self.max = maximum
         self.inc = increment
+        self.unit = unit
         self._on_write = on_write
         self.writes = []
 
@@ -536,3 +543,37 @@ def test_autoexpose_runs_through_the_base_class(camera):
     device.autoexpose(set_fraction=0.5)
     low, high = device.exposure_search_bounds
     assert low <= device.get_exposure() <= high
+
+
+def _gain_node_in_db():
+    return FakeNode(0.0, minimum=0.0, maximum=48.0, unit="dB")
+
+
+def test_a_gain_node_in_db_states_the_gain_range(camera):
+    device, harvester = camera
+    harvester.node_map.Gain = _gain_node_in_db()
+
+    assert device.gain_bounds == (0.0, 48.0)
+    device.set_gain(12.0)
+    assert harvester.node_map.Gain.value == 12.0
+    assert device.get_gain() == 12.0
+
+
+def test_a_gain_node_in_another_unit_cannot_be_set(camera):
+    """The fake's own Gain node states no unit."""
+    device, harvester = camera
+
+    assert device.gain_bounds is None
+    assert device.get_gain() == 0.0
+    with pytest.raises(NotImplementedError, match="Gain node in dB"):
+        device.set_gain(6.0)
+    assert harvester.node_map.Gain.writes == [0.0]  # Written once, when opened.
+
+
+def test_a_gain_outside_the_node_range_is_clipped_with_a_warning(camera):
+    device, harvester = camera
+    harvester.node_map.Gain = _gain_node_in_db()
+
+    with pytest.warns(UserWarning, match="outside the camera's gain range"):
+        device.set_gain(60.0)
+    assert harvester.node_map.Gain.value == 48.0
