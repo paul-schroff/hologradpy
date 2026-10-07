@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import torch
 from numpy.typing import NDArray
 
 from .vortex_detection import VortexDetector
@@ -15,9 +16,12 @@ class VortexAnnihilator:
 
     A vortex is a phase winding in image-plane, which forces the intensity there to
     zero. Conjugate gradient cannot undo one by itself as the winding is topological, so
-    no small change to the SLM phase removes it. This detects them instead, multiplies 
+    no small change to the SLM phase removes it. This detects them instead, multiplies
     in a field of the opposite charge to cancel the winding, propagates that back to the
     SLM, and restarts the retrieval from there.
+
+    The model applies the beam's own phase, so the SLM is set to the propagated field's
+    phase less the beam's.
     """
 
     def __init__(self, phase_retriever: GradientPhaseRetriever) -> None:
@@ -71,7 +75,8 @@ class VortexAnnihilator:
                 matter, and looking for them there finds noise.
             max_iterations: Rounds to try before giving up.
             cg_iterations: Conjugate gradient iterations after each correction.
-            verbose: Print the count found at each round.
+            verbose: Print the count found at each round, and show the progress of the
+                retrieval.
 
         Returns:
             VortexAnnihilationData: The field before and after, the vortices found in
@@ -79,6 +84,7 @@ class VortexAnnihilator:
                 converged.
         """
         target_intensity = self.phase_retriever.target
+        threshold = target_intensity_threshold * float(target_intensity.max())
 
         counts: list[int] = []
         initial: tuple[NDArray, NDArray, NDArray, NDArray] | None = None
@@ -94,7 +100,7 @@ class VortexAnnihilator:
             self.vortex_detector.detect_vortices(
                 complex_amplitude,
                 target_intensity=target_intensity,
-                threshold=target_intensity_threshold,
+                threshold=threshold,
                 pad=1,
             )
 
@@ -111,17 +117,17 @@ class VortexAnnihilator:
 
                 corrected_field = complex_amplitude * anti_vortex_field
 
-                corrected_slm_phase = as_image(
-                    self.phase_retriever.slm_camera_model.fourier_lens.adjoint(
-                        corrected_field
-                    ).phase
+                model = self.phase_retriever.slm_camera_model
+                slm_plane_phase = as_image(
+                    model.fourier_lens.adjoint(corrected_field).phase
+                )
+                # The model applies the beam's own phase, so the SLM shows the rest.
+                beam_phase = as_image(model.slm_field.get_wavefront().detach()).angle()
+                model.virtual_slm.set_phase(
+                    torch.remainder(slm_plane_phase - beam_phase, 2 * torch.pi)
                 )
 
-                self.phase_retriever.slm_camera_model.virtual_slm.set_phase(
-                    corrected_slm_phase
-                )
-
-                self.phase_retriever.retrieve_phase(cg_iterations)
+                self.phase_retriever.retrieve_phase(cg_iterations, verbose=verbose)
             else:
                 if verbose:
                     print("No vortices detected to remove, stopping.")

@@ -13,12 +13,24 @@ from __future__ import annotations
 import pytest
 import torch
 
-from hologradpy.holography.vortices import VortexDetector
+from hologradpy.holography.phase_retrieval import PixelwisePhaseRetriever
+from hologradpy.holography.vortices import VortexAnnihilator, VortexDetector
 from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
+from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
+from hologradpy.optics.modules.virtual_slms import VirtualSLM
+from hologradpy.optics.systems import SLMFFT
+from hologradpy.profiles.amplitude import gaussian_beam_intensity
+from hologradpy.profiles.phase import linear_phase
 
 RESOLUTION = (64, 64)
 PIXEL_SIZE = (1e-5, 1e-5)
 WAVELENGTH = 1e-6
+# A small SLM and lens for the annihilator, as in test_first_order_optimizers.py.
+SLM_PITCH = 12.5e-6
+SLM_WAVELENGTH = 780e-9
+FOCAL_LENGTH = 0.25
+PADDED_RESOLUTION = (128, 128)
+OUTPUT_PITCH = SLM_WAVELENGTH * FOCAL_LENGTH / (PADDED_RESOLUTION[0] * SLM_PITCH)
 
 
 def _field(data: torch.Tensor) -> ComplexAmplitude:
@@ -130,3 +142,92 @@ def test_a_vortex_is_found_where_it_was_put(offset: tuple[int, int]):
     )
     assert rows[0] == pytest.approx(RESOLUTION[0] // 2 + shift_y, abs=1)
     assert columns[0] == pytest.approx(RESOLUTION[1] // 2 + shift_x, abs=1)
+
+
+def _slm_geometry() -> FieldGeometry:
+    return FieldGeometry(
+        resolution=RESOLUTION,
+        pixel_size=torch.tensor([SLM_PITCH, SLM_PITCH]),
+        wavelength=torch.tensor(SLM_WAVELENGTH),
+    )
+
+
+def _spiral() -> torch.Tensor:
+    """A charge-1 spiral on the SLM, which puts a vortex in the focal plane.
+
+    It is tilted by half an output pixel, so the vortex does not land exactly on a
+    pixel, where the detector cannot see it.
+    """
+    x, y = _slm_geometry().get_spatial_grid()
+    tilt = linear_phase(
+        x,
+        y,
+        OUTPUT_PITCH / 2,
+        OUTPUT_PITCH / 2,
+        wavenumber=2 * torch.pi / SLM_WAVELENGTH,
+        focal_length=FOCAL_LENGTH,
+    )
+    return (torch.atan2(y, x) + tilt) % (2 * torch.pi)
+
+
+def _annihilated(
+    beam_phase: torch.Tensor, slm_phase: torch.Tensor, target_scale: float = 1.0
+) -> tuple[list[int], torch.Tensor]:
+    """One round of annihilation, with two CG iterations after it.
+
+    The model's beam is a Gaussian with ``beam_phase``, and the SLM starts at
+    ``slm_phase``. The target is a spot over the vortex, times ``target_scale``.
+
+    Returns:
+        The vortex count of each round, and the focal intensity after.
+    """
+    geometry = _slm_geometry()
+    x, y = geometry.get_spatial_grid()
+    amplitude = gaussian_beam_intensity(x, y, beam_radius=2e-4).sqrt()
+    beam = ComplexAmplitude.from_geometry(
+        geometry, data=amplitude * torch.exp(1j * beam_phase)
+    )
+    model = SLMFFT(
+        input_geometry=beam.geometry,
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
+        slm_field=PixelwiseSLMField(beam),
+        focal_length=FOCAL_LENGTH,
+        padded_resolution=PADDED_RESOLUTION,
+    )
+    model()
+    x_out, y_out = model[-1].get_spatial_grid_output()
+    target = gaussian_beam_intensity(x_out, y_out, beam_radius=6 * OUTPUT_PITCH)
+    retriever = PixelwisePhaseRetriever(
+        model, target_scale * target.to(torch.float32), init_slm_phase=slm_phase
+    )
+    data = VortexAnnihilator(retriever).annihilate_vortices(
+        max_iterations=1, cg_iterations=2, verbose=False
+    )
+    with torch.no_grad():
+        return data.counts, model().intensity.squeeze()
+
+
+def test_the_beam_phase_does_not_change_the_annihilation():
+    """The model applies the beam's own phase, so the annihilator sets the SLM to the
+    rest. Two models that differ only in the beam's phase, started from SLM phases that
+    give the same focal field, end with the same focal field.
+    """
+    x, y = _slm_geometry().get_spatial_grid()
+    beam_phase = 40 * ((x / 4e-4) ** 2 + (y / 4e-4) ** 2)  # A strong defocus.
+    spiral = _spiral()
+
+    flat_counts, flat = _annihilated(torch.zeros_like(x), spiral)
+    counts, aberrated = _annihilated(beam_phase, (spiral - beam_phase) % (2 * torch.pi))
+
+    assert flat_counts[0] == counts[0] == 1
+    torch.testing.assert_close(aberrated, flat, rtol=0, atol=1e-4 * float(flat.max()))
+
+
+def test_the_threshold_is_a_fraction_of_the_target_peak():
+    """A target in other units, here a millionth of the first, finds the same vortex."""
+    beam_phase = torch.zeros(RESOLUTION)
+
+    counts, _ = _annihilated(beam_phase, _spiral())
+    small_counts, _ = _annihilated(beam_phase, _spiral(), target_scale=1e-6)
+
+    assert counts[0] == small_counts[0] == 1
