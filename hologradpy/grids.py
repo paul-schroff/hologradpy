@@ -4,14 +4,55 @@ The origin of a plane of length ``n`` is the sample at index ``n // 2``, so samp
 sits at ``(i - n // 2) * pitch``.
 
 The grid of an even-length axis is asymmetric, running ``-n/2`` to ``n/2 - 1``.
+
+Arrays are indexed in the pixel frame, by ``(column, row)``. Coordinates ``(x, y)`` are
+physical. :func:`pixel_frame_vector` and :func:`pixel_frame_angle` convert vectors and
+angles between the two frames, and :func:`metres_to_pixel` and :func:`pixel_to_metres`
+convert positions.
 """
 
 from __future__ import annotations
+
+from typing import TypeVar
 
 import torch
 from torch import Tensor
 
 from .utils import resolve_device
+
+T = TypeVar("T")
+
+
+def pixel_frame_vector(vector: tuple[T, T]) -> tuple[T, T]:
+    """The ``(column, row)`` components of an ``(x, y)`` vector, or the ``(x, y)``
+    components of a ``(column, row)`` vector.
+
+    The function is its own inverse. It takes floats, arrays or tensors, and gradients
+    pass through it.
+
+    Args:
+        vector: The two components.
+
+    Returns:
+        tuple[T, T]: The components in the other frame.
+    """
+    x, y = vector
+    return x, y
+
+
+def pixel_frame_angle(angle_degrees: T) -> T:
+    """The angle in the pixel frame, from +column towards +row, of an angle in the
+    physical frame, from +x towards +y, or the other way round.
+
+    The function is its own inverse. It takes floats, arrays or tensors.
+
+    Args:
+        angle_degrees: The angle in degrees.
+
+    Returns:
+        T: The angle in degrees in the other frame.
+    """
+    return angle_degrees
 
 
 def get_pixel_grid(
@@ -19,7 +60,7 @@ def get_pixel_grid(
     device: torch.device | None = None,
     dtype: torch.dtype | None = None,
 ) -> tuple[Tensor, Tensor]:
-    """Centred pixel indices, as an ``(x, y)`` pair of grids.
+    """Centred ``(x, y)`` coordinates in pixels, as a pair of grids.
 
     Args:
         resolution: ``(height, width)`` in pixels.
@@ -27,19 +68,19 @@ def get_pixel_grid(
         dtype: Dtype of the indices. Defaults to the integer one ``arange`` picks.
 
     Returns:
-        tuple[Tensor, Tensor]: The ``x`` and ``y`` index grids.
+        tuple[Tensor, Tensor]: The ``x`` and ``y`` grids.
     """
     device = resolve_device(device)
     height, width = resolution
 
-    pixel_indices_x = torch.arange(
+    columns = torch.arange(
         -(width // 2), width - width // 2, device=device, dtype=dtype
     )
-    pixel_indices_y = torch.arange(
+    rows = torch.arange(
         -(height // 2), height - height // 2, device=device, dtype=dtype
     )
 
-    return torch.meshgrid(pixel_indices_x, pixel_indices_y, indexing="xy")
+    return pixel_frame_vector(torch.meshgrid(columns, rows, indexing="xy"))
 
 
 def get_spatial_grid(
@@ -91,17 +132,17 @@ def metres_to_pixel(
     pixel_size: tuple[float, float],
     resolution: tuple[int, int],
 ) -> tuple[float, float]:
-    """Plane ``(x, y)`` metres (relative to the center) to ``(x, y)`` pixels, the
-    inverse of :func:`get_spatial_grid`.
+    """Plane ``(x, y)`` metres (relative to the center) to the pixel ``(column, row)``,
+    the inverse of :func:`get_spatial_grid`.
 
     ``pixel_size`` is ``(y, x)`` metres and ``resolution`` is ``(height, width)``, so
     x uses the width pitch and y the height pitch.
     """
-    center_x, center_y = plane_center(resolution)
-    return (
-        position[0] / pixel_size[1] + center_x,
-        position[1] / pixel_size[0] + center_y,
+    center_column, center_row = plane_center(resolution)
+    column, row = pixel_frame_vector(
+        (position[0] / pixel_size[1], position[1] / pixel_size[0])
     )
+    return column + center_column, row + center_row
 
 
 def pixel_to_metres(
@@ -109,14 +150,12 @@ def pixel_to_metres(
     pixel_size: tuple[float, float],
     resolution: tuple[int, int],
 ) -> tuple[float, float]:
-    """``(x, y)`` pixels to plane ``(x, y)`` metres from the center. The inverse of
-    :func:`metres_to_pixel`.
+    """The pixel ``(column, row)`` to plane ``(x, y)`` metres from the center. The
+    inverse of :func:`metres_to_pixel`.
     """
-    center_x, center_y = plane_center(resolution)
-    return (
-        (pixel[0] - center_x) * pixel_size[1],
-        (pixel[1] - center_y) * pixel_size[0],
-    )
+    center_column, center_row = plane_center(resolution)
+    x, y = pixel_frame_vector((pixel[0] - center_column, pixel[1] - center_row))
+    return x * pixel_size[1], y * pixel_size[0]
 
 
 def get_frequency_grid(

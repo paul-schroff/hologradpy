@@ -22,6 +22,8 @@ from hologradpy.grids import (
     get_pixel_grid,
     get_spatial_grid,
     metres_to_pixel,
+    pixel_frame_angle,
+    pixel_frame_vector,
     pixel_to_metres,
     plane_center,
 )
@@ -143,6 +145,39 @@ def test_pixel_to_metres_agrees_with_the_grid(resolution) -> None:
     # One side is float32, the other Python float, so this needs a relative tolerance.
     assert metres[0] == pytest.approx(float(grid_x[row, column]), rel=1e-6)
     assert metres[1] == pytest.approx(float(grid_y[row, column]), rel=1e-6)
+
+
+def test_the_frame_helpers_are_their_own_inverses() -> None:
+    """Converting into the other frame and back returns what went in, for floats and
+    tensors. The same function converts in both directions.
+    """
+    columns = torch.tensor([1.0, -2.5, 3.0])
+    rows = torch.tensor([0.5, 4.0, -1.0])
+
+    for vector in ((3.0, -2.0), (columns, rows)):
+        back = pixel_frame_vector(pixel_frame_vector(vector))
+        for component, original in zip(back, vector, strict=True):
+            assert torch.equal(torch.as_tensor(component), torch.as_tensor(original))
+    for angle_degrees in (30.0, torch.tensor([-45.0, 90.0])):
+        back = pixel_frame_angle(pixel_frame_angle(angle_degrees))
+        assert torch.equal(torch.as_tensor(back), torch.as_tensor(angle_degrees))
+
+
+@pytest.mark.parametrize("resolution", RESOLUTIONS)
+def test_the_pixel_grid_is_the_index_offsets_in_the_pixel_frame(resolution) -> None:
+    """Seen from the pixel frame, each pixel's coordinates are its column and row
+    offsets from the origin pixel, whichever way y points.
+    """
+    height, width = resolution
+    center_column, center_row = plane_center(resolution)
+    row_index, column_index = torch.meshgrid(
+        torch.arange(height), torch.arange(width), indexing="ij"
+    )
+
+    columns, rows = pixel_frame_vector(get_pixel_grid(resolution))
+
+    assert torch.equal(columns, column_index - center_column)
+    assert torch.equal(rows, row_index - center_row)
 
 
 @pytest.mark.parametrize("resolution", RESOLUTIONS)
