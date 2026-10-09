@@ -203,7 +203,7 @@ class PSFSLMField(SLMField):
             )
             # The kernel is a field, so take the amplitude of that intensity.
             init_psf_kernel = (
-                gaussian_beam_intensity(grid_x, grid_y, beam_radius=waist)
+                gaussian_beam_intensity(grid_x, grid_y, beam_radius_major=waist)
                 .sqrt()
                 .to(real_dtype)
             )

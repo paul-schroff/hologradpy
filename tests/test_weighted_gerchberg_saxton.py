@@ -38,7 +38,7 @@ def _model(aberrated: bool = False, padded_resolution=PADDED) -> SLMFFT:
         wavelength=torch.tensor(WAVELENGTH),
     )
     x, y = geometry.get_spatial_grid()
-    amplitude = gaussian_beam_intensity(x, y, beam_radius=0.3e-3).sqrt()
+    amplitude = gaussian_beam_intensity(x, y, beam_radius_major=0.3e-3).sqrt()
     phase = 40 * ((x / 0.5e-3) ** 2 - (y / 0.4e-3) ** 3) if aberrated else 0 * x
     beam = ComplexAmplitude(
         amplitude * torch.exp(1j * phase),

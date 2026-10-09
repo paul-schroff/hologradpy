@@ -55,7 +55,7 @@ def _model() -> SLMCZT:
     grid_x, grid_y = geometry.get_spatial_grid()
     beam = ComplexAmplitude.from_geometry(
         geometry,
-        data=gaussian_beam_intensity(grid_x, grid_y, beam_radius=BEAM_RADIUS).sqrt()
+        data=gaussian_beam_intensity(grid_x, grid_y, BEAM_RADIUS).sqrt()
         + 0j,
     )
     model = SLMCZT(
@@ -76,7 +76,7 @@ def _gaussian_target(
 ) -> torch.Tensor:
     camera_x, camera_y = model[-1].get_spatial_grid_output()
     return gaussian_beam_intensity(
-        camera_x, camera_y, beam_radius=radius, shift_x=shift[0], shift_y=shift[1]
+        camera_x, camera_y, beam_radius_major=radius, shift_x=shift[0], shift_y=shift[1]
     ).to(torch.float32)
 
 
@@ -205,7 +205,7 @@ def test_an_explicit_source_intensity_is_used():
     model = _model()
     target = _gaussian_target(model, 60e-6)
     grid_x, grid_y = model.virtual_slm.get_slm_grid()
-    narrow = gaussian_beam_intensity(grid_x, grid_y, beam_radius=BEAM_RADIUS / 2)
+    narrow = gaussian_beam_intensity(grid_x, grid_y, beam_radius_major=BEAM_RADIUS / 2)
 
     default_phase = _retriever(model, target).retrieve_phase().clone()
     narrow_phase = _retriever(
@@ -284,7 +284,7 @@ def _rectangular_model() -> SLMCZT:
     grid_x, grid_y = geometry.get_spatial_grid()
     beam = ComplexAmplitude.from_geometry(
         geometry,
-        data=gaussian_beam_intensity(grid_x, grid_y, beam_radius=1.2e-3).sqrt() + 0j,
+        data=gaussian_beam_intensity(grid_x, grid_y, 1.2e-3).sqrt() + 0j,
     )
     model = SLMCZT(
         input_geometry=geometry,

@@ -183,7 +183,7 @@ def _annihilated(
     """
     geometry = _slm_geometry()
     x, y = geometry.get_spatial_grid()
-    amplitude = gaussian_beam_intensity(x, y, beam_radius=2e-4).sqrt()
+    amplitude = gaussian_beam_intensity(x, y, beam_radius_major=2e-4).sqrt()
     beam = ComplexAmplitude.from_geometry(
         geometry, data=amplitude * torch.exp(1j * beam_phase)
     )
@@ -196,7 +196,7 @@ def _annihilated(
     )
     model()
     x_out, y_out = model[-1].get_spatial_grid_output()
-    target = gaussian_beam_intensity(x_out, y_out, beam_radius=6 * OUTPUT_PITCH)
+    target = gaussian_beam_intensity(x_out, y_out, beam_radius_major=6 * OUTPUT_PITCH)
     retriever = PixelwisePhaseRetriever(
         model, target_scale * target.to(torch.float32), init_slm_phase=slm_phase
     )

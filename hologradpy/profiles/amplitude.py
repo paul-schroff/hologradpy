@@ -46,32 +46,69 @@ def gaussian_beam_intensity_1D(
 def gaussian_beam_intensity(
     x: ArrayLike,
     y: ArrayLike,
-    beam_radius: float,
+    beam_radius_major: float,
+    beam_radius_minor: float | None = None,
     shift_x: float = 0.0,
     shift_y: float = 0.0,
     intensity: float = 1.0,
     offset: float = 0.0,
+    angle_degrees: float = 0.0,
 ) -> ArrayLike:
-    """Gaussian beam intensity on a 2D grid with given radius and center.
+    """Gaussian beam intensity on a 2D grid, round or elliptical.
+
+    A round beam has one 1/e^2 radius. An elliptical beam has its major radius along
+    its long axis and its minor radius across it. The long axis is turned clockwise
+    from +x by ``angle_degrees``, about the beam's centre. The angle leaves a round
+    beam as it is.
 
     Args:
         x: X coordinates.
         y: Y coordinates.
-        beam_radius: Radius of the beam.
+        beam_radius_major: The 1/e^2 intensity radius along the beam's long axis, or
+            in every direction for a round beam.
+        beam_radius_minor: The 1/e^2 intensity radius across the long axis. None, the
+            default, makes the beam round.
         shift_x: X shift of the beam center. Defaults to 0.0.
         shift_y: Y shift of the beam center. Defaults to 0.0.
         intensity: Peak intensity of the beam. Defaults to 1.0.
         offset: Offset added to the intensity. Defaults to 0.0.
+        angle_degrees: The clockwise angle of the long axis from +x, in degrees.
+            Defaults to 0.0.
 
     Returns:
         ArrayLike: Gaussian beam intensity.
+
+    Raises:
+        ValueError: The minor radius is larger than the major radius.
     """
-    return (
-        intensity
-        * gaussian_beam_intensity_1D(x, beam_radius, shift_x)
-        * gaussian_beam_intensity_1D(y, beam_radius, shift_y)
-        + offset
-    )
+    xp = array_namespace(x, y)
+    major = beam_radius_major
+    minor = _minor_radius(major, beam_radius_minor)
+    dx, dy = x - shift_x, y - shift_y
+    if minor == major:
+        exponent = (dx**2 + dy**2) / major**2
+    else:
+        angle = math.radians(angle_degrees)
+        along = dx * math.cos(angle) + dy * math.sin(angle)
+        across = dy * math.cos(angle) - dx * math.sin(angle)
+        exponent = along**2 / major**2 + across**2 / minor**2
+    return intensity * xp.exp(-2 * exponent) + offset
+
+
+def _minor_radius(major: float, minor: float | None) -> float:
+    """The minor radius of a beam: ``minor``, or ``major`` for a round beam.
+
+    Raises:
+        ValueError: ``minor`` is larger than ``major``.
+    """
+    if minor is None:
+        return major
+    if minor > major:
+        raise ValueError(
+            f"The minor radius {minor} is larger than the major radius {major}. Swap "
+            "them and turn the beam by 90 degrees."
+        )
+    return minor
 
 def super_gaussian(
     x: ArrayLike,
@@ -118,9 +155,14 @@ def gaussian_spot_array(
     shift_x: float,
     shift_y: float,
     spot_separation: float,
-    beam_radius: float,
+    beam_radius_major: float,
+    beam_radius_minor: float | None = None,
+    angle_degrees: float = 0.0,
 ) -> ArrayLike:
     """Array of Gaussian spots with equal spacing.
+
+    The grid runs along x and y. Each spot is a :func:`gaussian_beam_intensity` with
+    the radii and the angle given.
 
     Args:
         x: X coordinates.
@@ -130,10 +172,18 @@ def gaussian_spot_array(
         shift_x: X coordinate of the array's centre.
         shift_y: Y coordinate of the array's centre.
         spot_separation: Separation between neighboring spots.
-        beam_radius: Beam radius of the Gaussian spots.
+        beam_radius_major: The 1/e^2 radius along each spot's long axis, or in every
+            direction for round spots.
+        beam_radius_minor: The 1/e^2 radius across each spot's long axis. None, the
+            default, makes the spots round.
+        angle_degrees: The clockwise angle of each spot's long axis from +x, in
+            degrees. Defaults to 0.0.
 
     Returns:
         ArrayLike: Spot array.
+
+    Raises:
+        ValueError: The minor radius is larger than the major radius.
     """
     xp = array_namespace(x, y)
 
@@ -146,9 +196,11 @@ def gaussian_spot_array(
             spots = spots + gaussian_beam_intensity(
                 x,
                 y,
-                beam_radius,
+                beam_radius_major,
+                beam_radius_minor,
                 shift_x=shift_x + j * spot_separation - horizontal_extent / 2,
                 shift_y=shift_y + i * spot_separation - vertical_extent / 2,
+                angle_degrees=angle_degrees,
             )
     return spots
 
@@ -311,22 +363,43 @@ def top_hat_1D(
 
 
 # Binary masks
-def gaussian_blur(input: torch.Tensor, beam_radius: float) -> torch.Tensor:
+def gaussian_blur(
+    input: torch.Tensor,
+    beam_radius_major: float,
+    beam_radius_minor: float | None = None,
+    angle_degrees: float = 0.0,
+) -> torch.Tensor:
     """Blurs the input tensor with the intensity distribution of a Gaussian
-    focal spot with a given `beam_radius`.
+    focal spot.
+
+    The kernel is a :func:`gaussian_beam_intensity`. Its side is set by the major
+    radius.
 
     Args:
         input: Input tensor.
-        beam_radius: Radius of the Gaussian beam.
+        beam_radius_major: The 1/e^2 radius in pixels along the spot's long axis, or
+            in every direction for a round spot.
+        beam_radius_minor: The 1/e^2 radius in pixels across the long axis. None, the
+            default, makes the spot round.
+        angle_degrees: The clockwise angle of the long axis from +x, in degrees.
+            Defaults to 0.0.
 
     Returns:
         torch.Tensor: Blurred output tensor.
+
+    Raises:
+        ValueError: The minor radius is larger than the major radius.
     """
-    kernel_size = int(3 * beam_radius // 2 * 2 + 1)
+    kernel_size = int(3 * beam_radius_major // 2 * 2 + 1)
     kernel_grid = get_spatial_grid(
         (kernel_size, kernel_size), pixel_size=(1, 1), device=input.device
     )
-    kernel = gaussian_beam_intensity(*kernel_grid, beam_radius)
+    kernel = gaussian_beam_intensity(
+        *kernel_grid,
+        beam_radius_major,
+        beam_radius_minor,
+        angle_degrees=angle_degrees,
+    )
     kernel /= kernel.sum()
     kernel = unsqueeze_to(kernel, 4)
 
@@ -338,7 +411,9 @@ def gaussian_blur(input: torch.Tensor, beam_radius: float) -> torch.Tensor:
 def laser_speckle_intensity(
     resolution: tuple[int, int],
     pixel_size: float,
-    grain_radius: float,
+    grain_radius_major: float,
+    grain_radius_minor: float | None = None,
+    angle_degrees: float = 0.0,
     *,
     device: torch.device | None = None,
     dtype: torch.dtype = torch.float32,
@@ -347,7 +422,7 @@ def laser_speckle_intensity(
     """A static, laser-speckle intensity pattern.
 
     Models a fixed scattering surface: complex Gaussian white noise is low-pass filtered
-    (Gaussian blur of radius ``grain_radius``) to set the speckle grain size, and the
+    (a Gaussian blur with the grain radii) to set the speckle grain size, and the
     squared magnitude gives the intensity. The first-order statistics are the expected
     negative-exponential (``std/mean ~= 1``). The result is normalized to unit mean,
     and the physical scale is applied separately (e.g. by
@@ -356,9 +431,14 @@ def laser_speckle_intensity(
 
     Args:
         resolution: Output resolution ``(height, width)`` in pixels.
-        pixel_size: Pixel size in metres, used to convert ``grain_radius`` to pixels
+        pixel_size: Pixel size in metres, used to convert the grain radii to pixels
             (square pixels assumed).
-        grain_radius: Speckle grain radius in metres (the Gaussian-blur radius).
+        grain_radius_major: Speckle grain radius in metres along the grains' long
+            axis, or in every direction for round grains. It is at least a pixel.
+        grain_radius_minor: Speckle grain radius in metres across the long axis, at
+            least a pixel. None, the default, makes the grains round.
+        angle_degrees: The clockwise angle of the grains' long axis from +x, in
+            degrees. Defaults to 0.0.
         device: Device for the generated tensor.
         dtype: Real dtype of the returned intensity map.
         generator: Optional RNG for reproducible speckle.
@@ -367,11 +447,14 @@ def laser_speckle_intensity(
         torch.Tensor: A ``(height, width)`` unit-mean speckle-intensity tensor.
     """
     height, width = resolution
-    grain_radius_pixels = max(grain_radius / pixel_size, 1.0)
+    major = max(grain_radius_major / pixel_size, 1.0)
+    minor = None
+    if grain_radius_minor is not None:
+        minor = max(grain_radius_minor / pixel_size, 1.0)
     real = torch.randn((height, width), device=device, generator=generator)
     imaginary = torch.randn((height, width), device=device, generator=generator)
-    real = gaussian_blur(real, grain_radius_pixels)
-    imaginary = gaussian_blur(imaginary, grain_radius_pixels)
+    real = gaussian_blur(real, major, minor, angle_degrees)
+    imaginary = gaussian_blur(imaginary, major, minor, angle_degrees)
     intensity = real**2 + imaginary**2
     intensity = intensity / intensity.mean()
     return intensity.to(dtype)

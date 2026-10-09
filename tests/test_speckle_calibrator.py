@@ -93,7 +93,7 @@ def _build_hardware():
     slm = SimulatedSLMTorch(input_geometry=geometry, bitdepth=8)
 
     grid_x, grid_y = geometry.get_spatial_grid()
-    amplitude = gaussian_beam_intensity(grid_x, grid_y, beam_radius=3e-4).sqrt()
+    amplitude = gaussian_beam_intensity(grid_x, grid_y, beam_radius_major=3e-4).sqrt()
     phase_bump = 4.0e5 * (grid_x**2 + grid_y**2)  # a mild defocus-like aberration
     beam = ComplexAmplitude(
         amplitude * torch.exp(1j * phase_bump),
@@ -1488,7 +1488,7 @@ def test_speckle_calibrator_recovers_injected_wavefront(tmp_path) -> None:
 
     grid_x, grid_y = geometry.get_spatial_grid()
     amplitude = gaussian_beam_intensity(
-        grid_x, grid_y, beam_radius=RECOVERY_BEAM_RADIUS
+        grid_x, grid_y, beam_radius_major=RECOVERY_BEAM_RADIUS
     ).sqrt()
     injected_phase = (grid_x**2 - grid_y**2) / RECOVERY_BEAM_RADIUS**2  # astigmatism
 

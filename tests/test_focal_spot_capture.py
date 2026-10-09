@@ -177,7 +177,7 @@ def _build_hardware(camera_shift):
     slm = SimulatedSLMTorch(input_geometry=geometry, bitdepth=8)
 
     grid_x, grid_y = geometry.get_spatial_grid()
-    amplitude = gaussian_beam_intensity(grid_x, grid_y, beam_radius=3e-4).sqrt()
+    amplitude = gaussian_beam_intensity(grid_x, grid_y, beam_radius_major=3e-4).sqrt()
     beam = ComplexAmplitude(
         amplitude.to(torch.complex64),
         wavelength=geometry.wavelength,

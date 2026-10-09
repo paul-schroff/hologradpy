@@ -58,7 +58,7 @@ def _build_setup(camera_angle: float = 0.0):
     slm = SimulatedSLMTorch(input_geometry=slm_geometry, bitdepth=8)
 
     gaussian_intensity = gaussian_beam_intensity(
-        *slm_geometry.get_spatial_grid(), beam_radius=1e-3
+        *slm_geometry.get_spatial_grid(), beam_radius_major=1e-3
     )
     gaussian_beam = ComplexAmplitude(
         gaussian_intensity.sqrt() + 0j,

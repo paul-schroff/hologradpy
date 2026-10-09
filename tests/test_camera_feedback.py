@@ -95,7 +95,7 @@ def _beam(
     geometry: FieldGeometry, phase: torch.Tensor | None = None
 ) -> ComplexAmplitude:
     amplitude = gaussian_beam_intensity(
-        *geometry.get_spatial_grid(), beam_radius=0.4e-3
+        *geometry.get_spatial_grid(), beam_radius_major=0.4e-3
     ).sqrt()
     if phase is None:
         field = amplitude + 0j

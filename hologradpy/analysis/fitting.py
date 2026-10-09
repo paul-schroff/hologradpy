@@ -134,7 +134,7 @@ def fit_gaussian_beam_intensity(
         data_blurred = gaussian_filter(data, blur_sigma)
         index = np.unravel_index(np.argmax(data_blurred), data.shape)
         p0 = (beam_radius_guess, x[index], y[index], np.max(data), 0)
-        return curve_fit_2d(x, y, data, gaussian_beam_intensity, p0=p0)
+        return curve_fit_2d(x, y, data, _round_gaussian_beam, p0=p0)
 
     mask = np.asarray(mask, dtype=bool)
     x, y, data = np.asarray(x), np.asarray(y), np.asarray(data, dtype=np.float64)
@@ -146,8 +146,23 @@ def fit_gaussian_beam_intensity(
         np.argmax(np.where(mask, data_blurred, -np.inf)), data.shape
     )
     p0 = (beam_radius_guess, x[index], y[index], np.max(data[mask]), 0)
-    return curve_fit_2d(
-        x[mask], y[mask], data[mask], gaussian_beam_intensity, p0=p0
+    return curve_fit_2d(x[mask], y[mask], data[mask], _round_gaussian_beam, p0=p0)
+
+
+def _round_gaussian_beam(
+    x: NDArray,
+    y: NDArray,
+    beam_radius: float,
+    shift_x: float,
+    shift_y: float,
+    intensity: float,
+    offset: float,
+) -> NDArray:
+    """A round :func:`~hologradpy.profiles.amplitude.gaussian_beam_intensity`, with
+    its parameters in the order the fit returns them.
+    """
+    return gaussian_beam_intensity(
+        x, y, beam_radius, None, shift_x, shift_y, intensity, offset
     )
 
 

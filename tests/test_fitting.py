@@ -17,8 +17,8 @@ NEIGHBOUR_MASK_RADIUS = 12.0
 
 def _spot_beside_a_brighter_neighbour() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     y, x = np.indices(SHAPE, dtype=np.float64)
-    data = gaussian_beam_intensity(x, y, SPOT_RADIUS, *SPOT, 100.0, 5.0)
-    data += gaussian_beam_intensity(x, y, 5.0, *NEIGHBOUR, 2000.0)
+    data = gaussian_beam_intensity(x, y, SPOT_RADIUS, None, *SPOT, 100.0, 5.0)
+    data += gaussian_beam_intensity(x, y, 5.0, None, *NEIGHBOUR, 2000.0)
     return x, y, data
 
 
@@ -48,7 +48,7 @@ def test_without_a_mask_the_fit_starts_on_the_brighter_neighbour() -> None:
 
 def test_a_mask_of_every_pixel_fits_as_no_mask() -> None:
     x, y, data = _spot_beside_a_brighter_neighbour()
-    data = gaussian_beam_intensity(x, y, SPOT_RADIUS, *SPOT, 100.0, 5.0)
+    data = gaussian_beam_intensity(x, y, SPOT_RADIUS, None, *SPOT, 100.0, 5.0)
 
     unmasked, _ = fit_gaussian_beam_intensity(x, y, data, 5.0)
     masked, _ = fit_gaussian_beam_intensity(

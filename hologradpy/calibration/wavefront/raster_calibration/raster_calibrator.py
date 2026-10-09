@@ -937,7 +937,10 @@ class RasterCalibrator(WavefrontCalibratorBase):
             beam_radius, shift_x, shift_y = self.fit_gaussian_beam(measured_intensity)
             intensity = gpu_to_numpy(
                 gaussian_beam_intensity(
-                    *self.spatial_grid_slm, beam_radius, shift_x, shift_y
+                    *self.spatial_grid_slm,
+                    beam_radius,
+                    shift_x=shift_x,
+                    shift_y=shift_y,
                 )
             )
 

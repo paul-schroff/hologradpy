@@ -6,8 +6,12 @@ It builds on `top_hat_gaussian_shoulders`, which reached for `xp.sqrt(2)` and so
 on torch inputs, taking `top_hat_2D` with it. These pin the shape it produces, that it
 agrees between numpy and torch, and that the torch path works at all.
 
-`gaussian_beam_intensity_1D` is the one Gaussian both a round beam and a line trap are
-built from, so these also pin that the round beam stays the product of two of it.
+`gaussian_beam_intensity_1D` is the Gaussian across a line trap. A round beam equals
+the product of two of it, and these pin that too.
+
+`gaussian_beam_intensity` is also elliptical: a major radius along the beam's long axis
+and a minor radius across it, with the long axis turned by an angle from +x towards +y.
+The spot array, the blur and the speckle grain pass the radii and the angle on.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ from hologradpy.profiles.amplitude import (
     gaussian_beam_intensity,
     gaussian_beam_intensity_1D,
     gaussian_spot_array,
+    laser_speckle_intensity,
     top_hat_1D,
     top_hat_2D,
     top_hat_gaussian_shoulders,
@@ -179,7 +184,7 @@ def test_the_offset_lifts_the_1D_gaussian() -> None:
 
 
 def test_a_round_beam_is_the_product_of_two_1D_gaussians() -> None:
-    """The 2D profile is separable, which is what lets it share the 1D one."""
+    """A round beam is separable, so it equals the product of two 1D Gaussians."""
     x, y = _numpy_grid()
     round_beam = gaussian_beam_intensity(
         x, y, WAIST, shift_x=40e-6, shift_y=-25e-6, intensity=3.0, offset=0.25
@@ -220,7 +225,7 @@ def test_a_spot_array_is_centred_where_it_is_shifted_to() -> None:
             shift_x=30e-6,
             shift_y=-20e-6,
             spot_separation=80e-6,
-            beam_radius=10e-6,
+            beam_radius_major=10e-6,
         )
     )
 
@@ -245,9 +250,175 @@ def test_the_blur_leaves_an_impulse_where_it_found_it(beam_radius) -> None:
     image = torch.zeros(samples, samples)
     image[middle, middle] = 1.0
 
-    blurred = gaussian_blur(image, beam_radius=beam_radius)
+    blurred = gaussian_blur(image, beam_radius_major=beam_radius)
 
     peak = np.unravel_index(int(blurred.argmax()), blurred.shape)
     assert peak == (middle, middle)
     # Exactly symmetric, not nearly: any residual is the kernel being lopsided.
     assert float((blurred - torch.flip(blurred, dims=(-2, -1))).abs().max()) == 0.0
+
+
+def _point(distance, direction_degrees, major, minor, angle_degrees):
+    """The intensity of a beam at ``distance`` from its centre, towards
+    ``direction_degrees`` from +x towards +y.
+    """
+    direction = np.radians(direction_degrees)
+    x = np.array([distance * np.cos(direction)])
+    y = np.array([distance * np.sin(direction)])
+    return float(
+        gaussian_beam_intensity(
+            x, y, major, beam_radius_minor=minor, angle_degrees=angle_degrees
+        )[0]
+    )
+
+
+@pytest.mark.parametrize("grid", [_numpy_grid, _torch_grid], ids=["numpy", "torch"])
+def test_an_elliptical_beam_has_its_major_radius_along_x_without_an_angle(grid):
+    x, y = grid()
+    beam = np.asarray(
+        gaussian_beam_intensity(x, y, WAIST, beam_radius_minor=WAIST / 2)
+    )
+
+    middle = SAMPLES // 2
+    along_x = AXIS[beam[middle, :] > np.exp(-2)]
+    along_y = AXIS[beam[:, middle] > np.exp(-2)]
+
+    assert (along_x[-1] - along_x[0]) == pytest.approx(2 * WAIST, rel=0.05)
+    assert (along_y[-1] - along_y[0]) == pytest.approx(WAIST, rel=0.05)
+
+
+@pytest.mark.parametrize("angle_degrees", [30.0, 45.0, -60.0])
+def test_the_angle_turns_the_long_axis_from_x_towards_y(angle_degrees) -> None:
+    """The beam drops to 1/e^2 at its major radius along the angle, and at its minor
+    radius a quarter turn further on.
+    """
+    major, minor = 30e-6, 10e-6
+
+    along = _point(major, angle_degrees, major, minor, angle_degrees)
+    across = _point(minor, angle_degrees + 90.0, major, minor, angle_degrees)
+
+    assert along == pytest.approx(np.exp(-2), rel=1e-9)
+    assert across == pytest.approx(np.exp(-2), rel=1e-9)
+    # Mirrored about x, the major radius lands on the narrow side.
+    assert _point(major, -angle_degrees, major, minor, angle_degrees) < 0.1 * along
+
+
+def test_a_quarter_turn_puts_the_long_axis_along_y() -> None:
+    """On a square grid, a beam turned a quarter turn is the upright one transposed."""
+    x, y = _numpy_grid()
+    turned = gaussian_beam_intensity(
+        x, y, WAIST, beam_radius_minor=WAIST / 3, angle_degrees=90.0
+    )
+    upright = gaussian_beam_intensity(x, y, WAIST, beam_radius_minor=WAIST / 3)
+
+    assert np.abs(turned - upright.T).max() < 1e-12
+
+
+def test_a_round_beam_is_the_same_at_any_angle() -> None:
+    x, y = _numpy_grid()
+    round_beam = gaussian_beam_intensity(x, y, WAIST, shift_x=40e-6)
+
+    for minor in (None, WAIST):
+        turned = gaussian_beam_intensity(
+            x, y, WAIST, shift_x=40e-6, beam_radius_minor=minor, angle_degrees=37.0
+        )
+        assert np.array_equal(turned, round_beam)
+
+
+def test_numpy_and_torch_agree_on_an_elliptical_beam() -> None:
+    options = dict(
+        shift_x=40e-6,
+        shift_y=-25e-6,
+        intensity=2.0,
+        beam_radius_minor=WAIST / 2,
+        angle_degrees=25.0,
+    )
+    on_numpy = gaussian_beam_intensity(*_numpy_grid(), WAIST, **options)
+    on_torch = gaussian_beam_intensity(*_torch_grid(), WAIST, **options)
+
+    assert np.abs(on_numpy - on_torch.numpy()).max() < 1e-12
+
+
+def test_a_minor_radius_above_the_major_radius_is_refused() -> None:
+    with pytest.raises(ValueError, match="larger than the major radius"):
+        gaussian_beam_intensity(*_numpy_grid(), WAIST, beam_radius_minor=2 * WAIST)
+
+
+def test_the_minor_radius_follows_the_major_radius() -> None:
+    """The second positional number is the minor radius, and the shifts follow it."""
+    x, y = _numpy_grid()
+    positional = gaussian_beam_intensity(x, y, WAIST, WAIST / 2, 40e-6, -25e-6)
+    named = gaussian_beam_intensity(
+        x, y, WAIST, beam_radius_minor=WAIST / 2, shift_x=40e-6, shift_y=-25e-6
+    )
+
+    assert np.array_equal(positional, named)
+
+
+def test_the_spots_of_an_array_take_the_radii_and_the_angle() -> None:
+    """Turned a quarter turn, each spot's long axis runs along y."""
+    x, y = _numpy_grid()
+    spots = np.asarray(
+        gaussian_spot_array(
+            x,
+            y,
+            number_of_rows=1,
+            number_of_columns=1,
+            shift_x=0.0,
+            shift_y=0.0,
+            spot_separation=80e-6,
+            beam_radius_major=WAIST,
+            beam_radius_minor=WAIST / 2,
+            angle_degrees=90.0,
+        )
+    )
+
+    middle = SAMPLES // 2
+    along_x = AXIS[spots[middle, :] > np.exp(-2)]
+    along_y = AXIS[spots[:, middle] > np.exp(-2)]
+
+    assert (along_y[-1] - along_y[0]) == pytest.approx(2 * WAIST, rel=0.05)
+    assert (along_x[-1] - along_x[0]) == pytest.approx(WAIST, rel=0.05)
+
+
+@pytest.mark.parametrize("angle_degrees", [0.0, 30.0])
+def test_an_elliptical_blur_spreads_an_impulse_along_its_axes(angle_degrees) -> None:
+    """The blurred impulse is the kernel: centred, point symmetric, and 1/e^2 at each
+    radius along its axis.
+    """
+    samples = 33
+    middle = samples // 2
+    image = torch.zeros(samples, samples)
+    image[middle, middle] = 1.0
+
+    blurred = gaussian_blur(
+        image, 4.0, beam_radius_minor=2.0, angle_degrees=angle_degrees
+    ).double()
+    blurred /= blurred.max()
+
+    peak = np.unravel_index(int(blurred.argmax()), blurred.shape)
+    assert peak == (middle, middle)
+    assert float((blurred - torch.flip(blurred, dims=(-2, -1))).abs().max()) == 0.0
+    if angle_degrees == 0.0:
+        along = float(blurred[middle, middle + 4])
+        across = float(blurred[middle + 2, middle])
+        assert along == pytest.approx(np.exp(-2), rel=1e-5)
+        assert across == pytest.approx(np.exp(-2), rel=1e-5)
+
+
+def test_elongated_speckle_grains_vary_slowly_along_their_long_axis() -> None:
+    """Grains 8 pixels long in x and 2 across change much less from column to column
+    than from row to row.
+    """
+    speckle = laser_speckle_intensity(
+        (256, 256),
+        1.0,
+        8.0,
+        grain_radius_minor=2.0,
+        generator=torch.Generator().manual_seed(0),
+    )
+
+    along_x = float(speckle.diff(dim=1).pow(2).mean())
+    along_y = float(speckle.diff(dim=0).pow(2).mean())
+
+    assert along_x < 0.25 * along_y

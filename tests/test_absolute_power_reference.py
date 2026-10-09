@@ -48,7 +48,7 @@ def _model(camera_resolution=(256, 256), camera_pixel_size=None) -> SLMCZT:
     x, y = geometry.get_spatial_grid()
     beam = ComplexAmplitude.from_geometry(
         geometry,
-        data=gaussian_beam_intensity(x, y, beam_radius=5e-4).sqrt() + 0j,
+        data=gaussian_beam_intensity(x, y, beam_radius_major=5e-4).sqrt() + 0j,
     )
     if camera_pixel_size is None:
         # Sized so the window spans the whole diffraction order.

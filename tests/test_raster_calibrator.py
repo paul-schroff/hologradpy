@@ -62,7 +62,7 @@ def _build_setup(
     )
     slm = SimulatedSLMTorch(input_geometry=geometry, bitdepth=8)
     intensity = gaussian_beam_intensity(
-        *geometry.get_spatial_grid(), beam_radius=2.0e-3
+        *geometry.get_spatial_grid(), beam_radius_major=2.0e-3
     )
     beam = ComplexAmplitude(
         intensity.sqrt() + 0j,
@@ -606,7 +606,7 @@ def _aberrated_setup(camera_angle: float = 0.0, magnification: float = 1.0):
     )
     slm = SimulatedSLMTorch(input_geometry=geometry, bitdepth=8)
     grid_x, grid_y = geometry.get_spatial_grid()
-    intensity = gaussian_beam_intensity(grid_x, grid_y, beam_radius=beam_radius)
+    intensity = gaussian_beam_intensity(grid_x, grid_y, beam_radius_major=beam_radius)
     x = grid_x / beam_radius
     y = grid_y / beam_radius
     injected_phase = 3.0 * (x**2 + y**2) + 2.0 * x * y + 1.5 * x**3

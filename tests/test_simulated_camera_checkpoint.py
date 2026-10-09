@@ -43,7 +43,7 @@ def _geometry() -> FieldGeometry:
 
 def _beam(geometry: FieldGeometry) -> PixelwiseSLMField:
     x, y = geometry.get_spatial_grid()
-    intensity = gaussian_beam_intensity(x, y, beam_radius=1e-4)
+    intensity = gaussian_beam_intensity(x, y, beam_radius_major=1e-4)
     return PixelwiseSLMField(
         ComplexAmplitude.from_geometry(geometry, data=intensity.sqrt() + 0j)
     )

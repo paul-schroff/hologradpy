@@ -39,7 +39,7 @@ def setup():
         wavelength=torch.tensor(WAVELENGTH),
     )
     slm = SimulatedSLMTorch(input_geometry=geometry, bitdepth=8)
-    intensity = gaussian_beam_intensity(*geometry.get_spatial_grid(), beam_radius=1e-3)
+    intensity = gaussian_beam_intensity(*geometry.get_spatial_grid(), 1e-3)
     beam = ComplexAmplitude(
         intensity.sqrt() + 0j,
         wavelength=geometry.wavelength,

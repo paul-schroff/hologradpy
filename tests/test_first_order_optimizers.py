@@ -40,7 +40,7 @@ def _model() -> SLMFFT:
     )
     x, y = geometry.get_spatial_grid()
     beam = ComplexAmplitude.from_geometry(
-        geometry, data=gaussian_beam_intensity(x, y, beam_radius=2e-4).sqrt() + 0j
+        geometry, data=gaussian_beam_intensity(x, y, beam_radius_major=2e-4).sqrt() + 0j
     )
     return SLMFFT(
         input_geometry=beam.geometry,

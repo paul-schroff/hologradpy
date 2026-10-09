@@ -819,7 +819,7 @@ class _Bench:
         )
         self.slm = SimulatedSLMTorch(input_geometry=self.geometry, bitdepth=8)
         intensity = gaussian_beam_intensity(
-            *self.geometry.get_spatial_grid(), beam_radius=1e-3
+            *self.geometry.get_spatial_grid(), beam_radius_major=1e-3
         )
         self.beam = ComplexAmplitude(
             intensity.sqrt() + 0j,
