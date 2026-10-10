@@ -7,7 +7,7 @@ from numpy.typing import ArrayLike, NDArray
 from torch import Tensor
 
 from ...geometry import AffineTransform, PartialAffineTransform
-from ...grids import pixel_frame_angle, plane_center
+from ...grids import metres_to_pixel, pixel_frame_angle, pixel_to_metres, plane_center
 from ...serialization import SaveableRecord, record_type
 from ...visualizer import VisualizationData
 from ...hardware.camera import Camera, CameraData, CameraOrientation
@@ -119,9 +119,9 @@ class CameraMapping(SaveableRecord):
         """Image-plane positions ``(x, y)`` in metres from the zeroth order, as sensor
         ``(row, column)`` pixels.
 
-        A position lands ``position / output_pixel_size`` output pixels from the centre
-        of the output plane, and the inverse of :attr:`partial_affine` carries that
-        point onto the sensor, as it does in a model calibrated from this mapping.
+        :func:`~hologradpy.grids.metres_to_pixel` puts a position on its output-plane
+        pixel. The inverse of :attr:`partial_affine` carries that pixel onto the
+        sensor, as it does in a model calibrated from this mapping.
 
         Args:
             points: The ``(N, 2)`` or ``(2,)`` positions ``(x, y)`` in metres.
@@ -132,10 +132,11 @@ class CameraMapping(SaveableRecord):
         Raises:
             ValueError: The mapping records no output plane.
         """
-        (pitch_y, pitch_x), center = self._output_plane()
+        pixel_size, resolution = self._output_plane()
         points = np.atleast_2d(np.asarray(points, dtype=np.float64))
-        model_pixels = center + np.stack(
-            [points[:, 0] / pitch_x, points[:, 1] / pitch_y], axis=1
+        model_pixels = np.stack(
+            metres_to_pixel((points[:, 0], points[:, 1]), pixel_size, resolution),
+            axis=1,
         )
         sensor = self.partial_affine.inverse().transform_points(model_pixels)
         return np.stack([sensor[:, 1], sensor[:, 0]], axis=1)
@@ -153,16 +154,20 @@ class CameraMapping(SaveableRecord):
         Raises:
             ValueError: The mapping records no output plane.
         """
-        (pitch_y, pitch_x), center = self._output_plane()
+        pixel_size, resolution = self._output_plane()
         pixels = np.atleast_2d(np.asarray(pixels, dtype=np.float64))
         model_pixels = self.partial_affine.transform_points(
             np.stack([pixels[:, 1], pixels[:, 0]], axis=1)
         )
-        offsets = model_pixels - center
-        return np.stack([offsets[:, 0] * pitch_x, offsets[:, 1] * pitch_y], axis=1)
+        return np.stack(
+            pixel_to_metres(
+                (model_pixels[:, 0], model_pixels[:, 1]), pixel_size, resolution
+            ),
+            axis=1,
+        )
 
-    def _output_plane(self) -> tuple[tuple[float, float], NDArray[np.float64]]:
-        """The recorded pitch ``(y, x)`` in metres and the ``(x, y)`` centre of the
+    def _output_plane(self) -> tuple[tuple[float, float], tuple[int, int]]:
+        """The recorded pitch ``(y, x)`` in metres and the ``(height, width)`` of the
         output plane.
 
         Raises:
@@ -173,9 +178,9 @@ class CameraMapping(SaveableRecord):
                 "The camera mapping records no output plane, so its model pixels "
                 "cannot be converted to metres. Map the camera again to record it."
             )
-        pitch_y, pitch_x = (float(size) for size in self.output_pixel_size)
+        pixel_size = tuple(float(size) for size in self.output_pixel_size)
         resolution = tuple(int(size) for size in self.output_resolution)
-        return (pitch_y, pitch_x), np.asarray(plane_center(resolution), dtype=float)
+        return pixel_size, resolution
 
     @property
     def is_mirrored(self) -> bool:

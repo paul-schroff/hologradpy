@@ -18,8 +18,8 @@ from ....grids import (
     get_spatial_grid,
     metres_to_pixel,
     pixel_frame_angle,
+    pixel_frame_vector,
     pixel_to_metres,
-    plane_center,
 )
 from ....fourier_optics import get_focal_spot_radius
 from ....holography.phase_retrieval import LinearSuperpositionPhaseRetriever
@@ -276,10 +276,13 @@ class CoarseMapper(CameraMapper):
                     zeroth_order_position=zeroth_order_position,
                 )
             if jacobian is None:
-                # Fall back to a nominal ~1:1, un-rotated tilt to pixel map in the rare
-                # case that the Jacobian could not be computed. The affine fit still
-                # recovers the transform from wherever the probes land.
-                jacobian = np.diag([1.0 / camera_pitch[0], 1.0 / camera_pitch[1]])
+                # Fall back to a nominal ~1:1, un-rotated map from the physical tilt to
+                # (column, row) pixels in the rare case that the Jacobian could not be
+                # computed. The affine fit still recovers the transform from wherever
+                # the probes land.
+                jacobian = np.diag(
+                    pixel_frame_vector((1.0 / camera_pitch[0], 1.0 / camera_pitch[1]))
+                )
             inverse_jacobian = np.linalg.inv(jacobian)
 
             # The four affine probes form a rectangle centred in the camera frame. The
@@ -471,17 +474,17 @@ class CoarseMapper(CameraMapper):
     ) -> CoarseVisualizationData:
         """Bundle the per-stage captures and output-plane geometry recorded during
         map_camera into a self-contained CoarseVisualizationData for
-        CoarseMapperVisualizer. Output-plane pixels are (x, y); pixel_size_out /
+        CoarseMapperVisualizer. Output-plane pixels are (column, row); pixel_size_out /
         resolution_out are (y, x) / (height, width).
         """
-        center = np.array(plane_center(resolution_out), dtype=float)
         # Spiral candidate tilts (metres) to output-plane pixels
         tilts = np.asarray(
             self._spiral_tilts(half_extent[0], half_extent[1], search_step),
             dtype=np.float64,
         )
-        pixel_scale = np.array([pixel_size_out[1], pixel_size_out[0]])  # (x, y)
-        array_spot_positions = center + tilts / pixel_scale
+        array_spot_positions = np.column_stack(
+            metres_to_pixel((tilts[:, 0], tilts[:, 1]), pixel_size_out, resolution_out)
+        )
         nyquist_half_extent_px = (
             addressable[0] / pixel_size_out[1],
             addressable[1] / pixel_size_out[0],
@@ -572,6 +575,9 @@ class CoarseMapper(CameraMapper):
                         device=partial_affine.shift.device,
                     )
                 )
+        # The centroids are (column, row) pixels, so the offset is added back in the
+        # pixel frame.
+        column_offset, row_offset = pixel_frame_vector(model_window_offset)
 
         try:
             for index, probe in enumerate(probe_tilts):
@@ -611,10 +617,7 @@ class CoarseMapper(CameraMapper):
                 simulated = gpu_to_numpy(as_image(self.slm_camera_model().intensity))
                 centroid = self._peak_centroid(simulated)
                 simulated_points.append(
-                    (
-                        centroid[0] + model_window_offset[0],
-                        centroid[1] + model_window_offset[1],
-                    )
+                    (centroid[0] + column_offset, centroid[1] + row_offset)
                 )
                 simulated_frames.append(simulated)
         finally:

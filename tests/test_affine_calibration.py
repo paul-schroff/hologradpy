@@ -49,7 +49,7 @@ from hologradpy.calibration.camera_mapping import (
     FocalSpotFit,
 )
 from hologradpy.geometry import PartialAffineTransform
-from hologradpy.grids import plane_center
+from hologradpy.grids import pixel_frame_angle, pixel_frame_vector, plane_center
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -413,7 +413,8 @@ def test_calibrating_to_a_larger_angle_keeps_the_corners():
     angle = float(seeded_at_zero.focal_plane_partial_affine.angle)
     expected = calibrated_model(angle)().intensity.detach()
 
-    assert angle == pytest.approx(20.0, abs=0.5)
+    # The mapping turns the pixels by -20 degrees, and the lens turns them back.
+    assert pixel_frame_angle(angle) == pytest.approx(20.0, abs=0.5)
     torch.testing.assert_close(
         seeded_at_zero().intensity.detach(),
         expected,
@@ -485,7 +486,9 @@ def test_a_seeded_reference_finds_the_true_zeroth_order():
 
     mapping = CoarseMapper(slm, camera, reference).map_camera()
 
-    expected = (CAM_RES[0] // 2 + TRUTH_SHIFT[1], CAM_RES[1] // 2 + TRUTH_SHIFT[0])
+    # The truth shift is physical, and the position is (row, column).
+    column_shift, row_shift = pixel_frame_vector(TRUTH_SHIFT)
+    expected = (CAM_RES[0] // 2 + row_shift, CAM_RES[1] // 2 + column_shift)
     np.testing.assert_allclose(mapping.zeroth_order_position, expected, atol=1.0)
 
 

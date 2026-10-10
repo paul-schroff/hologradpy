@@ -20,7 +20,12 @@ from ....optics.systems import SLMFFT
 from ....utils import as_image, gpu_to_numpy
 from ....profiles.phase import analytic_phase_guess
 from ....profiles.masks import rectangular_mask
-from ....grids import get_spatial_grid, pixel_to_metres, plane_center
+from ....grids import (
+    get_spatial_grid,
+    pixel_frame_vector,
+    pixel_to_metres,
+    plane_center,
+)
 
 from ....holography.phase_retrieval import PixelwisePhaseRetriever
 from ....holography.vortices.vortex_annihilator import VortexAnnihilator
@@ -149,9 +154,12 @@ class CheckerboardMapper(CameraMapper):
             signal_region = torch.zeros_like(target, device=self.device) > 1
             signal_region[signal_region_roi.rows, signal_region_roi.columns] = True
 
+            # The board shift is in (column, row) pixels. The mask and the phase guess
+            # take its physical offset.
+            shift_x, shift_y = pixel_frame_vector(board_shift)
             board_shift_metres = (
-                board_shift[0] * simulation_pixel_size[1],
-                board_shift[1] * simulation_pixel_size[0],
+                shift_x * simulation_pixel_size[1],
+                shift_y * simulation_pixel_size[0],
             )
 
             # Regions for corner detection. The model-plane region is centred on

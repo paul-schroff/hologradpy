@@ -38,7 +38,7 @@ from hologradpy.calibration.camera_mapping import (
     MappingFit,
     SpotArrayMapper,
 )
-from hologradpy.grids import coordinates_to_indices
+from hologradpy.grids import coordinates_to_indices, pixel_frame_angle
 from hologradpy.profiles.masks import disc_mask
 from hologradpy.roi import ROI
 from hologradpy.utils import as_image
@@ -306,9 +306,10 @@ def test_map_camera_recovers_rotated_camera():
 
     # The camera view is rotated by +10 deg, so the camera->simulated transform
     # carries the inverse rotation. No 180-degree component: hardware and model
-    # paths share the same (desired-phase) sign convention.
+    # paths share the same (desired-phase) sign convention. The transform maps
+    # pixels, so its angle is converted to the physical frame of the camera angle.
     angle = np.degrees(np.arctan2(transform[1, 0], transform[0, 0]))
-    assert angle == pytest.approx(-10.0, abs=0.5)
+    assert pixel_frame_angle(angle) == pytest.approx(-10.0, abs=0.5)
 
     mapped = detected @ transform[:, :2].T + transform[:, 2]
     rms = np.sqrt(np.mean(np.sum((mapped - calculated) ** 2, axis=1)))
