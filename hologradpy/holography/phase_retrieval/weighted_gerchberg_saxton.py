@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from numpy.typing import ArrayLike
 
+from ...grids import pixel_frame_vector
 from ...optics.systems import SLMFourierLensModel
 from ...utils import ProgressBar
 from .abstract import PhaseRetrieverBase
@@ -164,10 +165,12 @@ class WeightedGerchbergSaxtonPhaseRetriever(PhaseRetrieverBase):
         )
         rows = torch.arange(height, dtype=torch.float64, device=self.device)
         columns = torch.arange(width, dtype=torch.float64, device=self.device)
-        rows = (rows - height // 2) * pitch_y
-        columns = (columns - width // 2) * pitch_x
-        row_phasors = torch.exp(-1j * scale * positions[:, 1:] * rows)
-        column_phasors = torch.exp(-1j * scale * positions[:, :1] * columns)
+        # The x of each column and the y of each row, in metres.
+        x, y = pixel_frame_vector(
+            ((columns - width // 2) * pitch_x, (rows - height // 2) * pitch_y)
+        )
+        row_phasors = torch.exp(-1j * scale * positions[:, 1:] * y)
+        column_phasors = torch.exp(-1j * scale * positions[:, :1] * x)
         return row_phasors.to(dtype), column_phasors.to(dtype)
 
     def _iterate(self, number_of_iterations: int) -> None:

@@ -167,6 +167,11 @@ def find_vortex_charge(
 ) -> torch.Tensor:
     """Finds the charge of vortices given their centers.
 
+    The phase is followed around a square of pixels about each center. The square
+    turns from +column towards +row. The steps of the grid give the sense of that turn
+    in the ``(x, y)`` frame, so the charge has the handedness of
+    :func:`~hologradpy.profiles.phase.vortex_phase` on the same grid.
+
     Args:
         complex_amplitude: The complex electric field.
         x: The x-coordinates of the spatial grid.
@@ -178,14 +183,17 @@ def find_vortex_charge(
             calculation. Defaults to 1.
 
     Returns:
-        torch.Tensor: The charges of the vortices. The charge is +1 for a
-            clockwise vortex, -1 for a counter-clockwise vortex, and 0 if
-            the phase difference is smaller than pi in magnitude.
+        torch.Tensor: The charges of the vortices. The charge is +1 if the phase
+            grows by 2 pi from +x towards +y, as for ``vortex_phase`` with charge 1.
+            It is -1 if the phase falls, and 0 if the phase difference is smaller
+            than pi in magnitude.
     """
     charges = torch.zeros(
         len(center_indices), dtype=torch.int, device=complex_amplitude.device
     )
     field = as_image(complex_amplitude)
+    # +1 if the square turns from +x towards +y, and -1 if it turns the other way.
+    handedness = int(torch.sign((x[0, 1] - x[0, 0]) * (y[1, 0] - y[0, 0])))
 
     for i in range(len(center_indices)):
         center_index = center_indices[i]
@@ -210,9 +218,9 @@ def find_vortex_charge(
         phase_difference = unwrapped_phase[-1] - unwrapped_phase[0]
 
         if phase_difference > np.pi:
-            charges[i] = 1
+            charges[i] = handedness
         elif phase_difference < -np.pi:
-            charges[i] = -1
+            charges[i] = -handedness
         else:
             charges[i] = 0
     return charges
