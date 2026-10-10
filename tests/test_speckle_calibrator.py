@@ -38,6 +38,7 @@ from hologradpy.optics.modules.slm_fields import (
 from hologradpy.optics.modules.pixel_crosstalk import SuperGaussianCrosstalk
 from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
+from hologradpy.profiles.gaussian_zernike import GaussianZernikeBeam
 from hologradpy.profiles.phase import linear_phase
 from hologradpy.grids import get_spatial_grid, plane_center
 from hologradpy.calibration.spot_detection import tilt_to_sensor_center
@@ -220,7 +221,9 @@ def test_speckle_calibrator_runs_end_to_end(tmp_path) -> None:
     assert isinstance(result, WavefrontCalibrationData)
     assert result.complex_amplitude.resolution == SLM_RESOLUTION
     assert torch.isfinite(result.complex_amplitude.as_tensor()).all()
-    assert "beam_radius" in result.metadata
+    # The fitted beam is a record of its own, not metadata.
+    assert isinstance(result.beam, GaussianZernikeBeam)
+    assert "beam_radius" not in result.metadata
     assert result.metadata["number_of_random_patterns"] == 3
 
 

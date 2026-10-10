@@ -1468,8 +1468,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 full-resolution frame per superpixel, so off by default.
 
         Returns:
-            WavefrontCalibrationData: The measured SLM-plane field, carrying the
-            phase scan as ``visualization_data``.
+            WavefrontCalibrationData: The measured SLM-plane field, with the beam
+            :meth:`fit_beam` fits to it, and the phase scan as ``visualization_data``.
         """
         if number_of_superpixels is None and superpixel_size is not None:
             number_of_superpixels_x, number_of_superpixels_y = (
@@ -1532,10 +1532,9 @@ class RasterCalibrator(WavefrontCalibratorBase):
             record_displayed_phases=record_displayed_phases,
         )
 
+        field = np.sqrt(intensity) * np.exp(1j * phase)
         complex_amplitude = ComplexAmplitude(
-            torch.as_tensor(
-                np.sqrt(intensity) * np.exp(1j * phase), dtype=torch.complex64
-            ),
+            torch.as_tensor(field, dtype=torch.complex64),
             wavelength=torch.as_tensor(self.slm.wavelength),
             pixel_size=torch.as_tensor(tuple(self.slm.pixel_size)),
         )
@@ -1570,6 +1569,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
             timestamp=datetime.now(),
             name=calibration_name,
             complex_amplitude=complex_amplitude,
+            beam=self.fit_beam(field),
             metadata=metadata,
             visualization_data=self.visualization_data,
         )

@@ -26,6 +26,8 @@ from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.profiles.amplitude import (
     gaussian_beam_intensity,
 )
+from hologradpy.profiles.gaussian import Gaussian, GaussianBeam
+from hologradpy.profiles.zernike import Zernike
 from hologradpy.calibration import (
     RasterCalibrator,
     get_diffraction_spot_position,
@@ -522,6 +524,70 @@ def test_calibration_returns_a_complex_amplitude_its_consumers_accept():
     assert as_image(record.complex_amplitude).shape == tuple(slm.resolution)
 
 
+def test_the_fitted_beam_holds_the_gaussian_and_the_zernike_terms_of_a_field():
+    """fit_beam gives back the Gaussian and the Zernike terms of a field.
+
+    The tilt Z(1, -1) wraps the phase about ten times across the beam. The
+    astigmatism Z(2, -2) would change sign if y pointed down.
+    """
+    slm, camera = _build_setup()
+    calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
+    gaussian = GaussianBeam(0.8e-3, 0.7e-3, 0.1e-3, -0.05e-3, angle_degrees=30.0)
+    radius = np.sqrt(2) * 0.8e-3
+    pitch = float(slm.pixel_size[1])
+    terms = {(2, 0): 1.5, (2, -2): -0.6, (3, 1): 0.4, (1, -1): 15.0}
+    zernike = Zernike(
+        slm.resolution,
+        unit_disk_radius=radius / pitch,
+        unit_disk_center=(gaussian.shift_x / pitch, gaussian.shift_y / pitch),
+        indices=list(terms),
+    )
+    phase = zernike.get_phase(torch.tensor(list(terms.values()))).numpy()
+    intensity = Gaussian(slm.resolution, slm.pixel_size).get_intensity(gaussian)
+    field = np.sqrt(intensity.numpy()) * np.exp(1j * phase)
+
+    beam = calibrator.fit_beam(field)
+
+    fitted = beam.gaussian
+    assert (
+        fitted.beam_radius_major,
+        fitted.beam_radius_minor,
+        fitted.shift_x,
+        fitted.shift_y,
+        fitted.angle_degrees,
+    ) == pytest.approx((0.8e-3, 0.7e-3, 0.1e-3, -0.05e-3, 30.0), rel=1e-4)
+    assert beam.zernike_radius == pytest.approx(radius, rel=1e-4)
+    assert len(beam.zernike_indices) == 28
+    assert max(n for n, _ in beam.zernike_indices) == 6
+    coefficients = dict(zip(beam.zernike_indices, beam.zernike_coefficients))
+    # The piston is arbitrary modulo 2 pi.
+    del coefficients[(0, 0)]
+    assert coefficients == pytest.approx(
+        {index: terms.get(index, 0.0) for index in coefficients}, abs=1e-3
+    )
+
+
+def test_a_raster_calibration_records_its_beam():
+    """The beam of a raster calibration is fitted to its measured field.
+
+    The simulated beam is round, with a radius of 2 mm, on the SLM's centre. The 4 x 4
+    scan measures it in blocks of 0.8 x 1 mm, so the fit is only close to it.
+    """
+    slm, camera = _build_setup()
+    calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
+
+    beam = calibrator.calibrate(
+        number_of_superpixels=(4, 4),
+        camera_mapping=_synthetic_mapping(),
+        verbose=False,
+    ).beam
+
+    assert beam.gaussian.mean_radius == pytest.approx(2.0e-3, rel=0.1)
+    assert abs(beam.gaussian.shift_x) < 1e-4
+    assert abs(beam.gaussian.shift_y) < 1e-4
+    assert len(beam.zernike_coefficients) == 28
+
+
 def test_calibrate_records_the_scan_for_the_animation(tmp_path) -> None:
     """The animation and the full-frame snapshot read the displayed phases, which
     only measure_phase recorded, so a calibration run through calibrate() could not be
@@ -806,6 +872,8 @@ def test_calibrate_passes_the_camera_roi_as_height_and_width(monkeypatch):
 
     monkeypatch.setattr(calibrator, "measure_intensity", measure_intensity)
     monkeypatch.setattr(calibrator, "measure_phase", measure_phase)
+    # The stand-in scans measure a flat field, which has no beam to fit.
+    monkeypatch.setattr(calibrator, "fit_beam", lambda field: None)
     calibrator.calibrate(
         superpixel_size=(40, 32), camera_mapping=_synthetic_mapping(), verbose=False
     )

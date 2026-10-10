@@ -16,7 +16,7 @@ from .....datasets import CaptureStore
 from .....hardware.camera import Background
 from ..visualizer import SpeckleVisualizationData
 
-from ...abstract import WavefrontCalibrationData
+from ...abstract import WavefrontCalibrationData, WavefrontCalibratorBase
 
 from .....analysis.error_metrics import (
     DEFAULT_WAVEFRONT_METRICS,
@@ -32,7 +32,7 @@ from .....optics.modules.slm_fields import SLMField
 
 BEAM_MASK_THRESHOLD_DEFAULT = float(np.exp(-4.0))  # ~0.0183
 
-class WavefrontSpeckleCalibrator(SpeckleCalibrator):
+class WavefrontSpeckleCalibrator(SpeckleCalibrator, WavefrontCalibratorBase):
     """Recover the SLM-plane beam from captured speckle."""
 
     fitter_type: ClassVar[type[WavefrontFitter]] = WavefrontFitter
@@ -208,6 +208,9 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
     ) -> WavefrontCalibrationData:
         """The recovered SLM-plane field, as a saveable calibration.
 
+        :meth:`fit_beam` fits the calibration's ``beam`` to the field. If that fit
+        fails, the beam is None.
+
         Args:
             beam_mask_threshold: Fraction of the peak intensity above which a pixel
                 counts as illuminated. Default is 1/e^4 (~0.0183).
@@ -216,12 +219,6 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
 
         intensity = np.abs(field) ** 2
         intensity /= np.max(intensity)
-        try:
-            beam = self.fit_gaussian_beam(intensity)
-            beam_radius, shift_x, shift_y = beam.mean_radius, beam.shift_x, beam.shift_y
-        except (RuntimeError, ValueError) as error:
-            print(f"Gaussian beam fit failed ({error}). Leaving beam metadata unset.")
-            beam_radius = shift_x = shift_y = None
 
         slm_mask = intensity > beam_mask_threshold
         comparison_mask = self._comparison_mask(slm_mask, beam_mask_threshold)
@@ -231,6 +228,11 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
 
         amplitude = np.sqrt(intensity)
         calibrated_field = amplitude * np.exp(1j * phase_no_tilt)
+        try:
+            beam = self.fit_beam(calibrated_field)
+        except (RuntimeError, ValueError) as error:
+            print(f"Beam fit failed ({error}). Leaving the beam unset.")
+            beam = None
 
         complex_amplitude = ComplexAmplitude(
             torch.tensor(calibrated_field, dtype=torch.complex64),
@@ -242,10 +244,8 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
             timestamp=datetime.now(),
             name="speckle",
             complex_amplitude=complex_amplitude,
+            beam=beam,
             metadata={
-                "beam_radius": beam_radius,
-                "shift_x": shift_x,
-                "shift_y": shift_y,
                 "focal_length": self.focal_length,
                 "number_of_random_patterns": self.number_of_random_patterns,
                 "beam_mask_threshold": beam_mask_threshold,

@@ -84,5 +84,21 @@ def test_get_phase_rejects_wrong_coefficient_count() -> None:
         z.get_phase(torch.zeros(z.number_of_zernikes + 3))
 
 
+def test_a_disk_centre_moves_the_disk_right_and_up() -> None:
+    """A centre of (3, 2) pixels moves the disk 3 columns right and 2 rows up, since y
+    points up.
+    """
+    centred = Zernike((40, 52), unit_disk_radius=12, number_of_radial_orders=4)
+    moved = Zernike(
+        (40, 52),
+        unit_disk_radius=12,
+        unit_disk_center=(3.0, 2.0),
+        number_of_radial_orders=4,
+    )
+
+    expected = torch.roll(centred.zernike_array, shifts=(-2, 3), dims=(-2, -1))
+    torch.testing.assert_close(moved.zernike_array, expected, rtol=0, atol=0)
+
+
 def _gen() -> torch.Generator:
     return torch.Generator().manual_seed(0)

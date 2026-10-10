@@ -105,6 +105,7 @@ class Zernike:
         resolution: tuple[int, int],
         unit_disk_mode: Literal["fill", "fit"] = DEFAULT_UNIT_DISK_MODE,
         unit_disk_radius: float | None = None,
+        unit_disk_center: tuple[float, float] = (0.0, 0.0),
         number_of_radial_orders: int | None = None,
         indices: list[int | tuple[int, int]] | None = None,
         convention: Conventions = "ANSI",
@@ -118,6 +119,7 @@ class Zernike:
                 resolution,
                 unit_disk_mode=unit_disk_mode,
                 unit_disk_radius=unit_disk_radius,
+                unit_disk_center=unit_disk_center,
                 device=self.device,
             )
         )
@@ -229,6 +231,7 @@ class Zernike:
         resolution: tuple[int, int],
         unit_disk_mode: Literal["fill", "fit"] = DEFAULT_UNIT_DISK_MODE,
         unit_disk_radius: float | None = None,
+        unit_disk_center: tuple[float, float] = (0.0, 0.0),
         device: torch.device | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if unit_disk_radius is None:
@@ -241,7 +244,11 @@ class Zernike:
             else:
                 raise ValueError("Invalid unit_disk_mode. Must be 'fill' or 'fit'.")
 
+        # The disk's centre is in pixels from the grid's centre pixel, as (x, y) with
+        # y up.
         x, y = get_pixel_grid(resolution, device)
+        x = x - unit_disk_center[0]
+        y = y - unit_disk_center[1]
 
         radial_coordinate = (x**2 + y**2) ** 0.5 / unit_disk_radius
         angular_coordinate = torch.atan2(y, x)

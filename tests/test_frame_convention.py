@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import importlib.util
 import math
+from dataclasses import replace
 from datetime import datetime
 
 import numpy as np
@@ -45,6 +46,8 @@ from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.optics.systems import SLMCZT, SLMFFT, SLMFFTAffine, SLMNUFFT
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
+from hologradpy.profiles.gaussian import GaussianBeam
+from hologradpy.profiles.gaussian_zernike import GaussianZernikeBeam
 from hologradpy.profiles.phase import linear_phase, vortex_field, vortex_phase
 from hologradpy.utils import as_image
 
@@ -335,7 +338,9 @@ def test_an_identity_mapping_puts_plus_y_above_the_centre():
 
 
 def _calibration() -> WavefrontCalibrationData:
-    """A raster calibration with a beam centre, a tilt and a lattice drift."""
+    """A calibration with a tilt and a lattice drift, and a beam in its metadata, as
+    versions 1 and 2 kept it.
+    """
     field = ComplexAmplitude(
         torch.linspace(0, 1, 12).reshape(3, 4) + 0j,
         wavelength=torch.tensor(WAVELENGTH),
@@ -347,6 +352,7 @@ def _calibration() -> WavefrontCalibrationData:
         name="frame convention",
         complex_amplitude=field,
         metadata={
+            "beam_radius": 3e-3,
             "shift_x": 1e-4,
             "shift_y": 2e-4,
             "linear_phase_tilt": (3e-4, 4e-4),
@@ -366,7 +372,7 @@ def _calibration() -> WavefrontCalibrationData:
 def test_a_version_1_calibration_loads_with_its_y_negated(tmp_path, monkeypatch):
     """Version 1 of a calibration was saved while y increased with increasing row
     index. The y of its beam centre, tilt and lattice drift changes sign, and its field
-    stays as it is.
+    stays as it is. Its beam moves from the metadata into ``beam``.
     """
     original = _calibration()
     path = tmp_path / "version_1.asdf"
@@ -377,8 +383,10 @@ def test_a_version_1_calibration_loads_with_its_y_negated(tmp_path, monkeypatch)
 
     loaded = WavefrontCalibrationData.load(path)
 
-    assert loaded.metadata["shift_x"] == 1e-4
-    assert loaded.metadata["shift_y"] == -2e-4
+    assert loaded.beam == GaussianZernikeBeam(
+        GaussianBeam(3e-3, None, 1e-4, -2e-4), math.sqrt(2) * 3e-3
+    )
+    assert not {"beam_radius", "shift_x", "shift_y"} & loaded.metadata.keys()
     assert tuple(loaded.metadata["linear_phase_tilt"]) == (3e-4, -4e-4)
     assert loaded.metadata["lattice_phase_tilt"] is None
     assert torch.equal(
@@ -389,16 +397,35 @@ def test_a_version_1_calibration_loads_with_its_y_negated(tmp_path, monkeypatch)
     np.testing.assert_array_equal(loaded.visualization_data.lattice_shift_y, -drift)
 
 
-def test_a_version_2_calibration_loads_as_it_was(tmp_path):
+def test_a_version_2_calibration_keeps_its_y(tmp_path, monkeypatch):
+    """Version 2 of a calibration was saved with y up, so its y stays. Its beam moves
+    from the metadata into ``beam``.
+    """
     original = _calibration()
     path = tmp_path / "version_2.asdf"
-    original.save(path)
+    with monkeypatch.context() as patch:
+        patch.setattr(WavefrontCalibrationData, "RECORD_VERSION", 2)
+        original.save(path)
 
     loaded = WavefrontCalibrationData.load(path)
 
-    assert loaded.metadata["shift_y"] == 2e-4
+    assert loaded.beam.gaussian.shift_y == 2e-4
     assert tuple(loaded.metadata["linear_phase_tilt"]) == (3e-4, 4e-4)
     np.testing.assert_array_equal(
         loaded.visualization_data.lattice_shift_y,
         original.visualization_data.lattice_shift_y,
     )
+
+
+def test_a_calibration_keeps_its_beam(tmp_path):
+    """A beam with Zernike terms is saved with its calibration and loads back equal."""
+    beam = GaussianZernikeBeam(
+        GaussianBeam(3e-3, 2e-3, 1e-4, 2e-4, angle_degrees=30.0),
+        4e-3,
+        ((0, 0), (2, -2), (2, 0)),
+        (0.1, -0.6, 1.5),
+    )
+    path = tmp_path / "calibration.asdf"
+    replace(_calibration(), beam=beam, metadata={}).save(path)
+
+    assert WavefrontCalibrationData.load(path).beam == beam
