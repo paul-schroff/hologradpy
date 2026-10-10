@@ -20,7 +20,7 @@ import numpy as np
 from numpy.typing import NDArray
 from jaxtyping import Float
 
-from ..grids import get_spatial_grid
+from ..grids import get_spatial_grid, pixel_frame_vector
 
 
 # The two reserved axes. A field is always ``(*batch, component, wavelength, H, W)``.
@@ -391,12 +391,17 @@ class FieldGeometry:
             [[float(step), transverse_pitch]], device=device, dtype=dtype
         )
 
-        transverse = [1.0, 0.0, 0.0] if axis == "x" else [0.0, 1.0, 0.0]
-        along_z = [0.0, 0.0, 1.0]
-        normal = [0.0, -1.0, 0.0] if axis == "x" else [1.0, 0.0, 0.0]
-        rotation = torch.tensor(
-            [transverse, along_z, normal], device=device, dtype=dtype
-        ).transpose(0, 1)
+        # The rows run down z. The y axis of the section therefore points along +z if
+        # y grows with the row, and along -z if y falls. The normal completes a
+        # right-handed frame.
+        _, row_sense = pixel_frame_vector((0.0, 1.0))
+        options = {"device": device, "dtype": dtype}
+        transverse = torch.tensor(
+            [1.0, 0.0, 0.0] if axis == "x" else [0.0, 1.0, 0.0], **options
+        )
+        along_z = torch.tensor([0.0, 0.0, row_sense], **options)
+        normal = torch.linalg.cross(transverse, along_z)
+        rotation = torch.stack((transverse, along_z, normal), dim=1)
 
         centre = [offset, 0.0] if axis == "y" else [0.0, offset]
         origin = torch.tensor(

@@ -7,7 +7,7 @@ import torch
 from torch import Tensor
 
 from ....fourier_transforms import fft_2d, ifft_2d
-from ....grids import get_frequency_grid
+from ....grids import get_frequency_grid, pixel_frame_vector
 from ....utils import to_canvas
 
 from ..abstract import OpticsModule
@@ -268,12 +268,15 @@ class AngularSpectrumMethod(OpticsModule):
         _, source_origin = _pose(complex_amplitude.geometry, device)
         pitch_out = geometry.pixel_size.reshape(-1, 2)[0].to(torch.float64)
 
-        # The wave vectors are projected onto the grid's column and row directions,
-        # the first two columns of its rotation, and scaled to radians per sample.
+        # The wave vectors are projected onto the grid's x and y axes, the first two
+        # columns of its rotation, and scaled to radians per sample. The samples run
+        # along the columns and the rows, so the projections are converted to the
+        # pixel frame.
         projected = torch.einsum("da,wdm->wam", rotation[:, :2], wave_vectors)
-        points = torch.stack(
-            (projected[:, 1] * pitch_out[0], projected[:, 0] * pitch_out[1]), dim=1
+        column_points, row_points = pixel_frame_vector(
+            (projected[:, 0] * pitch_out[1], projected[:, 1] * pitch_out[0])
         )
+        points = torch.stack((row_points, column_points), dim=1)
         phase = torch.exp(
             1j * torch.einsum("wdm,d->wm", wave_vectors, origin - source_origin)
         )
