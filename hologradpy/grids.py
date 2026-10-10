@@ -30,8 +30,8 @@ def pixel_frame_vector(vector: tuple[T, T]) -> tuple[T, T]:
     """The ``(column, row)`` components of an ``(x, y)`` vector, or the ``(x, y)``
     components of a ``(column, row)`` vector.
 
-    The row component is minus the y component, since y points up and the rows run
-    down. The function is its own inverse. It takes floats, arrays or tensors, and
+    The row component is minus the y component, since y increases with decreasing row
+    index. The function is its own inverse. It takes floats, arrays or tensors, and
     gradients pass through it.
 
     Args:
@@ -65,8 +65,8 @@ def get_pixel_grid(
     device: torch.device | None = None,
     dtype: torch.dtype | None = None,
 ) -> tuple[Tensor, Tensor]:
-    """Centred ``(x, y)`` coordinates in pixels, as a pair of grids. y falls by one
-    from each row to the next, so row 0 holds the largest y.
+    """Centred ``(x, y)`` coordinates in pixels, as a pair of grids. y increases with
+    decreasing row index, so row 0 holds the largest y.
 
     Args:
         resolution: ``(height, width)`` in pixels.

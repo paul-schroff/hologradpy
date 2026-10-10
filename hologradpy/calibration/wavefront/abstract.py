@@ -13,7 +13,7 @@ from ...visualizer import VisualizationData
 from ..abstract import CalibratorBase
 
 
-@record_type("wavefront_calibration")
+@record_type("wavefront_calibration", version=2)
 @dataclass
 class WavefrontCalibrationData(SaveableRecord):
     timestamp: datetime
@@ -23,6 +23,26 @@ class WavefrontCalibrationData(SaveableRecord):
     visualization_data: VisualizationData | None = None
 
     # save / load come from SaveableRecord.
+
+    @classmethod
+    def _migrate(cls, version: int, stored: dict) -> dict:
+        """Convert a calibration saved while y increased with increasing row index
+        (version 1).
+
+        The field is indexed by row and column, so it stays as it is. The y of the beam
+        centre ``shift_y`` and of the raster tilts changes sign, since y now increases
+        with decreasing row index.
+        """
+        if version < 2:
+            metadata = dict(stored.get("metadata") or {})
+            if metadata.get("shift_y") is not None:
+                metadata["shift_y"] = -metadata["shift_y"]
+            for key in ("linear_phase_tilt", "lattice_phase_tilt"):
+                if metadata.get(key) is not None:
+                    x, y = metadata[key]
+                    metadata[key] = (x, -y)
+            stored["metadata"] = metadata
+        return stored
 
 
 class WavefrontCalibratorBase(CalibratorBase):

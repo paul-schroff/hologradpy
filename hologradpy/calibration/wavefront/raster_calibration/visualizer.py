@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
 
-@record_type("raster_visualization")
+@record_type("raster_visualization", version=2)
 @dataclass
 class RasterVisualizationData(VisualizationData):
     """Everything ``RasterCalibrator.measure_phase`` records for visualization.
@@ -66,6 +66,17 @@ class RasterVisualizationData(VisualizationData):
     displayed_slm_phases: NDArray | None = None
     full_frame_image: NDArray | None = None
     full_frame_marker_positions: dict[str, tuple[float, float] | None] | None = None
+
+    @classmethod
+    def _migrate(cls, version: int, stored: dict) -> dict:
+        """Convert a scan saved while y increased with increasing row index (version 1).
+
+        The lattice drift along y changes sign, since y now increases with decreasing
+        row index. The images, the phase maps and the camera pixels stay as they are.
+        """
+        if version < 2 and stored.get("lattice_shift_y") is not None:
+            stored["lattice_shift_y"] = -np.asarray(stored["lattice_shift_y"])
+        return stored
 
 
 class RasterCalibratorVisualizer(AnimatedVisualizer):

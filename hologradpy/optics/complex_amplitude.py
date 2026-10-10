@@ -350,7 +350,7 @@ class FieldGeometry:
 
         Returns:
             FieldGeometry: The section, posed so that ``positions()[..., 2]`` reproduces
-                ``distances`` down the rows.
+                ``distances`` in order of increasing row index.
 
         Raises:
             ValueError: ``distances`` is not evenly spaced, or ``axis`` is not ``"x"`` 
@@ -391,9 +391,9 @@ class FieldGeometry:
             [[float(step), transverse_pitch]], device=device, dtype=dtype
         )
 
-        # The rows run down z. The y axis of the section therefore points along +z if
-        # y grows with the row, and along -z if y falls. The normal completes a
-        # right-handed frame.
+        # z increases with the row index. The y axis of the section therefore points
+        # along +z if y increases with the row index, and along -z if y increases with
+        # decreasing row index. The normal completes a right-handed frame.
         _, row_sense = pixel_frame_vector((0.0, 1.0))
         options = {"device": device, "dtype": dtype}
         transverse = torch.tensor(

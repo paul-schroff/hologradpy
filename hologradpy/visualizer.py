@@ -520,8 +520,8 @@ class BaseVisualizer:
 
         ``scale`` follows matplotlib's ``scale_units="xy"`` convention (drawn
         length = vector length / scale, so ``scale < 1`` magnifies). ``None``
-        lets matplotlib autoscale. ``invert_y`` matches image coordinates
-        (y grows downward).
+        lets matplotlib autoscale. ``invert_y`` matches image coordinates, where
+        the row index grows downward.
         """
         axs.quiver(
             x,

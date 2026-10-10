@@ -25,6 +25,10 @@ import pytest
 import torch
 
 from hologradpy.calibration.camera_mapping import CameraMapping, FocalSpotFit
+from hologradpy.calibration.wavefront.abstract import WavefrontCalibrationData
+from hologradpy.calibration.wavefront.raster_calibration.visualizer import (
+    RasterVisualizationData,
+)
 from hologradpy.geometry import AffineTransform
 from hologradpy.grids import (
     coordinates_to_indices,
@@ -203,7 +207,7 @@ def test_a_vortex_of_charge_one_is_read_as_charge_one_and_cancelled():
 
 @pytest.mark.parametrize("resolution", [(8, 10), (7, 9)])
 def test_row_zero_holds_the_largest_y(resolution):
-    """A step down the rows is a step of one pitch towards -y."""
+    """A step to the next row index is a step of one pitch towards -y."""
     _, y = get_spatial_grid(resolution, (PITCH, PITCH))
 
     assert float(y[0, 0]) == float(y.max())
@@ -325,3 +329,76 @@ def test_an_identity_mapping_puts_plus_y_above_the_centre():
     row, column = mapping.image_plane_to_sensor((0.0, PITCH))[0]
 
     assert (row, column) == pytest.approx((center_row - 1, center_column))
+
+
+# Saved data. Files saved while y increased with increasing row index load converted.
+
+
+def _calibration() -> WavefrontCalibrationData:
+    """A raster calibration with a beam centre, a tilt and a lattice drift."""
+    field = ComplexAmplitude(
+        torch.linspace(0, 1, 12).reshape(3, 4) + 0j,
+        wavelength=torch.tensor(WAVELENGTH),
+        pixel_size=torch.tensor([PITCH, PITCH]),
+    )
+    drift = np.array([1e-6, -2e-6])
+    return WavefrontCalibrationData(
+        timestamp=datetime(2026, 10, 1),
+        name="frame convention",
+        complex_amplitude=field,
+        metadata={
+            "shift_x": 1e-4,
+            "shift_y": 2e-4,
+            "linear_phase_tilt": (3e-4, 4e-4),
+            "lattice_phase_tilt": None,
+        },
+        visualization_data=RasterVisualizationData(
+            camera_images=np.zeros((2, 3, 3)),
+            fitted_images=np.zeros((2, 3, 3)),
+            measured_phase=np.zeros((3, 4)),
+            superpixel_coordinates=np.zeros((2, 2)),
+            lattice_shift_x=drift,
+            lattice_shift_y=drift,
+        ),
+    )
+
+
+def test_a_version_1_calibration_loads_with_its_y_negated(tmp_path, monkeypatch):
+    """Version 1 of a calibration was saved while y increased with increasing row
+    index. The y of its beam centre, tilt and lattice drift changes sign, and its field
+    stays as it is.
+    """
+    original = _calibration()
+    path = tmp_path / "version_1.asdf"
+    with monkeypatch.context() as patch:
+        patch.setattr(WavefrontCalibrationData, "RECORD_VERSION", 1)
+        patch.setattr(RasterVisualizationData, "RECORD_VERSION", 1)
+        original.save(path)
+
+    loaded = WavefrontCalibrationData.load(path)
+
+    assert loaded.metadata["shift_x"] == 1e-4
+    assert loaded.metadata["shift_y"] == -2e-4
+    assert tuple(loaded.metadata["linear_phase_tilt"]) == (3e-4, -4e-4)
+    assert loaded.metadata["lattice_phase_tilt"] is None
+    assert torch.equal(
+        loaded.complex_amplitude.as_tensor(), original.complex_amplitude.as_tensor()
+    )
+    drift = original.visualization_data.lattice_shift_x
+    np.testing.assert_array_equal(loaded.visualization_data.lattice_shift_x, drift)
+    np.testing.assert_array_equal(loaded.visualization_data.lattice_shift_y, -drift)
+
+
+def test_a_version_2_calibration_loads_as_it_was(tmp_path):
+    original = _calibration()
+    path = tmp_path / "version_2.asdf"
+    original.save(path)
+
+    loaded = WavefrontCalibrationData.load(path)
+
+    assert loaded.metadata["shift_y"] == 2e-4
+    assert tuple(loaded.metadata["linear_phase_tilt"]) == (3e-4, 4e-4)
+    np.testing.assert_array_equal(
+        loaded.visualization_data.lattice_shift_y,
+        original.visualization_data.lattice_shift_y,
+    )

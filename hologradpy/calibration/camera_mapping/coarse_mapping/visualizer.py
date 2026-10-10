@@ -153,7 +153,7 @@ class CoarseMapperVisualizer(BaseVisualizer):
         axs.set_xlim(xs.min() - pad, xs.max() + pad)
         axs.set_ylim(ys.min() - pad, ys.max() + pad)
         axs.set_aspect("equal")
-        axs.invert_yaxis()  # image coordinates (y grows downward)
+        axs.invert_yaxis()  # image coordinates: the row index grows downward
         axs.set_xlabel("output-plane x [px]")
         axs.set_ylabel("output-plane y [px]")
         axs.set_title("Nyquist output plane, spots and camera sensor")

@@ -142,7 +142,8 @@ class RecordConverter(Converter):
                 "It was written by a newer version, or the registration was removed."
             )
         cls = RECORD_TYPES[name]
-        stored = dict(node)
+        # Tuples and datetimes are restored first, so a migration sees plain values.
+        stored = {key: _from_yaml(value) for key, value in node.items()}
 
         if version < cls.RECORD_VERSION:
             stored = cls._migrate(version, stored)
@@ -289,14 +290,13 @@ def _coerce(value: Any, declared_type: type | str) -> Any:
     """Restore a declared tuple field, which YAML flattened to a list.
 
     Args:
-        value: The stored value, still in its YAML tree form.
+        value: The stored value, with its tuples and datetimes already restored.
         declared_type: The annotation the dataclass field carries, either the object
             itself or the string a postponed annotation leaves behind.
 
     Returns:
         Any: The value, as a tuple where the field declares one.
     """
-    value = _from_yaml(value)
     if typing.get_origin(declared_type) is tuple and isinstance(value, list):
         return tuple(value)
     if isinstance(declared_type, str) and declared_type.startswith("tuple"):
@@ -433,7 +433,8 @@ class SaveableRecord:
 
         Args:
             version: The version the stored fields were written at.
-            stored: The fields as they were read from the file.
+            stored: The fields as they were read from the file, with their tuples and
+                datetimes restored.
 
         Returns:
             dict: The fields in the shape this class's constructor takes.

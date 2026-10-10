@@ -60,8 +60,8 @@ def test_default_warp_returns_the_field():
 
 def test_whole_pixel_shift_moves_the_field_and_fills_zeros():
     data = _random_plane((31, 45))
-    # The shift is (x, y) and y points up, so the field moves 3 columns right and 2
-    # rows up.
+    # The shift is (x, y), and y increases with decreasing row index, so the field
+    # moves 3 columns right and 2 rows towards row 0.
     expected = torch.zeros_like(data)
     expected[:-2, 3:] = data[2:, :-3]
     torch.testing.assert_close(
