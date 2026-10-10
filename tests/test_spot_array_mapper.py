@@ -251,9 +251,8 @@ def test_map_camera_returns_populated_mapping(spot_array_mapping):
 
     # Per-spot Gaussian fits are populated and consistent in length.
     spot_fit = mapping.spot_fit
-    assert spot_fit.parameters is not None
-    assert spot_fit.covariances is not None
-    assert len(spot_fit.parameters) == len(detected)
+    assert spot_fit.fits is not None
+    assert len(spot_fit.fits) == len(detected)
     assert spot_fit.waist > 0
     assert np.isfinite(spot_fit.waist_uncertainty)
 

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from numpy.typing import NDArray
 
+from ...analysis.uncertainties import standard_deviation
 from ...serialization import record_type
 from ...visualizer import (
     INTENSITY_CMAP,
@@ -80,7 +81,7 @@ class CameraMapperVisualizer(BaseVisualizer):
             ]
         )
         layout.add_row([GridCell("residual", colspan=2, aspect="auto", height=3.0)])
-        if self.mapping.spot_fit.parameters is not None:
+        if self.mapping.spot_fit.fits is not None:
             layout.add_row([GridCell("waist", colspan=2, aspect="auto", height=2.5)])
         return layout
 
@@ -153,11 +154,14 @@ class CameraMapperVisualizer(BaseVisualizer):
             )
 
         spot_fit = mapping.spot_fit
-        if spot_fit.parameters is not None:
-            waists = np.array([p[0] for p in spot_fit.parameters]) * 1e6
-            errors = np.array(
-                [np.sqrt(c[0, 0]) for c in spot_fit.covariances]
-            ) * 1e6
+        if spot_fit.fits is not None:
+            waists = np.array([fit.beam.mean_radius for fit in spot_fit.fits]) * 1e6
+            errors = 1e6 * np.array(
+                [
+                    standard_deviation(fit, lambda fit: fit.beam.mean_radius)
+                    for fit in spot_fit.fits
+                ]
+            )
             average = spot_fit.waist * 1e6
             builder.draw_line(
                 "waist",

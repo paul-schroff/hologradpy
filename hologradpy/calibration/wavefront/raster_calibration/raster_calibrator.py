@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import warnings
+from dataclasses import replace
 from datetime import datetime
 
 import numpy as np
@@ -32,8 +33,14 @@ from ....optics.modules.virtual_slms import VirtualSLM
 from ....optics.modules.slm_fields import PixelwiseSLMField
 from ....optics.complex_amplitude import ComplexAmplitude
 from ....fourier_optics import addressable_half_extent
-from ....grids import get_spatial_grid, pixel_frame_vector, plane_center
+from ....grids import (
+    get_spatial_grid,
+    pixel_frame_vector,
+    pixel_to_metres,
+    plane_center,
+)
 from ....fourier_optics import get_focal_spot_radius
+from ....profiles.gaussian import Gaussian
 from ....profiles.phase import linear_phase, binary_phase_grating
 
 from ....utils import gpu_to_numpy, progress, Timer
@@ -43,8 +50,6 @@ from ....analysis.fitting import (
     fit_interferometric_fringes,
     optical_lattice_fringes,
     fit_optical_lattice_fringes,
-    gaussian_beam_intensity,
-    fit_gaussian_beam_intensity,
 )
 
 _LATTICE_FRAME_AVERAGES = 5
@@ -417,24 +422,24 @@ class RasterCalibrator(WavefrontCalibratorBase):
         window = ROI.centered(
             (center_y, center_x), (window_height, window_width)
         ).moved_inside(self.camera.sensor_resolution)
-        window_y0, window_x0 = window.top_row, window.left_column
         with self.camera.preserve_exposure_gain_and_roi(full_sensor=True):
             self.camera.set_roi(window)
 
             autoexposure_roi = window
 
-            # Grid referenced to the spot center (0 = spot center), so the fitted
-            # center is directly the offset from it even when the window was clamped.
-            # The grid is physical, as the orientation matrix takes it.
-            pitch_x = self.camera.pixel_size[1]
-            pitch_y = self.camera.pixel_size[0]
-            grid_x, grid_y = pixel_frame_vector(
-                np.meshgrid(
-                    (np.arange(window_width) - (center_x - window_x0)) * pitch_x,
-                    (np.arange(window_height) - (center_y - window_y0)) * pitch_y,
-                )
+            # The fit runs on the window of the sensor's physical grid, as the
+            # orientation matrix takes it. The fitted center minus the spot center is
+            # the spot's offset, also when the window was clamped.
+            gaussian = Gaussian(
+                self.camera.sensor_resolution, self.camera.pixel_size, window
             )
-            grid = [grid_x, grid_y]
+            spot_center_x, spot_center_y = pixel_to_metres(
+                (center_x, center_y),
+                self.camera.pixel_size,
+                self.camera.sensor_resolution,
+            )
+            x_min, x_max = float(gaussian.x.min()), float(gaussian.x.max())
+            y_min, y_max = float(gaussian.y.min()), float(gaussian.y.max())
 
             corner_size = corner_slices[0][0].stop - corner_slices[0][0].start
             aperture_radius = corner_size * self.slm.pixel_size[1] / 2
@@ -466,15 +471,15 @@ class RasterCalibrator(WavefrontCalibratorBase):
                 noise_sigma = background_noise(camera_image)
                 denoised = np.clip(camera_image - noise_floor, 0.0, None)
                 try:
-                    popt, _ = fit_gaussian_beam_intensity(
-                        *grid, denoised, beam_radius_guess=spot_radius_guess
-                    )
+                    spot = gaussian.fit(
+                        denoised, beam_radius_guess=spot_radius_guess
+                    ).beam
                     # Spot offset from the lattice spot. Steer it back by that much.
-                    offset_x, offset_y = float(popt[1]), float(popt[2])
-                    peak = float(popt[3])
+                    offset_x = spot.shift_x - spot_center_x
+                    offset_y = spot.shift_y - spot_center_y
+                    peak = spot.intensity
                     inside_window = (
-                        grid_x.min() <= offset_x <= grid_x.max()
-                        and grid_y.min() <= offset_y <= grid_y.max()
+                        x_min <= spot.shift_x <= x_max and y_min <= spot.shift_y <= y_max
                     )
                     if not inside_window or peak < _CORNER_MIN_SNR * noise_sigma:
                         # Safeguard against bad fit
@@ -948,14 +953,12 @@ class RasterCalibrator(WavefrontCalibratorBase):
         if measured_intensity is None:
             intensity = np.ones(self.slm.resolution)
         else:
-            beam_radius, shift_x, shift_y = self.fit_gaussian_beam(measured_intensity)
+            # The fitted beam's shape, with a unit peak and no offset.
+            beam = replace(
+                self.fit_gaussian_beam(measured_intensity), intensity=1.0, offset=0.0
+            )
             intensity = gpu_to_numpy(
-                gaussian_beam_intensity(
-                    *self.spatial_grid_slm,
-                    beam_radius,
-                    shift_x=shift_x,
-                    shift_y=shift_y,
-                )
+                Gaussian(self.slm.resolution, self.slm.pixel_size).get_intensity(beam)
             )
 
         base_phase = binary_phase_grating(self.slm.resolution)

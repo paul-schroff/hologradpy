@@ -217,7 +217,8 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
         intensity = np.abs(field) ** 2
         intensity /= np.max(intensity)
         try:
-            beam_radius, shift_x, shift_y = self.fit_gaussian_beam(intensity)
+            beam = self.fit_gaussian_beam(intensity)
+            beam_radius, shift_x, shift_y = beam.mean_radius, beam.shift_x, beam.shift_y
         except (RuntimeError, ValueError) as error:
             print(f"Gaussian beam fit failed ({error}). Leaving beam metadata unset.")
             beam_radius = shift_x = shift_y = None

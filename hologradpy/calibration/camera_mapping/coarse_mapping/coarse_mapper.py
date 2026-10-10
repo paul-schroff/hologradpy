@@ -23,7 +23,7 @@ from ....grids import (
 )
 from ....fourier_optics import get_focal_spot_radius
 from ....holography.phase_retrieval import LinearSuperpositionPhaseRetriever
-from ....analysis.fitting import fit_gaussian_beam_intensity
+from ....profiles.gaussian import Gaussian
 from ....utils import as_image, gpu_to_numpy
 from ....roi import ROI
 from ....profiles.masks import disc_mask
@@ -829,16 +829,14 @@ class CoarseMapper(CameraMapper):
             max(column - half_window, 0),
             min(column + half_window + 1, width),
         )
-        cropped = roi.crop(image)
-        grid = get_spatial_grid(self.camera.resolution, self.camera.pixel_size)
-        cropped_grid = [roi.crop(axis) for axis in grid]
+        gaussian = Gaussian(self.camera.resolution, self.camera.pixel_size, roi)
         try:
-            popt, _ = fit_gaussian_beam_intensity(
-                *cropped_grid, cropped, beam_radius_guess=spot_radius_guess
-            )
+            spot = gaussian.fit(
+                roi.crop(image), beam_radius_guess=spot_radius_guess
+            ).beam
         except (RuntimeError, ValueError):
             return spot_radius_guess
-        return float(abs(popt[0]))
+        return spot.mean_radius
 
     def _search_spot(
         self,

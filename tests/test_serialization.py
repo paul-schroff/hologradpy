@@ -11,7 +11,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import textwrap
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 import numpy as np
@@ -26,6 +26,7 @@ from hologradpy.calibration.camera_mapping import (
 from hologradpy.hardware.slm import SLMData
 from hologradpy.optics.complex_amplitude import ComplexAmplitude
 from hologradpy.phase_levels import LinearResponse, LookupResponse
+from hologradpy.profiles.gaussian import Gaussian, GaussianBeam
 from hologradpy.roi import ROI
 from hologradpy.serialization import (
     NAMESPACE,
@@ -375,6 +376,46 @@ def test_a_renamed_field_needs_a_migration(tmp_path) -> None:
 
     with registered_as("test_rename", Migrated):
         assert Migrated.load(path).new_name == "value"
+
+
+def test_a_mapping_saved_with_the_round_spot_fits_loads(tmp_path) -> None:
+    """A focal spot fit once kept each spot's round-fit parameters and covariances.
+    A mapping saved then loads with its waist, and without the fits.
+    """
+    path = tmp_path / "round_spot_fits.asdf"
+
+    @dataclass(frozen=True)
+    class RoundFocalSpotFit:
+        waist: float
+        waist_uncertainty: float | None = None
+        parameters: list[np.ndarray] | None = None
+        covariances: list[np.ndarray] | None = None
+
+    RoundFocalSpotFit.RECORD_TYPE = "focal_spot_fit"
+    RoundFocalSpotFit.RECORD_VERSION = 1
+    spot_fit = RoundFocalSpotFit(
+        2.5, 0.1, [np.array([2.5, 1.0, 2.0, 100.0, 0.0])], [np.eye(5)]
+    )
+    with registered_as("focal_spot_fit", RoundFocalSpotFit):
+        replace(_mapping(), spot_fit=spot_fit).save(path)
+
+    reloaded = CameraMapping.load(path)
+
+    assert reloaded.spot_fit == FocalSpotFit(waist=2.5, waist_uncertainty=0.1)
+
+
+def test_a_mapping_keeps_its_spot_fits(tmp_path) -> None:
+    path = tmp_path / "spot_fits.asdf"
+    gaussian = Gaussian((21, 21), (1.0, 1.0))
+    beam = GaussianBeam(5.0, 3.0, 0.2, 0.3, 50.0, 1.0, 20.0)
+    fit = gaussian.fit(gaussian.get_intensity(beam).numpy(), 4.0)
+    spot_fit = FocalSpotFit(waist=fit.beam.mean_radius, fits=[fit])
+    replace(_mapping(), spot_fit=spot_fit).save(path)
+
+    reloaded = CameraMapping.load(path).spot_fit.fits[0]
+
+    np.testing.assert_array_equal(reloaded.parameters, fit.parameters)
+    np.testing.assert_array_equal(reloaded.covariance, fit.covariance)
 
 
 def test_a_record_from_a_newer_version_says_so(tmp_path) -> None:

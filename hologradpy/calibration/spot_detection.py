@@ -23,7 +23,7 @@ from ..profiles.phase import linear_phase
 from ..fourier_optics import get_focal_spot_radius
 from ..profiles.masks import circular_mask
 
-from ..analysis.fitting import fit_gaussian_beam_intensity
+from ..profiles.gaussian import Gaussian
 from ..grids import get_spatial_grid, metres_to_pixel
 from ..utils import gpu_to_numpy
 from ..roi import ROI
@@ -276,8 +276,8 @@ def get_diffraction_spot_position(
 
     Returns:
         tuple[tuple[float, float], float, NDArray, ROI]: The x and y coordinates of the
-        spot on the full sensor (in metres or pixels, see ``units``), the focal spot
-        radius in metres, the cropped camera image for the fit, and the region of
+        spot on the full sensor (in metres or pixels, see ``units``), the focal spot's
+        mean radius in metres, the cropped camera image for the fit, and the region of
         interest of the crop in whole-sensor pixels. The cropped image is as captured,
         including any pixels outside the mask.
 
@@ -377,29 +377,26 @@ def get_diffraction_spot_position(
         )
         cropped_camera_image = roi.crop(camera_image)
 
-        camera_grid = get_spatial_grid(sensor_resolution, camera.pixel_size)
-        cropped_grid = [roi.crop(grid) for grid in camera_grid]
-
         if verbose:
             print("Fitting Gaussian to camera image...")
 
         # The fit starts at the peak of the frame blurred over one spot radius, so a
         # spot beside the mask starts at its own peak.
-        popt, _ = fit_gaussian_beam_intensity(
-            *cropped_grid,
+        gaussian = Gaussian(sensor_resolution, camera.pixel_size, roi)
+        spot = gaussian.fit(
             cropped_camera_image,
             beam_radius_guess=focal_spot_radius_guess,
+            mask=None if mask is None else roi.crop(mask),
             blur_sigma=max(
                 focal_spot_radius_guess / float(np.min(camera.pixel_size)), 1.0
             ),
-            mask=None if mask is None else roi.crop(mask),
-        )
+        ).beam
 
         if verbose:
             print("Gaussian fit complete.")
 
-    focal_spot_radius = popt[0]
-    position = (popt[1], popt[2])
+    focal_spot_radius = spot.mean_radius
+    position = (spot.shift_x, spot.shift_y)
 
     if units == "pixels":
         position = tuple(

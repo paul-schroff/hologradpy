@@ -13,9 +13,10 @@ from ....hardware import Camera, SLM
 from ....hardware.camera import CameraData
 
 from ....optics.systems import SLMFourierLensModel
-from ....grids import get_spatial_grid, metres_to_pixel, pixel_to_metres, plane_center
+from ....grids import metres_to_pixel, pixel_to_metres, plane_center
 from ....fourier_optics import get_focal_spot_radius
-from ....analysis.fitting import fit_gaussian_beam_intensity
+from ....analysis.uncertainties import standard_deviation
+from ....profiles.gaussian import Gaussian, GaussianFit
 from ....utils import as_image, gpu_to_numpy
 from ....roi import ROI
 from ....holography.phase_retrieval import LinearSuperpositionPhaseRetriever
@@ -55,13 +56,11 @@ _ADDRESSABLE_MARGIN = 0.9
 @dataclass
 class _SpotDetections:
     """Fitted spots from :meth:`SpotArrayMapper._detect_and_fit`: pixel positions with
-    their per-spot Gaussian fit parameters and covariances (parallel lists), and the 
-    peaks whose fit was rejected.
+    their Gaussian fits (parallel lists), and the peaks whose fit was rejected.
     """
 
     points: list[tuple[float, float]]
-    fit_parameters: list[NDArray]
-    fit_covariances: list[NDArray]
+    fits: list[GaussianFit]
     rejected_peaks: list[tuple[float, float]]
 
 
@@ -371,13 +370,7 @@ class SpotArrayMapper(CameraMapper):
             calculated_points = [
                 simulated_spots.points[simulated_by_target[t]] for t in common_targets
             ]
-            fit_parameters = [
-                camera_spots.fit_parameters[camera_by_target[t]] for t in common_targets
-            ]
-            fit_covariances = [
-                camera_spots.fit_covariances[camera_by_target[t]]
-                for t in common_targets
-            ]
+            fits = [camera_spots.fits[camera_by_target[t]] for t in common_targets]
 
             detected = np.asarray(detected_points, dtype=np.float64)
             calculated = np.asarray(calculated_points, dtype=np.float64)
@@ -411,10 +404,12 @@ class SpotArrayMapper(CameraMapper):
             calculated_points = [
                 p for p, keep in zip(calculated_points, inliers) if keep
             ]
-            fit_parameters = [p for p, keep in zip(fit_parameters, inliers) if keep]
-            fit_covariances = [c for c, keep in zip(fit_covariances, inliers) if keep]
-            waists = [float(popt[0]) for popt in fit_parameters]
-            waist_variances = [float(pcov[0, 0]) for pcov in fit_covariances]
+            fits = [fit for fit, keep in zip(fits, inliers) if keep]
+            waists = [fit.beam.mean_radius for fit in fits]
+            waist_variances = [
+                standard_deviation(fit, lambda fit: fit.beam.mean_radius) ** 2
+                for fit in fits
+            ]
 
             # Camera detections that did not make it into the transform, kept so none
             # disappears from a plot without explanation.
@@ -452,8 +447,7 @@ class SpotArrayMapper(CameraMapper):
                 spot_fit=FocalSpotFit(
                     waist=average_waist,
                     waist_uncertainty=average_waist_uncertainty,
-                    parameters=fit_parameters,
-                    covariances=fit_covariances,
+                    fits=fits,
                 ),
                 fit=MappingFit(
                     reprojection_errors=reprojection_errors,
@@ -581,10 +575,8 @@ class SpotArrayMapper(CameraMapper):
     ) -> _SpotDetections:
         """Detect up to ``number_of_peaks`` bright spots in ``image`` and fit a 2D
         Gaussian to each. Returns the fitted (column, row) pixel positions, the
-        per-spot fit parameters / covariances (parallel lists), and the peaks whose fit
-        was rejected.
+        per-spot Gaussian fits, and the peaks whose fit was rejected.
         """
-        grid = get_spatial_grid(image.shape, list(pitch))
         noise_std = background_noise(image)
         peaks = self._detect_peaks(
             image,
@@ -594,26 +586,21 @@ class SpotArrayMapper(CameraMapper):
         )
 
         points: list[tuple[float, float]] = []
-        fit_parameters: list[NDArray] = []
-        fit_covariances: list[NDArray] = []
+        fits: list[GaussianFit] = []
         rejected_peaks: list[tuple[float, float]] = []
         for peak in peaks:
             fit = self._fit_spot(
-                image, grid, peak, roi_size, radius_guess, pitch,
-                snr_threshold * noise_std,
+                image, peak, roi_size, radius_guess, pitch, snr_threshold * noise_std
             )
             if fit is None:
                 rejected_peaks.append(peak)
                 continue
-            popt, pcov = fit
+            beam = fit.beam
             points.append(
-                metres_to_pixel((popt[1], popt[2]), pitch, image.shape)
+                metres_to_pixel((beam.shift_x, beam.shift_y), pitch, image.shape)
             )
-            fit_parameters.append(popt)
-            fit_covariances.append(pcov)
-        return _SpotDetections(
-            points, fit_parameters, fit_covariances, rejected_peaks
-        )
+            fits.append(fit)
+        return _SpotDetections(points, fits, rejected_peaks)
 
     @staticmethod
     def _similarity_from_pair(
@@ -763,15 +750,14 @@ class SpotArrayMapper(CameraMapper):
     def _fit_spot(
         self,
         image: NDArray,
-        camera_grid: list[torch.Tensor],
         peak: tuple[float, float],
         roi_size: int,
         radius_guess: float,
         pitch: NDArray,
         amplitude_threshold: float,
-    ) -> tuple[NDArray, NDArray] | None:
-        """Fit a 2D Gaussian to the ROI around a detected peak. Return ``(popt, pcov)``
-        or ``None`` if the fit is missing / poor (amplitude at or below 
+    ) -> GaussianFit | None:
+        """Fit a 2D Gaussian to the ROI around a detected peak. Return the fit, or
+        ``None`` if the fit is missing / poor (amplitude at or below
         ``amplitude_threshold`` counts as background, not a spot).
         """
         rows, cols = image.shape
@@ -782,34 +768,30 @@ class SpotArrayMapper(CameraMapper):
         right = int(np.clip(round(peak[0]) + half, left + 1, cols))
         roi = ROI.from_bounds(top, bottom, left, right)
 
-        cropped_image = roi.crop(image)
-        cropped_grid = [roi.crop(grid) for grid in camera_grid]
         # Blur only seeds the centroid guess. Scale it to the spot size (in camera
         # pixels), not the large default that would flatten a small per-spot ROI.
         blur_sigma = max(float(radius_guess / pitch.min()), 1.0)
         try:
-            popt, pcov = fit_gaussian_beam_intensity(
-                *cropped_grid,
-                cropped_image,
-                beam_radius_guess=radius_guess,
-                blur_sigma=blur_sigma,
+            fit = Gaussian(image.shape, list(pitch), roi).fit(
+                roi.crop(image), beam_radius_guess=radius_guess, blur_sigma=blur_sigma
             )
+            beam = fit.beam
         except (RuntimeError, ValueError):
             return None
 
         if (
-            not np.isfinite(pcov).all()
-            or popt[0] <= 0
-            or popt[3] <= amplitude_threshold
+            not np.isfinite(fit.covariance).all()
+            or not np.isfinite(beam.mean_radius)
+            or beam.intensity <= amplitude_threshold
         ):
             return None
         # Reject if the fitted center wandered outside the ROI (spurious fit).
-        detected = metres_to_pixel((popt[1], popt[2]), pitch, image.shape)
+        detected = metres_to_pixel((beam.shift_x, beam.shift_y), pitch, image.shape)
         off_x = abs(detected[0] - peak[0])
         off_y = abs(detected[1] - peak[1])
         if off_x > half or off_y > half:
             return None
-        return popt, pcov
+        return fit
 
     @staticmethod
     def _weighted_average(

@@ -6,6 +6,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from torch import Tensor
 
+from ...profiles.gaussian import GaussianFit
 from ...geometry import AffineTransform, PartialAffineTransform
 from ...grids import metres_to_pixel, pixel_frame_angle, pixel_to_metres, plane_center
 from ...serialization import SaveableRecord, record_type
@@ -15,10 +16,11 @@ from ...hardware.camera import Camera, CameraData, CameraOrientation
 @record_type("focal_spot_fit")
 @dataclass(frozen=True)
 class FocalSpotFit:
+    """The focal spot's mean radius, and the fit of each spot it was measured on."""
+
     waist: float
     waist_uncertainty: float | None = None
-    parameters: list[NDArray | Tensor] | None = None
-    covariances: list[NDArray | Tensor] | None = None
+    fits: list[GaussianFit] | None = None
 
 
 @record_type("mapping_fit")

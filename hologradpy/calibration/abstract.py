@@ -10,7 +10,7 @@ from torch import Tensor
 
 from ..hardware import Camera, SLM, as_camera, as_slm
 from ..grids import get_spatial_grid
-from ..analysis.fitting import fit_gaussian_beam_intensity
+from ..profiles.gaussian import Gaussian, GaussianBeam
 from ..utils import resolve_device
 
 
@@ -39,22 +39,12 @@ class CalibratorBase(ABC):
 
     def fit_gaussian_beam(
         self, measured_intensity: NDArray[np.float64]
-    ) -> tuple[float, float, float]:
+    ) -> GaussianBeam:
         """Fit a Gaussian beam to a measured SLM-plane intensity.
 
         Returns:
-            The fitted beam radius and the ``(x, y)`` shifts of its center, in metres.
+            GaussianBeam: The fitted beam, in metres on the SLM.
         """
         beam_radius_guess = min(self.slm.aperture_extent) / 2
-
-        # The fit runs on the CPU with numpy, so bring the coordinate grid over from the
-        # (possibly CUDA) device.
-        grid_x, grid_y = self.spatial_grid_slm
-        popt, _ = fit_gaussian_beam_intensity(
-            grid_x.cpu(),
-            grid_y.cpu(),
-            measured_intensity,
-            beam_radius_guess,
-            blur_sigma=10,
-        )
-        return popt[0], popt[1], popt[2]
+        gaussian = Gaussian(self.slm.resolution, self.slm.pixel_size)
+        return gaussian.fit(measured_intensity, beam_radius_guess, blur_sigma=10).beam

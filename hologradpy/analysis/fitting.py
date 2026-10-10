@@ -7,11 +7,9 @@ from typing import Any, Callable, Sequence
 import numpy as np
 from numpy.typing import NDArray
 import torch
-from scipy.ndimage import gaussian_filter
 from scipy.optimize import curve_fit
 
 
-from ..profiles.amplitude import gaussian_beam_intensity
 from ..profiles.zernike import Zernike
 
 
@@ -97,73 +95,6 @@ def remove_tilt(phase: NDArray, mask: NDArray | None = None) -> NDArray:
     coefficients = zernike.fit(phase_tensor, mask=mask_tensor)
     fitted = zernike.get_phase(coefficients).numpy()
     return phase - fitted
-
-
-def fit_gaussian_beam_intensity(
-    x: NDArray,
-    y: NDArray,
-    data: NDArray,
-    beam_radius_guess: float,
-    blur_sigma: float = 10,
-    mask: NDArray[np.bool_] | None = None,
-) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    """Fit a Gaussian beam intensity with a constant offset to ``data``.
-
-    The fit starts at the peak of ``data`` after a Gaussian blur of ``blur_sigma``
-    pixels, with ``beam_radius_guess`` as the radius. With a ``mask``, only the pixels
-    where it is True enter the fit.
-
-    Args:
-        x: The x coordinate of every pixel of ``data``.
-        y: The y coordinate of every pixel of ``data``.
-        data: The measured intensity.
-        beam_radius_guess: The starting 1/e^2 intensity radius, in the units of ``x``
-            and ``y``.
-        blur_sigma: The standard deviation of the Gaussian blur, in pixels. The
-            starting peak is located on the blurred data.
-        mask: True at the pixels to fit, in the shape of ``data``. Every pixel is
-            fitted when None.
-
-    Returns:
-        tuple[NDArray[np.float64], NDArray[np.float64]]: The fitted ``(beam_radius,
-        shift_x, shift_y, intensity, offset)`` of
-        :func:`~hologradpy.profiles.amplitude.gaussian_beam_intensity`, and their
-        covariance.
-    """
-    if mask is None:
-        data_blurred = gaussian_filter(data, blur_sigma)
-        index = np.unravel_index(np.argmax(data_blurred), data.shape)
-        p0 = (beam_radius_guess, x[index], y[index], np.max(data), 0)
-        return curve_fit_2d(x, y, data, _round_gaussian_beam, p0=p0)
-
-    mask = np.asarray(mask, dtype=bool)
-    x, y, data = np.asarray(x), np.asarray(y), np.asarray(data, dtype=np.float64)
-    blurred_mask = gaussian_filter(mask.astype(np.float64), blur_sigma)
-    data_blurred = gaussian_filter(np.where(mask, data, 0.0), blur_sigma) / np.maximum(
-        blurred_mask, np.finfo(np.float64).tiny
-    )
-    index = np.unravel_index(
-        np.argmax(np.where(mask, data_blurred, -np.inf)), data.shape
-    )
-    p0 = (beam_radius_guess, x[index], y[index], np.max(data[mask]), 0)
-    return curve_fit_2d(x[mask], y[mask], data[mask], _round_gaussian_beam, p0=p0)
-
-
-def _round_gaussian_beam(
-    x: NDArray,
-    y: NDArray,
-    beam_radius: float,
-    shift_x: float,
-    shift_y: float,
-    intensity: float,
-    offset: float,
-) -> NDArray:
-    """A round :func:`~hologradpy.profiles.amplitude.gaussian_beam_intensity`, with
-    its parameters in the order the fit returns them.
-    """
-    return gaussian_beam_intensity(
-        x, y, beam_radius, None, shift_x, shift_y, intensity, offset
-    )
 
 
 def fit_interferometric_fringes(
