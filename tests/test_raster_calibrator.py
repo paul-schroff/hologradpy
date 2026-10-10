@@ -37,6 +37,7 @@ from hologradpy.calibration.camera_mapping import (
 from hologradpy.calibration.wavefront.raster_calibration import (
     SuperpixelSlicer,
 )
+from hologradpy.grids import metres_to_pixel, pixel_frame_vector
 from hologradpy.roi import ROI
 from hologradpy.utils import as_image
 
@@ -147,7 +148,8 @@ def test_without_an_output_pitch_the_fit_grids_are_only_turned_and_mirrored():
 
 def test_the_fit_grids_carry_camera_metres_into_focal_plane_metres():
     """One camera pixel along x moves the focal-plane coordinate by the model pixels the
-    mapping sends it to, at the recorded output pitch.
+    mapping sends it to, at the recorded output pitch. The mapping turns pixels, so
+    those model pixels are converted to the physical frame.
     """
     slm, camera = _build_setup()
     calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
@@ -163,8 +165,9 @@ def test_the_fit_grids_carry_camera_metres_into_focal_plane_metres():
         [np.array([camera_pitch_x]), np.array([0.0])]
     )
 
-    assert float(focal_x[0]) == pytest.approx(linear[0, 0] * output_pitch)
-    assert float(focal_y[0]) == pytest.approx(linear[1, 0] * output_pitch)
+    expected_x, expected_y = pixel_frame_vector((linear[0, 0], linear[1, 0]))
+    assert float(focal_x[0]) == pytest.approx(expected_x * output_pitch)
+    assert float(focal_y[0]) == pytest.approx(expected_y * output_pitch)
 
 
 def test_a_supplied_model_that_has_not_run_sets_the_scale():
@@ -180,9 +183,12 @@ def test_a_supplied_model_that_has_not_run_sets_the_scale():
 
     pitch_y, pitch_x = model[-1].pixel_size_out.tolist()[0]
     camera_pitch_y, camera_pitch_x = camera.pixel_size
+    frame = np.diag(pixel_frame_vector((1.0, 1.0)))
     expected = (
         np.diag([pitch_x, pitch_y])
+        @ frame
         @ calibrator.camera_mapping.affine.linear
+        @ frame
         @ np.diag([1.0 / camera_pitch_x, 1.0 / camera_pitch_y])
     )
     np.testing.assert_allclose(calibrator._orientation_matrix(), expected)
@@ -347,7 +353,11 @@ def test_corner_steering_recovers_offset_under_noise(
         corner_slices, lattice_tilt, roi, spot_center, exposure_time=1e-3
     )
     # Steering removes the measured offset, so every corner lands on the same tilt.
-    camera_offset = np.array([shift_px[0] * pitch_x, shift_px[1] * pitch_y])
+    # The offset is converted to the physical frame. The matrices are diagonal, so
+    # they are the same in both frames.
+    camera_offset = np.array(
+        pixel_frame_vector((shift_px[0] * pitch_x, shift_px[1] * pitch_y))
+    )
     expected = tuple(
         np.asarray(lattice_tilt) - np.asarray(camera_to_focal_plane) @ camera_offset
     )
@@ -833,15 +843,11 @@ def test_the_spot_search_autoexposes(monkeypatch):
         verbose=False,
     )
 
-    height, width = camera.sensor_resolution
-    pitch_y, pitch_x = camera.pixel_size
+    column, row = metres_to_pixel(tilt, camera.pixel_size, camera.sensor_resolution)
     assert len(found_spots) == 1
     (spot_x, spot_y), peak = found_spots[0]
     assert peak < camera.max_pixel_value
-    assert np.hypot(
-        spot_x - (width / 2 + tilt[0] / pitch_x),
-        spot_y - (height / 2 + tilt[1] / pitch_y),
-    ) < 3.0
+    assert np.hypot(spot_x - column, spot_y - row) < 3.0
 
 
 def test_the_scans_put_the_camera_settings_back():

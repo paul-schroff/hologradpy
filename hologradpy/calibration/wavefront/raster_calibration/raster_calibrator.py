@@ -32,7 +32,7 @@ from ....optics.modules.virtual_slms import VirtualSLM
 from ....optics.modules.slm_fields import PixelwiseSLMField
 from ....optics.complex_amplitude import ComplexAmplitude
 from ....fourier_optics import addressable_half_extent
-from ....grids import get_spatial_grid, plane_center
+from ....grids import get_spatial_grid, pixel_frame_vector, plane_center
 from ....fourier_optics import get_focal_spot_radius
 from ....profiles.phase import linear_phase, binary_phase_grating
 
@@ -162,22 +162,31 @@ class RasterCalibrator(WavefrontCalibratorBase):
         model axes, from :attr:`camera_mapping`.
 
         With the pitch of the mapping's output plane known, it is
-        ``diag(pixel_size_out) @ L @ diag(1 / camera_pitch)``, where ``L`` is the linear
-        part of the mapping. It then carries the rotation, the mirror and the
-        magnification between the focal plane and the sensor. Without that pitch it is
-        the rotation and mirror of ``L`` alone, which holds for a camera that images the
-        focal plane at unit magnification. The tilts, the corner steering and the fringe
-        and lattice fit grids all use it.
+        ``diag(pixel_size_out) @ S @ L @ S @ diag(1 / camera_pitch)``, where ``L`` is
+        the linear part of the mapping. ``L`` maps pixels, and ``S`` carries it into the
+        physical frame of the metres. The map then carries the rotation, the mirror and
+        the magnification between the focal plane and the sensor. Without that pitch it
+        is the rotation and mirror of ``L`` alone, in the physical frame, which holds
+        for a camera that images the focal plane at unit magnification. The tilts, the
+        corner steering and the fringe and lattice fit grids all use it.
         """
         affine = self.camera_mapping.affine
+        frame = np.diag(pixel_frame_vector((1.0, 1.0)))  # S
         output_pitch = self._output_pixel_size()
         if output_pitch is None:
-            return affine.rotation_matrix  # orthonormal, preserves the mirror
+            # Orthonormal, and it keeps the mirror.
+            return frame @ affine.rotation_matrix @ frame
         camera_pitch = np.asarray(
             [self.camera.pixel_size[1], self.camera.pixel_size[0]]
         )  # (x, y)
         pixel_size_out = np.asarray([output_pitch[1], output_pitch[0]])  # (x, y)
-        return np.diag(pixel_size_out) @ affine.linear @ np.diag(1.0 / camera_pitch)
+        return (
+            np.diag(pixel_size_out)
+            @ frame
+            @ affine.linear
+            @ frame
+            @ np.diag(1.0 / camera_pitch)
+        )
 
     def _output_pixel_size(self) -> tuple[float, float] | None:
         """The pitch ``(y, x)`` in metres of the output plane the camera mapping runs
@@ -268,8 +277,10 @@ class RasterCalibrator(WavefrontCalibratorBase):
         t = float(np.clip(t_center, clearance, t_max))
         target = zeroth + t * direction
 
-        # Camera pixel -> focal-plane tilt (metres) via the mapping orientation.
-        tilt = self._orientation_matrix() @ ((target - zeroth) * camera_pitch)
+        # Camera pixel -> focal-plane tilt (metres) via the mapping orientation. The
+        # pixel offset is converted to the physical frame first.
+        offset = np.asarray(pixel_frame_vector(target - zeroth)) * camera_pitch
+        tilt = self._orientation_matrix() @ offset
 
         # Clamp into the SLM's Nyquist-addressable reach (direction preserved).
         # TODO: Remove hardcoded 0.9
@@ -414,11 +425,14 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
             # Grid referenced to the spot center (0 = spot center), so the fitted
             # center is directly the offset from it even when the window was clamped.
+            # The grid is physical, as the orientation matrix takes it.
             pitch_x = self.camera.pixel_size[1]
             pitch_y = self.camera.pixel_size[0]
-            grid_x, grid_y = np.meshgrid(
-                (np.arange(window_width) - (center_x - window_x0)) * pitch_x,
-                (np.arange(window_height) - (center_y - window_y0)) * pitch_y,
+            grid_x, grid_y = pixel_frame_vector(
+                np.meshgrid(
+                    (np.arange(window_width) - (center_x - window_x0)) * pitch_x,
+                    (np.arange(window_height) - (center_y - window_y0)) * pitch_y,
+                )
             )
             grid = [grid_x, grid_y]
 
@@ -1234,13 +1248,14 @@ class RasterCalibrator(WavefrontCalibratorBase):
                     superpixel_slice[0].start + superpixel_slice[0].stop
                 ) / 2
 
-                superpixel_separation_x = (
-                    (superpixel_center_x - reference_superpixel_center_x)
-                    * self.slm.pixel_size[1]
-                )
-                superpixel_separation_y = (
-                    (superpixel_center_y - reference_superpixel_center_y)
-                    * self.slm.pixel_size[0]
+                # The separation is physical, like the fit grid.
+                superpixel_separation_x, superpixel_separation_y = pixel_frame_vector(
+                    (
+                        (superpixel_center_x - reference_superpixel_center_x)
+                        * self.slm.pixel_size[1],
+                        (superpixel_center_y - reference_superpixel_center_y)
+                        * self.slm.pixel_size[0],
+                    )
                 )
 
                 # Measure the camera-plane displacement from beam pointing drift via the
