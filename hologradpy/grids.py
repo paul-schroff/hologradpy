@@ -1,9 +1,12 @@
 """Centred coordinate grids sharing one convention.
 
-The origin of a plane of length ``n`` is the sample at index ``n // 2``, so sample ``i``
-sits at ``(i - n // 2) * pitch``.
+The origin of a plane of length ``n`` is the sample at index ``n // 2``. Column ``i``
+sits at ``x = (i - n // 2) * pitch``, and row ``i`` at ``y = (n // 2 - i) * pitch``.
+So y points up when row 0 is drawn at the top, and a positive angle, from +x towards
++y, turns counterclockwise.
 
-The grid of an even-length axis is asymmetric, running ``-n/2`` to ``n/2 - 1``.
+The grid of an even-length axis is asymmetric. x runs from ``-n/2`` to ``n/2 - 1``
+pitches, and y from ``n/2`` down to ``-(n/2 - 1)``.
 
 Arrays are indexed in the pixel frame, by ``(column, row)``. Coordinates ``(x, y)`` are
 physical. :func:`pixel_frame_vector` and :func:`pixel_frame_angle` convert vectors and
@@ -27,8 +30,9 @@ def pixel_frame_vector(vector: tuple[T, T]) -> tuple[T, T]:
     """The ``(column, row)`` components of an ``(x, y)`` vector, or the ``(x, y)``
     components of a ``(column, row)`` vector.
 
-    The function is its own inverse. It takes floats, arrays or tensors, and gradients
-    pass through it.
+    The row component is minus the y component, since y points up and the rows run
+    down. The function is its own inverse. It takes floats, arrays or tensors, and
+    gradients pass through it.
 
     Args:
         vector: The two components.
@@ -37,13 +41,14 @@ def pixel_frame_vector(vector: tuple[T, T]) -> tuple[T, T]:
         tuple[T, T]: The components in the other frame.
     """
     x, y = vector
-    return x, y
+    return x, -y
 
 
 def pixel_frame_angle(angle_degrees: T) -> T:
     """The angle in the pixel frame, from +column towards +row, of an angle in the
     physical frame, from +x towards +y, or the other way round.
 
+    The pixel frame is the mirror image of the physical one, so the angle is negated.
     The function is its own inverse. It takes floats, arrays or tensors.
 
     Args:
@@ -52,7 +57,7 @@ def pixel_frame_angle(angle_degrees: T) -> T:
     Returns:
         T: The angle in degrees in the other frame.
     """
-    return angle_degrees
+    return -angle_degrees
 
 
 def get_pixel_grid(
@@ -60,7 +65,8 @@ def get_pixel_grid(
     device: torch.device | None = None,
     dtype: torch.dtype | None = None,
 ) -> tuple[Tensor, Tensor]:
-    """Centred ``(x, y)`` coordinates in pixels, as a pair of grids.
+    """Centred ``(x, y)`` coordinates in pixels, as a pair of grids. y falls by one
+    from each row to the next, so row 0 holds the largest y.
 
     Args:
         resolution: ``(height, width)`` in pixels.
@@ -115,13 +121,13 @@ def get_spatial_grid(
 
 
 def plane_center(resolution: tuple[int, int]) -> tuple[int, int]:
-    """The ``(x, y)`` pixel holding the origin, ``(width // 2, height // 2)``.
+    """The pixel holding the origin, ``(width // 2, height // 2)``.
 
     Args:
         resolution: ``(height, width)`` in pixels.
 
     Returns:
-        tuple[int, int]: The origin as ``(x, y)`` pixel indices.
+        tuple[int, int]: The origin as ``(column, row)`` pixel indices.
     """
     height, width = resolution
     return (width // 2, height // 2)

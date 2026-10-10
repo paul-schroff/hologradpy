@@ -11,8 +11,7 @@ itself. The vortex detector reads a vortex with the handedness that
 :func:`~hologradpy.profiles.phase.vortex_phase` gives it, so its anti-vortex cancels it.
 
 The orientation tests define the physical frame: x points right and y points up on a
-screen that draws row 0 at the top, and a positive angle turns counterclockwise. They
-fail while y still grows down the rows, and step b of part Y removes their markers.
+screen that draws row 0 at the top, and a positive angle turns counterclockwise.
 """
 
 from __future__ import annotations
@@ -55,9 +54,6 @@ FOCAL_PITCH = WAVELENGTH * FOCAL_LENGTH / (PADDED[0] * PITCH)  # 31.25 um
 POSITION = (-20 * FOCAL_PITCH, 7 * FOCAL_PITCH)
 VORTEX_RESOLUTION = (32, 32)
 
-UNTIL_THE_FLIP = pytest.mark.xfail(
-    strict=True, reason="y grows down the rows until step b of part Y flips it."
-)
 WITH_NUFFT = pytest.mark.skipif(
     importlib.util.find_spec("pytorch_finufft") is None,
     reason="SLMNUFFT needs pytorch-finufft.",
@@ -205,7 +201,6 @@ def test_a_vortex_of_charge_one_is_read_as_charge_one_and_cancelled():
 # Orientation. Row 0 is the top row of the screen, so "up" is towards row 0.
 
 
-@UNTIL_THE_FLIP
 @pytest.mark.parametrize("resolution", [(8, 10), (7, 9)])
 def test_row_zero_holds_the_largest_y(resolution):
     """A step down the rows is a step of one pitch towards -y."""
@@ -215,7 +210,6 @@ def test_row_zero_holds_the_largest_y(resolution):
     assert float(y[1, 0] - y[0, 0]) == pytest.approx(-PITCH, rel=1e-5)
 
 
-@UNTIL_THE_FLIP
 def test_a_position_up_from_the_origin_is_a_row_above_the_centre():
     resolution = (8, 10)
     center_column, center_row = plane_center(resolution)
@@ -225,7 +219,6 @@ def test_a_position_up_from_the_origin_is_a_row_above_the_centre():
     assert pixel == pytest.approx((center_column, center_row - 1))
 
 
-@UNTIL_THE_FLIP
 @pytest.mark.parametrize("system_class", [SLMFFT, *CAMERA_SYSTEMS])
 def test_a_tilt_towards_plus_y_lands_above_the_centre(system_class):
     model = _model(system_class)
@@ -236,7 +229,6 @@ def test_a_tilt_towards_plus_y_lands_above_the_centre(system_class):
     assert _spot(model) == pytest.approx((center_row - 10, center_column), abs=0.5)
 
 
-@UNTIL_THE_FLIP
 @pytest.mark.parametrize("system_class", CAMERA_SYSTEMS)
 def test_a_positive_camera_angle_turns_a_spot_counterclockwise(system_class):
     """A spot along +x turns towards the top of the screen."""
@@ -252,7 +244,6 @@ def test_a_positive_camera_angle_turns_a_spot_counterclockwise(system_class):
     assert angles[1] - angles[0] == pytest.approx(30.0, abs=1.0)
 
 
-@UNTIL_THE_FLIP
 @pytest.mark.parametrize("system_class", CAMERA_SYSTEMS)
 def test_a_camera_shift_towards_plus_y_moves_the_image_up(system_class):
     """The undiffracted spot of a flat phase moves up with the image."""
@@ -262,7 +253,6 @@ def test_a_camera_shift_towards_plus_y_moves_the_image_up(system_class):
     assert _spot(model) == pytest.approx((center_row - 10, center_column), abs=0.5)
 
 
-@UNTIL_THE_FLIP
 def test_a_gaussian_turned_by_45_degrees_is_brighter_up_right_than_down_right():
     resolution = (33, 33)
     center_column, center_row = plane_center(resolution)
@@ -275,7 +265,6 @@ def test_a_gaussian_turned_by_45_degrees_is_brighter_up_right_than_down_right():
     assert up_right > down_right
 
 
-@UNTIL_THE_FLIP
 def test_a_vortex_of_charge_one_is_a_quarter_turn_on_above_the_centre():
     """The phase of a charge-1 vortex is the polar angle, pi/2 straight up."""
     resolution = (33, 33)
@@ -309,7 +298,6 @@ def _mapping(
     )
 
 
-@UNTIL_THE_FLIP
 def test_a_camera_turned_counterclockwise_reports_minus_its_angle():
     """``numpy.rot90`` turns an image a quarter turn counterclockwise. A camera that
     sees the model plane turned that way maps back to it with a quarter turn clockwise,
@@ -328,7 +316,6 @@ def test_a_camera_turned_counterclockwise_reports_minus_its_angle():
     assert mapping.rotation_degrees == pytest.approx(-90.0)
 
 
-@UNTIL_THE_FLIP
 def test_an_identity_mapping_puts_plus_y_above_the_centre():
     resolution = (8, 10)
     center_column, center_row = plane_center(resolution)

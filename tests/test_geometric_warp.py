@@ -60,9 +60,10 @@ def test_default_warp_returns_the_field():
 
 def test_whole_pixel_shift_moves_the_field_and_fills_zeros():
     data = _random_plane((31, 45))
-    # The shift is (x, y), so the field moves 3 columns right and 2 rows down.
+    # The shift is (x, y) and y points up, so the field moves 3 columns right and 2
+    # rows up.
     expected = torch.zeros_like(data)
-    expected[2:, 3:] = data[:-2, :-3]
+    expected[:-2, 3:] = data[2:, :-3]
     torch.testing.assert_close(
         _warped(data, shift=(3.0, 2.0)), expected, rtol=0.0, atol=1e-12
     )
@@ -70,9 +71,9 @@ def test_whole_pixel_shift_moves_the_field_and_fills_zeros():
 
 def test_quarter_turn_about_the_center_matches_rot90():
     data = _random_plane((31, 31))
-    # A positive angle turns +x towards +y. With rows running along +y, that is a
-    # clockwise quarter turn of the array, torch.rot90 with k=-1.
-    expected = torch.rot90(data, k=-1, dims=(0, 1))
+    # A positive angle turns +x towards +y. With y pointing up, that is a
+    # counterclockwise quarter turn of the array, torch.rot90 with k=1.
+    expected = torch.rot90(data, k=1, dims=(0, 1))
     torch.testing.assert_close(
         _warped(data, angle=90.0), expected, rtol=0.0, atol=1e-12
     )

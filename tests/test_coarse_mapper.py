@@ -258,9 +258,11 @@ def _rotation(angle_degrees: float) -> np.ndarray:
 
 
 def test_orientation_properties_pure_rotation():
+    # The transform turns pixels by 35 degrees from +column towards +row, which is
+    # clockwise on screen, -35 degrees with y pointing up.
     mapping = _mapping_with_transform(2.0 * _rotation(35.0))
     assert not mapping.is_mirrored
-    assert mapping.rotation_degrees == pytest.approx(35.0)
+    assert mapping.rotation_degrees == pytest.approx(-35.0)
     assert mapping.scales == pytest.approx((2.0, 2.0))
 
 

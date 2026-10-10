@@ -38,16 +38,16 @@ PIXEL_SIZE = (2e-6, 3e-6)  # (height, width), deliberately unequal
 
 @pytest.mark.parametrize("resolution", RESOLUTIONS)
 def test_the_grid_is_the_one_fftshift_implements(resolution) -> None:
-    """The whole convention in one assertion.
+    """The whole centring convention in one assertion.
 
     ``fftshift(fftfreq(n) * n)`` is the centred bin index of an n-point DFT, and the
-    pixel grid has to be the same thing, or a plane built on it is not the plane the
-    transforms think it is.
+    pixel grid, read in the pixel frame, has to be the same thing, or a plane built on
+    it is not the plane the transforms think it is.
     """
     height, width = resolution
-    grid_x, grid_y = get_pixel_grid(resolution, dtype=torch.float64)
+    columns, rows = pixel_frame_vector(get_pixel_grid(resolution, dtype=torch.float64))
 
-    for axis, length in ((grid_x[0], width), (grid_y[:, 0], height)):
+    for axis, length in ((columns[0], width), (rows[:, 0], height)):
         wanted = torch.fft.fftshift(torch.fft.fftfreq(length) * length)
         # allclose, not equal: fftfreq(7) * 7 lands on 3.0000002, not 3.
         assert torch.allclose(axis, wanted.to(torch.float64))
@@ -182,32 +182,37 @@ def test_the_pixel_grid_is_the_index_offsets_in_the_pixel_frame(resolution) -> N
 
 @pytest.mark.parametrize("resolution", RESOLUTIONS)
 def test_the_spatial_grid_is_zero_at_the_origin(resolution) -> None:
-    """And steps by the pitch, per axis, with the two pitches different."""
-    grid_x, grid_y = get_spatial_grid(resolution, PIXEL_SIZE)
+    """And steps by the pitch along the columns and the rows, with the two pitches
+    different.
+    """
+    columns, rows = pixel_frame_vector(get_spatial_grid(resolution, PIXEL_SIZE))
     center_x, center_y = plane_center(resolution)
 
-    assert float(grid_x[center_y, center_x]) == 0.0
-    assert float(grid_y[center_y, center_x]) == 0.0
+    assert float(columns[center_y, center_x]) == 0.0
+    assert float(rows[center_y, center_x]) == 0.0
 
     height, width = resolution
     if width > 1:
-        assert float(grid_x[0, 1] - grid_x[0, 0]) == pytest.approx(
+        assert float(columns[0, 1] - columns[0, 0]) == pytest.approx(
             PIXEL_SIZE[1], rel=1e-6
         )
     if height > 1:
-        assert float(grid_y[1, 0] - grid_y[0, 0]) == pytest.approx(
+        assert float(rows[1, 0] - rows[0, 0]) == pytest.approx(
             PIXEL_SIZE[0], rel=1e-6
         )
 
 
 @pytest.mark.parametrize("resolution", [(8, 10), (7, 9), (7, 10)])
 def test_the_frequency_grid_is_the_transform_it_claims_to_be(resolution) -> None:
-    """Turns the claim in AngularSpectrumMethod's docstring into a contract."""
-    grid_x, grid_y = get_frequency_grid(resolution, PIXEL_SIZE)
+    """Turns the claim in AngularSpectrumMethod's docstring into a contract. The
+    transform counts its frequencies along the columns and the rows, so the grid is
+    read in the pixel frame.
+    """
+    columns, rows = pixel_frame_vector(get_frequency_grid(resolution, PIXEL_SIZE))
     omega = FastFourierTransform(resolution).frequencies
 
-    wanted_x = omega[0].reshape(resolution) / PIXEL_SIZE[1]
-    wanted_y = omega[1].reshape(resolution) / PIXEL_SIZE[0]
+    wanted_columns = omega[0].reshape(resolution) / PIXEL_SIZE[1]
+    wanted_rows = omega[1].reshape(resolution) / PIXEL_SIZE[0]
 
-    assert torch.allclose(grid_x, wanted_x, rtol=1e-6)
-    assert torch.allclose(grid_y, wanted_y, rtol=1e-6)
+    assert torch.allclose(columns, wanted_columns, rtol=1e-6)
+    assert torch.allclose(rows, wanted_rows, rtol=1e-6)
