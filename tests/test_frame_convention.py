@@ -418,12 +418,15 @@ def test_a_version_2_calibration_keeps_its_y(tmp_path, monkeypatch):
 
 
 def test_a_calibration_keeps_its_beam(tmp_path):
-    """A beam with Zernike terms is saved with its calibration and loads back equal."""
+    """A beam with Zernike terms and a cutoff is saved with its calibration and loads
+    back equal.
+    """
     beam = GaussianZernikeBeam(
         GaussianBeam(3e-3, 2e-3, 1e-4, 2e-4, angle_degrees=30.0),
         4e-3,
         ((0, 0), (2, -2), (2, 0)),
         (0.1, -0.6, 1.5),
+        cutoff_radius=5e-3,
     )
     path = tmp_path / "calibration.asdf"
     replace(_calibration(), beam=beam, metadata={}).save(path)

@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 import torch
 
 from ...analysis.unwrapping import unwrap_2d_poisson
-from ...optics.complex_amplitude import ComplexAmplitude
+from ...optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 from ...profiles.gaussian import GaussianBeam
 from ...profiles.gaussian_zernike import GaussianZernikeBeam
 from ...profiles.zernike import Zernike
@@ -31,6 +31,23 @@ class WavefrontCalibrationData(SaveableRecord):
     visualization_data: VisualizationData | None = None
 
     # save / load come from SaveableRecord.
+
+    @classmethod
+    def from_beam(
+        cls, beam: GaussianZernikeBeam, geometry: FieldGeometry
+    ) -> WavefrontCalibrationData:
+        """Return a calibration whose field is ``beam`` drawn on ``geometry``.
+
+        The calibration is named "gaussian", and it holds ``beam``. Its timestamp is
+        now.
+        """
+        field = beam.get_wavefront(geometry.resolution, geometry.pixel_size[0])
+        return cls(
+            timestamp=datetime.now(),
+            name="gaussian",
+            complex_amplitude=ComplexAmplitude.from_geometry(geometry, field),
+            beam=beam,
+        )
 
     @classmethod
     def _migrate(cls, version: int, stored: dict) -> dict:

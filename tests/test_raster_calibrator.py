@@ -26,8 +26,8 @@ from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.profiles.amplitude import (
     gaussian_beam_intensity,
 )
-from hologradpy.profiles.gaussian import Gaussian, GaussianBeam
-from hologradpy.profiles.zernike import Zernike
+from hologradpy.profiles.gaussian import GaussianBeam
+from hologradpy.profiles.gaussian_zernike import GaussianZernikeBeam
 from hologradpy.calibration import (
     RasterCalibrator,
     get_diffraction_spot_position,
@@ -524,8 +524,9 @@ def test_calibration_returns_a_complex_amplitude_its_consumers_accept():
     assert as_image(record.complex_amplitude).shape == tuple(slm.resolution)
 
 
-def test_the_fitted_beam_holds_the_gaussian_and_the_zernike_terms_of_a_field():
-    """fit_beam gives back the Gaussian and the Zernike terms of a field.
+def test_fitting_a_drawn_beam_gives_it_back():
+    """fit_beam gives back the Gaussian and the Zernike terms of the field that
+    get_wavefront draws.
 
     The tilt Z(1, -1) wraps the phase about ten times across the beam. The
     astigmatism Z(2, -2) would change sign if y pointed down.
@@ -534,17 +535,9 @@ def test_the_fitted_beam_holds_the_gaussian_and_the_zernike_terms_of_a_field():
     calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
     gaussian = GaussianBeam(0.8e-3, 0.7e-3, 0.1e-3, -0.05e-3, angle_degrees=30.0)
     radius = np.sqrt(2) * 0.8e-3
-    pitch = float(slm.pixel_size[1])
     terms = {(2, 0): 1.5, (2, -2): -0.6, (3, 1): 0.4, (1, -1): 15.0}
-    zernike = Zernike(
-        slm.resolution,
-        unit_disk_radius=radius / pitch,
-        unit_disk_center=(gaussian.shift_x / pitch, gaussian.shift_y / pitch),
-        indices=list(terms),
-    )
-    phase = zernike.get_phase(torch.tensor(list(terms.values()))).numpy()
-    intensity = Gaussian(slm.resolution, slm.pixel_size).get_intensity(gaussian)
-    field = np.sqrt(intensity.numpy()) * np.exp(1j * phase)
+    drawn = GaussianZernikeBeam(gaussian, radius, tuple(terms), tuple(terms.values()))
+    field = drawn.get_wavefront(slm.resolution, slm.pixel_size).numpy()
 
     beam = calibrator.fit_beam(field)
 
