@@ -8,6 +8,7 @@ from jaxtyping import Float
 from torch.nn import Parameter
 
 from ...geometry import homogeneous_matrix, rotation_matrix_from_angle
+from ...grids import pixel_frame_angle, pixel_frame_vector
 from .abstract import capture_init, OpticsModule
 from .learnable_partial_affine import LearnablePartialAffine
 from ..complex_amplitude import ComplexAmplitude
@@ -98,18 +99,22 @@ class GeometricWarp(OpticsModule):
         self.affine_matrix = self.get_affine_matrix()
 
     def get_affine_matrix(self) -> Float[torch.Tensor, "n_wavelengths 3 3"]:
-        """The matrix mapping input ``(x, y)`` pixels to output pixels, per wavelength.
+        """The matrix mapping input ``(column, row)`` pixels to output pixels, per
+        wavelength.
 
         The field is scaled by the pixel-size ratio times ``scale_factor`` and rotated
         by ``angle``, both about the rotation centre, then shifted by ``shift_center +
-        shift``.
+        shift``. The angle and the shift are physical, so both are converted to the
+        pixel frame first.
         """
         partial_affine = self.focal_plane_partial_affine
         scale = self.scale * partial_affine.scale_factor
-        linear = rotation_matrix_from_angle(partial_affine.angle) * scale[..., None, :]
+        angle = pixel_frame_angle(partial_affine.angle)
+        shift = torch.stack(pixel_frame_vector(partial_affine.shift))
+        linear = rotation_matrix_from_angle(angle) * scale[..., None, :]
         return homogeneous_matrix(
             linear,
-            self.shift_center + partial_affine.shift,
+            self.shift_center + shift,
             self.rotation_center + self.rotation_center_shift,
         )
 

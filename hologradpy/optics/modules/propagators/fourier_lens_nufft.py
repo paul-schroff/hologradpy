@@ -14,6 +14,7 @@ from ....fourier_transforms import (
     window_offset_from_pixels,
 )
 
+from ....grids import pixel_frame_angle, pixel_frame_vector
 from ..abstract import OpticsModule
 from ..learnable_partial_affine import LearnablePartialAffine
 from ...complex_amplitude import ComplexAmplitude, pixel_area
@@ -121,6 +122,9 @@ class FourierLensNUFFT(OpticsModule):
         in-pixel ``shift`` becomes the window offset ``-2*pi * shift / (padded *
         scale)`` (the rotation then mixes the axes identically for grid and
         offset, matching the legacy ``scale -> rotate -> shift`` ordering).
+
+        The angle and the shift of the partial affine are physical. The transform
+        samples the pixel frame, so both are converted to it first.
         """
         partial_affine = self.focal_plane_partial_affine
         scale: Tensor = (
@@ -130,12 +134,14 @@ class FourierLensNUFFT(OpticsModule):
         magnification = scale  # (x, y)
 
         shift_x, shift_y = window_offset_from_pixels(
-            partial_affine.shift, self._padded_resolution, (scale[:, 0], scale[:, 1])
+            pixel_frame_vector(partial_affine.shift),
+            self._padded_resolution,
+            (scale[:, 0], scale[:, 1]),
         )
-        shift = torch.stack((shift_x, shift_y), dim=-1)  # (n_wl, 2): (x, y)
+        shift = torch.stack((shift_x, shift_y), dim=-1)  # (n_wl, 2): (column, row)
 
         # Negated on purpose to be consistent with the other modules.
-        angle_radians = -torch.deg2rad(partial_affine.angle)
+        angle_radians = -torch.deg2rad(pixel_frame_angle(partial_affine.angle))
         if not self.learnable:
             angle_radians = float(angle_radians)
 

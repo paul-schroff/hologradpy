@@ -7,7 +7,7 @@ from torch import nn
 from torch.nn import Parameter
 
 from ...geometry import PartialAffineTransform, inverse_partial_affine_parameters
-from ...grids import plane_center
+from ...grids import pixel_frame_angle, pixel_frame_vector, plane_center
 
 
 class LearnablePartialAffine(nn.Module):
@@ -15,10 +15,11 @@ class LearnablePartialAffine(nn.Module):
     it.
 
     ``scale_factor`` is the zoom along ``(x, y)``, ``shift`` the translation in output
-    pixels along ``(x, y)``, and ``angle`` the rotation in degrees. The zoom and the
-    rotation keep the centre of the output plane fixed. A Fourier lens or a field warp
-    holds one and reads its parameters in the forward pass. The camera-aware optical
-    systems calibrate it from a camera mapping through :meth:`set`.
+    pixels along ``(x, y)``, and ``angle`` the rotation in degrees from +x towards +y.
+    All three are physical. The zoom and the rotation keep the centre of the output
+    plane fixed. A Fourier lens or a field warp holds one, reads its parameters in the
+    forward pass and converts them to the pixel frame. The camera-aware optical systems
+    calibrate it from a camera mapping through :meth:`set`.
 
     The parameters are made in float64 on the CPU. The owning module moves them to the
     device and the dtype of its field when it is first run.
@@ -57,18 +58,25 @@ class LearnablePartialAffine(nn.Module):
         """Set the parameters to the inverse of a fitted camera -> model similarity,
         starting from identity.
 
+        The similarity maps camera pixels to model pixels. Its inverse is converted to
+        the physical frame of the parameters.
+
         Args:
             transform: The camera -> model similarity fitted by the camera mappers.
         """
-        scale, angle_deg, shift = inverse_partial_affine_parameters(
+        scale, angle_degrees, shift = inverse_partial_affine_parameters(
             transform, self.center
         )
         with torch.no_grad():
             self.scale_factor.fill_(scale)
             self.shift.copy_(
-                torch.tensor(shift, dtype=self.shift.dtype, device=self.shift.device)
+                torch.tensor(
+                    pixel_frame_vector(shift),
+                    dtype=self.shift.dtype,
+                    device=self.shift.device,
+                )
             )
-            self.angle.fill_(angle_deg)
+            self.angle.fill_(pixel_frame_angle(angle_degrees))
 
     def reset(self) -> None:
         """Return to identity, with unit zoom, no translation and no rotation."""

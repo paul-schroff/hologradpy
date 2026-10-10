@@ -7,7 +7,7 @@ from numpy.typing import ArrayLike, NDArray
 from torch import Tensor
 
 from ...geometry import AffineTransform, PartialAffineTransform
-from ...grids import plane_center
+from ...grids import pixel_frame_angle, plane_center
 from ...serialization import SaveableRecord, record_type
 from ...visualizer import VisualizationData
 from ...hardware.camera import Camera, CameraData, CameraOrientation
@@ -187,8 +187,11 @@ class CameraMapping(SaveableRecord):
         """Rotation of the camera axes relative to the model plane in degrees, from the
         polar decomposition of the transform (reflection factored out for a mirrored
         camera).
+
+        The rotation turns +x towards +y in the physical frame. The transform maps
+        pixels, so its rotation is converted from the pixel frame.
         """
-        return self.affine.rotation_degrees
+        return pixel_frame_angle(self.affine.rotation_degrees)
 
     @property
     def scales(self) -> tuple[float, float]:

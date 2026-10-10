@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from hologradpy.geometry import PartialAffineTransform
+from hologradpy.grids import pixel_frame_angle, pixel_frame_vector
 from hologradpy.optics.complex_amplitude import ComplexAmplitude
 from hologradpy.optics.modules.geometric_transforms import GeometricWarp
 
@@ -29,16 +30,21 @@ def _warped(data: torch.Tensor, **parameters) -> torch.Tensor:
 
 
 def test_matrix_matches_the_partial_affine_value_object():
+    """The matrix maps pixels, so it holds the warp's angle and shift converted to the
+    pixel frame.
+    """
     resolution = (33, 41)
     warp = GeometricWarp(
         resolution, PIXEL_SIZE, scale_factor=(1.2, 1.2), shift=(3.0, -2.0), angle=17.0
     )
     warp(ComplexAmplitude(_random_plane(resolution), WAVELENGTH, PIXEL_SIZE))
     center = (warp.rotation_center + warp.rotation_center_shift)[0]
-    shift = (warp.shift_center + warp.focal_plane_partial_affine.shift)[0]
+    shift = warp.shift_center[0] + torch.tensor(
+        pixel_frame_vector((3.0, -2.0)), dtype=torch.float64
+    )
     expected = PartialAffineTransform.from_components(
         scale=1.2,
-        angle_deg=17.0,
+        angle_deg=pixel_frame_angle(17.0),
         shift=tuple(shift.tolist()),
         center=tuple(center.tolist()),
     ).matrix

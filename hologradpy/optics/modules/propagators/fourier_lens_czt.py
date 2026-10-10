@@ -15,6 +15,7 @@ from ....fourier_transforms import (
     window_offset_from_pixels,
 )
 
+from ....grids import pixel_frame_angle, pixel_frame_vector
 from ....utils import to_canvas
 from ..abstract import OpticsModule
 from ..learnable_partial_affine import LearnablePartialAffine
@@ -175,10 +176,13 @@ class FourierLensCZT(OpticsModule):
 
         The same object serves both directions: the transform's ``adjoint`` reverses
         the rotation itself, so the angle is not negated here.
+
+        The angle and the shift of the partial affine are physical. The transform
+        samples the pixel frame, so both are converted to it first.
         """
         partial_affine = self.focal_plane_partial_affine
         magnification = (scale[0], scale[1])  # (x, y)
-        angle = torch.deg2rad(partial_affine.angle)
+        angle = torch.deg2rad(pixel_frame_angle(partial_affine.angle))
         if not self.learnable:
             # A plain float lets the transform skip the rotation entirely at zero. When
             # the parameters are learnable the tensor is kept so a gradient flows, even
@@ -186,8 +190,10 @@ class FourierLensCZT(OpticsModule):
             angle = float(angle)
 
         shift = window_offset_from_pixels(
-            partial_affine.shift, self._padded_resolution, (scale[0], scale[1])
-        )  # (x, y)
+            pixel_frame_vector(partial_affine.shift),
+            self._padded_resolution,
+            (scale[0], scale[1]),
+        )  # (column, row)
 
         return ChirpZPartialAffine(
             self._padded_resolution,

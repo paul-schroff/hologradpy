@@ -28,7 +28,7 @@ from hologradpy.fourier_transforms import (
     fft_2d,
     ifft_2d,
 )
-from hologradpy.grids import get_frequency_grid
+from hologradpy.grids import get_frequency_grid, get_pixel_grid
 from hologradpy.utils import to_canvas
 
 
@@ -158,20 +158,16 @@ def test_asm_forward_is_the_padded_fft_with_the_analytic_transfer_function() -> 
 
 
 def _focal_spot_polar_angle(intensity: torch.Tensor) -> float:
-    """Polar angle of the focal spot, in degrees about the frame center."""
+    """Polar angle of the focal spot, in degrees about the frame center. The angle
+    turns +x towards +y in the physical frame, as the camera angle does.
+    """
     values = intensity.detach().to(torch.float64)
-    height, width = values.shape
+    x_grid, y_grid = get_pixel_grid(values.shape, dtype=torch.float64)
     peak = int(values.argmax())
-    peak_row, peak_column = peak // width, peak % width
-
-    y_axis = torch.arange(height, dtype=torch.float64) - (height - 1) / 2
-    x_axis = torch.arange(width, dtype=torch.float64) - (width - 1) / 2
-    y_grid, x_grid = torch.meshgrid(y_axis, x_axis, indexing="ij")
+    peak_x, peak_y = x_grid.flatten()[peak], y_grid.flatten()[peak]
 
     # Moments about the peak only, so sidelobes do not drag the centroid inward.
-    window = (
-        (y_grid - y_axis[peak_row]).abs() <= 12
-    ) & ((x_grid - x_axis[peak_column]).abs() <= 12)
+    window = ((x_grid - peak_x).abs() <= 12) & ((y_grid - peak_y).abs() <= 12)
     local = values * window
     total = local.sum()
     centroid_y = float((local * y_grid).sum() / total)

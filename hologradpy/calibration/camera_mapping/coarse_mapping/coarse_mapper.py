@@ -14,7 +14,13 @@ from ....hardware import Camera, SLM
 
 from ....optics.systems import SLMFourierLensModel
 from ....profiles.phase import linear_phase, binary_phase_grating
-from ....grids import get_spatial_grid, metres_to_pixel, pixel_to_metres, plane_center
+from ....grids import (
+    get_spatial_grid,
+    metres_to_pixel,
+    pixel_frame_angle,
+    pixel_to_metres,
+    plane_center,
+)
 from ....fourier_optics import get_focal_spot_radius
 from ....holography.phase_retrieval import LinearSuperpositionPhaseRetriever
 from ....analysis.fitting import fit_gaussian_beam_intensity
@@ -395,12 +401,14 @@ class CoarseMapper(CameraMapper):
 
     @staticmethod
     def _linear_rotation_degrees(linear: NDArray) -> float:
-        """Rotation [deg] of a 2x2 linear map (reflection factored out), matching
-        CameraMapping.rotation_degrees.
+        """Rotation [deg] of a 2x2 pixel-frame linear map (reflection factored out),
+        in the physical frame, matching CameraMapping.rotation_degrees.
         """
-        return AffineTransform.from_matrix(
-            np.column_stack([linear, [0.0, 0.0]])
-        ).rotation_degrees
+        return pixel_frame_angle(
+            AffineTransform.from_matrix(
+                np.column_stack([linear, [0.0, 0.0]])
+            ).rotation_degrees
+        )
 
     def _suggest_camera_orientation(
         self, transform: NDArray, camera_shape: tuple[int, int]

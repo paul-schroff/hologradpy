@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 import torch
 
+from hologradpy.grids import pixel_frame_angle
 from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch
 from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
@@ -136,8 +137,11 @@ def _build_setup(
 
 
 def _recovered_rotation(transform: np.ndarray) -> float:
-    """Camera->model rotation of an affine, in degrees."""
-    return float(np.degrees(np.arctan2(transform[1, 0], transform[0, 0])))
+    """Camera->model rotation of a pixel affine, in degrees in the physical frame, as
+    the camera angle is given.
+    """
+    angle = float(np.degrees(np.arctan2(transform[1, 0], transform[0, 0])))
+    return pixel_frame_angle(angle)
 
 
 @pytest.fixture(scope="module")
