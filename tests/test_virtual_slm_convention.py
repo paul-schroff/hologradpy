@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 import torch
 
+from hologradpy.grids import pixel_to_metres
 from hologradpy.hardware import SimulatedSLMTorch
 from hologradpy.holography.phase_retrieval import LinearSuperpositionPhaseRetriever
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
@@ -81,8 +82,7 @@ def _fft_pixel(fft_model) -> float:
 def _assert_peak_at_target(model, pixel_size: float) -> None:
     image = gpu_to_numpy(as_image(model().intensity))
     row, column = np.unravel_index(int(np.argmax(image)), image.shape)
-    x = (column - image.shape[1] // 2) * pixel_size
-    y = (row - image.shape[0] // 2) * pixel_size
+    x, y = pixel_to_metres((column, row), (pixel_size, pixel_size), image.shape)
     assert x == pytest.approx(TARGET[0], abs=pixel_size)
     assert y == pytest.approx(TARGET[1], abs=pixel_size)
 

@@ -23,7 +23,7 @@ from hologradpy.calibration.spot_detection import (
     tilt_to_sensor_center,
 )
 from hologradpy.geometry import PartialAffineTransform
-from hologradpy.grids import plane_center
+from hologradpy.grids import pixel_frame_angle, pixel_frame_vector, plane_center
 from hologradpy.hardware import SimulatedCameraTorch, SimulatedSLMTorch
 from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
@@ -108,8 +108,13 @@ def test_the_tilt_carries_the_beam_from_the_zeroth_order_to_the_middle() -> None
 
     tilt = tilt_to_sensor_center(_FakeCamera(), _mapping(zeroth))
 
-    expected_x = (CAMERA_RESOLUTION[1] / 2 - zeroth[1]) * CAMERA_PIXEL_SIZE[1]
-    expected_y = (CAMERA_RESOLUTION[0] / 2 - zeroth[0]) * CAMERA_PIXEL_SIZE[0]
+    # The displacement runs in (column, row) pixels, and the tilt is physical.
+    expected_x, expected_y = pixel_frame_vector(
+        (
+            (CAMERA_RESOLUTION[1] / 2 - zeroth[1]) * CAMERA_PIXEL_SIZE[1],
+            (CAMERA_RESOLUTION[0] / 2 - zeroth[0]) * CAMERA_PIXEL_SIZE[0],
+        )
+    )
     assert tilt == pytest.approx((expected_x, expected_y))
 
 
@@ -122,7 +127,11 @@ def test_the_tilt_is_taken_through_the_mapping_not_along_the_sensor() -> None:
     camera = _FakeCamera()
 
     straight = tilt_to_sensor_center(camera, _mapping(zeroth))
-    rotated = tilt_to_sensor_center(camera, _mapping(zeroth, angle=90.0))
+    # The mapping turns pixels, so its angle is the physical quarter turn in the pixel
+    # frame.
+    rotated = tilt_to_sensor_center(
+        camera, _mapping(zeroth, angle=pixel_frame_angle(90.0))
+    )
 
     # A quarter turn sends (x, y) to (-y, x). The partial affine is fitted from the
     # point pairs, which holds it to a relative 1e-8.

@@ -43,7 +43,7 @@ from hologradpy.calibration.wavefront.speckle_calibration import (
     PSFSpeckleCalibrator,
 )
 from hologradpy.geometry import PartialAffineTransform
-from hologradpy.grids import pixel_to_metres, plane_center
+from hologradpy.grids import metres_to_pixel, pixel_to_metres, plane_center
 from hologradpy.hardware import (
     SLM,
     Camera,
@@ -621,11 +621,10 @@ def _probe_and_zeroth_order(probe_rate: float = 1e5) -> NDArray:
 
 def _position_in_pixels(position: tuple[float, float]) -> tuple[float, float]:
     """A spot position in metres from the sensor's centre, as ``(row, col)`` pixels."""
-    x_metres, y_metres = position
-    return (
-        y_metres / SPOT_PIXEL_PITCH + SPOT_SENSOR_RESOLUTION[0] / 2,
-        x_metres / SPOT_PIXEL_PITCH + SPOT_SENSOR_RESOLUTION[1] / 2,
+    column, row = metres_to_pixel(
+        position, (SPOT_PIXEL_PITCH, SPOT_PIXEL_PITCH), SPOT_SENSOR_RESOLUTION
     )
+    return row, column
 
 
 def _locate(camera: _SpotCamera, **options) -> tuple[tuple[float, float], ROI]:
