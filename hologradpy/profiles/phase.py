@@ -277,22 +277,28 @@ def gaussian_phase_guess(
     focal_length: float,
     wavenumber: float,
     output_beam_shift: tuple[float, float] = (0.0, 0.0),
+    angle_degrees: float = 0.0,
 ) -> ArrayLike:
     """A lens that shapes a Gaussian beam with ``input_beam_radius`` into a Gaussian
     spot in the Fourier plane with the specified ``output_beam_radius``, placed at
     ``output_beam_shift``.
 
+    The lens is a cylindrical lens along each of two axes. The axes are x and y,
+    turned by ``angle_degrees`` about the SLM's centre. Both radius pairs run along
+    these axes.
+
     Args:
         x: X coordinates in the SLM plane, in metres.
         y: Y coordinates in the SLM plane, in metres.
-        input_beam_radius: Radius of the incident Gaussian beam in metres, as an
-            ``(x, y)`` pair.
-        output_beam_radius: Wanted radius in the Fourier plane in metres, as ``(x, y)``.
-            ``None`` leaves that axis unshaped.
+        input_beam_radius: Radius of the incident Gaussian beam in metres, along each
+            axis, as a pair.
+        output_beam_radius: Wanted radius in the Fourier plane in metres, along each
+            axis, as a pair. ``None`` leaves that axis unshaped.
         focal_length: Focal length of the Fourier lens in metres.
         wavenumber: Wavenumber ``2 * pi / wavelength``.
         output_beam_shift: Where to place the spot in the Fourier plane, as an
-            ``(x, y)`` displacement from the optical axis in metres.
+            ``(x, y)`` displacement from the optical axis in metres. It is not turned.
+        angle_degrees: The angle of the axes from +x towards +y, in degrees.
 
     Returns:
         ArrayLike: The phase in radians, on the grid of ``x`` and ``y``.
@@ -312,7 +318,10 @@ def gaussian_phase_guess(
     xp = array_namespace(x)
     phase = xp.zeros_like(x)
 
-    axes = ((x, radius_x, output_x), (y, radius_y, output_y))
+    angle = np.radians(angle_degrees)
+    along = x * np.cos(angle) + y * np.sin(angle)
+    across = y * np.cos(angle) - x * np.sin(angle)
+    axes = ((along, radius_x, output_x), (across, radius_y, output_y))
     for coordinate, radius, output in axes:
         if output is None:
             continue

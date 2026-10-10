@@ -264,14 +264,26 @@ def test_gaussian_phase_guess_requires_pairs():
         gaussian_phase_guess(x, y, 2e-3, (None, 100e-6), FOCAL_LENGTH, WAVENUMBER)
 
 
-def test_gaussian_phase_guess_shift_adds_a_linear_phase():
-    """The shift is a tilt on top, so it separates cleanly from the shaping lens."""
+@pytest.mark.parametrize("angle_degrees", [0.0, 30.0])
+def test_gaussian_phase_guess_shift_adds_a_linear_phase(angle_degrees):
+    """The shift is a tilt on top, so it separates cleanly from the shaping lens. It
+    stays along x and y when the lenses are turned.
+    """
     x, y = _grid()
     radii, outputs = (2e-3, 2e-3), (200e-6, 100e-6)
     shift = (300e-6, -150e-6)
-    shaped = gaussian_phase_guess(x, y, radii, outputs, FOCAL_LENGTH, WAVENUMBER)
+    shaped = gaussian_phase_guess(
+        x, y, radii, outputs, FOCAL_LENGTH, WAVENUMBER, angle_degrees=angle_degrees
+    )
     steered = gaussian_phase_guess(
-        x, y, radii, outputs, FOCAL_LENGTH, WAVENUMBER, output_beam_shift=shift
+        x,
+        y,
+        radii,
+        outputs,
+        FOCAL_LENGTH,
+        WAVENUMBER,
+        output_beam_shift=shift,
+        angle_degrees=angle_degrees,
     )
     tilt = linear_phase(
         x,
@@ -310,4 +322,52 @@ def test_gaussian_phase_guess_steers_an_unshaped_axis():
     # x carries only the tilt, so its phase is linear along that axis.
     along_x = steered[steered.shape[0] // 2, :]
     np.testing.assert_allclose(np.diff(along_x, 2), 0.0, atol=1e-6)
+
+
+def test_gaussian_phase_guess_turns_its_lenses_from_x_towards_y():
+    """At 45 degrees, the first lens runs along the diagonal x = y, so its phase
+    depends on (x + y) / sqrt(2) only.
+    """
+    x, y = _grid()
+    input_radius, output_radius = 2e-3, 100e-6
+    lens = beam_shaping_focal_length(
+        input_radius, FOCAL_LENGTH, output_radius, WAVELENGTH
+    )
+    along = (x + y) / math.sqrt(2)
+    guess = gaussian_phase_guess(
+        x,
+        y,
+        (input_radius, input_radius),
+        (output_radius, None),
+        FOCAL_LENGTH,
+        WAVENUMBER,
+        angle_degrees=45.0,
+    )
+    np.testing.assert_allclose(guess, -WAVENUMBER * along**2 / (2 * lens), atol=1e-12)
+
+
+def test_turning_the_lenses_by_90_degrees_swaps_their_axes():
+    x, y = _grid()
+    turned = gaussian_phase_guess(
+        x, y, (2e-3, 1e-3), (200e-6, 100e-6), FOCAL_LENGTH, WAVENUMBER, angle_degrees=90
+    )
+    swapped = gaussian_phase_guess(
+        x, y, (1e-3, 2e-3), (100e-6, 200e-6), FOCAL_LENGTH, WAVENUMBER
+    )
+    np.testing.assert_allclose(turned, swapped)
+
+
+def test_the_focal_spot_and_the_shaping_lens_of_a_pair_are_pairs():
+    radii, targets = (2e-3, 1e-3), (200e-6, 100e-6)
+
+    spots = get_focal_spot_radius(radii, WAVELENGTH, FOCAL_LENGTH)
+    lenses = beam_shaping_focal_length(radii, FOCAL_LENGTH, targets, WAVELENGTH)
+
+    assert spots == tuple(
+        get_focal_spot_radius(radius, WAVELENGTH, FOCAL_LENGTH) for radius in radii
+    )
+    assert lenses == tuple(
+        beam_shaping_focal_length(radius, FOCAL_LENGTH, target, WAVELENGTH)
+        for radius, target in zip(radii, targets)
+    )
 
