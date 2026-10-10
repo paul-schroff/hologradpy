@@ -440,9 +440,9 @@ class Camera(ABC):
     def orientation_matrix(self) -> NDArray:
         """The ``(2, 3)`` pixel-space affine of this camera's frame transform.
 
-        It maps the ``(x, y)`` of a pixel in the raw sensor frame to the ``(x, y)`` of
-        the same pixel in the displayed frame. A camera without a ``transform`` is
-        axis-aligned, so its matrix is the identity.
+        It maps the ``(column, row)`` of a pixel in the raw sensor frame to the
+        ``(column, row)`` of the same pixel in the displayed frame. A camera without a
+        ``transform`` is axis-aligned, so its matrix is the identity.
         """
         transform = getattr(self, "transform", None)
         if transform is None:
@@ -1285,8 +1285,8 @@ class CameraOrientation:
                 translation.
 
         Returns:
-            NDArray: The matrix mapping the ``(x, y, 1)`` of a raw pixel to its
-            ``(x, y)`` in the transformed frame.
+            NDArray: The matrix mapping the ``(column, row, 1)`` of a raw pixel to its
+            ``(column, row)`` in the transformed frame.
         """
         return dihedral_affine_matrix(self.transformation(), shape)
 
@@ -1368,7 +1368,7 @@ def reorient_pixels(
         return []
     source_matrix = source.matrix(raw_shape)
     target_matrix = target.matrix(raw_shape)
-    # The matrices act on (x, y) = (col, row) positions.
+    # The matrices act on (column, row) positions.
     shown_xy = points[:, ::-1]
     sensor_xy = np.linalg.solve(
         source_matrix[:, :2], (shown_xy - source_matrix[:, 2]).T

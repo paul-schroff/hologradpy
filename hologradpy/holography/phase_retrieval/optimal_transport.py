@@ -160,9 +160,10 @@ class OptimalTransportPhaseRetriever(PhaseRetrieverBase):
             on_sweep,
         )
 
+        # The (y, x) pitch of the SLM grid, the size of a step between its samples.
         pitch = (
-            float(slm_axis_y[1] - slm_axis_y[0]),
-            float(slm_axis_x[1] - slm_axis_x[0]),
+            abs(float(slm_axis_y[1] - slm_axis_y[0])),
+            abs(float(slm_axis_x[1] - slm_axis_x[0])),
         )
         wavenumber = float(model.input_geometry.wavenumber.reshape(()))
         return (wavenumber / model.focal_length) * integrate_along_path(

@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from hologradpy.grids import get_spatial_grid, pixel_frame_vector
+from hologradpy.grids import get_spatial_grid
 from hologradpy.vector_fields import (
     forward_difference,
     gradient,
@@ -27,10 +27,6 @@ from hologradpy.vector_fields import (
 
 RESOLUTION = (48, 64)
 PIXEL_SIZE = (2e-4, 1e-4)  # (y, x), deliberately unequal
-# The signed (y, x) steps of the grid from one sample to the next, which the operators
-# take, as the optimal-transport retriever passes them.
-STEP_X, STEP_Y = pixel_frame_vector((PIXEL_SIZE[1], PIXEL_SIZE[0]))
-STEPS = (STEP_Y, STEP_X)
 
 
 def _grid() -> tuple[torch.Tensor, torch.Tensor]:
@@ -65,7 +61,9 @@ def test_a_gradient_integrates_back_to_its_potential():
     x, y = _grid()
     expected = _centred(0.3 * x + 0.7 * y + 2.0 * (x**2 + y**2) + 0.5 * x * y)
 
-    recovered = _centred(integrate_along_path(*gradient(expected, STEPS), STEPS))
+    recovered = _centred(
+        integrate_along_path(*gradient(expected, PIXEL_SIZE), PIXEL_SIZE)
+    )
 
     relative = (recovered - expected).abs().max() / expected.abs().max()
     assert float(relative) < 0.05
@@ -74,7 +72,7 @@ def test_a_gradient_integrates_back_to_its_potential():
 def test_the_potential_of_a_radial_field_is_a_paraboloid():
     """The shaping-lens case, and the one that would catch a flipped sign."""
     x, y = _grid()
-    recovered = _centred(integrate_along_path(x, y, STEPS))
+    recovered = _centred(integrate_along_path(x, y, PIXEL_SIZE))
     expected = _centred((x**2 + y**2) / 2)
 
     overlap = (recovered * expected).sum() / (expected * expected).sum()
@@ -87,7 +85,7 @@ def test_a_constant_field_integrates_to_a_tilt():
     constant_x, constant_y = 3.0, -2.0
 
     potential = integrate_along_path(
-        torch.full_like(x, constant_x), torch.full_like(y, constant_y), STEPS
+        torch.full_like(x, constant_x), torch.full_like(y, constant_y), PIXEL_SIZE
     )
 
     expected = constant_x * x + constant_y * y

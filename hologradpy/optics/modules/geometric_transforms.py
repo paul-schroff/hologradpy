@@ -178,8 +178,9 @@ class GeometricWarp(OpticsModule):
 def _pixel_to_normalized_matrix(
     height: int, width: int, like: torch.Tensor
 ) -> Float[torch.Tensor, "3 3"]:
-    """The matrix taking ``(x, y)`` pixel coordinates to the normalized coordinates of
-    :func:`torch.nn.functional.grid_sample` with ``align_corners=True``.
+    """The matrix taking ``(column, row)`` pixel coordinates to the normalized
+    coordinates of :func:`torch.nn.functional.grid_sample` with
+    ``align_corners=True``.
 
     The first and last pixel centres of each axis map to -1 and 1. A single-pixel axis
     keeps a finite matrix through a denominator of ``1e-14``.
@@ -212,7 +213,7 @@ def _warp_affine(
 
     Each output pixel ``p`` takes the bilinear interpolation of the input at
     ``pixel_matrix^-1 p``, and pixels that map outside the input are zero. Pixel
-    coordinates are ``(x, y)`` with the first pixel centre at the origin.
+    coordinates are ``(column, row)`` with the first pixel centre at the origin.
 
     Args:
         image: The images to resample.

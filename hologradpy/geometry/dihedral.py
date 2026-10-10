@@ -3,7 +3,7 @@
 :func:`dihedral_array_transform` builds the function that applies one of them to an
 array. :func:`dihedral_affine_matrix` finds the ``(2, 3)`` affine of that function. The
 affine maps the position of a pixel in the input array to its position in the
-reoriented array. Points are ``(x, y)``, as everywhere in :mod:`hologradpy.geometry`.
+reoriented array. Points are pixel positions, ``(column, row)``.
 """
 
 from __future__ import annotations
@@ -59,11 +59,11 @@ def dihedral_affine_matrix(
 ) -> NDArray:
     """The ``(2, 3)`` pixel-space affine of a rotation and flip of a pixel array.
 
-    The matrix maps the ``(x, y, 1)`` of a pixel in an input array of ``shape`` to the
-    ``(x, y)`` of the same pixel in the output of ``array_transform``. It is found by
-    applying ``array_transform`` to arrays of the row and column indices and reading
-    where three corners of the input land. Three corners determine the affine of each
-    of the eight rotations and flips.
+    The matrix maps the ``(column, row, 1)`` of a pixel in an input array of ``shape``
+    to the ``(column, row)`` of the same pixel in the output of ``array_transform``.
+    It is found by applying ``array_transform`` to arrays of the row and column indices
+    and reading where three corners of the input land. Three corners determine the
+    affine of each of the eight rotations and flips.
 
     Args:
         array_transform: A rotation in 90 degree steps followed by flips.

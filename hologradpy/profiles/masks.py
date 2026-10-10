@@ -93,7 +93,7 @@ def disc_mask(
 
     Args:
         shape: Image shape ``(height, width)``.
-        center: Disc center ``(x, y)`` in pixels.
+        center: Disc center ``(column, row)`` in pixels.
         radius: Disc radius in pixels.
     """
     rows, columns = np.indices(shape)

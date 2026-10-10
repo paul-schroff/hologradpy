@@ -27,7 +27,7 @@ def get_zoom_frequency_grid(
     The native DFT bin spacing is ``2*pi / resolution`` (rad/sample); the window
     samples ``resolution_out`` points at spacing ``(2*pi / resolution) /
     magnification`` (``magnification > 1`` zooms in), centered and offset by
-    ``shift`` (rad/sample). ``shift`` and ``magnification`` are ``(x, y)``;
+    ``shift`` (rad/sample). ``shift`` and ``magnification`` are ``(column, row)``;
     ``resolution`` / ``resolution_out`` are ``(height, width)``.
 
     Returns the 1D omega arrays ``(omega_x, omega_y)``, on ``device``, the CPU for None.
@@ -55,12 +55,13 @@ def window_offset_from_pixels(
     This produces the ``shift`` that :func:`get_zoom_frequency_grid` takes.
 
     Args:
-        shift: Image translation ``(x, y)`` in output pixels.
+        shift: Image translation ``(column, row)`` in output pixels.
         resolution: ``(height, width)`` of the grid being transformed.
-        magnification: Zoom ``(x, y)``, as :func:`get_zoom_frequency_grid` takes it.
+        magnification: Zoom ``(column, row)``, as :func:`get_zoom_frequency_grid`
+            takes it.
 
     Returns:
-        The ``(x, y)`` offset in rad/sample. Broadcasts, so a per-wavelength
+        The ``(column, row)`` offset in rad/sample. Broadcasts, so a per-wavelength
         magnification gives a per-wavelength offset.
     """
     height, width = resolution

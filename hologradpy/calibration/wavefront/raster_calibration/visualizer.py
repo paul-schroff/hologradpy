@@ -49,8 +49,8 @@ class RasterVisualizationData(VisualizationData):
     is a single full-sensor snapshot of the first scan frame (interference pattern,
     optical lattice and zeroth order together), also recorded only when
     ``record_displayed_phases`` was requested. ``full_frame_marker_positions`` maps
-    each feature label to its ``(x, y)`` camera pixel (``None`` for a feature absent
-    from the scan, e.g. the lattice without pointing compensation).
+    each feature label to its ``(column, row)`` camera pixel (``None`` for a feature
+    absent from the scan, e.g. the lattice without pointing compensation).
     """
 
     camera_images: NDArray

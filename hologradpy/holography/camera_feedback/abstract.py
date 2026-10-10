@@ -191,9 +191,9 @@ class FeedbackCorrectorBase(ABC):
         """Where :attr:`target_position` lands on the sensor, as ``(row, column)``.
 
         ``target_position`` is ``(x, y)`` metres in the Nyquist plane, measured from the
-        zeroth order. The sign convention follows the rest of the package: x runs along
-        the sensor columns and y along the rows, both increasing with pixel index, so
-        positive y is downward on a displayed image.
+        zeroth order. The sign convention follows the rest of the package: on an
+        unrotated sensor, x increases with the column index and y with decreasing row
+        index, so positive y is upward on a displayed image.
 
         The camera's rotation and scale are applied, so a request of ``(+500e-6, 0)``
         means half a millimetre along the *optical* x axis, wherever that falls on a

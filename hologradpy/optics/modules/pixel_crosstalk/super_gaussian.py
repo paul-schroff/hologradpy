@@ -74,12 +74,14 @@ class PiecewiseSuperGaussianCrosstalk(ConvolutionalCrosstalk):
         Args:
             upscale_factor: Sub-pixels across one SLM pixel.
             extent: Reach of the fringing field, in SLM pixels.
-            order_y: Super-Gaussian order for the vertical axis, ``(negative,
-                positive)``.
-            order_x: Order for the horizontal axis, ``(negative, positive)``.
-            width_y: Width for the vertical axis in cycles per SLM pixel,
-                ``(negative, positive)``.
-            width_x: Width for the horizontal axis, ``(negative, positive)``.
+            order_y: Super-Gaussian order along the rows, for the halves of
+                ``(smaller, larger)`` row index.
+            order_x: Order along the columns, for the halves of ``(smaller, larger)``
+                column index.
+            width_y: Width along the rows in cycles per SLM pixel, for the halves of
+                ``(smaller, larger)`` row index.
+            width_x: Width along the columns, for the halves of ``(smaller, larger)``
+                column index.
             learnable: Whether the eight parameters take gradients.
         """
         super().__init__(upscale_factor=upscale_factor, extent=extent)

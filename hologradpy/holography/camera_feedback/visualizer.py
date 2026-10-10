@@ -138,7 +138,7 @@ class TargetPlacementVisualizer(BaseVisualizer):
             f"{verdict}"
         )
         axs.set_xlabel("camera column (+x)")
-        axs.set_ylabel("camera row (+y)")
+        axs.set_ylabel("camera row (-y)")
         axs.legend(loc="upper right", fontsize=8)
         return mappable
 

@@ -57,9 +57,9 @@ def gaussian_beam_intensity(
     """Gaussian beam intensity on a 2D grid, round or elliptical.
 
     A round beam has one 1/e^2 radius. An elliptical beam has its major radius along
-    its long axis and its minor radius across it. The long axis is turned clockwise
-    from +x by ``angle_degrees``, about the beam's centre. The angle leaves a round
-    beam as it is.
+    its long axis and its minor radius across it. The long axis is turned
+    counterclockwise from +x by ``angle_degrees``, about the beam's centre. The angle
+    leaves a round beam as it is.
 
     Args:
         x: X coordinates.
@@ -72,7 +72,7 @@ def gaussian_beam_intensity(
         shift_y: Y shift of the beam center. Defaults to 0.0.
         intensity: Peak intensity of the beam. Defaults to 1.0.
         offset: Offset added to the intensity. Defaults to 0.0.
-        angle_degrees: The clockwise angle of the long axis from +x, in degrees.
+        angle_degrees: The counterclockwise angle of the long axis from +x, in degrees.
             Defaults to 0.0.
 
     Returns:
@@ -176,7 +176,7 @@ def gaussian_spot_array(
             direction for round spots.
         beam_radius_minor: The 1/e^2 radius across each spot's long axis. None, the
             default, makes the spots round.
-        angle_degrees: The clockwise angle of each spot's long axis from +x, in
+        angle_degrees: The counterclockwise angle of each spot's long axis from +x, in
             degrees. Defaults to 0.0.
 
     Returns:
@@ -381,7 +381,7 @@ def gaussian_blur(
             in every direction for a round spot.
         beam_radius_minor: The 1/e^2 radius in pixels across the long axis. None, the
             default, makes the spot round.
-        angle_degrees: The clockwise angle of the long axis from +x, in degrees.
+        angle_degrees: The counterclockwise angle of the long axis from +x, in degrees.
             Defaults to 0.0.
 
     Returns:
@@ -437,7 +437,7 @@ def laser_speckle_intensity(
             axis, or in every direction for round grains. It is at least a pixel.
         grain_radius_minor: Speckle grain radius in metres across the long axis, at
             least a pixel. None, the default, makes the grains round.
-        angle_degrees: The clockwise angle of the grains' long axis from +x, in
+        angle_degrees: The counterclockwise angle of the grains' long axis from +x, in
             degrees. Defaults to 0.0.
         device: Device for the generated tensor.
         dtype: Real dtype of the returned intensity map.
@@ -480,8 +480,8 @@ def checkerboard(
         number_of_squares: Number of squares along the ``(y, x)`` axes.
         square_size: Side length of each square in pixels. If ``None``, the largest
             that fits ``number_of_squares`` into ``resolution``.
-        shift_x: Horizontal (x) shift of the board in pixels.
-        shift_y: Vertical (y) shift of the board in pixels.
+        shift_x: Shift of the board in columns, towards larger column index.
+        shift_y: Shift of the board in rows, towards larger row index.
         dark_square_brightness: Value of the dark squares.
         light_square_brightness: Value of the light squares.
         device: If given, return a torch tensor on that device, otherwise numpy.

@@ -5,6 +5,8 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
+from .grids import pixel_frame_vector
+
 
 def integrate_along_path(
     field_x: Tensor,
@@ -13,10 +15,13 @@ def integrate_along_path(
 ) -> Tensor:
     """Integrate a 2D vector field along an L-shaped path out from the origin.
 
+    The grid is laid out as :func:`~hologradpy.grids.get_spatial_grid` lays it out, so
+    y increases with decreasing row index.
+
     Args:
         field_x: X component on an ``(..., height, width)`` grid.
         field_y: Y component, same shape.
-        pixel_size: Sample spacing ``(y, x)`` in metres.
+        pixel_size: The ``(y, x)`` pitch in metres.
 
     Returns:
         Tensor: The integral at every sample, same shape as the input, zero at the
@@ -25,17 +30,18 @@ def integrate_along_path(
     height, width = field_x.shape[-2:]
 
     origin_y, origin_x = height // 2, width // 2
-    spacing_y, spacing_x = pixel_size
+    # The x and y steps from one column and one row to the next.
+    step_x, step_y = pixel_frame_vector((pixel_size[1], pixel_size[0]))
 
     # Trapezoid rule using cumulative sum
     row = field_x[..., origin_y, :]
     along_row = torch.cumsum(row, dim=-1) - row / 2
-    along_row = (along_row - along_row[..., origin_x : origin_x + 1]) * spacing_x
+    along_row = (along_row - along_row[..., origin_x : origin_x + 1]) * step_x
 
     down_columns = torch.cumsum(field_y, dim=-2) - field_y / 2
     down_columns = (
         down_columns - down_columns[..., origin_y : origin_y + 1, :]
-    ) * spacing_y
+    ) * step_y
 
     return along_row[..., None, :] + down_columns
 
@@ -46,19 +52,19 @@ def gradient(
     """Gradient of a scalar field by central differences, one-sided at the edges.
 
     The companion of :func:`integrate_along_path`, mainly so that a round trip can be
-    tested.
+    tested. The grid is laid out as :func:`integrate_along_path` takes it.
 
     Args:
         potential: An ``(..., height, width)`` scalar field.
-        pixel_size: Sample spacing ``(y, x)`` in metres.
+        pixel_size: The ``(y, x)`` pitch in metres.
 
     Returns:
         tuple[Tensor, Tensor]: The ``(x, y)`` components of the gradient.
     """
-    spacing_y, spacing_x = pixel_size
+    step_x, step_y = pixel_frame_vector((pixel_size[1], pixel_size[0]))
     return (
-        torch.gradient(potential, spacing=spacing_x, dim=-1)[0],
-        torch.gradient(potential, spacing=spacing_y, dim=-2)[0],
+        torch.gradient(potential, spacing=step_x, dim=-1)[0],
+        torch.gradient(potential, spacing=step_y, dim=-2)[0],
     )
 
 
@@ -71,8 +77,9 @@ def forward_difference(field: Tensor) -> tuple[Tensor, Tensor]:
         field: An ``(..., height, width)`` scalar field.
 
     Returns:
-        tuple[Tensor, Tensor]: The ``(x, y)`` differences, where x runs along the last
-            axis. They are the width and the height respectively that are one shorter.
+        tuple[Tensor, Tensor]: The ``(column, row)`` differences, along the last axis
+            and the one before it. They are the width and the height respectively that
+            are one shorter.
     """
     return torch.diff(field, dim=-1), torch.diff(field, dim=-2)
 

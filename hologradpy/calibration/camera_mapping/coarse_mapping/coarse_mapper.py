@@ -288,7 +288,7 @@ class CoarseMapper(CameraMapper):
             # The four affine probes form a rectangle centred in the camera frame. The
             # rectangle spans half the sensor width and height.
             half_extent_px = np.array(
-                [camera_shape[1] / 4.0, camera_shape[0] / 4.0]  # (x, y)
+                [camera_shape[1] / 4.0, camera_shape[0] / 4.0]  # (column, row)
             )
             corner_offsets = half_extent_px * np.asarray(_PROBE_RECTANGLE)
             probe_mask = None
@@ -489,7 +489,7 @@ class CoarseMapper(CameraMapper):
             addressable[0] / pixel_size_out[1],
             addressable[1] / pixel_size_out[0],
         )
-        # Camera-sensor corners (x, y) to output-plane pixels via the transform.
+        # Camera-sensor corners (column, row) to output-plane pixels via the transform.
         height, width = camera_shape
         corners = np.array(
             [[0, 0], [width, 0], [width, height], [0, height]], dtype=np.float64
@@ -986,7 +986,7 @@ class CoarseMapper(CameraMapper):
             if peak is None:
                 return None
             row, column = peak
-            return np.array([column, row], dtype=float)  # (x, y)
+            return np.array([column, row], dtype=float)  # (column, row)
 
         initial_position = measure(tilt)
         if initial_position is None:
@@ -995,9 +995,9 @@ class CoarseMapper(CameraMapper):
         def axis_column(
             minus: tuple[float, float], plus: tuple[float, float]
         ) -> NDArray | None:
-            """One-sided pixel-per-metre column: try ``minus`` (left / top, tilt -
-            offset), else ``plus`` (right / bottom, tilt + offset). The ZOD is masked so
-            a bright zeroth order cannot hijack the fit.
+            """One-sided pixel-per-metre column: try ``minus`` (tilt - offset), else
+            ``plus`` (tilt + offset). The ZOD is masked so a bright zeroth order cannot
+            hijack the fit.
             """
             position = measure(minus, mask_center=initial_position)
             if position is not None:
@@ -1106,7 +1106,7 @@ class CoarseMapper(CameraMapper):
     def _peak_centroid(
         image: NDArray, half_window: int = 3
     ) -> tuple[float, float]:
-        """Sub-pixel (x, y) position of the brightest spot: intensity-weighted
+        """Sub-pixel (column, row) position of the brightest spot: intensity-weighted
         centroid of a small window around the global maximum.
         """
         row, column = np.unravel_index(int(np.argmax(image)), image.shape)

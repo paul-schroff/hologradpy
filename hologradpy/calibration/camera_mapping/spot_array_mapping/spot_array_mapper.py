@@ -168,8 +168,8 @@ class SpotArrayMapper(CameraMapper):
                 )
             )
 
-            # The zeroth-order pixel (x, y) and the disc around it that the detection
-            # leaves out.
+            # The zeroth-order pixel (column, row) and the disc around it that the
+            # detection leaves out.
             zeroth_pixel = coarse_mapping.zeroth_order_xy
             mask_radius = zeroth_order_mask_radius(focal_spot_radius, pitch)
             zeroth_mask = disc_mask(camera_shape, zeroth_pixel, mask_radius)
@@ -556,7 +556,8 @@ class SpotArrayMapper(CameraMapper):
     ) -> list[tuple[float, float]]:
         """Iteratively pick the brightest pixel and blank a disc around it, so each spot
         yields exactly one peak. Stops once the remaining maximum falls to the 
-        background ``threshold``. Returns (x, y) pixel positions, brightest first.
+        background ``threshold``. Returns (column, row) pixel positions, brightest
+        first.
         """
         working = np.array(image, dtype=float, copy=True)
         peaks: list[tuple[float, float]] = []
@@ -579,9 +580,9 @@ class SpotArrayMapper(CameraMapper):
         number_of_peaks: int,
     ) -> _SpotDetections:
         """Detect up to ``number_of_peaks`` bright spots in ``image`` and fit a 2D
-        Gaussian to each. Returns the fitted (x, y) pixel positions, the per-spot fit
-        parameters / covariances (parallel lists), and the peaks whose fit was 
-        rejected.
+        Gaussian to each. Returns the fitted (column, row) pixel positions, the
+        per-spot fit parameters / covariances (parallel lists), and the peaks whose fit
+        was rejected.
         """
         grid = get_spatial_grid(image.shape, list(pitch))
         noise_std = background_noise(image)

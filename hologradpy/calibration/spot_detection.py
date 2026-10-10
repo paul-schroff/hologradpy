@@ -409,7 +409,7 @@ def get_diffraction_spot_position(
 
     if verbose:
         if units == "pixels":
-            print(f"Diffraction spot position (x, y): {position} px.")
+            print(f"Diffraction spot position (column, row): {position} px.")
         else:
             print(
                 "Diffraction spot position (x, y): "

@@ -74,7 +74,7 @@ def inverse_partial_affine_parameters(
     similarity, the model -> camera map that a focal-plane partial affine applies.
 
     The scale and the rotation keep ``center_xy`` fixed. All quantities are in
-    ``(x, y)`` output pixels.
+    ``(column, row)`` output pixels, and the angle turns +column towards +row.
 
     Args:
         transform: The camera -> model similarity fitted by the camera mappers.

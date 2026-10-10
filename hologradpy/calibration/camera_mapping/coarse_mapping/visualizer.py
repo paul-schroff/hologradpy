@@ -44,7 +44,7 @@ class CoarseVisualizationData(CameraMappingVisualizationData):
 
     The shared frames plus the coarse search's own captures, attached to
     ``CameraMapping.visualization_data``. Pixel coordinates are output-plane (model)
-    pixels in ``(x, y)`` order. ``output_resolution`` is ``(height, width)``.
+    pixels in ``(column, row)`` order. ``output_resolution`` is ``(height, width)``.
     """
 
     #: Camera capture of the full calibration spot array, or None when the zeroth order
@@ -154,8 +154,8 @@ class CoarseMapperVisualizer(BaseVisualizer):
         axs.set_ylim(ys.min() - pad, ys.max() + pad)
         axs.set_aspect("equal")
         axs.invert_yaxis()  # image coordinates: the row index grows downward
-        axs.set_xlabel("output-plane x [px]")
-        axs.set_ylabel("output-plane y [px]")
+        axs.set_xlabel("output-plane column [px]")
+        axs.set_ylabel("output-plane row [px]")
         axs.set_title("Nyquist output plane, spots and camera sensor")
         axs.legend(loc="upper right", fontsize=7, framealpha=0.9)
         return None

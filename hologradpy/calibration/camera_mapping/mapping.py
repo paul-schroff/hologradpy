@@ -96,8 +96,9 @@ class CameraMapping(SaveableRecord):
 
     @property
     def zeroth_order_xy(self) -> tuple[float, float]:
-        """The zeroth order as ``(x, y)`` camera pixels. :attr:`zeroth_order_position`
-        is ``(row, column)``, which most of the geometry wants the other way round.
+        """The zeroth order as ``(column, row)`` camera pixels.
+        :attr:`zeroth_order_position` is ``(row, column)``, which most of the geometry
+        wants the other way round.
         """
         row, column = self.zeroth_order_position
         return (float(column), float(row))

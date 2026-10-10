@@ -145,7 +145,7 @@ class SemiAnalyticalFourierTransform(FourierBase):
         self._residual_phase: Tensor
 
     def _lattice(self) -> tuple[Tensor, Tensor]:
-        """The integer lattice the output is indexed by, as an ``(x, y)`` pair."""
+        """The integer lattice the output is indexed by, as a ``(column, row)`` pair."""
         rows = torch.arange(
             -(self.resolution[0] // 2),
             self.resolution[0] - self.resolution[0] // 2,

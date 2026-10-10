@@ -248,7 +248,7 @@ class CheckerboardMapper(CameraMapper):
                 self.camera.set_exposure(exposure_time)
             else:
                 # Autoexpose on a region around the board, trimmed to the sensor.
-                # center_camera is (x, y).
+                # center_camera is (column, row).
                 board_roi = ROI.centered(
                     (center_camera[1], center_camera[0]),  # (row, col)
                     (
