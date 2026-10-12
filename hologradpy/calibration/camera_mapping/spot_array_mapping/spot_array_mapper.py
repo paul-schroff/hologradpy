@@ -169,7 +169,7 @@ class SpotArrayMapper(CameraMapper):
 
             # The zeroth-order pixel (column, row) and the disc around it that the
             # detection leaves out.
-            zeroth_pixel = coarse_mapping.zeroth_order_xy
+            zeroth_pixel = coarse_mapping.zeroth_order_position
             mask_radius = zeroth_order_mask_radius(focal_spot_radius, pitch)
             zeroth_mask = disc_mask(camera_shape, zeroth_pixel, mask_radius)
 
@@ -292,8 +292,8 @@ class SpotArrayMapper(CameraMapper):
                     "exposure / number_of_spots, or check the array is on the sensor."
                 )
 
-            # Repeat for the simulated image.
-            simulated_pitch = np.asarray([pixel_size_out[1], pixel_size_out[0]])
+            # Repeat for the simulated image. Its pitch is (y, x), as the camera's is.
+            simulated_pitch = np.asarray(pixel_size_out, dtype=float)
             simulated_zod = plane_center(resolution_out)
             # Simulated DC is a clean point, so a few focal-spot radii suffice.
             simulated_mask_radius = max(

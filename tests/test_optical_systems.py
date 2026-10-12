@@ -24,6 +24,7 @@ from hologradpy.optics.systems import (
 from hologradpy.optics.modules.slm_fields import PSFSLMField, PixelwiseSLMField
 from hologradpy.optics.modules.virtual_slms.abstract import VirtualSLM
 
+from .registry import nufft_case
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -110,15 +111,17 @@ SYSTEM_FACTORIES = {
     "SLMCZT": _make_slm_czt,
 }
 SYSTEM_IDS = list(SYSTEM_FACTORIES)
+# For the tests that run a system. SLMNUFFT runs only with pytorch-finufft.
+RUN_IDS = [nufft_case(name) for name in SYSTEM_IDS]
 
 
-@pytest.mark.parametrize("name", SYSTEM_IDS)
+@pytest.mark.parametrize("name", RUN_IDS)
 def test_forward_returns_complex_amplitude(name: str) -> None:
     output = SYSTEM_FACTORIES[name]()()
     assert isinstance(output, ComplexAmplitude)
 
 
-@pytest.mark.parametrize("name", SYSTEM_IDS)
+@pytest.mark.parametrize("name", RUN_IDS)
 def test_output_matches_final_module_geometry(name: str) -> None:
     """The system's output plane is the output plane of its last module."""
     model = SYSTEM_FACTORIES[name]()
@@ -147,7 +150,7 @@ def test_layers_named_and_ordered(name: str) -> None:
     assert isinstance(model.get(VirtualSLM), VirtualSLM)
 
 
-@pytest.mark.parametrize("name", SYSTEM_IDS)
+@pytest.mark.parametrize("name", RUN_IDS)
 def test_forward_repeatable(name: str) -> None:
     model = SYSTEM_FACTORIES[name]()
     torch.testing.assert_close(model()._data, model()._data)
@@ -220,7 +223,7 @@ def test_insert_after_places_module_in_chain() -> None:
     assert isinstance(model(), ComplexAmplitude)  # forward still runs
 
 
-@pytest.mark.parametrize("name", SYSTEM_IDS)
+@pytest.mark.parametrize("name", RUN_IDS)
 def test_pointing_instability_inserted_after_static_field(name: str) -> None:
     """Each SLM model builds a PointingInstability from pointing_focal_shift_std
     (using its own focal_length) and inserts it right after its PixelwiseSLMField
@@ -241,7 +244,7 @@ def test_pointing_instability_inserted_after_static_field(name: str) -> None:
     assert isinstance(model(), ComplexAmplitude)  # forward still runs
 
 
-@pytest.mark.parametrize("name", SYSTEM_IDS)
+@pytest.mark.parametrize("name", RUN_IDS)
 def test_checkpoint_spec_reconstructs_system(name: str) -> None:
     """get_checkpoint_spec -> from_checkpoint_spec yields an equivalent system
     (in-memory, no file).
@@ -254,7 +257,7 @@ def test_checkpoint_spec_reconstructs_system(name: str) -> None:
     torch.testing.assert_close(rebuilt()._data, expected)
 
 
-@pytest.mark.parametrize("name", SYSTEM_IDS)
+@pytest.mark.parametrize("name", RUN_IDS)
 def test_checkpoint_save_load_round_trip(name: str, tmp_path) -> None:
     """save() then load() reproduces the same output and parameters."""
     model = SYSTEM_FACTORIES[name]()
@@ -273,7 +276,7 @@ def test_checkpoint_save_load_round_trip(name: str, tmp_path) -> None:
         torch.testing.assert_close(restored_params[key], original_params[key])
 
 
-@pytest.mark.parametrize("name", SYSTEM_IDS)
+@pytest.mark.parametrize("name", RUN_IDS)
 def test_load_rejects_wrong_class(name: str, tmp_path) -> None:
     """A checkpoint saved from one system can't be loaded by another."""
     model = SYSTEM_FACTORIES[name]()

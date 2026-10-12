@@ -49,6 +49,7 @@ from hologradpy.calibration.camera_mapping.coarse_mapping.coarse_mapper import (
 )
 from hologradpy.calibration.spot_detection import (
     _WINDOW_SPOT_RADII,
+    _brightest_pixel,
     background_noise,
     detect_spot,
     get_diffraction_spot_position,
@@ -155,8 +156,8 @@ def test_the_zeroth_order_is_located_through_an_overexposed_camera():
     assert located == pytest.approx(ALIGNED_ZEROTH_ORDER, abs=1.0)
 
 
-# The zeroth order of the aligned bench, (row, column), at the centre of the sensor.
-ALIGNED_ZEROTH_ORDER = (120.0, 160.0)
+# The zeroth order of the aligned bench, (column, row), at the centre of the sensor.
+ALIGNED_ZEROTH_ORDER = (160.0, 120.0)
 
 # The share of the beam the SLM leaves unmodulated, which makes the zeroth order one and
 # a half times as bright as a probe.
@@ -393,9 +394,21 @@ def test_detect_spot_finds_clean_gaussian():
     sigma_px = (SPOT_RADIUS / (PIXEL_UM * 1e-6)) / 2
     frame = _gaussian_frame((80, 120), (40, 30), amplitude=800.0, sigma_px=sigma_px)
     peak = detect_spot(frame, SPOT_RADIUS, _fake_camera())
-    assert peak is not None
-    row, column = peak
-    assert (column, row) == pytest.approx((40, 30), abs=1)
+    assert peak == pytest.approx((40, 30), abs=1)  # (column, row)
+
+
+def test_the_brightest_pixel_leaves_out_the_disc_it_is_given():
+    """Two spots on a 60 x 100 frame. The brighter one, at column 70 and row 20,
+    wins until a disc around it is left out. The other one, at column 25 and row 40,
+    then wins. Both come back as (column, row).
+    """
+    frame = _gaussian_frame((60, 100), (70, 20), amplitude=900.0, sigma_px=2.0)
+    frame += _gaussian_frame(
+        (60, 100), (25, 40), amplitude=500.0, sigma_px=2.0, background=0.0
+    )
+
+    assert _brightest_pixel(frame) == (70, 20)
+    assert _brightest_pixel(frame, exclude=(70, 20), exclude_radius=10.0) == (25, 40)
 
 
 def test_detect_spot_rejects_pure_noise():
@@ -419,7 +432,7 @@ def test_detect_spot_accepts_sub_pixel_spot():
     frame = 5.0 + rng.normal(0.0, 1.0, (80, 120))
     frame[30, 40] += 800.0
     peak = detect_spot(frame, spot_radius=2e-6, camera=_fake_camera())  # ~0.58 px
-    assert peak == (30, 40)
+    assert peak == (40, 30)  # (column, row)
 
 
 def test_detect_spot_rejects_peak_at_border():
@@ -709,7 +722,7 @@ def test_coarse_mapping_with_zeroth_order_off_sensor():
 
     assert coarse.rotation_degrees == pytest.approx(-10.0, abs=0.5)
     assert coarse.fit.reprojection_rms < 1.0
-    zeroth_y, zeroth_x = coarse.zeroth_order_position
+    zeroth_x, zeroth_y = coarse.zeroth_order_position
     on_sensor = 0 <= zeroth_x < 160 and 0 <= zeroth_y < 120
     assert not on_sensor
 

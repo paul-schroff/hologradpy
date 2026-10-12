@@ -33,7 +33,7 @@ from hologradpy.optics.modules.propagators.angular_spectrum_method import (
 )
 from hologradpy.utils import as_image
 
-pytest.importorskip("pytorch_finufft")
+from .registry import requires_nufft
 
 # Several sections below step a millimetre at a time on purpose, to keep the
 # comparisons cheap. Whether they resolve the field is what two tests of their
@@ -116,6 +116,7 @@ def test_the_exact_sum_holds_along_a_whole_line_not_just_at_one_point() -> None:
     assert float(((got - wanted).abs() / wanted.abs()).max()) < 1.5e-2
 
 
+@requires_nufft
 def test_every_row_of_a_section_is_what_propagating_to_that_plane_gives() -> None:
     """The claim the NUFFT route makes, and the reason a coarse z pitch costs
     nothing in accuracy: the sum is evaluated at the samples, not interpolated
@@ -138,6 +139,7 @@ def test_every_row_of_a_section_is_what_propagating_to_that_plane_gives() -> Non
         assert float(error) < 1e-5
 
 
+@requires_nufft
 def test_the_two_routes_agree_where_both_are_valid() -> None:
     """Which is why the exact one came first. The floor here is the reference's own
     quadrature, not the transform: at 2 um sampling the spherical kernel is only
@@ -158,6 +160,7 @@ def test_the_two_routes_agree_where_both_are_valid() -> None:
     assert float((a - b).abs().max() / b.abs().max()) < 0.06
 
 
+@requires_nufft
 def test_a_zoomed_section_lands_where_it_says_it_does() -> None:
     """The output pitch is free, which a plane-by-plane route cannot offer without
     a resampling transform per plane.
@@ -219,6 +222,7 @@ def test_the_bucketed_quantile_bounds_the_exact_one(enclosed_energy: float) -> N
     assert torch.all(bucketed - exact <= width)
 
 
+@requires_nufft
 def test_a_section_too_coarse_to_show_the_focus_says_so() -> None:
     """A picture that steps over the depth of focus is a moire of one, and looks
     every bit as convincing.
@@ -233,6 +237,7 @@ def test_a_section_too_coarse_to_show_the_focus_says_so() -> None:
         propagator.propagate_to(beam, coarse)
 
 
+@requires_nufft
 def test_a_section_fine_enough_to_show_the_focus_keeps_quiet() -> None:
     beam = _focusing_beam()
     propagator = AngularSpectrumMethod(0.0, padded_resolution=PADDED)
@@ -245,6 +250,7 @@ def test_a_section_fine_enough_to_show_the_focus_keeps_quiet() -> None:
         propagator.propagate_to(beam, fine)
 
 
+@requires_nufft
 def test_a_gradient_reaches_the_field_the_section_was_taken_of() -> None:
     """An analysis tool that drops the graph cannot be optimized through, and a
     depth of focus is a perfectly good thing to optimize.
@@ -269,6 +275,7 @@ def test_a_gradient_reaches_the_field_the_section_was_taken_of() -> None:
     assert float(gradient.abs().max()) > 0.0
 
 
+@requires_nufft
 def test_a_gradient_reaches_where_the_section_was_taken() -> None:
     """Moving the section along z is differentiable too, so a focus can be found
     by optimisation.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
@@ -491,17 +492,30 @@ class GradientPhaseRetriever(PhaseRetrieverBase):
         """Extra keyword arguments for the optimizer, for a search that needs them."""
         return {}
 
-    def callback(self, _: torch.Tensor) -> None:
+    def callback(self, state: torch.Tensor) -> bool:
         """One optimizer iteration done, which is where the bar advances and a step is
-        due.
+        due. The optimized parameter's values are kept while they are finite.
 
         Not :meth:`closure`, which the line search calls several times per iteration.
+
+        Args:
+            state: The new values from torchmin, or the loss from a first-order step.
+                torchmin still holds the previous values in the parameter.
+
+        Returns:
+            bool: True, which stops the search, once ``state`` or the parameter is not
+            finite.
         """
         self.iteration += 1
         self.run.record_iteration(self.iteration, self.slm_camera_model)
+        finite = bool(torch.isfinite(self.parameter).all())
+        if finite:
+            self.finite_values = self.parameter.detach().clone()
+        return not (finite and bool(torch.isfinite(state).all()))
 
     def step_first_order(self, number_of_iterations: int) -> None:
-        """Drive a torch.optim optimizer, which takes one step per call.
+        """Drive a torch.optim optimizer, which takes one step per call. It stops
+        early once the search goes non-finite.
 
         Args:
             number_of_iterations: How many steps to take.
@@ -510,7 +524,8 @@ class GradientPhaseRetriever(PhaseRetrieverBase):
             loss = self.closure()
             loss.backward()
             self.optimizer.step()
-            self.callback(loss)
+            if self.callback(loss):
+                break
 
     def closure(self) -> torch.Tensor:
         """The objective, evaluated once per optimizer call."""
@@ -564,11 +579,18 @@ class GradientPhaseRetriever(PhaseRetrieverBase):
 
         Returns:
             torch.Tensor: The retrieved SLM phase.
+
+        Warns:
+            UserWarning: The search left non-finite values. The last finite values it
+                reached are restored.
         """
         self.timer.start()
         self.run = run if run is not None else RetrievalRun()
         self.iteration = 0
-        self.set_gradient_requirements(parameter_name or self._parameter_name())
+        name = parameter_name or self._parameter_name()
+        self.set_gradient_requirements(name)
+        self.parameter = dict(self.slm_camera_model.named_parameters())[name]
+        self.finite_values = self.parameter.detach().clone()
         chosen = method or self.METHOD
         self.set_optimizer(
             number_of_iterations,
@@ -597,6 +619,16 @@ class GradientPhaseRetriever(PhaseRetrieverBase):
             self.run.progress_bar = None
             if not borrowed:
                 progress_bar.close()
+        if not torch.isfinite(self.parameter).all():
+            # torchmin's line search computes in the parameter's precision. In float32
+            # it can overflow and step to NaN.
+            with torch.no_grad():
+                self.parameter.copy_(self.finite_values)
+            warnings.warn(
+                f"The {chosen} search left non-finite values in {name}. The last "
+                "finite values it reached are restored.",
+                stacklevel=2,
+            )
         self.timer.stop()
 
         if self.device.type == "cuda":

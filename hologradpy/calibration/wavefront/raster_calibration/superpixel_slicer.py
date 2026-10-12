@@ -8,19 +8,34 @@ class SuperpixelSlicer:
     def __init__(
         self,
         slm_shape: tuple[int, int],
-        number_of_superpixels_x: int,
-        number_of_superpixels_y: int,
-        superpixel_width: int,
-        superpixel_height: int,
-        start_index_x: int = 0,
-        start_index_y: int = 0,
-        end_index_x: int | None = None,
-        end_index_y: int | None = None,
+        number_of_superpixels: tuple[int, int],
+        superpixel_size: tuple[int, int],
+        start_row: int = 0,
+        start_column: int = 0,
+        end_row: int | None = None,
+        end_column: int | None = None,
         intensity: NDArray[np.float64] | None = None,
         max_correction_factor: int = 4,
     ) -> None:
+        """Lay a grid of superpixels over the SLM.
+
+        Args:
+            slm_shape: The ``(height, width)`` of the SLM in pixels.
+            number_of_superpixels: The ``(rows, columns)`` of the superpixel grid.
+            superpixel_size: The ``(height, width)`` of a superpixel in SLM pixels.
+            start_row: The grid's first row.
+            start_column: The grid's first column.
+            end_row: The row after the grid's last row. If None, it is the SLM's
+                height.
+            end_column: The column after the grid's last column. If None, it is the
+                SLM's width.
+            intensity: The beam intensity on the SLM. If given, superpixels in dim
+                regions grow, and grown superpixels that leave the SLM are dropped.
+            max_correction_factor: The largest factor by which a superpixel grows.
+        """
         # TODO: Make this function less convoluted.
         self.slm_shape = slm_shape
+        number_of_superpixels_y, number_of_superpixels_x = number_of_superpixels
         self.number_of_superpixels_x = number_of_superpixels_x
         self.number_of_superpixels_y = number_of_superpixels_y
 
@@ -28,17 +43,18 @@ class SuperpixelSlicer:
             self.number_of_superpixels_x * self.number_of_superpixels_y
         )
 
+        superpixel_height, superpixel_width = superpixel_size
         self.superpixel_width = superpixel_width
         self.superpixel_height = superpixel_height
 
         self.superpixel_aspect = self.superpixel_width / self.superpixel_height
         self.superpixel_area = self.superpixel_width * self.superpixel_height
 
-        if end_index_x is None:
-            end_index_x = slm_shape[1]
+        if end_column is None:
+            end_column = slm_shape[1]
 
-        if end_index_y is None:
-            end_index_y = slm_shape[0]
+        if end_row is None:
+            end_row = slm_shape[0]
 
         if intensity is None:
             self.intensity_compensation = False
@@ -48,8 +64,8 @@ class SuperpixelSlicer:
 
         start_indices_x = np.floor(
             np.linspace(
-                start_index_x,
-                end_index_x - superpixel_width,
+                start_column,
+                end_column - superpixel_width,
                 number_of_superpixels_x,
             )
         ).astype("int")
@@ -62,8 +78,8 @@ class SuperpixelSlicer:
 
         start_indices_y = np.floor(
             np.linspace(
-                start_index_y,
-                end_index_y - superpixel_height,
+                start_row,
+                end_row - superpixel_height,
                 number_of_superpixels_y,
             )
         ).astype("int")
@@ -89,10 +105,12 @@ class SuperpixelSlicer:
 
     @property
     def superpixel_separation(self) -> tuple[int, int]:
-        return self._superpixel_separation_x, self._superpixel_separation_y
+        """The grid's ``(row, column)`` steps in SLM pixels."""
+        return self._superpixel_separation_y, self._superpixel_separation_x
 
     @property
     def number_of_superpixels(self) -> int:
+        """The number of superpixels left in ``slices``."""
         self._number_of_superpixels = len(self.slices)
         return self._number_of_superpixels
 

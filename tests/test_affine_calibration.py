@@ -486,9 +486,10 @@ def test_a_seeded_reference_finds_the_true_zeroth_order():
 
     mapping = CoarseMapper(slm, camera, reference).map_camera()
 
-    # The truth shift is physical, and the position is (row, column).
+    # The truth shift is physical, and the position is (column, row).
     column_shift, row_shift = pixel_frame_vector(TRUTH_SHIFT)
-    expected = (CAM_RES[0] // 2 + row_shift, CAM_RES[1] // 2 + column_shift)
+    center_column, center_row = plane_center(CAM_RES)
+    expected = (center_column + column_shift, center_row + row_shift)
     np.testing.assert_allclose(mapping.zeroth_order_position, expected, atol=1.0)
 
 

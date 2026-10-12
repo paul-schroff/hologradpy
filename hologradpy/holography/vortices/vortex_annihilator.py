@@ -48,10 +48,12 @@ class VortexAnnihilator:
         )
 
     def _charged_vortices(self) -> tuple[NDArray, NDArray]:
-        """The vortices the detector found that actually carry charge."""
+        """The vortices the detector found that actually carry charge, at their
+        ``(column, row)`` pixels.
+        """
         positions = np.asarray(
             [
-                (int(row), int(column))
+                (int(column), int(row))
                 for row, column in self.vortex_detector.center_indices
             ],
             dtype=int,

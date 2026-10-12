@@ -4,6 +4,7 @@ from datetime import datetime
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
+from scipy.ndimage import affine_transform
 from torch import Tensor
 
 from ...profiles.gaussian import GaussianFit
@@ -44,12 +45,15 @@ class OrientationSuggestion:
     residual_transform: NDArray | Tensor = field(compare=False, hash=False)
 
 
-@record_type("camera_mapping")
+@record_type("camera_mapping", version=2)
 @dataclass
 class CameraMapping(SaveableRecord):
     """The coordinate mapping between camera pixels and the output plane of the model
     without its focal-plane partial affine. The camera mappers measure in this frame
     (see :meth:`~hologradpy.optics.systems.SLMFourierLensModel.bypass_partial_affine`).
+
+    ``zeroth_order_position`` is where the undiffracted spot lands on the sensor, as
+    ``(column, row)`` camera pixels.
     """
 
     timestamp: datetime
@@ -96,31 +100,34 @@ class CameraMapping(SaveableRecord):
             self.detected_points, self.calculated_points
         )
 
-    @property
-    def zeroth_order_xy(self) -> tuple[float, float]:
-        """The zeroth order as ``(column, row)`` camera pixels.
-        :attr:`zeroth_order_position` is ``(row, column)``, which most of the geometry
-        wants the other way round.
+    @classmethod
+    def _migrate(cls, version: int, stored: dict) -> dict:
+        """Convert a mapping saved by an older version.
+
+        Version 1 kept the zeroth order as ``(row, column)``. It is swapped into
+        ``(column, row)``.
         """
-        row, column = self.zeroth_order_position
-        return (float(column), float(row))
+        if version < 2:
+            row, column = stored["zeroth_order_position"]
+            stored["zeroth_order_position"] = (column, row)
+        return stored
 
     @staticmethod
     def zeroth_order_from(
         affine: AffineTransform, resolution_out: tuple[int, int]
     ) -> tuple[float, float]:
-        """Where the undiffracted spot lands on the sensor, as ``(row, column)``.
+        """Where the undiffracted spot lands on the sensor, as ``(column, row)``.
 
         Without its partial affine, the model has its zeroth order at the centre of its
         output plane, and the inverse of ``affine`` carries that point onto the sensor.
         """
         center = plane_center(resolution_out)
         column, row = affine.inverse().transform_points([center])[0]
-        return (float(row), float(column))
+        return (float(column), float(row))
 
     def image_plane_to_sensor(self, points: ArrayLike) -> NDArray[np.float64]:
         """Image-plane positions ``(x, y)`` in metres from the zeroth order, as sensor
-        ``(row, column)`` pixels.
+        ``(column, row)`` pixels.
 
         :func:`~hologradpy.grids.metres_to_pixel` puts a position on its output-plane
         pixel. The inverse of :attr:`partial_affine` carries that pixel onto the
@@ -130,7 +137,7 @@ class CameraMapping(SaveableRecord):
             points: The ``(N, 2)`` or ``(2,)`` positions ``(x, y)`` in metres.
 
         Returns:
-            NDArray: The ``(N, 2)`` sensor positions ``(row, column)``.
+            NDArray: The ``(N, 2)`` sensor positions ``(column, row)``.
 
         Raises:
             ValueError: The mapping records no output plane.
@@ -141,15 +148,14 @@ class CameraMapping(SaveableRecord):
             metres_to_pixel((points[:, 0], points[:, 1]), pixel_size, resolution),
             axis=1,
         )
-        sensor = self.partial_affine.inverse().transform_points(model_pixels)
-        return np.stack([sensor[:, 1], sensor[:, 0]], axis=1)
+        return self.partial_affine.inverse().transform_points(model_pixels)
 
     def sensor_to_image_plane(self, pixels: ArrayLike) -> NDArray[np.float64]:
-        """Sensor ``(row, column)`` pixels as image-plane positions ``(x, y)`` in metres
+        """Sensor ``(column, row)`` pixels as image-plane positions ``(x, y)`` in metres
         from the zeroth order, the inverse of :meth:`image_plane_to_sensor`.
 
         Args:
-            pixels: The ``(N, 2)`` or ``(2,)`` sensor positions ``(row, column)``.
+            pixels: The ``(N, 2)`` or ``(2,)`` sensor positions ``(column, row)``.
 
         Returns:
             NDArray: The ``(N, 2)`` positions ``(x, y)`` in metres.
@@ -159,15 +165,33 @@ class CameraMapping(SaveableRecord):
         """
         pixel_size, resolution = self._output_plane()
         pixels = np.atleast_2d(np.asarray(pixels, dtype=np.float64))
-        model_pixels = self.partial_affine.transform_points(
-            np.stack([pixels[:, 1], pixels[:, 0]], axis=1)
-        )
+        model_pixels = self.partial_affine.transform_points(pixels)
         return np.stack(
             pixel_to_metres(
                 (model_pixels[:, 0], model_pixels[:, 1]), pixel_size, resolution
             ),
             axis=1,
         )
+
+    def sensor_crop_to_model(self, crop: NDArray[np.float64]) -> NDArray[np.float64]:
+        """``crop``, cut from the sensor, resampled onto the model's pixels about its
+        centre pixel.
+
+        Args:
+            crop: The ``(height, width)`` crop, such as
+                :func:`~hologradpy.calibration.spot_detection.capture_focal_spot`
+                returns.
+
+        Returns:
+            NDArray: The resampled crop, shaped like ``crop``. Pixels that map outside
+            ``crop`` are 0.
+        """
+        linear = self.partial_affine.matrix[:2, :2]
+        # affine_transform indexes (row, column), and the mapping (column, row).
+        swap = np.array([[0.0, 1.0], [1.0, 0.0]])
+        matrix = swap @ np.linalg.inv(linear) @ swap
+        center = np.array([crop.shape[0] // 2, crop.shape[1] // 2], dtype=np.float64)
+        return affine_transform(crop, matrix, offset=center - matrix @ center, order=1)
 
     def _output_plane(self) -> tuple[tuple[float, float], tuple[int, int]]:
         """The recorded pitch ``(y, x)`` in metres and the ``(height, width)`` of the

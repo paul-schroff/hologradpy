@@ -154,7 +154,7 @@ def detect_spot(
             camera's full-scale value.
 
     Returns:
-        tuple[int, int] | None: The ``(row, column)`` of the spot peak, or ``None`` if
+        tuple[int, int] | None: The ``(column, row)`` of the spot peak, or ``None`` if
         no spot is found.
     """
     camera = as_camera(camera)
@@ -205,7 +205,7 @@ def detect_spot(
     if edge_maximum - background > _ENCLOSURE_EDGE_FRACTION * prominence:
         return None
 
-    return int(row), int(column)
+    return int(column), int(row)
 
 
 def zeroth_order_mask_radius(
@@ -432,19 +432,20 @@ def _brightest_pixel(
     exclude: tuple[float, float] | None = None,
     exclude_radius: float = 0.0,
 ) -> tuple[int, int]:
-    """The brightest ``(row, column)``, optionally ignoring a disc.
+    """The brightest pixel, as ``(column, row)``. A disc around the pixel ``exclude``,
+    ``(column, row)``, can be left out.
 
     Smoothed with a 3x3 mean first, so a single hot pixel cannot claim the peak.
     """
     smoothed = uniform_filter(image, size=3)
     if exclude is not None and exclude_radius > 0.0:
         rows, columns = np.indices(image.shape)
-        blocked = (rows - exclude[0]) ** 2 + (columns - exclude[1]) ** 2 <= (
+        blocked = (columns - exclude[0]) ** 2 + (rows - exclude[1]) ** 2 <= (
             exclude_radius**2
         )
         smoothed = np.where(blocked, -np.inf, smoothed)
-    peak = np.unravel_index(int(np.argmax(smoothed)), image.shape)
-    return (int(peak[0]), int(peak[1]))
+    row, column = np.unravel_index(int(np.argmax(smoothed)), image.shape)
+    return (int(column), int(row))
 
 
 def tilt_to_sensor_center(
@@ -474,7 +475,7 @@ def tilt_to_sensor_center(
     camera_mapping.check_camera(camera)
     sensor_height, sensor_width = tuple(camera.sensor_resolution)
     tilt_x, tilt_y = camera_mapping.sensor_to_image_plane(
-        [(sensor_height / 2.0, sensor_width / 2.0)]
+        [(sensor_width / 2.0, sensor_height / 2.0)]
     )[0]
     return (float(tilt_x), float(tilt_y))
 
@@ -529,7 +530,7 @@ def capture_focal_spot(
 
     with camera.preserve_exposure_gain_and_roi(full_sensor=True):
         sensor = tuple(camera.sensor_resolution)
-        center = (sensor[0] / 2.0, sensor[1] / 2.0)
+        center = (sensor[1] / 2.0, sensor[0] / 2.0)  # (column, row)
 
         tilt = tilt_to_sensor_center(camera, camera_mapping)
         slm_grid = get_spatial_grid(slm.resolution, slm.pixel_size)
@@ -557,13 +558,10 @@ def capture_focal_spot(
         image = _meter_and_capture(camera, search, set_fraction)
 
         if has_prominent_peak(search.crop(image), camera):
-            found = _brightest_pixel(search.crop(image))
-            found = (search.top_row + found[0], search.left_column + found[1])
+            column, row = _brightest_pixel(search.crop(image))
+            found = (search.left_column + column, search.top_row + row)
         else:
-            zeroth = (
-                float(camera_mapping.zeroth_order_position[0]),
-                float(camera_mapping.zeroth_order_position[1]),
-            )
+            zeroth = camera_mapping.zeroth_order_position
             separation = float(
                 np.hypot(zeroth[0] - center[0], zeroth[1] - center[1])
             )
@@ -586,6 +584,10 @@ def capture_focal_spot(
                     "mapping, and that the requested tilt is within the SLM's "
                     "diffraction angle."
                 )
+            # The spot's brightest pixel in the frame metered on it. In the first frame
+            # it was overexposed, so its brightest pixel could lie off its centre.
+            column, row = _brightest_pixel(search.crop(image))
+            found = (search.left_column + column, search.top_row + row)
             warnings.warn(
                 f"The steered focal spot landed {offset:.0f} px from the sensor "
                 f"center, outside the {search.height} x {search.width} px search "

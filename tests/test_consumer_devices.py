@@ -29,6 +29,7 @@ from hologradpy.calibration.camera_mapping import (
     CoarseMapper,
     FocalSpotFit,
 )
+from hologradpy.calibration import spot_detection
 from hologradpy.calibration.exposure import expose_until_spot
 from hologradpy.calibration.speckle import DatasetGenerator
 from hologradpy.calibration.spot_detection import (
@@ -73,7 +74,7 @@ pytestmark = [
 
 # The raw camera's sensor, and the position (row, col) of the spot in its scene.
 RAW_SENSOR_RESOLUTION = (48, 64)
-RAW_SPOT_CENTER = (24, 32)
+RAW_SPOT_CENTER = (32, 24)  # (column, row)
 RAW_PIXEL_PITCH = 3.45e-6
 # The Gaussian spot of the scene has a standard deviation of 1.5 pixels, so its 1/e^2
 # radius, the waist, is 3 pixels.
@@ -88,8 +89,8 @@ RAW_FOCAL_LENGTH = 0.1
 def _raw_spot_scene() -> NDArray:
     """The counts per second of the raw camera's scene, one Gaussian spot."""
     rows, columns = np.mgrid[0 : RAW_SENSOR_RESOLUTION[0], 0 : RAW_SENSOR_RESOLUTION[1]]
-    squared_distance = (rows - RAW_SPOT_CENTER[0]) ** 2 + (
-        columns - RAW_SPOT_CENTER[1]
+    squared_distance = (columns - RAW_SPOT_CENTER[0]) ** 2 + (
+        rows - RAW_SPOT_CENTER[1]
     ) ** 2
     return RAW_SPOT_PEAK_RATE * np.exp(-squared_distance / (2 * RAW_SPOT_SIGMA_PX**2))
 
@@ -156,18 +157,22 @@ def _mapping_centered_on(
     waist: float,
     pixel_pitch: float,
     sensor_resolution: tuple[int, int],
+    scale: float = 1.0,
 ) -> CameraMapping:
-    """A mapping without rotation or scale that sends the zeroth order at
-    ``zeroth_order_position``, ``(row, col)``, to the centre of an output plane of the
-    sensor's size, sampled at ``pixel_pitch``, the camera's. The spot has a waist of
+    """A mapping without rotation that sends the zeroth order at
+    ``zeroth_order_position``, ``(column, row)``, to the centre of an output plane of the
+    sensor's size, sampled at ``pixel_pitch``, the camera's. ``scale`` is the model
+    pixels per camera pixel, about the zeroth order. The spot has a waist of
     ``waist`` metres.
     """
     center_x, center_y = plane_center(sensor_resolution)
     truth = PartialAffineTransform.from_components(
+        scale=scale,
         shift=(
-            center_x - zeroth_order_position[1],
-            center_y - zeroth_order_position[0],
-        )
+            center_x - zeroth_order_position[0],
+            center_y - zeroth_order_position[1],
+        ),
+        center=zeroth_order_position,
     )
     detected = np.random.default_rng(0).uniform(-20, 20, size=(8, 2))
     return CameraMapping(
@@ -254,8 +259,10 @@ def _dataset_generator(raw_slm, raw_camera, tmp_path) -> None:
         tmp_path / "dataset.asdf",
     )
     _holds_native_devices(generator)
+    # The extent is (y, x): twice the spot's row and twice its column.
+    column, row = RAW_SPOT_CENTER
     assert generator.largest_extent_on_sensor() == pytest.approx(
-        tuple(2 * center * RAW_PIXEL_PITCH for center in RAW_SPOT_CENTER)
+        (2 * row * RAW_PIXEL_PITCH, 2 * column * RAW_PIXEL_PITCH)
     )
 
 
@@ -866,7 +873,7 @@ class _Bench:
 def _aligned_bench_mapping() -> CameraMapping:
     """The identity mapping of the aligned bench, the zeroth order in the middle."""
     return _mapping_centered_on(
-        (BENCH_SENSOR_RESOLUTION[0] / 2, BENCH_SENSOR_RESOLUTION[1] / 2),
+        (BENCH_SENSOR_RESOLUTION[1] / 2, BENCH_SENSOR_RESOLUTION[0] / 2),
         2 * BENCH_PIXEL_PITCH,
         BENCH_PIXEL_PITCH,
         BENCH_SENSOR_RESOLUTION,
@@ -1005,6 +1012,44 @@ def test_the_focal_spot_is_captured_with_a_region_preset() -> None:
 
     assert np.unravel_index(int(np.argmax(kernel)), kernel.shape) == (7, 7)
     assert bench.camera.roi == ROI(0, 0, 60, 80)
+
+
+def test_a_spot_steered_off_the_search_window_is_found_on_the_sensor(
+    monkeypatch,
+) -> None:
+    """The zeroth order of the shifted bench sits at column 100 and row 150 of the
+    240 x 320 sensor. The mapping has it there, at 1.6 times the bench's scale, so
+    the steered spot lands at column 196 and row 102, beside the search window.
+
+    The window is made to show no spot, as a larger error of the mapping would
+    leave it. The whole sensor is then searched without a disc around the zeroth
+    order. The frame is metered again on the spot, and the kernel holds the spot
+    in its middle.
+    """
+    bench = _Bench(camera_shift=(-60, -30))
+    mapping = _mapping_centered_on(
+        (100.0, 150.0),
+        2 * BENCH_PIXEL_PITCH,
+        BENCH_PIXEL_PITCH,
+        BENCH_SENSOR_RESOLUTION,
+        scale=1.6,
+    )
+    windows = []
+
+    def the_first_window_shows_no_spot(image, camera, **options) -> bool:
+        windows.append(image.shape)
+        return len(windows) > 1 and has_prominent_peak(image, camera, **options)
+
+    monkeypatch.setattr(
+        spot_detection, "has_prominent_peak", the_first_window_shows_no_spot
+    )
+
+    with pytest.warns(UserWarning, match="whole sensor was searched"):
+        kernel = capture_focal_spot(
+            bench.slm, bench.camera, mapping, BENCH_FOCAL_LENGTH, 15
+        )
+
+    assert np.unravel_index(int(np.argmax(kernel)), kernel.shape) == (7, 7)
 
 
 def test_integer_frames_flow_through_the_consumers() -> None:

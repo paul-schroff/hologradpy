@@ -24,7 +24,7 @@ from hologradpy.calibration.camera_mapping import (
 from hologradpy.calibration.spot_detection import tilt_to_sensor_center
 from hologradpy.datasets import CaptureStore, RetrievalStepStore
 from hologradpy.geometry import PartialAffineTransform
-from hologradpy.grids import get_spatial_grid, plane_center
+from hologradpy.grids import get_spatial_grid, pixel_frame_vector, plane_center
 from hologradpy.analysis.error_metrics import (
     DEFAULT_INTENSITY_METRICS,
     IntensityMetric,
@@ -260,7 +260,7 @@ def _identity_mapping(resolution=CAMERA_RESOLUTION) -> CameraMapping:
         transform=np.eye(3),
         detected_points=points,
         calculated_points=points,
-        zeroth_order_position=(resolution[0] / 2, resolution[1] / 2),
+        zeroth_order_position=(resolution[1] / 2, resolution[0] / 2),
         spot_fit=FocalSpotFit(waist=2.0),
         output_pixel_size=(CAMERA_PIXEL_SIZE, CAMERA_PIXEL_SIZE),
         output_resolution=resolution,
@@ -549,7 +549,7 @@ def test_zeroth_order_is_outside_the_signal_region() -> None:
     feedback = _feedback()
     placement = feedback.placement_data()
 
-    zeroth_row, zeroth_column = placement.zeroth_order
+    zeroth_column, zeroth_row = placement.zeroth_order
     region = np.asarray(placement.signal_region, dtype=bool)
     assert not region[int(round(zeroth_row)), int(round(zeroth_column))]
 
@@ -567,6 +567,25 @@ def test_zeroth_order_is_outside_the_signal_region() -> None:
         f"the edge of the signal region spanning rows {rows[0]}-{rows[-1]}, "
         f"columns {columns[0]}-{columns[-1]}"
     )
+
+
+def test_a_patch_is_pasted_with_its_centroid_on_a_fractional_pixel() -> None:
+    """The whole-sample part of the centre places the patch, and a Fourier shift
+    moves it the rest of the way. A smooth patch centred on column 20.3 and row 41.6
+    has its centroid there.
+    """
+    feedback = _feedback()
+    axis = torch.arange(15.0) - 7
+    patch = torch.exp(-(axis[:, None] ** 2 + axis[None, :] ** 2) / 8)
+
+    frame = feedback._paste(patch, (20.3, 41.6)).cpu().numpy()
+
+    rows, columns = np.indices(frame.shape)
+    centroid = (
+        (frame * columns).sum() / frame.sum(),
+        (frame * rows).sum() / frame.sum(),
+    )
+    assert centroid == pytest.approx((20.3, 41.6), abs=1e-3)
 
 
 def test_placement_reports_addressability() -> None:
@@ -588,13 +607,11 @@ def test_patch_is_placed_at_the_requested_offset() -> None:
     feedback = _feedback()
     placement = feedback.placement_data()
 
-    expected_column = TARGET_POSITION[0] / CAMERA_PIXEL_SIZE
-    expected_row = TARGET_POSITION[1] / CAMERA_PIXEL_SIZE
-    row_offset = placement.target_center[0] - placement.zeroth_order[0]
-    column_offset = placement.target_center[1] - placement.zeroth_order[1]
+    # The offset is physical, so its row component is minus its y.
+    expected = pixel_frame_vector(np.asarray(TARGET_POSITION) / CAMERA_PIXEL_SIZE)
+    offset = np.subtract(placement.target_center, placement.zeroth_order)
 
-    assert np.isclose(row_offset, expected_row, atol=0.5)
-    assert np.isclose(column_offset, expected_column, atol=0.5)
+    assert tuple(offset) == pytest.approx(expected, abs=0.5)
 
 
 # --- Applying the camera mapping ---------------------------------------------------
@@ -726,8 +743,8 @@ def _similarity_mapping(similarity: PartialAffineTransform) -> CameraMapping:
         detected_points=detected.tolist(),
         calculated_points=similarity.transform_points(detected).tolist(),
         zeroth_order_position=(
-            CAMERA_RESOLUTION[0] / 2,
             CAMERA_RESOLUTION[1] / 2,
+            CAMERA_RESOLUTION[0] / 2,
         ),
         spot_fit=FocalSpotFit(waist=2.0),
         output_pixel_size=(CAMERA_PIXEL_SIZE, CAMERA_PIXEL_SIZE),
@@ -781,13 +798,15 @@ def test_the_target_and_the_zeroth_order_share_the_partial_affine() -> None:
     """
     feedback = _feedback(camera_mapping=_similarity_mapping(PLACEMENT_SIMILARITY))
     inverse = PLACEMENT_SIMILARITY.inverse()
-    center = np.asarray(plane_center(CAMERA_RESOLUTION), dtype=float)  # (x, y)
-    steered = center + np.asarray(TARGET_POSITION) / CAMERA_PIXEL_SIZE
+    center = np.asarray(plane_center(CAMERA_RESOLUTION), dtype=float)
+    steered = center + np.asarray(pixel_frame_vector(TARGET_POSITION)) / (
+        CAMERA_PIXEL_SIZE
+    )
 
-    zeroth_column, zeroth_row = inverse.transform_points([center])[0]
-    target_column, target_row = inverse.transform_points([steered])[0]
-    assert feedback.zeroth_order_pixels() == pytest.approx((zeroth_row, zeroth_column))
-    assert feedback.target_center_pixels() == pytest.approx((target_row, target_column))
+    zeroth = inverse.transform_points([center])[0]
+    target = inverse.transform_points([steered])[0]
+    assert feedback.zeroth_order_pixels() == pytest.approx(tuple(zeroth))
+    assert feedback.target_center_pixels() == pytest.approx(tuple(target))
 
 
 def test_a_tilt_to_the_sensor_centre_places_the_target_there() -> None:
@@ -800,7 +819,7 @@ def test_a_tilt_to_the_sensor_centre_places_the_target_there() -> None:
     feedback.target_position = tilt_to_sensor_center(feedback.camera, mapping)
 
     assert feedback.target_center_pixels() == pytest.approx(
-        (CAMERA_RESOLUTION[0] / 2, CAMERA_RESOLUTION[1] / 2), abs=1e-6
+        (CAMERA_RESOLUTION[1] / 2, CAMERA_RESOLUTION[0] / 2), abs=1e-6
     )
 
 

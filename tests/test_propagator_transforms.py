@@ -31,6 +31,8 @@ from hologradpy.fourier_transforms import (
 from hologradpy.grids import get_frequency_grid, get_pixel_grid
 from hologradpy.utils import to_canvas
 
+from .registry import requires_nufft
+
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -53,6 +55,7 @@ def make_field(shape, n_wl, seed=0, pixel_size=PIXEL_IN):
     return ComplexAmplitude(data, wavelength, pixel_size)
 
 
+@requires_nufft
 def test_fourier_lens_nufft_orientation_matches_czt() -> None:
     """The NUFFT lens shares the x/y orientation of the exact CZT lens and of a
     plain FFT, so an x-tilt deflects the focal spot along x. This is the regression
@@ -196,6 +199,7 @@ def _tilted_beam(resolution, pixel_in, wavelength):
     )
 
 
+@requires_nufft
 @pytest.mark.parametrize("angle", [5.0, 20.0, -30.0])
 def test_camera_angle_turns_the_focal_plane_the_same_way_in_both_lenses(angle) -> None:
     """A positive camera angle has to mean one rotation, whichever lens is used.

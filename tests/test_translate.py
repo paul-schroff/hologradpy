@@ -34,7 +34,7 @@ def test_a_whole_sample_shift_is_a_roll() -> None:
     spike = torch.zeros(32, 32)
     spike[10, 12] = 1.0
 
-    shifted = fft_translate(spike, (3, -2)).real
+    shifted = fft_translate(spike, (-2, 3)).real  # (columns, rows)
 
     expected = torch.roll(torch.roll(spike, 3, 0), -2, 1)
     assert torch.allclose(shifted, expected, atol=1e-5)
@@ -45,13 +45,13 @@ def test_a_band_limited_pattern_shifts_exactly() -> None:
     sampling actually resolves, the shift is the identity up to round-off.
     """
     size = 64
-    shift = (0.25, 0.5)
+    shift = (0.5, 0.25)  # (columns, rows)
     smooth = _gaussian(size)
     axis = torch.arange(float(size))
     center = (size - 1) / 2
     expected = torch.exp(
-        -(((axis[:, None] - center - shift[0]) ** 2
-           + (axis[None, :] - center - shift[1]) ** 2) / 60)
+        -(((axis[:, None] - center - shift[1]) ** 2
+           + (axis[None, :] - center - shift[0]) ** 2) / 60)
     )
 
     assert torch.allclose(fft_translate(smooth, shift).real, expected, atol=1e-6)
@@ -61,7 +61,7 @@ def test_a_band_limited_pattern_shifts_exactly() -> None:
 def test_a_smooth_target_lands_where_it_was_asked_to(fraction: float) -> None:
     """The measurement that matters: the pattern's position, not its samples."""
     smooth = _gaussian()
-    moved = _centroid_column(translate_intensity(smooth, (0.0, fraction)))
+    moved = _centroid_column(translate_intensity(smooth, (fraction, 0.0)))
 
     assert moved - _centroid_column(smooth) == pytest.approx(fraction, abs=1e-3)
 
@@ -84,7 +84,7 @@ def test_even_a_hard_edge_lands_where_it_was_asked_to(
     start = 32 - width // 2
     hat[start : start + width, start : start + width] = 1.0
 
-    shifted = translate_intensity(hat, (0.0, fraction))
+    shifted = translate_intensity(hat, (fraction, 0.0))
     moved = _centroid_column(shifted) - _centroid_column(hat)
 
     assert moved == pytest.approx(fraction, abs=0.05)
@@ -102,7 +102,7 @@ def test_moving_an_intensity_does_not_change_how_much_there_is(
     hat = torch.zeros(64, 64)
     hat[28:36, 28:36] = 1.0
 
-    moved = translate_intensity(hat, (0.0, fraction))
+    moved = translate_intensity(hat, (fraction, 0.0))
 
     assert float(moved.sum()) == pytest.approx(float(hat.sum()), rel=1e-4)
 
@@ -130,9 +130,9 @@ def test_an_intensity_stays_non_negative() -> None:
     hat[20:28, 20:28] = 1.0
 
     # Moving the intensity itself would ring below zero.
-    assert fft_translate(hat, (0.0, 0.5)).real.min() < 0
+    assert fft_translate(hat, (0.5, 0.0)).real.min() < 0
     # Moving its amplitude and squaring cannot.
-    assert translate_intensity(hat, (0.0, 0.5)).min() >= 0.0
+    assert translate_intensity(hat, (0.5, 0.0)).min() >= 0.0
 
 
 
@@ -143,7 +143,7 @@ def test_a_pattern_is_not_wrapped_around_the_frame() -> None:
     edge = torch.zeros(32, 32)
     edge[:, -1] = 1.0
 
-    shifted = translate_intensity(edge, (0.0, 2.0))
+    shifted = translate_intensity(edge, (2.0, 0.0))
 
     # Nothing but float32 round-off arrives at the opposite edge, against a source of 1.
     assert shifted[:, :4].max() < 1e-6

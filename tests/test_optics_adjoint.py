@@ -46,6 +46,8 @@ from hologradpy.optics.modules.propagators.angular_spectrum_method import (
 )
 from hologradpy.optics.modules.virtual_slms.abstract import VirtualSLM
 
+from .registry import nufft_case
+
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
 RESOLUTION: tuple[int, int] = (8, 8)
@@ -136,7 +138,9 @@ def _inner_product(left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:
     return torch.sum(left.conj() * right)
 
 
-@pytest.mark.parametrize("name", sorted(ADJOINT_FACTORIES))
+@pytest.mark.parametrize(
+    "name", [nufft_case(name) for name in sorted(ADJOINT_FACTORIES)]
+)
 def test_adjoint_is_the_conjugate_transpose(name: str) -> None:
     module = ADJOINT_FACTORIES[name]()
 

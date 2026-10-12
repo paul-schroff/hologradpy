@@ -464,8 +464,7 @@ def checkerboard(
     resolution: tuple[int, int],
     number_of_squares: tuple[int, int],
     square_size: int | None = None,
-    shift_x: int = 0,
-    shift_y: int = 0,
+    shift: tuple[int, int] = (0, 0),
     dark_square_brightness: float = 0.0,
     light_square_brightness: float = 1.0,
     device: torch.device | None = None,
@@ -480,8 +479,8 @@ def checkerboard(
         number_of_squares: Number of squares along the ``(y, x)`` axes.
         square_size: Side length of each square in pixels. If ``None``, the largest
             that fits ``number_of_squares`` into ``resolution``.
-        shift_x: Shift of the board in columns, towards larger column index.
-        shift_y: Shift of the board in rows, towards larger row index.
+        shift: Shift of the board as ``(column, row)`` pixels, towards larger
+            indices.
         dark_square_brightness: Value of the dark squares.
         light_square_brightness: Value of the light squares.
         device: If given, return a torch tensor on that device, otherwise numpy.
@@ -506,11 +505,12 @@ def checkerboard(
         light_square_brightness - dark_square_brightness
     )
 
-    # Center the board in a zero border, then apply the (x, y) shift. The caller sizes
-    # the board so it stays within the frame.
+    # Center the board in a zero border, then apply the shift. The caller sizes the
+    # board so it stays within the frame.
+    shift_column, shift_row = shift
     output = np.zeros((height, width))
-    top = (height - board_height) // 2 + shift_y
-    left = (width - board_width) // 2 + shift_x
+    top = (height - board_height) // 2 + shift_row
+    left = (width - board_width) // 2 + shift_column
     output[top : top + board_height, left : left + board_width] = board
 
     if device is not None:

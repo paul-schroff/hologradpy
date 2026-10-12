@@ -100,11 +100,11 @@ def _build_setup(
 
 
 def _synthetic_mapping(
-    rotation_deg=0.0, scale=1.5, mirror=False, zeroth=(160.0, 120.0)
+    rotation_deg=0.0, scale=1.5, mirror=False, zeroth=(120.0, 160.0)
 ):
     """A CameraMapping with a known camera-px -> model-px transform.
 
-    ``zeroth`` is the stored ``(y, x)`` zeroth-order position.
+    ``zeroth`` is the stored ``(column, row)`` zeroth-order position.
     """
     angle = np.radians(rotation_deg)
     linear = scale * np.array(
@@ -128,9 +128,7 @@ def _synthetic_mapping(
 
 
 def _zeroth_xy(mapping):
-    return np.array(
-        [mapping.zeroth_order_position[1], mapping.zeroth_order_position[0]]
-    )
+    return np.asarray(mapping.zeroth_order_position)
 
 
 def test_without_an_output_pitch_the_fit_grids_are_only_turned_and_mirrored():
@@ -201,7 +199,7 @@ def test_main_placement_is_diagonal_and_clears_dc(mirror):
     slm, camera = _build_setup()
     calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
     mapping = _synthetic_mapping(
-        rotation_deg=20.0, scale=1.5, mirror=mirror, zeroth=(90.0, 70.0)
+        rotation_deg=20.0, scale=1.5, mirror=mirror, zeroth=(70.0, 90.0)
     )
     calibrator.camera_mapping = mapping
     roi = (20, 20)
@@ -220,7 +218,7 @@ def test_main_placement_is_diagonal_and_clears_dc(mirror):
 def test_lattice_placement_same_diagonal_further_out():
     slm, camera = _build_setup()
     calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
-    mapping = _synthetic_mapping(zeroth=(90.0, 70.0))
+    mapping = _synthetic_mapping(zeroth=(70.0, 90.0))
     calibrator.camera_mapping = mapping
     zeroth = _zeroth_xy(mapping)
     roi = (20, 20)
@@ -275,7 +273,7 @@ def _corner_setup(exposure_bounds: tuple[float, float] = (0.0, 1.0)):
         (slice(height - corner, height), slice(0, corner)),
         (slice(height - corner, height), slice(width - corner, width)),
     ]
-    roi = calibrator.get_roi_size(corner, corner)
+    roi = calibrator.get_roi_size((corner, corner))
     sensor_height, sensor_width = camera.shape
     window = (
         min(4 * roi[0], sensor_height),  # height
@@ -288,7 +286,7 @@ def _corner_setup(exposure_bounds: tuple[float, float] = (0.0, 1.0)):
 def test_lattice_corner_slices_span_the_slm_corners():
     """The four corner regions come from the SLM shape the slicer was built with."""
     slm_shape = (1024, 1280)
-    slicer = SuperpixelSlicer(slm_shape, 4, 4, 32, 32)
+    slicer = SuperpixelSlicer(slm_shape, (4, 4), (32, 32))
     size = 16
     height, width = slm_shape
 
@@ -468,10 +466,8 @@ def test_normalize_power_removes_laser_fluctuation(monkeypatch):
 
     def scan(calibrator, *, normalize):
         intensity, _ = calibrator.measure_intensity(
-            number_of_superpixels_x=6,
-            number_of_superpixels_y=5,
-            superpixel_width=32,
-            superpixel_height=32,
+            number_of_superpixels=(5, 6),
+            superpixel_size=(32, 32),
             normalize_power=normalize,
             verbose=False,
         )
@@ -718,10 +714,8 @@ def test_the_measured_phase_is_that_of_the_incident_field(camera_angle):
     calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
 
     phase, _, _ = calibrator.measure_phase(
-        number_of_superpixels_x=8,
-        number_of_superpixels_y=6,
-        superpixel_width=40,
-        superpixel_height=42,
+        number_of_superpixels=(6, 8),
+        superpixel_size=(42, 40),
         linear_phase_tilt=(1.0e-3, 0.7e-3),
         verbose=False,
     )
@@ -746,10 +740,8 @@ def test_the_measured_phase_follows_the_injected_phase_through_a_magnifying_rela
     calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
 
     phase, _, _ = calibrator.measure_phase(
-        number_of_superpixels_x=8,
-        number_of_superpixels_y=6,
-        superpixel_width=40,
-        superpixel_height=42,
+        number_of_superpixels=(6, 8),
+        superpixel_size=(42, 40),
         linear_phase_tilt=(1.0e-3, 0.7e-3),
         verbose=False,
     )
@@ -807,10 +799,8 @@ def test_a_failed_fringe_fit_is_left_out_of_the_unwrapping(monkeypatch):
 
     with pytest.warns(UserWarning, match=r"1 of \d+ fringe fits failed"):
         phase, _, _ = calibrator.measure_phase(
-            number_of_superpixels_x=4,
-            number_of_superpixels_y=4,
-            superpixel_width=40,
-            superpixel_height=32,
+            number_of_superpixels=(4, 4),
+            superpixel_size=(32, 40),
             linear_phase_tilt=(1.5e-3, 1.5e-3),
             camera_mapping=_synthetic_mapping(),
             verbose=False,
@@ -833,33 +823,52 @@ def test_a_scan_with_too_few_valid_fringe_fits_raises(monkeypatch):
 
     with pytest.raises(RuntimeError, match="fringe fits are valid"):
         calibrator.measure_phase(
-            number_of_superpixels_x=4,
-            number_of_superpixels_y=4,
-            superpixel_width=40,
-            superpixel_height=32,
+            number_of_superpixels=(4, 4),
+            superpixel_size=(32, 40),
             linear_phase_tilt=(1.5e-3, 1.5e-3),
             camera_mapping=_synthetic_mapping(),
             verbose=False,
         )
 
 
-# --- camera settings -------------------------------------------------------------
+# --- superpixel grid order ---------------------------------------------------------
 
 
-def test_calibrate_passes_the_camera_roi_as_height_and_width(monkeypatch):
-    """Both scans take the camera ROI as ``(height, width)``, while get_roi_size
-    returns ``(width, height)``. Non-square superpixels tell the two orders apart.
+def test_the_grid_helpers_and_the_slicer_are_row_first():
+    """The helpers take and return grids as ``(rows, columns)`` and sizes as
+    ``(height, width)``. The slicer steps along a row first.
     """
     slm, camera = _build_setup()
     calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
-    roi_sizes = {}
+    assert tuple(slm.resolution) == (256, 320)
+
+    assert calibrator.get_number_of_superpixels((64, 40)) == (4, 8)
+    assert calibrator.get_superpixel_size((4, 8)) == (64, 40)
+    roi_height, roi_width = calibrator.get_roi_size((64, 40))
+    assert roi_height < roi_width
+
+    slicer = SuperpixelSlicer((256, 320), (4, 8), (64, 40))
+    assert len(slicer.slices) == 32
+    assert slicer.slices[0] == (slice(0, 64), slice(0, 40))
+    assert slicer.slices[1] == (slice(0, 64), slice(40, 80))
+    assert slicer.superpixel_separation == (64, 40)
+
+
+def test_calibrate_passes_the_grid_and_the_camera_roi_row_first(monkeypatch):
+    """Both scans get the grid as ``(rows, columns)``, the superpixel size as
+    ``(height, width)`` and the camera ROI as ``(height, width)``. The phase scan's
+    superpixels are half the size. Non-square superpixels tell the orders apart.
+    """
+    slm, camera = _build_setup()
+    calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
+    scans = {}
 
     def measure_intensity(*args, **kwargs):
-        roi_sizes["intensity"] = args[5]
+        scans["intensity"] = (args[:2], kwargs["camera_roi_size"])
         return np.ones(tuple(slm.resolution)), np.zeros((1, 1, 1))
 
     def measure_phase(*args, **kwargs):
-        roi_sizes["phase"] = args[5]
+        scans["phase"] = (args[:2], kwargs["camera_roi_size"])
         calibrator.visualization_data = None
         return np.zeros(tuple(slm.resolution)), None, None
 
@@ -867,16 +876,20 @@ def test_calibrate_passes_the_camera_roi_as_height_and_width(monkeypatch):
     monkeypatch.setattr(calibrator, "measure_phase", measure_phase)
     # The stand-in scans measure a flat field, which has no beam to fit.
     monkeypatch.setattr(calibrator, "fit_beam", lambda field: None)
-    calibrator.calibrate(
-        superpixel_size=(40, 32), camera_mapping=_synthetic_mapping(), verbose=False
+    calibration = calibrator.calibrate(
+        superpixel_size=(64, 40), camera_mapping=_synthetic_mapping(), verbose=False
     )
 
-    roi_width, roi_height = calibrator.get_roi_size(40, 32)
-    assert roi_width != roi_height
-    assert roi_sizes == {
-        "intensity": (roi_height, roi_width),
-        "phase": (roi_height, roi_width),
+    roi_size = calibrator.get_roi_size((64, 40))
+    assert roi_size[0] != roi_size[1]
+    assert scans == {
+        "intensity": (((4, 8), (64, 40)), roi_size),
+        "phase": (((4, 8), (32, 20)), roi_size),
     }
+    assert calibration.name == "Raster Calibration - 4x8"
+
+
+# --- camera settings -------------------------------------------------------------
 
 
 def test_the_spot_search_autoexposes(monkeypatch):
@@ -896,10 +909,8 @@ def test_the_spot_search_autoexposes(monkeypatch):
 
     monkeypatch.setattr(f"{RASTER_MODULE}.get_diffraction_spot_position", find_spot)
     calibrator.measure_intensity(
-        number_of_superpixels_x=2,
-        number_of_superpixels_y=2,
-        superpixel_width=32,
-        superpixel_height=32,
+        number_of_superpixels=(2, 2),
+        superpixel_size=(32, 32),
         linear_phase_tilt=tilt,
         verbose=False,
     )
@@ -922,20 +933,16 @@ def test_the_scans_put_the_camera_settings_back():
     camera.set_exposure(2e-3)
 
     calibrator.measure_intensity(
-        number_of_superpixels_x=2,
-        number_of_superpixels_y=2,
-        superpixel_width=32,
-        superpixel_height=32,
+        number_of_superpixels=(2, 2),
+        superpixel_size=(32, 32),
         linear_phase_tilt=(1.5e-3, 1.5e-3),
         verbose=False,
     )
     assert (camera.roi, camera.get_exposure()) == (region, 2e-3)
 
     calibrator.measure_phase(
-        number_of_superpixels_x=4,
-        number_of_superpixels_y=4,
-        superpixel_width=40,
-        superpixel_height=32,
+        number_of_superpixels=(4, 4),
+        superpixel_size=(32, 40),
         linear_phase_tilt=(1.5e-3, 1.5e-3),
         verbose=False,
     )

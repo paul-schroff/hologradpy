@@ -176,9 +176,8 @@ def find_vortex_charge(
         complex_amplitude: The complex electric field.
         x: The x-coordinates of the spatial grid.
         y: The y-coordinates of the spatial grid.
-        center_indices: The coordinates of the vortex centers.
-            x-coordinates are in ``center_indices[:, 1]`` and y-coordinates
-            are in ``center_indices[:, 0]``.
+        center_indices: The ``(row, column)`` index of each vortex center, as
+            :func:`~hologradpy.grids.coordinates_to_indices` returns it.
         pad: The padding around the center to consider for charge
             calculation. Defaults to 1.
 

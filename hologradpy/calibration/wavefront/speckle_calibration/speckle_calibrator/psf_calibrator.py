@@ -94,20 +94,16 @@ class PSFSpeckleCalibrator(WavefrontSpeckleCalibrator):
             extent_in_waists=self.psf_kernel_waists,
         )
 
+        spot = capture_focal_spot(
+            self.slm, self.camera, self.camera_mapping, self.focal_length, kernel_size
+        )
         return PSFSLMField.from_camera_mapping(
             self.camera_mapping,
             focal_length=self.focal_length,
             camera_pixel_size=camera_pixel_size,
             kernel_size=kernel_size,
             init_psf_kernel=torch.as_tensor(
-                capture_focal_spot(
-                    self.slm,
-                    self.camera,
-                    self.camera_mapping,
-                    self.focal_length,
-                    kernel_size,
-                ),
-                dtype=torch.float32,
+                self.camera_mapping.sensor_crop_to_model(spot), dtype=torch.float32
             ),
         )
 

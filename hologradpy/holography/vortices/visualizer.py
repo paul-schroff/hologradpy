@@ -31,7 +31,7 @@ POSITIVE_COLOR = "#ff3b30"
 NEGATIVE_COLOR = "#00e5ff"
 
 
-@record_type("vortex_annihilation")
+@record_type("vortex_annihilation", version=2)
 @dataclass
 class VortexAnnihilationData(VisualizationData):
     """What an annihilation run records, before and after.
@@ -46,6 +46,8 @@ class VortexAnnihilationData(VisualizationData):
     ``signal_region`` is what the retrieval was evaluated over, and is used to crop the
     panels down to it. Vortices are only hunted inside it, so a full-frame view spends
     most of its area on places none were ever looked for.
+
+    The positions are the vortices' ``(column, row)`` pixels.
     """
 
     counts: list[int] = field(default_factory=list)
@@ -58,6 +60,19 @@ class VortexAnnihilationData(VisualizationData):
     final_phase: NDArray | None = None
     final_positions: NDArray | None = None
     final_charges: NDArray | None = None
+
+    @classmethod
+    def _migrate(cls, version: int, stored: dict) -> dict:
+        """Convert a run saved by an older version.
+
+        Version 1 kept the positions as ``(row, column)``. They are swapped into
+        ``(column, row)``.
+        """
+        if version < 2:
+            for key in ("initial_positions", "final_positions"):
+                if stored.get(key) is not None:
+                    stored[key] = np.asarray(stored[key])[:, ::-1].copy()
+        return stored
 
     @property
     def converged(self) -> bool:
@@ -169,7 +184,7 @@ class VortexAnnihilationVisualizer(BaseVisualizer):
             if positions is None or len(positions) == 0:
                 return mappable
 
-            rows, columns = np.asarray(positions).T
+            columns, rows = np.asarray(positions).T
             rows = rows - (crop_rows.start or 0)
             columns = columns - (crop_columns.start or 0)
             visible = (

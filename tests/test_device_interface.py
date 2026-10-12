@@ -78,7 +78,7 @@ def test_roi_woi_round_trip():
 
 
 def test_roi_centered_and_slices():
-    roi = ROI.centered((100, 200), (20, 40))
+    roi = ROI.centered((200, 100), (20, 40))  # (column, row), (height, width)
     assert (roi.top_row, roi.left_column, roi.height, roi.width) == (90, 180, 20, 40)
     assert roi.rows == slice(90, 110)
     assert roi.columns == slice(180, 220)
@@ -180,7 +180,7 @@ def test_camera_native_properties():
     np.testing.assert_allclose(sim.pixel_size, CAMERA_PIXEL_SIZE, rtol=1e-6)
     assert sim.resolution == (240, 320)
     assert sim.adu_levels == 256  # 2 ** 8
-    roi = ROI.centered((120, 160), (40, 60))
+    roi = ROI.centered((160, 120), (40, 60))
     sim.set_roi(roi)
     assert sim.roi == roi
     sim.set_roi(None)

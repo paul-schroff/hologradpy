@@ -1,7 +1,8 @@
 """The physical frame and the pixel frame of HoloGradPy.
 
-Positions, displacements and angles are physical. Arrays are indexed in the pixel
-frame, by ``(column, row)``. Only :mod:`hologradpy.grids` converts between the two.
+Positions, displacements and angles are physical. Arrays are indexed
+``image[row, column]``, and pixel positions are ``(column, row)``. Only
+:mod:`hologradpy.grids` converts between the two.
 
 The consistency tests hold whichever way y points. Each way of putting light at a
 position has to agree with the model's output grid: a linear phase and the weighted
@@ -16,7 +17,6 @@ screen that draws row 0 at the top, and a positive angle turns counterclockwise.
 
 from __future__ import annotations
 
-import importlib.util
 import math
 from dataclasses import replace
 from datetime import datetime
@@ -37,8 +37,15 @@ from hologradpy.grids import (
     metres_to_pixel,
     plane_center,
 )
-from hologradpy.holography.phase_retrieval import WeightedGerchbergSaxtonPhaseRetriever
-from hologradpy.holography.vortices import VortexDetector
+from hologradpy.holography.phase_retrieval import (
+    PixelwisePhaseRetriever,
+    WeightedGerchbergSaxtonPhaseRetriever,
+)
+from hologradpy.holography.camera_feedback import (
+    CameraFeedbackData,
+    TargetPlacementData,
+)
+from hologradpy.holography.vortices import VortexAnnihilationData, VortexDetector
 from hologradpy.holography.vortices.vortex_detection import find_vortex_charge
 from hologradpy.optics import SLMFourierLensModel
 from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
@@ -51,6 +58,8 @@ from hologradpy.profiles.gaussian_zernike import GaussianZernikeBeam
 from hologradpy.profiles.phase import linear_phase, vortex_field, vortex_phase
 from hologradpy.utils import as_image
 
+from .registry import requires_nufft
+
 SLM_RESOLUTION = (64, 80)
 PITCH = 12.5e-6
 WAVELENGTH = 1e-6
@@ -61,11 +70,7 @@ FOCAL_PITCH = WAVELENGTH * FOCAL_LENGTH / (PADDED[0] * PITCH)  # 31.25 um
 POSITION = (-20 * FOCAL_PITCH, 7 * FOCAL_PITCH)
 VORTEX_RESOLUTION = (32, 32)
 
-WITH_NUFFT = pytest.mark.skipif(
-    importlib.util.find_spec("pytorch_finufft") is None,
-    reason="SLMNUFFT needs pytorch-finufft.",
-)
-CAMERA_SYSTEMS = [SLMCZT, SLMFFTAffine, pytest.param(SLMNUFFT, marks=WITH_NUFFT)]
+CAMERA_SYSTEMS = [SLMCZT, SLMFFTAffine, pytest.param(SLMNUFFT, marks=requires_nufft)]
 
 
 def _model(system_class=SLMFFT, **camera) -> SLMFourierLensModel:
@@ -172,6 +177,25 @@ def test_each_way_of_placing_a_spot_puts_it_on_the_pixel_of_its_position(place):
     place(model)
 
     assert _peak(model) == _pixel_of(model, POSITION)
+
+
+def test_a_cg_search_that_goes_non_finite_keeps_its_last_finite_levels():
+    """From a flat start, CG on the spot's pixel goes NaN in its second iteration:
+    torchmin's line search overflows in float32. The search stops there, instead of
+    spending the other 18 iterations on NaN, about 25 evaluations each. The retriever
+    restores the last finite levels and warns.
+    """
+    model = _model()
+    target = torch.zeros(PADDED)
+    target[_pixel_of(model, POSITION)] = 1.0
+    retriever = PixelwisePhaseRetriever(model, target)
+
+    with pytest.warns(UserWarning, match="non-finite"):
+        retriever.retrieve_phase(20, method="cg", verbose=False)
+
+    assert retriever.iteration <= 3
+    assert len(retriever.run.loss_history) < 100
+    assert torch.isfinite(model.virtual_slm.levels).all()
 
 
 def _field(data: torch.Tensor) -> ComplexAmplitude:
@@ -298,7 +322,7 @@ def _mapping(
         transform=transform.as_matrix(homogeneous=False),
         detected_points=[tuple(point) for point in camera_points.tolist()],
         calculated_points=[tuple(point) for point in model_points.tolist()],
-        zeroth_order_position=(output_resolution[0] // 2, output_resolution[1] // 2),
+        zeroth_order_position=plane_center(output_resolution),
         spot_fit=FocalSpotFit(waist=PITCH),
         output_pixel_size=(PITCH, PITCH),
         output_resolution=output_resolution,
@@ -329,9 +353,53 @@ def test_an_identity_mapping_puts_plus_y_above_the_centre():
     points = np.array([[1.0, 2.0], [6.0, 1.0], [3.0, 5.0], [7.0, 4.0]])
     mapping = _mapping(points, points, resolution)
 
-    row, column = mapping.image_plane_to_sensor((0.0, PITCH))[0]
+    column, row = mapping.image_plane_to_sensor((0.0, PITCH))[0]
 
-    assert (row, column) == pytest.approx((center_row - 1, center_column))
+    assert (column, row) == pytest.approx((center_column, center_row - 1))
+
+
+def test_a_turned_scaled_mapping_round_trips_through_the_image_plane():
+    """On the non-square 8 x 10 plane, sensor ``(column, row)`` pixels go to image-plane
+    metres and back to the same pixels. The zeroth order lands where the inverse of the
+    mapping puts the plane's centre pixel.
+    """
+    resolution = (8, 10)
+    camera_points = np.array([[1.0, 2.0], [6.0, 1.0], [3.0, 5.0], [7.0, 4.0]])
+    similarity = AffineTransform.from_components(
+        scale=1.3, angle_deg=25.0, shift=(0.5, -1.0)
+    )
+    mapping = _mapping(
+        camera_points, similarity.transform_points(camera_points), resolution
+    )
+    pixels = np.array([[0.0, 0.0], [9.0, 7.0], [2.5, 6.0]])
+
+    positions = mapping.sensor_to_image_plane(pixels)
+
+    np.testing.assert_allclose(
+        mapping.image_plane_to_sensor(positions), pixels, atol=1e-9
+    )
+    np.testing.assert_allclose(
+        mapping.image_plane_to_sensor((0.0, 0.0))[0],
+        similarity.inverse().transform_points([plane_center(resolution)])[0],
+        atol=1e-9,
+    )
+
+
+def test_a_crop_from_a_turned_camera_comes_out_in_the_model_orientation():
+    """The camera is turned against the model: a step along the camera's columns is a
+    step along the model's rows. The crop's sample 2 columns right of its centre then
+    lands 2 rows below its centre.
+    """
+    turn = np.array([[0.0, -1.0], [1.0, 0.0]])
+    camera_points = np.array([[0.0, 0.0], [10.0, 0.0], [0.0, 10.0], [7.0, 3.0]])
+    crop = np.zeros((9, 9))
+    crop[4, 6] = 1.0
+    mapping = _mapping(camera_points, camera_points @ turn.T + (50.0, 20.0), crop.shape)
+
+    resampled = mapping.sensor_crop_to_model(crop)
+
+    assert np.unravel_index(int(resampled.argmax()), resampled.shape) == (6, 4)
+    assert resampled.max() == pytest.approx(1.0)
 
 
 # Saved data. Files saved while y increased with increasing row index load converted.
@@ -415,6 +483,106 @@ def test_a_version_2_calibration_keeps_its_y(tmp_path, monkeypatch):
         loaded.visualization_data.lattice_shift_y,
         original.visualization_data.lattice_shift_y,
     )
+
+
+def _version_1_mapping() -> CameraMapping:
+    """A mapping whose zeroth order is row 3 and column 7, stored ``(row, column)`` as
+    version 1 kept it.
+    """
+    points = np.array([[1.0, 2.0], [6.0, 1.0], [3.0, 5.0], [7.0, 4.0]])
+    return replace(_mapping(points, points, (8, 10)), zeroth_order_position=(3.0, 7.0))
+
+
+def test_a_version_1_camera_mapping_loads_with_its_zeroth_order_swapped(
+    tmp_path, monkeypatch
+):
+    """Version 1 kept the zeroth order as ``(row, column)``. It loads as
+    ``(column, row)``.
+    """
+    path = tmp_path / "mapping.asdf"
+    with monkeypatch.context() as patch:
+        patch.setattr(CameraMapping, "RECORD_VERSION", 1)
+        _version_1_mapping().save(path)
+
+    assert CameraMapping.load(path).zeroth_order_position == (7.0, 3.0)
+
+
+def test_a_camera_feedback_run_with_a_version_1_mapping_loads_it_swapped(
+    tmp_path, monkeypatch
+):
+    """The run nests the mapping as its own tagged record, so the mapping converts as
+    it loads.
+    """
+    run = CameraFeedbackData(
+        timestamp=datetime(2026, 10, 1),
+        name="frame convention",
+        target=np.zeros((2, 2)),
+        signal_region=np.ones((2, 2), dtype=bool),
+        camera_mapping=_version_1_mapping(),
+    )
+    path = tmp_path / "run.asdf"
+    with monkeypatch.context() as patch:
+        patch.setattr(CameraMapping, "RECORD_VERSION", 1)
+        run.save(path)
+
+    loaded = CameraFeedbackData.load(path)
+
+    assert loaded.camera_mapping.zeroth_order_position == (7.0, 3.0)
+
+
+def _loaded_at_version_1(data, monkeypatch, tmp_path):
+    """``data``, saved at version 1 inside a camera mapping, and loaded back."""
+    points = np.array([[1.0, 2.0], [6.0, 1.0], [3.0, 5.0], [7.0, 4.0]])
+    mapping = replace(_mapping(points, points, (8, 10)), visualization_data=data)
+    path = tmp_path / "nested.asdf"
+    with monkeypatch.context() as patch:
+        patch.setattr(type(data), "RECORD_VERSION", 1)
+        mapping.save(path)
+    return CameraMapping.load(path).visualization_data
+
+
+def test_a_version_1_target_placement_loads_with_its_pixels_swapped(
+    tmp_path, monkeypatch
+):
+    """Version 1 kept the zeroth order, the target centre and the addressable corners
+    as ``(row, column)``. They load as ``(column, row)``, and the patch shape stays
+    ``(height, width)``.
+    """
+    placement = TargetPlacementData(
+        target=np.zeros((2, 2)),
+        signal_region=np.ones((2, 2), dtype=bool),
+        zeroth_order=(3.0, 7.0),
+        target_center=(4.0, 9.0),
+        patch_shape=(2, 4),
+        addressable_corners=np.array(
+            [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]]
+        ),
+    )
+
+    loaded = _loaded_at_version_1(placement, monkeypatch, tmp_path)
+
+    assert loaded.zeroth_order == (7.0, 3.0)
+    assert loaded.target_center == (9.0, 4.0)
+    assert loaded.patch_shape == (2, 4)
+    np.testing.assert_array_equal(
+        loaded.addressable_corners, [[2.0, 1.0], [4.0, 3.0], [6.0, 5.0], [8.0, 7.0]]
+    )
+
+
+def test_a_version_1_vortex_annihilation_loads_with_its_positions_swapped(
+    tmp_path, monkeypatch
+):
+    """Version 1 kept the vortex positions as ``(row, column)``. They load as
+    ``(column, row)``.
+    """
+    run = VortexAnnihilationData(
+        counts=[2, 0], initial_positions=np.array([[3, 7], [5, 1]])
+    )
+
+    loaded = _loaded_at_version_1(run, monkeypatch, tmp_path)
+
+    np.testing.assert_array_equal(loaded.initial_positions, [[7, 3], [1, 5]])
+    assert loaded.final_positions is None
 
 
 def test_a_calibration_keeps_its_beam(tmp_path):

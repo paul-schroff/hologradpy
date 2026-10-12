@@ -61,13 +61,15 @@ class NeighbourDifferenceCrosstalk(PixelCrosstalk):
 
     @property
     def neighbour_offsets(self) -> tuple[tuple[int, int], ...]:
-        """The ``(rows, columns)`` offset of each neighbour, row-major from the top
-        left, with the pixel itself left out. Indexes the first axis of
+        """The ``(columns, rows)`` offset of each neighbour, row-major from the
+        top left, with the pixel itself left out. Indexes the first axis of
         :attr:`transitions`.
         """
         span = range(-self.reach, self.reach + 1)
         return tuple(
-            offset for offset in itertools.product(span, span) if offset != (0, 0)
+            (columns, rows)
+            for rows, columns in itertools.product(span, span)
+            if (rows, columns) != (0, 0)
         )
 
     @property
@@ -95,7 +97,7 @@ class NeighbourDifferenceCrosstalk(PixelCrosstalk):
         padded = replicate_pad(phase, reach)
 
         crosstalk = self.repeat_pixels(phase)
-        for index, (rows, columns) in enumerate(self.neighbour_offsets):
+        for index, (columns, rows) in enumerate(self.neighbour_offsets):
             neighbour = padded[
                 ...,
                 reach + rows : reach + rows + height,

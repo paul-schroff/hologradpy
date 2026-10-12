@@ -142,8 +142,7 @@ class CheckerboardMapper(CameraMapper):
                 square_size=square_size,
                 dark_square_brightness=0.0,
                 light_square_brightness=1.0,
-                shift_x=board_shift[0],
-                shift_y=board_shift[1],
+                shift=board_shift,
             )
             target = torch.tensor(
                 gaussian_filter(target, target_blur_width),
@@ -248,9 +247,8 @@ class CheckerboardMapper(CameraMapper):
                 self.camera.set_exposure(exposure_time)
             else:
                 # Autoexpose on a region around the board, trimmed to the sensor.
-                # center_camera is (column, row).
                 board_roi = ROI.centered(
-                    (center_camera[1], center_camera[0]),  # (row, col)
+                    center_camera,  # (column, row)
                     (
                         square_size * squares_plus[1] * magnification,  # height
                         square_size * squares_plus[0] * magnification,  # width
@@ -377,7 +375,7 @@ class CheckerboardMapper(CameraMapper):
                 "or square_size."
             )
 
-        zeroth = np.array(coarse_mapping.zeroth_order_xy)
+        zeroth = np.array(coarse_mapping.zeroth_order_position, dtype=np.float64)
         dc_on_sensor = 0.0 <= zeroth[0] < width and 0.0 <= zeroth[1] < height
 
         if dc_on_sensor:

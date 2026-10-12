@@ -48,16 +48,16 @@ def _mapping(
     output_pixel_size: tuple[float, float] | None = CAMERA_PIXEL_SIZE,
 ):
     """A camera mapping whose similarity sends the zeroth order at
-    ``zeroth_order_position``, ``(row, column)``, to the centre of an output plane of
-    the camera's size, at ``output_pixel_size``.
+    ``zeroth_order_position``, ``(column, row)``, to the centre of an output plane
+    of the camera's size, at ``output_pixel_size``.
     """
-    center = np.asarray(plane_center(CAMERA_RESOLUTION), dtype=float)  # (x, y)
-    zeroth_xy = np.array([zeroth_order_position[1], zeroth_order_position[0]])
+    center = np.asarray(plane_center(CAMERA_RESOLUTION), dtype=float)
+    zeroth = np.asarray(zeroth_order_position, dtype=float)
     turned = PartialAffineTransform.from_components(scale=scale, angle_deg=angle)
     transform = PartialAffineTransform.from_components(
         scale=scale,
         angle_deg=angle,
-        shift=tuple(center - turned.transform_points([zeroth_xy])[0]),
+        shift=tuple(center - turned.transform_points([zeroth])[0]),
     )
     detected = np.random.default_rng(0).uniform(0.0, 96.0, size=(8, 2))
     return CameraMapping(
@@ -93,7 +93,7 @@ def test_a_centered_zeroth_order_needs_no_steering() -> None:
     """The tilt is a correction, so a beam already in the middle gets none. Anything
     else would move a working setup off center.
     """
-    center = (CAMERA_RESOLUTION[0] / 2, CAMERA_RESOLUTION[1] / 2)
+    center = (CAMERA_RESOLUTION[1] / 2, CAMERA_RESOLUTION[0] / 2)
 
     tilt = tilt_to_sensor_center(_FakeCamera(), _mapping(center))
 
@@ -102,17 +102,17 @@ def test_a_centered_zeroth_order_needs_no_steering() -> None:
 
 def test_the_tilt_carries_the_beam_from_the_zeroth_order_to_the_middle() -> None:
     """With an identity mapping the tilt is the camera-plane displacement in metres,
-    (x, y), from a zeroth order stored (row, column).
+    (x, y), from a zeroth order stored (column, row).
     """
-    zeroth = (20.0, 70.0)  # (row, column)
+    zeroth = (70.0, 20.0)  # (column, row)
 
     tilt = tilt_to_sensor_center(_FakeCamera(), _mapping(zeroth))
 
     # The displacement runs in (column, row) pixels, and the tilt is physical.
     expected_x, expected_y = pixel_frame_vector(
         (
-            (CAMERA_RESOLUTION[1] / 2 - zeroth[1]) * CAMERA_PIXEL_SIZE[1],
-            (CAMERA_RESOLUTION[0] / 2 - zeroth[0]) * CAMERA_PIXEL_SIZE[0],
+            (CAMERA_RESOLUTION[1] / 2 - zeroth[0]) * CAMERA_PIXEL_SIZE[1],
+            (CAMERA_RESOLUTION[0] / 2 - zeroth[1]) * CAMERA_PIXEL_SIZE[0],
         )
     )
     assert tilt == pytest.approx((expected_x, expected_y))
@@ -123,7 +123,7 @@ def test_the_tilt_is_taken_through_the_mapping_not_along_the_sensor() -> None:
     sensor, so the camera-plane displacement cannot be used directly. Rotating the
     mapping by 90 degrees must swap the two components.
     """
-    zeroth = (20.0, 70.0)
+    zeroth = (70.0, 20.0)
     camera = _FakeCamera()
 
     straight = tilt_to_sensor_center(camera, _mapping(zeroth))
@@ -142,7 +142,7 @@ def test_a_model_plane_sampled_finer_than_the_sensor_gives_the_same_tilt() -> No
     """A model plane at half the camera pitch holds twice the pixels over the same
     distance, so the tilt in metres is unchanged.
     """
-    zeroth = (20.0, 70.0)
+    zeroth = (70.0, 20.0)
     camera = _FakeCamera()
     half_pitch = (CAMERA_PIXEL_SIZE[0] / 2, CAMERA_PIXEL_SIZE[1] / 2)
 
@@ -158,7 +158,7 @@ def test_a_demagnified_focal_plane_doubles_the_tilt() -> None:
     """At the camera pitch, a mapping of scale two means the focal plane is imaged at
     half size, so the spot has twice as far to go in the focal plane.
     """
-    zeroth = (20.0, 70.0)
+    zeroth = (70.0, 20.0)
     camera = _FakeCamera()
 
     unit = tilt_to_sensor_center(camera, _mapping(zeroth))
@@ -170,7 +170,7 @@ def test_a_demagnified_focal_plane_doubles_the_tilt() -> None:
 def test_a_mapping_without_an_output_plane_is_refused() -> None:
     with pytest.raises(ValueError, match="no output plane"):
         tilt_to_sensor_center(
-            _FakeCamera(), _mapping((20.0, 70.0), output_pixel_size=None)
+            _FakeCamera(), _mapping((70.0, 20.0), output_pixel_size=None)
         )
 
 
@@ -217,7 +217,8 @@ def _build_hardware(camera_shift):
 
 
 def _zeroth_order_position(slm, camera) -> tuple[float, float]:
-    """Where a flat pattern actually puts the spot, in camera pixels ``(row, col)``.
+    """Where a flat pattern actually puts the spot, in camera pixels
+    ``(column, row)``.
 
     Metered first and taken as a centroid rather than an argmax. At the bench's default
     exposure the spot saturates over hundreds of pixels, and the argmax of a flat top is
@@ -231,8 +232,8 @@ def _zeroth_order_position(slm, camera) -> tuple[float, float]:
     rows, columns = np.nonzero(bright)
     weights = image[bright]
     return (
-        float((rows * weights).sum() / weights.sum()),
         float((columns * weights).sum() / weights.sum()),
+        float((rows * weights).sum() / weights.sum()),
     )
 
 

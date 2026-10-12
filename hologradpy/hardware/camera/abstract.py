@@ -482,8 +482,9 @@ class Camera(ABC):
 
     @property
     def excluded_pixels(self) -> list[tuple[int, int]]:
-        """The ``(row, col)`` pixels of the whole frame to leave out of measurements,
-        such as hot or dead pixels, as a list of pairs (empty when there are none).
+        """The ``(row, column)`` indices of the pixels of the whole frame to leave out
+        of measurements, such as hot or dead pixels, as a list of pairs (empty when
+        there are none).
 
         :meth:`autoexpose` leaves these out of its peak measurement, so a stuck pixel
         cannot rail the exposure. It is set from pairs or from an ``(N, 2)`` integer
@@ -508,8 +509,8 @@ class Camera(ABC):
             return
         if rows_and_columns.ndim != 2 or rows_and_columns.shape[1] != 2:
             raise ValueError(
-                "excluded_pixels takes (row, col) pairs or an (N, 2) integer array, "
-                f"got an array of shape {rows_and_columns.shape}."
+                "excluded_pixels takes (row, column) index pairs or an (N, 2) integer "
+                f"array, got an array of shape {rows_and_columns.shape}."
             )
         self._excluded_pixels = [
             (int(row), int(col)) for row, col in rows_and_columns.tolist()

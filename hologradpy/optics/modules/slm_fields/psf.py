@@ -118,7 +118,9 @@ class PSFSLMField(SLMField):
 
         The camera is not read here. Pass ``init_psf_kernel`` to seed the kernel from a
         captured image of the focal spot, such as
-        :func:`~hologradpy.calibration.spot_detection.capture_focal_spot` returns.
+        :func:`~hologradpy.calibration.spot_detection.capture_focal_spot` returns. Turn
+        the image into the model's orientation first, with
+        ``camera_mapping.sensor_crop_to_model``.
 
         Args:
             camera_mapping: The fitted mapping, for the waist of its spot fit.
@@ -162,15 +164,16 @@ class PSFSLMField(SLMField):
         slm_pitch = (float(pixel_size[0]), float(pixel_size[1]))
         kernel_y, kernel_x = self.psf_kernel_size
 
+        # Negative, so the chirp-z is the inverse transform (see get_transmission).
         magnification = (
-            fourier_lens_magnification(
+            -fourier_lens_magnification(
                 wavelength,
                 self.focal_length,
                 self.camera_pixel_size[1],
                 kernel_x,
                 slm_pitch[1],
             ),
-            fourier_lens_magnification(
+            -fourier_lens_magnification(
                 wavelength,
                 self.focal_length,
                 self.camera_pixel_size[0],
@@ -233,7 +236,12 @@ class PSFSLMField(SLMField):
         return self.psf_kernel
 
     def get_transmission(self: PSFSLMField) -> Tensor:
-        """The SLM-plane field the kernel maps to, as a diagonal transmission."""
+        """The SLM-plane field the kernel maps to, as a diagonal transmission.
+
+        The Fourier lens takes the SLM plane to the camera with a forward transform.
+        The chirp-z's negative magnification point-reflects its window, which makes it
+        the inverse transform. The lens then images the kernel as it is.
+        """
         kernel = self.get_psf_kernel().to(self._complex_dtype)
         field = self._chirp_z(kernel.unsqueeze(0))
         return field.reshape(1, *self.resolution_in)

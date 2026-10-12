@@ -8,7 +8,7 @@ from jaxtyping import Float
 from torch.nn import Parameter
 
 from ...geometry import homogeneous_matrix, rotation_matrix_from_angle
-from ...grids import pixel_frame_angle, pixel_frame_vector
+from ...grids import pixel_frame_angle, pixel_frame_vector, plane_center
 from .abstract import capture_init, OpticsModule
 from .learnable_partial_affine import LearnablePartialAffine
 from ..complex_amplitude import ComplexAmplitude
@@ -67,34 +67,24 @@ class GeometricWarp(OpticsModule):
             requires_grad=False,
         )
 
-        # Setting scaling to pixel size ratios
+        # The pixel size ratios, as (x, y).
         self.scale = (self.pixel_size_in / self.pixel_size_out).fliplr()
 
-        # Setting the rotation center to the center of the input image
-        rotation_center = tuple(self.resolution_in[i] // 2 for i in range(2))[::-1]
+        # The linear part acts about the input's centre pixel, and shift_center moves
+        # that pixel onto the output's. Both are (column, row), one row per wavelength.
         self.rotation_center = torch.tensor(
-            rotation_center,
+            plane_center(self.resolution_in),
             dtype=complex_amplitude.dtype_r,
             device=complex_amplitude.device,
-        ).repeat(number_of_wavelengths, 1)  # Repeat for batch dimension if needed
-
-        # Shift moving the center of the input image to the center of the
-        # output image
-        resolution_out = torch.tensor(
-            self.resolution_out,
-            dtype=complex_amplitude.dtype_r,
-            device=complex_amplitude.device,
-        )
-        resolution_in = torch.tensor(
-            self.resolution_in,
-            dtype=complex_amplitude.dtype_r,
-            device=complex_amplitude.device,
-        )
-
+        ).repeat(number_of_wavelengths, 1)
         self.shift_center = (
-            self.rotation_center * (self.scale - 1)
-            + (resolution_out - resolution_in * self.scale) / 2
-        ).fliplr()
+            torch.tensor(
+                plane_center(self.resolution_out),
+                dtype=complex_amplitude.dtype_r,
+                device=complex_amplitude.device,
+            )
+            - self.rotation_center
+        )
 
         self.affine_matrix = self.get_affine_matrix()
 

@@ -103,7 +103,7 @@ def test_the_origin_survives_a_centered_crop(resolution, size) -> None:
     center_x, center_y = plane_center((resolution, resolution))
     marker[center_y, center_x] = 1.0
 
-    cropped = ROI.centered((center_y, center_x), (size, size)).crop(marker)
+    cropped = ROI.centered((center_x, center_y), (size, size)).crop(marker)
 
     wanted_x, wanted_y = plane_center((size, size))
     assert cropped[wanted_y, wanted_x] == 1.0

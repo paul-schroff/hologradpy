@@ -12,6 +12,9 @@ ranks and component counts using the registries defined here.
 
 from __future__ import annotations
 
+import importlib.util
+
+import pytest
 import torch
 
 from hologradpy.optics.complex_amplitude import ComplexAmplitude
@@ -43,6 +46,20 @@ from hologradpy.optics.modules.virtual_slms.zernike_slm import ZernikeSLM
 
 RESOLUTION: tuple[int, int] = (16, 16)
 PIXEL_SIZE: tuple[float, float] = (10e-6, 10e-6)
+
+# Skips a test without pytorch-finufft, which the nufft extra installs.
+requires_nufft = pytest.mark.skipif(
+    importlib.util.find_spec("pytorch_finufft") is None,
+    reason="Needs pytorch-finufft, from the nufft extra.",
+)
+
+
+def nufft_case(*names: str) -> object:
+    """``names`` as one case of a parametrized test. The case skips without
+    pytorch-finufft if a name holds "NUFFT".
+    """
+    needs_nufft = any("NUFFT" in name for name in names)
+    return pytest.param(*names, marks=requires_nufft if needs_nufft else ())
 
 # Zernike config used by the registered ZernikeSLM factory.
 # ``number_of_radial_orders`` 4 gives 4*5/2 = 10 coefficients; a fixed 1D

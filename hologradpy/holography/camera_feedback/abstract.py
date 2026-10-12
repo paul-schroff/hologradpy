@@ -182,13 +182,13 @@ class FeedbackCorrectorBase(ABC):
 
     def zeroth_order_pixels(self) -> tuple[float, float]:
         """Where the calibrated model puts the undiffracted spot on the sensor, as
-        ``(row, column)``.
+        ``(column, row)``.
         """
-        row, column = self._mapping.image_plane_to_sensor(np.zeros((1, 2)))[0]
-        return float(row), float(column)
+        column, row = self._mapping.image_plane_to_sensor(np.zeros((1, 2)))[0]
+        return float(column), float(row)
 
     def target_center_pixels(self) -> tuple[float, float]:
-        """Where :attr:`target_position` lands on the sensor, as ``(row, column)``.
+        """Where :attr:`target_position` lands on the sensor, as ``(column, row)``.
 
         ``target_position`` is ``(x, y)`` metres in the Nyquist plane, measured from the
         zeroth order. The sign convention follows the rest of the package: on an
@@ -199,13 +199,13 @@ class FeedbackCorrectorBase(ABC):
         means half a millimetre along the *optical* x axis, wherever that falls on a
         rotated sensor, rather than half a millimetre along the sensor's own columns.
         """
-        row, column = self._mapping.image_plane_to_sensor(
+        column, row = self._mapping.image_plane_to_sensor(
             np.asarray([self.target_position])
         )[0]
-        return float(row), float(column)
+        return float(column), float(row)
 
     def _addressable_corners_pixels(self) -> np.ndarray:
-        """The four corners of the addressable region, as sensor ``(row, column)``."""
+        """The four corners of the addressable region, as sensor ``(column, row)``."""
         half_x, half_y = self.slm_camera_model.addressable_half_extent()
         corners = np.array(
             [
@@ -226,17 +226,12 @@ class FeedbackCorrectorBase(ABC):
         """
         device = self.slm_camera_model.device
 
-        center_row, center_column = self.target_center_pixels()
-        self._target = self._paste(
-            self.target_patch.to(device), center_row, center_column
-        )
+        center = self.target_center_pixels()
+        self._target = self._paste(self.target_patch.to(device), center)
         # A region is whole samples either way, so it is not worth a transform and
         # the ringing that comes with one.
         self.signal_region = self._paste(
-            self.signal_region_patch.to(device),
-            center_row,
-            center_column,
-            subsample=False,
+            self.signal_region_patch.to(device), center, subsample=False
         )
 
         self._warn_if_zeroth_order_inside()
@@ -252,7 +247,7 @@ class FeedbackCorrectorBase(ABC):
         if bool(region.all()):
             return
 
-        row, column = self.zeroth_order_pixels()
+        column, row = self.zeroth_order_pixels()
         height, width = (int(size) for size in region.shape[-2:])
         pixel_row, pixel_column = int(round(row)), int(round(column))
 
@@ -263,7 +258,7 @@ class FeedbackCorrectorBase(ABC):
             return
 
         warnings.warn(
-            f"The zeroth order at (row {row:.0f}, column {column:.0f}) lies inside "
+            f"The zeroth order at (column {column:.0f}, row {row:.0f}) lies inside "
             "the signal region.",
             stacklevel=3,
         )
@@ -271,17 +266,18 @@ class FeedbackCorrectorBase(ABC):
     def _paste(
         self,
         patch: torch.Tensor,
-        center_row: float,
-        center_column: float,
+        center: tuple[float, float],
         subsample: bool = True,
     ) -> torch.Tensor:
-        """A frame of the whole sensor with ``patch`` centred on the given pixel.
+        """A frame of the whole sensor with ``patch`` centred on the pixel ``center``,
+        ``(column, row)``.
 
         The centre is generally not a whole pixel. The whole-sample part of the centre
         places the patch, and the remainder translates it by
         :func:`~hologradpy.fourier_transforms.fft_translate`. This translation is a
         phase ramp in the Fourier domain and needs no resampling kernel.
         """
+        center_column, center_row = center
         height, width = (int(size) for size in self.camera.sensor_resolution)
         patch_height, patch_width = (int(size) for size in patch.shape[-2:])
 
@@ -298,7 +294,7 @@ class FeedbackCorrectorBase(ABC):
         if frame_bottom <= frame_top or frame_right <= frame_left:
             raise ValueError(
                 f"The target lands entirely off the sensor: its center is at "
-                f"(row {center_row:.0f}, column {center_column:.0f}) on a "
+                f"(column {center_column:.0f}, row {center_row:.0f}) on a "
                 f"{height} by {width} frame. Check target_position, which is (x, y) "
                 "metres from the zeroth order."
             )
@@ -309,8 +305,8 @@ class FeedbackCorrectorBase(ABC):
         ]
 
         residual = (
-            center_row - round(center_row),
             center_column - round(center_column),
+            center_row - round(center_row),
         )
         if subsample and any(residual):
             frame = translate_intensity(frame, residual)
@@ -393,7 +389,7 @@ class FeedbackCorrectorBase(ABC):
         self.apply_camera_mapping(verbose=False)
         self.place_target()
 
-        center_row, center_column = self.target_center_pixels()
+        center_column, center_row = self.target_center_pixels()
         patch_height, patch_width = (
             int(size) for size in self.target_patch.shape[-2:]
         )
@@ -402,10 +398,10 @@ class FeedbackCorrectorBase(ABC):
         corners_optical = self._mapping.sensor_to_image_plane(
             np.array(
                 [
-                    [center_row - patch_height / 2, center_column - patch_width / 2],
-                    [center_row - patch_height / 2, center_column + patch_width / 2],
-                    [center_row + patch_height / 2, center_column - patch_width / 2],
-                    [center_row + patch_height / 2, center_column + patch_width / 2],
+                    [center_column - patch_width / 2, center_row - patch_height / 2],
+                    [center_column + patch_width / 2, center_row - patch_height / 2],
+                    [center_column - patch_width / 2, center_row + patch_height / 2],
+                    [center_column + patch_width / 2, center_row + patch_height / 2],
                 ]
             )
         )
@@ -418,7 +414,7 @@ class FeedbackCorrectorBase(ABC):
             target=gpu_to_numpy(self._target),
             signal_region=gpu_to_numpy(self.signal_region),
             zeroth_order=self.zeroth_order_pixels(),
-            target_center=(center_row, center_column),
+            target_center=(center_column, center_row),
             patch_shape=(patch_height, patch_width),
             addressable_corners=self._addressable_corners_pixels(),
             target_position=self.target_position,

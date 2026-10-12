@@ -6,7 +6,7 @@ import numpy as np
 import torch
 
 from hologradpy.geometry import PartialAffineTransform
-from hologradpy.grids import pixel_frame_angle, pixel_frame_vector
+from hologradpy.grids import pixel_frame_angle, pixel_frame_vector, plane_center
 from hologradpy.optics.complex_amplitude import ComplexAmplitude
 from hologradpy.optics.modules.geometric_transforms import GeometricWarp
 
@@ -50,6 +50,28 @@ def test_matrix_matches_the_partial_affine_value_object():
     ).matrix
     np.testing.assert_allclose(
         warp.get_affine_matrix()[0].detach().numpy(), expected, atol=1e-12
+    )
+
+
+def test_the_input_centre_lands_on_the_output_centre():
+    """For a non-square input, with pitches that differ between the planes and between
+    the axes. The output's centre pixel samples the input's exactly, and its neighbours
+    sample at least a pixel away.
+    """
+    resolution_in, pixel_size_in = (24, 40), (8e-6, 6e-6)
+    resolution_out, pixel_size_out = (30, 20), (10e-6, 12e-6)
+    data = torch.zeros(resolution_in, dtype=torch.complex128)
+    column, row = plane_center(resolution_in)
+    data[row, column] = 1.0
+    warp = GeometricWarp(resolution_out, pixel_size_out)
+
+    output = warp(ComplexAmplitude(data, WAVELENGTH, pixel_size_in))
+
+    expected = torch.zeros(resolution_out, dtype=torch.complex128)
+    column, row = plane_center(resolution_out)
+    expected[row, column] = 1.0
+    torch.testing.assert_close(
+        output.as_tensor().reshape(resolution_out), expected, rtol=0.0, atol=1e-12
     )
 
 

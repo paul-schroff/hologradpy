@@ -225,8 +225,8 @@ def test_zeroth_order_clears_board_footprint(checkerboard_mapping):
     half_diagonal = 0.5 * float(
         np.hypot(np.ptp(detected[:, 0]), np.ptp(detected[:, 1]))
     )
-    # zeroth_order_position is stored (y, x) in camera pixels.
-    zeroth_y, zeroth_x = mapping.zeroth_order_position
+    # zeroth_order_position is (column, row) in camera pixels.
+    zeroth_x, zeroth_y = mapping.zeroth_order_position
     distance = float(np.hypot(zeroth_x - board_center[0], zeroth_y - board_center[1]))
     assert distance > half_diagonal
 

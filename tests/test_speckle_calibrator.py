@@ -4,7 +4,7 @@ Runs the full pipeline (generate band-limited phase patterns -> capture simulate
 camera speckle -> fit the learnable SLM-plane field) end-to-end on a small
 ``SimulatedSLMTorch`` / ``SimulatedCameraTorch`` and checks it returns a valid
 field-only ``WavefrontCalibrationData``. It is a run-only smoke test (no quantitative
-recovery bar): the calibrator uses its default ``SLMNUFFT`` model against an
+recovery bar): the calibrator fits the ``SLMCZT`` model of ``_build_model`` against an
 ``SLMFFTAffine`` "hardware", a deliberate model mismatch.
 """
 
@@ -72,6 +72,8 @@ from hologradpy.loss_functions import (
 from hologradpy.calibration.wavefront.abstract import (
     WavefrontCalibrationData,
 )
+
+from .registry import requires_nufft
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -165,22 +167,22 @@ def _synthetic_mapping(
     so the image-plane conversions of the mapping agree with its recorded zeroth order.
 
     Args:
-        zeroth_order_position: Where the zeroth order sits, ``(y, x)`` in camera pixels.
-            Defaults to the sensor center. Pass one to model an off-axis camera.
+        zeroth_order_position: Where the zeroth order sits, ``(column, row)`` in camera
+            pixels.
+            It defaults to the sensor center. Pass one to model an off-axis camera.
         scale: Model pixels per camera pixel.
         angle_deg: Rotation of the camera against the model plane, in degrees.
     """
-    # zeroth_order_position is stored (y, x) = (row, col).
     zeroth = zeroth_order_position or (
-        CAMERA_RESOLUTION[0] / 2,
         CAMERA_RESOLUTION[1] / 2,
+        CAMERA_RESOLUTION[0] / 2,
     )
     center_x, center_y = plane_center(CAMERA_RESOLUTION)
     truth = PartialAffineTransform.from_components(
         scale=scale,
         angle_deg=angle_deg,
-        shift=(center_x - zeroth[1], center_y - zeroth[0]),
-        center=(zeroth[1], zeroth[0]),
+        shift=(center_x - zeroth[0], center_y - zeroth[1]),
+        center=(zeroth[0], zeroth[1]),
     )
     detected = np.random.default_rng(0).uniform(-50, 50, size=(12, 2))
     calculated = truth.transform_points(detected)
@@ -571,7 +573,7 @@ def test_a_coarse_mapping_is_run_when_none_is_supplied(tmp_path) -> None:
     # camera -> model, the opposite of the angle the camera was built with.
     assert calibrator.camera_mapping.rotation_degrees == pytest.approx(-4.0, abs=0.5)
     # And the zeroth order landed somewhere on the sensor.
-    row, column = calibrator.camera_mapping.zeroth_order_position
+    column, row = calibrator.camera_mapping.zeroth_order_position
     assert 0 <= row < camera.resolution[0] and 0 <= column < camera.resolution[1]
 
 
@@ -915,12 +917,12 @@ def test_the_largest_extent_on_the_zeroth_order_fits_an_off_axis_camera(
     """
     slm, camera = _build_hardware()
     # A quarter of the way down, so the top edge is the nearest one.
-    zeroth = (CAMERA_RESOLUTION[0] / 4, CAMERA_RESOLUTION[1] / 2)
+    zeroth = (CAMERA_RESOLUTION[1] / 2, CAMERA_RESOLUTION[0] / 4)
     generator = _generator_for(_synthetic_mapping(zeroth), slm, camera, tmp_path)
 
     assert generator.largest_extent_on_sensor(tilt=(0.0, 0.0)) == pytest.approx(
         (
-            2 * zeroth[0] * camera.pixel_size[0],
+            2 * zeroth[1] * camera.pixel_size[0],
             CAMERA_RESOLUTION[1] * camera.pixel_size[1],
         )
     )
@@ -931,7 +933,7 @@ def test_the_largest_extent_on_the_zeroth_order_fits_an_off_axis_camera(
     # Reaching the nearest edge, to within the pixel the grid convention costs, is what
     # makes it the largest one that fits, and it stops well short of the far edge.
     assert rows.min() <= 1
-    assert rows.max() == pytest.approx(2 * zeroth[0], abs=2)
+    assert rows.max() == pytest.approx(2 * zeroth[1], abs=2)
     assert rows.max() < CAMERA_RESOLUTION[0] - 1
 
 
@@ -957,8 +959,8 @@ def test_the_zeroth_order_mask_is_sized_in_waists(tmp_path, waists) -> None:
     radius_pixels = radius / camera.pixel_size[0]
     rows, columns = np.indices(generator.roi_mask.shape)
     distance = np.hypot(
-        rows - mapping.zeroth_order_position[0],
-        columns - mapping.zeroth_order_position[1],
+        rows - mapping.zeroth_order_position[1],
+        columns - mapping.zeroth_order_position[0],
     )
     # A pixel of slack either side for the grid convention.
     assert not generator.roi_mask[distance < radius_pixels - 1].any()
@@ -1003,7 +1005,7 @@ def test_a_zeroth_order_off_the_sensor_refuses_an_extent_around_it(tmp_path) -> 
     off the sensor. No speckle centred there fits on the sensor.
     """
     slm, camera = _build_hardware()
-    off_sensor = (-5.0, CAMERA_RESOLUTION[1] / 2)
+    off_sensor = (CAMERA_RESOLUTION[1] / 2, -5.0)
     generator = _generator_for(_synthetic_mapping(off_sensor), slm, camera, tmp_path)
 
     with pytest.raises(ValueError, match="Pass an extent explicitly"):
@@ -1016,9 +1018,9 @@ def test_a_zeroth_order_off_the_sensor_refuses_an_extent_around_it(tmp_path) -> 
 @pytest.mark.parametrize(
     "zeroth",
     [
-        (CAMERA_RESOLUTION[0] / 2, CAMERA_RESOLUTION[1] / 2),
-        (CAMERA_RESOLUTION[0] / 4, CAMERA_RESOLUTION[1] / 2),
-        (-5.0, CAMERA_RESOLUTION[1] / 2),
+        (CAMERA_RESOLUTION[1] / 2, CAMERA_RESOLUTION[0] / 2),
+        (CAMERA_RESOLUTION[1] / 2, CAMERA_RESOLUTION[0] / 4),
+        (CAMERA_RESOLUTION[1] / 2, -5.0),
     ],
     ids=["centre", "near an edge", "off the sensor"],
 )
@@ -1118,9 +1120,9 @@ def test_a_tilt_keeps_the_spot_at_the_speckle_centre_out_of_the_region(
     radius_pixels = (
         generator.metadata["zeroth_order_mask_radius"] / camera.pixel_size[0]
     )
-    centre = mapping.image_plane_to_sensor(tilt)[0]
+    centre_column, centre_row = mapping.image_plane_to_sensor(tilt)[0]
     rows, columns = np.indices(generator.roi_mask.shape)
-    distance = np.hypot(rows - centre[0], columns - centre[1])
+    distance = np.hypot(columns - centre_column, rows - centre_row)
     # A pixel of slack either side for the grid convention.
     assert not generator.roi_mask[distance < radius_pixels - 1].any()
     assert generator.roi_mask[
@@ -1165,7 +1167,7 @@ def test_the_largest_speckle_on_a_rotated_camera_touches_the_sensor_edge(
     further.
     """
     slm, camera = _build_hardware()
-    zeroth = (CAMERA_RESOLUTION[0] / 4, CAMERA_RESOLUTION[1] / 2)
+    zeroth = (CAMERA_RESOLUTION[1] / 2, CAMERA_RESOLUTION[0] / 4)
     aligned = _generator_for(_synthetic_mapping(zeroth), slm, camera, tmp_path)
     mapping = _synthetic_mapping(zeroth, angle_deg=30.0)
     rotated = _generator_for(mapping, slm, camera, tmp_path)
@@ -1178,7 +1180,8 @@ def test_the_largest_speckle_on_a_rotated_camera_touches_the_sensor_edge(
     boundary = mapping.image_plane_to_sensor(
         np.stack([width / 2 * np.cos(angles), height / 2 * np.sin(angles)], axis=1)
     )
-    clearance = np.minimum(boundary, np.asarray(CAMERA_RESOLUTION) - boundary)
+    sensor_size = np.asarray(CAMERA_RESOLUTION)[::-1]  # (columns, rows)
+    clearance = np.minimum(boundary, sensor_size - boundary)
     assert clearance.min() == pytest.approx(0.0, abs=1e-3)
     aligned_height, aligned_width = aligned.largest_extent_on_sensor(tilt=(0.0, 0.0))
     assert height < aligned_height
@@ -1343,6 +1346,8 @@ def test_capture_meters_the_first_pattern(tmp_path) -> None:
     frame. The first frame therefore sits at the default set fraction of 0.75, and the
     record holds the exposure of the captured frames.
     """
+    # The sensor draws its shot noise from torch's global generator.
+    torch.manual_seed(0)
     slm, camera = _build_hardware()
     entry_exposure = camera.get_exposure()
     generator = _speckle_generator(slm, camera, tmp_path, 8)
@@ -1458,8 +1463,8 @@ def _recovery_mapping() -> CameraMapping:
         detected_points=detected.tolist(),
         calculated_points=calculated.tolist(),
         zeroth_order_position=(
-            RECOVERY_CAMERA_RESOLUTION[0] / 2,
             RECOVERY_CAMERA_RESOLUTION[1] / 2,
+            RECOVERY_CAMERA_RESOLUTION[0] / 2,
         ),
         spot_fit=FocalSpotFit(waist=RECOVERY_CAMERA_PIXEL_SIZE[0] * 2),
         output_pixel_size=RECOVERY_CAMERA_PIXEL_SIZE,
@@ -1467,6 +1472,7 @@ def _recovery_mapping() -> CameraMapping:
     )
 
 
+@requires_nufft
 def test_speckle_calibrator_recovers_injected_wavefront(tmp_path) -> None:
     """With developed speckle, the calibrator recovers a known SLM-plane aberration.
 

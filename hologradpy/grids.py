@@ -8,10 +8,11 @@ So y points up when row 0 is drawn at the top, and a positive angle, from +x tow
 The grid of an even-length axis is asymmetric. x runs from ``-n/2`` to ``n/2 - 1``
 pitches, and y from ``n/2`` down to ``-(n/2 - 1)``.
 
-Arrays are indexed in the pixel frame, by ``(column, row)``. Coordinates ``(x, y)`` are
-physical. :func:`pixel_frame_vector` and :func:`pixel_frame_angle` convert vectors and
-angles between the two frames, and :func:`metres_to_pixel` and :func:`pixel_to_metres`
-convert positions.
+Arrays are indexed ``image[row, column]``, with shapes ``(height, width)`` and pitches
+``(y, x)``. Pixel positions and pixel-frame displacements are ``(column, row)``, in the
+order of ``(x, y)``. Coordinates ``(x, y)`` are physical. :func:`pixel_frame_vector` and
+:func:`pixel_frame_angle` convert vectors and angles between the two frames, and
+:func:`metres_to_pixel` and :func:`pixel_to_metres` convert positions.
 """
 
 from __future__ import annotations
@@ -211,7 +212,8 @@ def coordinates_to_indices(
             ``coordinates[:, 1]``.
 
     Returns:
-        list[tuple[int, int]]: The indices of the coordinates.
+        list[tuple[int, int]]: The ``(row, column)`` index of the pixel nearest each
+        coordinate, as ``image[row, column]`` takes it.
     """
     indices: list[tuple[int, int]] = []
     for i in range(coordinates.shape[0]):

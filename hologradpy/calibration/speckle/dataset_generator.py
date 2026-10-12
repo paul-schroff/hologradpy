@@ -168,33 +168,34 @@ class DatasetGenerator:
         """
         if tilt is None:
             tilt = tilt_to_sensor_center(self.camera, self.camera_mapping)
-        sensor_resolution = np.asarray(self.camera.sensor_resolution, dtype=np.float64)
+        height, width = (int(size) for size in self.camera.sensor_resolution)
+        sensor_size = np.array([width, height], dtype=np.float64)
         tilt = np.asarray(tilt, dtype=np.float64)
-        # The sensor (row, column) of the speckle centre, and of a step of one metre
+        # The sensor (column, row) of the speckle centre, and of a step of one metre
         # along the image-plane x and y, which gives the linear part of the mapping.
         center, step_x, step_y = self.camera_mapping.image_plane_to_sensor(
             np.stack([tilt, tilt + (1.0, 0.0), tilt + (0.0, 1.0)])
         )
 
-        margins = np.minimum(center, sensor_resolution - center)
+        margins = np.minimum(center, sensor_size - center)
         if np.any(margins <= 0):
             raise ValueError(
-                f"The speckle centre sits at {tuple(float(c) for c in center)} on a "
-                f"{tuple(int(n) for n in sensor_resolution)} sensor, so no speckle "
-                "centred on it fits. Pass an extent explicitly, or a tilt that lands "
-                "on the sensor."
+                "The speckle centre sits at (column, row) "
+                f"{tuple(float(c) for c in center)} on a sensor of {width} columns "
+                f"and {height} rows, so no speckle centred on it fits. Pass an extent "
+                "explicitly, or a tilt that lands on the sensor."
             )
 
-        # Sensor (row, column) pixels per image-plane metre, along x and along y.
+        # Sensor (column, row) pixels per image-plane metre, along x and along y.
         pixels_per_metre_x = step_x - center
         pixels_per_metre_y = step_y - center
         semi_axes = np.array(
             [
-                margins[1] / np.linalg.norm(pixels_per_metre_x),
-                margins[0] / np.linalg.norm(pixels_per_metre_y),
+                margins[0] / np.linalg.norm(pixels_per_metre_x),
+                margins[1] / np.linalg.norm(pixels_per_metre_y),
             ]
         )
-        # How far the image of the ellipse reaches along the sensor rows and columns.
+        # How far the image of the ellipse reaches along the sensor columns and rows.
         reach = np.hypot(
             pixels_per_metre_x * semi_axes[0], pixels_per_metre_y * semi_axes[1]
         )
@@ -379,10 +380,10 @@ class DatasetGenerator:
         sensor_resolution = tuple(self.camera.sensor_resolution)
         camera_grid = get_spatial_grid(sensor_resolution, self.camera.pixel_size)
 
-        zeroth = self.camera_mapping.zeroth_order_position
-        # (row, col) to the (x, y) the conversion takes, and back to (y, x) shifts.
         shift_x, shift_y = pixel_to_metres(
-            (zeroth[1], zeroth[0]), self.camera.pixel_size, sensor_resolution
+            self.camera_mapping.zeroth_order_position,
+            self.camera.pixel_size,
+            sensor_resolution,
         )
 
         if uniform:
@@ -399,7 +400,7 @@ class DatasetGenerator:
             # offset.
             rows, columns = np.indices(sensor_resolution)
             positions = self.camera_mapping.sensor_to_image_plane(
-                np.stack([rows.ravel(), columns.ravel()], axis=1)
+                np.stack([columns.ravel(), rows.ravel()], axis=1)
             )
             speckle_mask = torch.as_tensor(
                 elliptical_mask(
@@ -424,11 +425,9 @@ class DatasetGenerator:
             shift_y=shift_y,
         )
         if not uniform and any(tilt):
-            centre_row, centre_column = self.camera_mapping.image_plane_to_sensor(
-                tilt
-            )[0]
+            centre = self.camera_mapping.image_plane_to_sensor(tilt)[0]
             centre_x, centre_y = pixel_to_metres(
-                (centre_column, centre_row), self.camera.pixel_size, sensor_resolution
+                tuple(centre), self.camera.pixel_size, sensor_resolution
             )
             excluded = excluded | circular_mask(
                 *camera_grid,

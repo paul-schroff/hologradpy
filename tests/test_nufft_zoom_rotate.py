@@ -15,8 +15,10 @@ import torch
 
 from hologradpy.fourier_transforms import NUFFTPartialAffine
 
+from .registry import requires_nufft
 
-pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
+
+pytestmark = [pytest.mark.filterwarnings("ignore::UserWarning"), requires_nufft]
 
 
 def _complex(*shape: int, seed: int = 0) -> torch.Tensor:

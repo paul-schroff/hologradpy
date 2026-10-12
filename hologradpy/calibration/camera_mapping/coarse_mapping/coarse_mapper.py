@@ -296,9 +296,7 @@ class CoarseMapper(CameraMapper):
                 # The zeroth order is masked out of every probe fit.
                 mask_radius = zeroth_order_mask_radius(spot_radius, camera_pixel_size)
                 probe_mask = ~disc_mask(
-                    camera_shape,
-                    (zeroth_order_position[1], zeroth_order_position[0]),
-                    mask_radius,
+                    camera_shape, zeroth_order_position, mask_radius
                 )
             probe_tilts = [
                 (center_tilt[0] + float(dt[0]), center_tilt[1] + float(dt[1]))
@@ -732,7 +730,7 @@ class CoarseMapper(CameraMapper):
     def _locate_zeroth_order(
         self, focal_length: float, spot_radius: float
     ) -> tuple[float, float] | None:
-        """The ``(row, column)`` of the zeroth order, or None when it misses the sensor.
+        """The ``(column, row)`` of the zeroth order, or None when it misses the sensor.
 
         With the zeroth order off the sensor, the camera can still find a spot at zero
         tilt in fixed background, such as stray light or speckle. The spot found is
@@ -758,8 +756,8 @@ class CoarseMapper(CameraMapper):
         with self.camera.preserve_exposure_gain_and_roi():
             self.camera.autoexpose(set_fraction=0.5, raise_on_rail=False, verbose=False)
             metered = np.asarray(self.camera.get_image(), dtype=np.float64)
-            row, column = _brightest_pixel(metered)
-            if not self._clear_of_the_edge(metered.shape, row, column, spot_radius):
+            column, row = _brightest_pixel(metered)
+            if not self._clear_of_the_edge(metered.shape, (column, row), spot_radius):
                 return None
 
             def window_peak(frame: NDArray) -> float:
@@ -772,19 +770,21 @@ class CoarseMapper(CameraMapper):
             self.slm.set_phase(binary_phase_grating(self.slm.resolution))
             suppressed = np.asarray(self.camera.get_image(), dtype=np.float64)
         if window_peak(suppressed) < 0.5 * peak:
-            return (float(row), float(column))
+            return (float(column), float(row))
         return None
 
     def _clear_of_the_edge(
-        self, shape: tuple[int, ...], row: float, column: float, spot_radius: float
+        self, shape: tuple[int, ...], point: tuple[float, float], spot_radius: float
     ) -> bool:
-        """Whether a spot peaking at ``(row, column)`` lies a detection window,
-        ``_WINDOW_SPOT_RADII`` focal-spot radii, inside a frame of ``shape``.
+        """Whether a spot peaking at the pixel ``point``, ``(column, row)``, lies a
+        detection window, ``_WINDOW_SPOT_RADII`` focal-spot radii, inside a frame of
+        ``shape``.
 
         A spot nearer the edge can be the clipped tail of one off the sensor, and the
         centre search cannot measure how it moves. The search step leaves room for a
         spot clear of the edge.
         """
+        column, row = point
         pixel_pitch = float(np.min(self.camera.pixel_size))
         margin = _WINDOW_SPOT_RADII * spot_radius / pixel_pitch
         height, width = shape[:2]
@@ -864,7 +864,7 @@ class CoarseMapper(CameraMapper):
             if image is None:
                 continue
             if not self._clear_of_the_edge(
-                image.shape, *_brightest_pixel(image), spot_radius
+                image.shape, _brightest_pixel(image), spot_radius
             ):
                 continue
             if self._is_static_background(
@@ -928,7 +928,7 @@ class CoarseMapper(CameraMapper):
         shifted_peak = detect_spot(shifted, spot_radius, self.camera)
         if shifted_peak is None:
             return False
-        shifted_row, shifted_column = shifted_peak
+        shifted_column, shifted_row = shifted_peak
         pixel_pitch = self.camera.pixel_size[::-1]  # (x, y) for Cartesian geometry
         shift_x = (shifted_column - column) * pixel_pitch[0]
         shift_y = (shifted_row - row) * pixel_pitch[1]
@@ -952,8 +952,8 @@ class CoarseMapper(CameraMapper):
         The Jacobian comes from how the detected spot moves when the tilt is perturbed.
         The zeroth order does not move with tilt and can be brighter than the first
         order, so it is masked (a disk around the reference spot) in the derivative
-        captures. A located zeroth order, at ``zeroth_order_position`` ``(row,
-        column)``, is also masked in the capture that confirms the centre tilt, when the
+        captures. A located zeroth order, at ``zeroth_order_position`` ``(column,
+        row)``, is also masked in the capture that confirms the centre tilt, when the
         sensor centre lies clear of it.
         """
         center = np.array([(camera_shape[1] - 1) / 2, (camera_shape[0] - 1) / 2])
@@ -983,8 +983,7 @@ class CoarseMapper(CameraMapper):
             peak = detect_spot(image, spot_radius, self.camera)
             if peak is None:
                 return None
-            row, column = peak
-            return np.array([column, row], dtype=float)  # (column, row)
+            return np.array(peak, dtype=float)  # (column, row)
 
         initial_position = measure(tilt)
         if initial_position is None:
@@ -1027,11 +1026,9 @@ class CoarseMapper(CameraMapper):
         # linear step overshot off the sensor.
         confirm_mask_center = None
         if zeroth_order_position is not None:
-            zeroth_order_xy = np.array(
-                [zeroth_order_position[1], zeroth_order_position[0]]
-            )
-            if np.linalg.norm(center - zeroth_order_xy) > 2.0 * mask_radius_px:
-                confirm_mask_center = zeroth_order_xy
+            zeroth = np.asarray(zeroth_order_position, dtype=float)
+            if np.linalg.norm(center - zeroth) > 2.0 * mask_radius_px:
+                confirm_mask_center = zeroth
         if measure(center_tilt, mask_center=confirm_mask_center) is None:
             return tilt, jacobian
         return center_tilt, jacobian

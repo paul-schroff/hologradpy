@@ -81,7 +81,7 @@ def _mapping() -> CameraMapping:
         transform=np.eye(3),
         detected_points=[(1.0, 2.0), (3.0, 4.0)],
         calculated_points=[(1.0, 2.0), (3.0, 4.0)],
-        zeroth_order_position=(32.0, 32.0),
+        zeroth_order_position=(40.0, 24.0),
         spot_fit=FocalSpotFit(waist=2.5),
     )
 
@@ -130,7 +130,7 @@ def test_a_real_record_survives(tmp_path) -> None:
     reloaded = CameraMapping.load(path)
 
     assert np.array_equal(reloaded.transform, mapping.transform)
-    assert reloaded.zeroth_order_position == (32.0, 32.0)
+    assert reloaded.zeroth_order_position == (40.0, 24.0)
     assert reloaded.detected_points == mapping.detected_points
     assert reloaded.rotation_degrees == pytest.approx(mapping.rotation_degrees)
 

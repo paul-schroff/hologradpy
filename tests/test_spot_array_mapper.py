@@ -48,7 +48,9 @@ pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 DEVICE = torch.device("cpu")
 
 
-def _build_setup(camera_angle: float = 0.0):
+def _build_setup(
+    camera_angle: float = 0.0, model_padded_resolution: tuple[int, int] = (512, 512)
+):
     """A small simulated SLM + camera + hologram model."""
     slm_geometry = FieldGeometry(
         resolution=(256, 320),
@@ -87,7 +89,7 @@ def _build_setup(camera_angle: float = 0.0):
         virtual_slm=VirtualSLM(full_scale_cycles=1.0),
         slm_field=PixelwiseSLMField(gaussian_beam),
         focal_length=0.25,
-        padded_resolution=(512, 512),
+        padded_resolution=model_padded_resolution,
     )
     return slm, camera, slm_camera_model
 
@@ -313,6 +315,32 @@ def test_map_camera_recovers_rotated_camera():
     mapped = detected @ transform[:, :2].T + transform[:, 2]
     rms = np.sqrt(np.mean(np.sum((mapped - calculated) ** 2, axis=1)))
     assert rms < 1.0
+
+
+def test_the_simulated_spots_fit_round_on_a_plane_with_unequal_pitches():
+    """A model plane padded to 512 x 384 has a larger pitch along x than along y. Its
+    focal spots are round in metres. The simulated image is fitted with the plane's
+    (y, x) pitch, so its spots fit round.
+    """
+    slm, camera, model = _build_setup(model_padded_resolution=(512, 384))
+    mapper = SpotArrayMapper(slm, camera, model)
+    (pitch_y, pitch_x), resolution_out = mapper._model_output_geometry()
+    assert pitch_x > 1.3 * pitch_y
+    fits_by_shape = {}
+    detect_and_fit = mapper._detect_and_fit
+
+    def recording(image, pitch, *arguments, **options):
+        detections = detect_and_fit(image, pitch, *arguments, **options)
+        fits_by_shape[image.shape] = detections.fits
+        return detections
+
+    mapper._detect_and_fit = recording
+    mapper.map_camera(number_of_spots=8, seed=1)
+
+    simulated_fits = fits_by_shape[resolution_out]
+    assert len(simulated_fits) >= 3
+    for fit in simulated_fits:
+        assert fit.beam.beam_radius_x == pytest.approx(fit.beam.beam_radius_y, rel=0.1)
 
 
 def test_map_camera_fills_sensor_and_respects_border():

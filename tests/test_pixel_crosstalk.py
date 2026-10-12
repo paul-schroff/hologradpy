@@ -28,6 +28,8 @@ from hologradpy.optics.modules import (
 from hologradpy.optics.systems import SLMCZT, SLMFFT, SLMNUFFT
 from hologradpy.phase_levels import LinearResponse, LookupResponse
 
+from .registry import requires_nufft
+
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
 RESOLUTION: tuple[int, int] = (16, 16)
@@ -203,10 +205,10 @@ def test_the_piecewise_model_with_equal_half_axes_is_the_symmetric_one() -> None
     piecewise = PiecewiseSuperGaussianCrosstalk(
         3,
         3,
-        order_y=(1.4, 1.4),
-        order_x=(1.4, 1.4),
-        width_y=(1.7, 1.7),
-        width_x=(1.7, 1.7),
+        order_rows=(1.4, 1.4),
+        order_columns=(1.4, 1.4),
+        width_rows=(1.7, 1.7),
+        width_columns=(1.7, 1.7),
     )
     torch.testing.assert_close(piecewise.kernel(), symmetric.kernel())
 
@@ -214,18 +216,18 @@ def test_the_piecewise_model_with_equal_half_axes_is_the_symmetric_one() -> None
 def test_the_piecewise_model_puts_its_widths_on_the_axes_it_names() -> None:
     """A narrow horizontal half-axis in frequency spreads the kernel horizontally.
 
-    A transposed frequency grid would put ``width_x`` on the rows and go unnoticed
-    everywhere else, mirroring any asymmetric kernel loaded from a fit.
+    A transposed frequency grid would put ``width_columns`` on the rows and go
+    unnoticed everywhere else, mirroring any asymmetric kernel loaded from a fit.
     """
 
-    def spreads(width_y, width_x) -> tuple[float, float]:
+    def spreads(width_rows, width_columns) -> tuple[float, float]:
         model = PiecewiseSuperGaussianCrosstalk(
             3,
             3,
-            order_y=(2.0, 2.0),
-            order_x=(2.0, 2.0),
-            width_y=(width_y, width_y),
-            width_x=(width_x, width_x),
+            order_rows=(2.0, 2.0),
+            order_columns=(2.0, 2.0),
+            width_rows=(width_rows, width_rows),
+            width_columns=(width_columns, width_columns),
         )
         kernel = model.kernel().detach().double()
         offset = torch.arange(kernel.shape[0], dtype=torch.float64)
@@ -235,11 +237,11 @@ def test_the_piecewise_model_puts_its_widths_on_the_axes_it_names() -> None:
             float((kernel.sum(dim=-2) * offset**2).sum()),
         )
 
-    down_rows, across_columns = spreads(width_y=2.0, width_x=0.35)
+    down_rows, across_columns = spreads(width_rows=2.0, width_columns=0.35)
     assert across_columns > down_rows
 
     # Swapping the two axes swaps the spread, and nothing else.
-    swapped = spreads(width_y=0.35, width_x=2.0)
+    swapped = spreads(width_rows=0.35, width_columns=2.0)
     assert swapped == pytest.approx((across_columns, down_rows), rel=1e-6)
 
 
@@ -258,7 +260,7 @@ def test_a_neighbour_weight_moves_phase_from_the_pixel_it_names() -> None:
     """
     upscale_factor = 3
     model = NeighbourDifferenceCrosstalk(upscale_factor, 3)
-    index = model.neighbour_offsets.index((0, 1))
+    index = model.neighbour_offsets.index((1, 0))  # One column right.
     with torch.no_grad():
         model.transitions[index, 1, 2] = 0.25
 
@@ -674,7 +676,9 @@ def test_the_reorder_leaves_a_system_without_crosstalk_alone() -> None:
     )
 
 
-@pytest.mark.parametrize("system_class", [SLMCZT, SLMNUFFT])
+@pytest.mark.parametrize(
+    "system_class", [SLMCZT, pytest.param(SLMNUFFT, marks=requires_nufft)]
+)
 def test_the_other_lenses_take_the_sub_pixel_grid(system_class) -> None:
     system = system_class(
         input_geometry=_geometry(),

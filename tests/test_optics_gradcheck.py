@@ -50,6 +50,8 @@ from hologradpy.optics.modules.propagators.angular_spectrum_method import (
 from hologradpy.optics.modules.virtual_slms.abstract import VirtualSLM
 from hologradpy.optics.modules.virtual_slms.zernike_slm import ZernikeSLM
 
+from .registry import nufft_case, requires_nufft
+
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
 RESOLUTION: tuple[int, int] = (8, 8)
@@ -191,12 +193,15 @@ def _check(names: list[str]) -> None:
     assert torch.autograd.gradcheck(function, (phase,), **kwargs)
 
 
-@pytest.mark.parametrize("name", sorted(MODULE_FACTORIES))
+@pytest.mark.parametrize(
+    "name", [nufft_case(name) for name in sorted(MODULE_FACTORIES)]
+)
 def test_single_module_gradient_is_correct(name: str) -> None:
     """Each module on its own differentiates correctly w.r.t. the input field."""
     _check([name])
 
 
+@requires_nufft
 def test_nufft_geometry_parameters_are_learnable() -> None:
     """The NUFFT lens learns its own focal-plane affine.
 
@@ -265,6 +270,7 @@ def test_nufft_geometry_parameters_are_learnable() -> None:
             )
 
 
+@requires_nufft
 def test_nufft_and_czt_agree_on_the_scale_and_shift_gradients() -> None:
     """Two independent evaluations of the same derivative, to seven digits.
 
@@ -339,7 +345,11 @@ def test_from_tensor_keeps_the_graph_across_a_dispatch_op() -> None:
 
 
 @pytest.mark.parametrize(
-    "first, second", list(itertools.permutations(sorted(MODULE_FACTORIES), 2))
+    "first, second",
+    [
+        nufft_case(*pair)
+        for pair in itertools.permutations(sorted(MODULE_FACTORIES), 2)
+    ],
 )
 def test_module_pair_gradient_is_correct(first: str, second: str) -> None:
     """Gradients survive the seam between two chained modules.

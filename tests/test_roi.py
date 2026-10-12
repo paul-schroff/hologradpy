@@ -13,6 +13,16 @@ from hologradpy.roi import ROI
 BOUNDS = (40, 60)
 
 
+def test_a_centered_region_takes_its_centre_as_column_and_row() -> None:
+    """A 3 x 5 region centred on column 10 and row 4 spans rows 3 to 5 and columns
+    8 to 12.
+    """
+    region = ROI.centered((10, 4), (3, 5))
+
+    assert (region.top_row, region.left_column) == (3, 8)
+    assert (region.height, region.width) == (3, 5)
+
+
 def test_a_region_inside_the_bounds_is_left_as_it_is() -> None:
     region = ROI(5, 7, 10, 12)
     assert region.trimmed_to(BOUNDS) == region

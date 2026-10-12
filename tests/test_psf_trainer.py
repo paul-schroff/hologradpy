@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 import torch
 
+from hologradpy.grids import plane_center
 from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
     FieldGeometry,
@@ -25,6 +26,9 @@ from hologradpy.optics.modules.slm_fields import (
     PSFSLMField,
     kernel_size_from_waist,
 )
+from hologradpy.optics.modules.virtual_slms import VirtualSLM
+from hologradpy.optics.systems import SLMCZT
+from hologradpy.utils import as_image
 from hologradpy.calibration.wavefront.speckle_calibration import (
     PSFSpeckleCalibrator,
     PixelwiseSpeckleCalibrator,
@@ -314,13 +318,11 @@ def test_a_centered_kernel_puts_no_tilt_on_the_beam() -> None:
 
 @pytest.mark.parametrize("shift_pixels", [1, 2, 3])
 def test_a_shifted_kernel_tilts_the_beam_by_the_matching_amount(shift_pixels) -> None:
-    """Shifting the kernel by n camera pixels must displace the focal pattern by n.
+    """Shifting the kernel by n camera pixels along +x must tilt the beam as a linear
+    phase does that moves a spot n camera pixels along +x.
 
-    Pins the origin convention in a way the amplitude cannot hide. The mapping
-    runs the transform in the negative direction, so the implied displacement
-    comes back with the opposite sign to the kernel shift, which is a
-    convention rather than an error: what matters is that the magnitude is
-    exact, since that is what fixes the beam's position.
+    Pins the origin convention and the direction in a way the amplitude cannot hide.
+    The phase rises along the SLM's columns, by the predicted step per column.
     """
     reference = _delta_kernel_field(33, 0)
     shifted = _delta_kernel_field(33, shift_pixels)
@@ -337,7 +339,39 @@ def test_a_shifted_kernel_tilts_the_beam_by_the_matching_amount(shift_pixels) ->
         * SLM_PIXEL_SIZE
         / (WAVELENGTH * FOCAL_LENGTH)
     )
-    assert abs(step) == pytest.approx(abs(predicted), rel=1e-3)
+    assert step == pytest.approx(predicted, rel=1e-3)
+
+
+def test_an_off_centre_kernel_moves_the_camera_image_the_way_it_points() -> None:
+    """The kernel is the point spread function on the camera. Its one sample sits 3
+    columns right of its centre and 2 rows above it. The image of a flat phase then
+    sits 3 columns right of the camera's centre and 2 rows above it.
+    """
+    kernel_size = 15
+    center = kernel_size // 2
+    seed = torch.zeros(kernel_size, kernel_size)
+    seed[center - 2, center + 3] = 1.0
+    camera_resolution = (64, 64)
+    model = SLMCZT(
+        input_geometry=_uniform_field().geometry,
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
+        camera_resolution=camera_resolution,
+        camera_pixel_size=CAMERA_PIXEL_SIZE,
+        focal_length=FOCAL_LENGTH,
+        slm_field=PSFSLMField(
+            focal_length=FOCAL_LENGTH,
+            camera_pixel_size=CAMERA_PIXEL_SIZE,
+            psf_kernel_size=kernel_size,
+            init_psf_kernel=seed,
+        ),
+    )
+
+    with torch.no_grad():
+        intensity = as_image(model().intensity)
+
+    peak = np.unravel_index(int(intensity.argmax()), tuple(intensity.shape))
+    center_column, center_row = plane_center(camera_resolution)
+    assert peak == (center_row - 2, center_column + 3)
 
 
 @pytest.mark.parametrize("kernel_size", [9, 11, 15], ids=["9", "11", "15"])

@@ -43,7 +43,7 @@ HoloGradPy Documentation
    :start-after: <!-- intro-start -->
    :end-before: <!-- intro-end -->
 
-.. grid:: 1 2 3 3
+.. grid:: 1 2 2 2
    :gutter: 3
    :class-container: sd-mt-4
 
@@ -59,6 +59,13 @@ HoloGradPy Documentation
 
       Worked examples, from phase retrieval and vortex annihilation to SLM
       calibration against a camera.
+
+   .. grid-item-card:: :octicon:`location` Conventions
+      :link: conventions
+      :link-type: doc
+
+      The physical and pixel frames, the order of positions and sizes, and how saved
+      records convert as they load.
 
    .. grid-item-card:: :octicon:`book` API reference
       :link: autoapi/hologradpy/index
@@ -100,6 +107,7 @@ HoloGradPy Documentation
 
    install
    examples
+   conventions
    API Reference <autoapi/hologradpy/index>
 
 .. toctree::

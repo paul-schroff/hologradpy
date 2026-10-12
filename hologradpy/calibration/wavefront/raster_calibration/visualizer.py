@@ -83,7 +83,7 @@ class RasterCalibratorVisualizer(AnimatedVisualizer):
     """Render a raster phase scan from its :class:`RasterVisualizationData`.
 
     >>> phase, _, _ = calibrator.measure_phase(
-    ...     20, 16, 32, 32, (500e-6, 500e-6), measured_intensity=intensity,
+    ...     (16, 20), (32, 32), (500e-6, 500e-6), measured_intensity=intensity,
     ...     compensate_pointing=True, lattice_phase_tilt=(-800e-6, -800e-6),
     ...     record_displayed_phases=True,
     ... )

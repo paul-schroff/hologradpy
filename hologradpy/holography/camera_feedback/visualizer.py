@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from .abstract import CameraFeedbackData
 
 
-@record_type("target_placement")
+@record_type("target_placement", version=2)
 @dataclass
 class TargetPlacementData(VisualizationData):
     """Where the target patch will sit on the sensor, before anything is run.
@@ -39,8 +39,9 @@ class TargetPlacementData(VisualizationData):
     patch is positioned relative to the zeroth order, and only the mapping knows where
     that is.
 
-    All pixel coordinates are ``(row, column)`` on the sensor. ``target_position`` is
-    the request that produced them, as ``(x, y)`` metres in the optical plane.
+    All pixel positions are ``(column, row)`` on the sensor, and ``patch_shape`` is
+    ``(height, width)``. ``target_position`` is the request that produced them, as
+    ``(x, y)`` metres in the optical plane.
     """
 
     target: NDArray
@@ -51,6 +52,21 @@ class TargetPlacementData(VisualizationData):
     addressable_corners: NDArray
     target_position: tuple[float, float] = (0.0, 0.0)
     overshoot: float = 0.0
+
+    @classmethod
+    def _migrate(cls, version: int, stored: dict) -> dict:
+        """Convert placement data saved by an older version.
+
+        Version 1 kept its pixel positions as ``(row, column)``. The zeroth order, the
+        target centre and the addressable corners are swapped into ``(column, row)``.
+        """
+        if version < 2:
+            for key in ("zeroth_order", "target_center"):
+                row, column = stored[key]
+                stored[key] = (column, row)
+            corners = np.asarray(stored["addressable_corners"])
+            stored["addressable_corners"] = corners[:, ::-1].copy()
+        return stored
 
     @property
     def is_addressable(self) -> bool:
@@ -86,8 +102,8 @@ class TargetPlacementVisualizer(BaseVisualizer):
         data = self.data
         target = np.asarray(data.target)
         height, width = target.shape
-        center_row, center_column = data.target_center
-        zeroth_row, zeroth_column = data.zeroth_order
+        center_column, center_row = data.target_center
+        zeroth_column, zeroth_row = data.zeroth_order
         patch_height, patch_width = data.patch_shape
 
         # Returned at the end: compose() only fills a cell's colorbar when the panel
@@ -116,7 +132,7 @@ class TargetPlacementVisualizer(BaseVisualizer):
         # rectangle in the optical plane rather than on the sensor.
         axs.add_patch(
             Polygon(
-                np.asarray(data.addressable_corners)[:, ::-1],
+                np.asarray(data.addressable_corners),
                 closed=True, fill=False, edgecolor="tab:red", linestyle="--",
                 label="addressable (Nyquist) limit",
             )
@@ -134,7 +150,7 @@ class TargetPlacementVisualizer(BaseVisualizer):
         )
         axs.set_title(
             f"target at ({offset_x * 1e6:+.0f}, {offset_y * 1e6:+.0f}) um from the "
-            f"zeroth order\ncenter (row {center_row:.0f}, column {center_column:.0f}), "
+            f"zeroth order\ncenter (column {center_column:.0f}, row {center_row:.0f}), "
             f"{verdict}"
         )
         axs.set_xlabel("camera column (+x)")

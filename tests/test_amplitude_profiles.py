@@ -21,6 +21,7 @@ import pytest
 import torch
 
 from hologradpy.profiles.amplitude import (
+    checkerboard,
     gaussian_blur,
     gaussian_beam_intensity,
     gaussian_beam_intensity_1D,
@@ -337,6 +338,20 @@ def test_numpy_and_torch_agree_on_an_elliptical_beam() -> None:
     on_torch = gaussian_beam_intensity(*_torch_grid(), WAIST, **options)
 
     assert np.abs(on_numpy - on_torch.numpy()).max() < 1e-12
+
+
+def test_the_checkerboard_moves_by_its_shift() -> None:
+    """A 2 x 3 board of 4-pixel squares, shifted by 5 columns and 3 rows on a
+    20 x 30 frame. Centred, its top left corner is row 6 and column 9. Shifted, it
+    is row 9 and column 14.
+    """
+    centred = checkerboard((20, 30), (2, 3), square_size=4)
+    shifted = checkerboard((20, 30), (2, 3), square_size=4, shift=(5, 3))
+
+    rows, columns = np.nonzero(centred)
+    assert (rows.min(), columns.min()) == (6, 9)
+    np.testing.assert_array_equal(shifted[9:17, 14:26], centred[6:14, 9:21])
+    assert shifted.sum() == centred.sum()
 
 
 def test_a_minor_radius_above_the_major_radius_is_refused() -> None:

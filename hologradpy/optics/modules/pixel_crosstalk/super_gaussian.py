@@ -64,34 +64,38 @@ class PiecewiseSuperGaussianCrosstalk(ConvolutionalCrosstalk):
         self: PiecewiseSuperGaussianCrosstalk,
         upscale_factor: int = 3,
         extent: int = 3,
-        order_y: tuple[float, float] = (2, 2),
-        order_x: tuple[float, float] = (2, 2),
-        width_y: tuple[float, float] = (1, 1),
-        width_x: tuple[float, float] = (1, 1),
+        order_rows: tuple[float, float] = (2, 2),
+        order_columns: tuple[float, float] = (2, 2),
+        width_rows: tuple[float, float] = (1, 1),
+        width_columns: tuple[float, float] = (1, 1),
         learnable: bool = True,
     ) -> None:
         """
         Args:
             upscale_factor: Sub-pixels across one SLM pixel.
             extent: Reach of the fringing field, in SLM pixels.
-            order_y: Super-Gaussian order along the rows, for the halves of
+            order_rows: Super-Gaussian order along the rows, for the halves of
                 ``(smaller, larger)`` row index.
-            order_x: Order along the columns, for the halves of ``(smaller, larger)``
-                column index.
-            width_y: Width along the rows in cycles per SLM pixel, for the halves of
-                ``(smaller, larger)`` row index.
-            width_x: Width along the columns, for the halves of ``(smaller, larger)``
-                column index.
+            order_columns: Order along the columns, for the halves of
+                ``(smaller, larger)`` column index.
+            width_rows: Width along the rows in cycles per SLM pixel, for the halves
+                of ``(smaller, larger)`` row index.
+            width_columns: Width along the columns, for the halves of
+                ``(smaller, larger)`` column index.
             learnable: Whether the eight parameters take gradients.
         """
         super().__init__(upscale_factor=upscale_factor, extent=extent)
 
         self.orders = Parameter(
-            torch.tensor([list(order_y), list(order_x)], dtype=torch.float32),
+            torch.tensor(
+                [list(order_rows), list(order_columns)], dtype=torch.float32
+            ),
             requires_grad=learnable,
         )
         self.widths = Parameter(
-            torch.tensor([list(width_y), list(width_x)], dtype=torch.float32),
+            torch.tensor(
+                [list(width_rows), list(width_columns)], dtype=torch.float32
+            ),
             requires_grad=learnable,
         )
         self.register_buffer("frequency", _frequency_grid(self.kernel_size, extent))

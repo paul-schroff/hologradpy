@@ -33,6 +33,8 @@ from .registry import (
     RANK_CASES,
     VECTOR_IDS,
     make_field,
+    nufft_case,
+    requires_nufft,
 )
 
 
@@ -41,7 +43,7 @@ from .registry import (
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
 
-MODULE_IDS = list(MODULE_FACTORIES)
+MODULE_IDS = [nufft_case(name) for name in MODULE_FACTORIES]
 RANK_IDS = list(RANK_CASES)
 
 
@@ -172,6 +174,7 @@ def test_forward_is_repeatable(module_name: str) -> None:
     torch.testing.assert_close(first._data, second._data)
 
 
+@requires_nufft
 def test_nufft_singleton_wavelength_batch_not_squeezed() -> None:
     """Explicit regression test for the historical NUFFT ``squeeze`` bug:
     a ``(B, 1, 1, H, W)`` batch must not collapse and then be misread as ``B``
@@ -208,6 +211,7 @@ def _output_plane_field(shape, n_wavelengths):
     return ComplexAmplitude(data, wavelength, NUFFT_OUTPUT_PIXEL_SIZE)
 
 
+@requires_nufft
 def test_nufft_adjoint_satisfies_inner_product_identity() -> None:
     """``adjoint`` is the true conjugate transpose of ``forward``:
     ``<A x, y> == <x, A* y>`` for input-plane x and output-plane y.
@@ -227,6 +231,7 @@ def test_nufft_adjoint_satisfies_inner_product_identity() -> None:
     torch.testing.assert_close(lhs, rhs, rtol=1e-3, atol=1e-2)
 
 
+@requires_nufft
 @pytest.mark.parametrize("rank", RANK_IDS)
 def test_nufft_adjoint_rank_and_geometry(rank: str) -> None:
     shape, n_wavelengths = RANK_CASES[rank]
@@ -251,6 +256,7 @@ def _input_plane_geometry(n_wavelengths):
     return FieldGeometry(wavelength, torch.tensor([[10e-6, 10e-6]]), (16, 16))
 
 
+@requires_nufft
 def test_initialize_from_geometry_enables_adjoint_without_forward() -> None:
     """A module initialized from the input geometry can run ``adjoint``
     without any prior ``forward``, matching the forward-initialized path.
