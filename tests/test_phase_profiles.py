@@ -20,6 +20,7 @@ from hologradpy.fourier_optics import (
     get_focal_spot_radius,
 )
 from hologradpy.profiles.phase import (
+    hermite_gaussian_phase,
     linear_phase,
     tilt_to_angle,
     binary_phase_grating,
@@ -370,4 +371,48 @@ def test_the_focal_spot_and_the_shaping_lens_of_a_pair_are_pairs():
         beam_shaping_focal_length(radius, FOCAL_LENGTH, target, WAVELENGTH)
         for radius, target in zip(radii, targets)
     )
+
+
+# --- hermite_gaussian_phase ---------------------------------------------------
+
+
+def test_hg_1_1_is_pi_where_x_times_y_is_negative():
+    x, y = _grid()
+
+    phase = hermite_gaussian_phase(x, y, 1, 1)
+
+    np.testing.assert_array_equal(phase, np.where(x * y < 0, np.pi, 0.0))
+
+
+def test_hg_1_0_is_pi_where_x_is_negative():
+    x, y = _grid()
+
+    phase = hermite_gaussian_phase(x, y, 1, 0)
+
+    np.testing.assert_array_equal(phase, np.where(x < 0, np.pi, 0.0))
+
+
+def test_hg_2_0_is_pi_within_half_the_beam_radius():
+    """H_2(u) = 4 u^2 - 2 is negative for |u| < 1 / sqrt(2), so for |x| < w / 2."""
+    x, y = _grid()
+    radius = 1.5e-3
+
+    phase = hermite_gaussian_phase(x, y, 2, 0, beam_radius=radius)
+
+    np.testing.assert_array_equal(phase, np.where(np.abs(x) < radius / 2, np.pi, 0.0))
+
+
+def test_orders_of_2_and_above_need_the_beam_radius():
+    x, y = _grid()
+
+    with pytest.raises(ValueError, match="beam_radius"):
+        hermite_gaussian_phase(x, y, 0, 2)
+
+
+def test_the_hg_phase_keeps_the_dtype_of_a_tensor():
+    x, y = (torch.as_tensor(axis) for axis in _grid())
+
+    phase = hermite_gaussian_phase(x, y, 1, 1)
+
+    assert phase.dtype == torch.float64
 

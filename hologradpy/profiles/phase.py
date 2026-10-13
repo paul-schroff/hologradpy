@@ -467,3 +467,53 @@ def vortex_field(
         else:
             field *= torch.exp(1j * vortex_phase(x, y, center, charge))
     return field
+
+
+def hermite_gaussian_phase(
+    x: ArrayLike,
+    y: ArrayLike,
+    m: int,
+    n: int,
+    beam_radius: float | None = None,
+) -> ArrayLike:
+    """The phase of the Hermite-Gaussian mode HG(m, n), about (0, 0) of ``x`` and ``y``.
+
+    Args:
+        x: x coordinates of the grid.
+        y: y coordinates of the grid.
+        m: The order along x, 0 or above.
+        n: The order along y, 0 or above.
+        beam_radius: The 1/e^2 intensity radius of the beam. Orders of 2 and above
+            need it, since their dark lines lie at multiples of it. Orders 0 and 1 have
+            their dark lines on the axes, so they need none.
+
+    Returns:
+        ArrayLike: The phase, 0 or pi, in the type and dtype of ``x``.
+
+    Raises:
+        ValueError: An order is negative, or an order of 2 or above has no
+            ``beam_radius``.
+    """
+    if m < 0 or n < 0:
+        raise ValueError(f"The orders are 0 or above, got m = {m} and n = {n}.")
+    if max(m, n) > 1 and beam_radius is None:
+        raise ValueError(
+            f"HG({m}, {n}) has dark lines off the axes, at multiples of the beam "
+            "radius, so give beam_radius."
+        )
+    scale = 1.0 if beam_radius is None else np.sqrt(2.0) / beam_radius
+    sign = _hermite(m, x * scale) * _hermite(n, y * scale)
+    # pi in the type and dtype of x.
+    return (x * 0 + np.pi) * (sign < 0)
+
+
+def _hermite(order: int, u: ArrayLike) -> ArrayLike:
+    """The physicists' Hermite polynomial ``H_order`` at ``u``, from its recurrence
+    ``H_(k+1) = 2 u H_k - 2 k H_(k-1)``.
+    """
+    previous, current = u * 0 + 1, 2 * u
+    if order == 0:
+        return previous
+    for k in range(1, order):
+        previous, current = current, 2 * u * current - 2 * k * previous
+    return current

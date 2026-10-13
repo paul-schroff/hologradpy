@@ -5,10 +5,13 @@ The fit of a beam is tested with the calibrators, in test_raster_calibrator.py.
 
 from __future__ import annotations
 
+from datetime import datetime
+
+import pytest
 import torch
 
 from hologradpy.calibration.wavefront.abstract import WavefrontCalibrationData
-from hologradpy.optics.complex_amplitude import FieldGeometry
+from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 from hologradpy.profiles.gaussian import Gaussian, GaussianBeam
 from hologradpy.profiles.gaussian_zernike import GaussianZernikeBeam
 
@@ -63,3 +66,78 @@ def test_a_calibration_from_a_beam_holds_the_beam_and_its_field():
     )
     torch.testing.assert_close(field.wavelength, geometry.wavelength)
     torch.testing.assert_close(field.pixel_size, geometry.pixel_size)
+
+
+GEOMETRY = FieldGeometry(
+    resolution=RESOLUTION,
+    pixel_size=torch.tensor(PITCH),
+    wavelength=torch.tensor(1064e-9),
+)
+
+
+def test_without_defocus_a_calibration_keeps_its_other_terms():
+    """Inside the Zernike disk, the phase is then the astigmatism-only beam's.
+
+    Outside it, the beam's phase was 0, and the defocus comes off as its polynomial
+    continues, sqrt(3) (2 rho^2 - 1), so no step forms at the edge. The amplitude is
+    unchanged, the beam's defocus is 0, and the metadata holds the defocus removed.
+    """
+    beam = GaussianZernikeBeam(GAUSSIAN, 400e-6, ((2, 0), (2, 2)), (1.5, 0.7))
+    calibration = WavefrontCalibrationData.from_beam(beam, GEOMETRY)
+    astigmatism = GaussianZernikeBeam(GAUSSIAN, 400e-6, ((2, 2),), (0.7,))
+
+    without = calibration.without_defocus()
+
+    field = without.complex_amplitude.as_tensor().reshape(RESOLUTION)
+    expected = astigmatism.get_wavefront(RESOLUTION, PITCH)
+    grid = Gaussian(RESOLUTION, PITCH)
+    rho = torch.hypot(grid.x - 100e-6, grid.y + 50e-6) / 400e-6
+    inside = rho < 0.95
+    difference = torch.angle(field[inside] * expected[inside].conj())
+    assert difference.abs().max() < 1e-5
+    outside = (rho > 1.05) & (rho < 1.2)
+    continued = -1.5 * 3**0.5 * (2 * rho[outside] ** 2 - 1)
+    step = torch.angle(field[outside] * torch.exp(-1j * continued))
+    assert step.abs().max() < 1e-4
+    torch.testing.assert_close(field.abs(), expected.abs())
+    assert without.beam.zernike_coefficients == (0.0, 0.7)
+    assert without.metadata["removed_defocus"] == 1.5
+
+
+def test_a_calibration_without_a_fitted_beam_has_no_defocus_to_remove():
+    calibration = WavefrontCalibrationData(
+        timestamp=datetime(2026, 10, 13),
+        name="speckle",
+        complex_amplitude=ComplexAmplitude.from_geometry(GEOMETRY),
+    )
+
+    with pytest.raises(ValueError, match="no fitted beam"):
+        calibration.without_defocus()
+
+
+def test_with_defocus_a_loaded_calibration_gets_its_defocus_back(tmp_path):
+    """Saved without its defocus and loaded again, a calibration gets its field and its
+    beam back, and its metadata no longer holds a removed defocus.
+    """
+    beam = GaussianZernikeBeam(GAUSSIAN, 400e-6, ((2, 0), (2, 2)), (1.5, 0.7))
+    calibration = WavefrontCalibrationData.from_beam(beam, GEOMETRY)
+    path = tmp_path / "without_defocus.asdf"
+    calibration.without_defocus().save(path)
+
+    restored = WavefrontCalibrationData.load(path).with_defocus()
+
+    torch.testing.assert_close(
+        restored.complex_amplitude.as_tensor(),
+        calibration.complex_amplitude.as_tensor(),
+    )
+    assert restored.beam == beam
+    assert "removed_defocus" not in restored.metadata
+
+
+def test_a_calibration_without_a_removed_defocus_has_none_to_add_back():
+    calibration = WavefrontCalibrationData.from_beam(
+        GaussianZernikeBeam(GAUSSIAN, 400e-6, ((2, 0),), (1.5,)), GEOMETRY
+    )
+
+    with pytest.raises(ValueError, match="no removed defocus"):
+        calibration.with_defocus()

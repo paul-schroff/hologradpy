@@ -10,7 +10,13 @@ import numpy as np
 import pytest
 
 from hologradpy.analysis.uncertainties import standard_deviation
-from hologradpy.profiles.gaussian import Gaussian, GaussianBeam, GaussianFit
+from hologradpy.profiles.gaussian import (
+    Gaussian,
+    GaussianBeam,
+    GaussianFit,
+    fit_focus,
+    radius_along_beam,
+)
 from hologradpy.roi import ROI
 
 SHAPE = (81, 81)
@@ -189,3 +195,35 @@ def test_the_angle_std_wraps_at_90_degrees() -> None:
     # The shear's standard deviation of 1e-3 turns the axis by a / (a^2 - c^2) radians
     # per unit of shear, which is 0.29 degrees.
     assert std == pytest.approx(0.2848, rel=0.01)
+
+
+# A waist of 20 um, 0.4 mm along the beam, with a Rayleigh range of 1.2 mm.
+FOCUS = (20e-6, 0.4e-3, 1.2e-3)
+FOCUS_POSITIONS = np.linspace(-3e-3, 3e-3, 13)
+
+
+def test_a_focus_is_recovered_from_its_radii() -> None:
+    radii = radius_along_beam(FOCUS_POSITIONS, *FOCUS)
+
+    fit = fit_focus(FOCUS_POSITIONS, radii)
+
+    np.testing.assert_allclose(
+        (fit.waist_radius, fit.waist_position, fit.rayleigh_range), FOCUS, rtol=1e-6
+    )
+    np.testing.assert_allclose(fit.radius(FOCUS_POSITIONS), radii, rtol=1e-6)
+
+
+def test_a_focus_is_recovered_through_noise() -> None:
+    """Radii with 1% noise give the focus back to within the noise. The waist
+    position's standard deviation is a fraction of the Rayleigh range.
+    """
+    noise = np.random.default_rng(0).standard_normal(FOCUS_POSITIONS.size)
+    radii = radius_along_beam(FOCUS_POSITIONS, *FOCUS) * (1.0 + 0.01 * noise)
+
+    fit = fit_focus(FOCUS_POSITIONS, radii)
+    std = standard_deviation(fit, lambda fit: fit.waist_position)
+
+    assert fit.waist_radius == pytest.approx(FOCUS[0], rel=0.02)
+    assert fit.waist_position == pytest.approx(FOCUS[1], abs=0.05e-3)
+    assert fit.rayleigh_range == pytest.approx(FOCUS[2], rel=0.05)
+    assert 0 < std < 0.05 * FOCUS[2]

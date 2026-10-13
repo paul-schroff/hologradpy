@@ -1,7 +1,7 @@
 from __future__ import annotations
 from abc import abstractmethod
 from datetime import datetime
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import math
 
@@ -47,6 +47,100 @@ class WavefrontCalibrationData(SaveableRecord):
             name="gaussian",
             complex_amplitude=ComplexAmplitude.from_geometry(geometry, field),
             beam=beam,
+        )
+
+    def without_defocus(self) -> WavefrontCalibrationData:
+        """Return a copy without the fitted beam's defocus, its Zernike term (2, 0).
+
+        The defocus is subtracted from the field's phase across the whole SLM. It is the
+        polynomial the beam was fitted with, on the same disk, but not cut at the disk's
+        edge.
+
+        In the copy, the metadata's ``"removed_defocus"`` holds the removed coefficient 
+        in radians. The name and timestamp stay.
+
+        - If the beam has no defocus term, return a copy with the field unchanged and
+          ``"removed_defocus"`` 0.
+
+        Raises:
+            ValueError: The calibration has no fitted beam.
+        """
+        beam = self._fitted_beam()
+        terms = dict(zip(beam.zernike_indices, beam.zernike_coefficients))
+        defocus = float(terms.get((2, 0), 0.0))
+        return self._add_defocus(
+            -defocus, {**self.metadata, "removed_defocus": defocus}
+        )
+
+    def with_defocus(self) -> WavefrontCalibrationData:
+        """Return a copy with the defocus that :meth:`without_defocus` removed added
+        back.
+
+        The metadata's ``"removed_defocus"`` holds it. It is added to the field's phase
+        as :meth:`without_defocus` subtracted it, and to the beam's defocus. The key
+        leaves the metadata. The name and timestamp stay.
+
+        Raises:
+            ValueError: The metadata holds no removed defocus.
+        """
+        if "removed_defocus" not in self.metadata:
+            raise ValueError(
+                f'The calibration "{self.name}" has no removed defocus to add back.'
+            )
+        metadata = dict(self.metadata)
+        defocus = float(metadata.pop("removed_defocus"))
+        return self._add_defocus(defocus, metadata)
+
+    def _fitted_beam(self) -> GaussianZernikeBeam:
+        """Return the fitted beam.
+
+        Raises:
+            ValueError: The calibration has no fitted beam.
+        """
+        if self.beam is None:
+            raise ValueError(
+                f'The calibration "{self.name}" has no fitted beam, so no defocus.'
+            )
+        return self.beam
+
+    def _add_defocus(self, defocus: float, metadata: dict) -> WavefrontCalibrationData:
+        """Return a copy with ``defocus`` radians of the fitted beam's defocus added to
+        the field's phase and to the beam, and with ``metadata``.
+
+        Raises:
+            ValueError: The calibration has no fitted beam.
+        """
+        beam = self._fitted_beam()
+        amplitude = self.complex_amplitude
+        pitch_y, pitch_x = (float(pitch) for pitch in amplitude.pixel_size.reshape(-1))
+        zernike = Zernike(
+            amplitude.resolution,
+            unit_disk_radius=beam.zernike_radius / pitch_x,
+            unit_disk_center=(
+                beam.gaussian.shift_x / pitch_x,
+                beam.gaussian.shift_y / pitch_y,
+            ),
+            indices=[(2, 0)],
+            device=amplitude.device,
+        )
+        # Not cut at the disk's edge, unlike the polynomials the Zernike class holds.
+        polynomial = zernike.get_zernike_basis_function(
+            2, 0, zernike.radial_coordinate, zernike.angular_coordinate
+        )
+        field = amplitude.as_tensor() * torch.exp(1j * defocus * polynomial)
+        terms = dict(zip(beam.zernike_indices, beam.zernike_coefficients))
+        # A beam without a defocus term gets one only for a defocus to add.
+        if (2, 0) in terms or defocus != 0:
+            terms[(2, 0)] = terms.get((2, 0), 0.0) + defocus
+        return replace(
+            self,
+            complex_amplitude=ComplexAmplitude.from_geometry(amplitude.geometry, field),
+            beam=replace(
+                beam,
+                zernike_indices=tuple(terms),
+                zernike_coefficients=tuple(terms.values()),
+            ),
+            metadata=metadata,
         )
 
     @classmethod

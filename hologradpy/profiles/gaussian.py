@@ -2,7 +2,8 @@
 
 Like :class:`~hologradpy.profiles.zernike.Zernike`, :class:`Gaussian` is a model on a
 grid. Its :meth:`~Gaussian.get_intensity` draws a :class:`GaussianBeam`, and its
-:meth:`~Gaussian.fit` is the inverse.
+:meth:`~Gaussian.fit` is the inverse. :func:`fit_focus` fits the beam's focus to its
+radius along its axis.
 """
 
 from __future__ import annotations
@@ -198,6 +199,86 @@ class Gaussian:
             _model, np.stack((x.ravel(), y.ravel())), data.ravel(), p0=p0
         )
         return GaussianFit(parameters, covariance)
+
+
+@dataclass(frozen=True, eq=False)
+class FocusFit:
+    """The focus of a Gaussian beam, fitted by :func:`fit_focus` to the beam's radius
+    along its axis.
+
+    The parameters are the waist radius, the waist position and the Rayleigh range,
+    and the covariance is theirs. So
+    :func:`~hologradpy.analysis.uncertainties.standard_deviation` takes it, as it takes
+    a :class:`GaussianFit`.
+    """
+
+    parameters: NDArray[np.float64]
+    covariance: NDArray[np.float64]
+
+    @property
+    def waist_radius(self) -> float:
+        """The 1/e^2 intensity radius at the waist."""
+        return float(self.parameters[0])
+
+    @property
+    def waist_position(self) -> float:
+        """The position of the waist, in the positions' units."""
+        return float(self.parameters[1])
+
+    @property
+    def rayleigh_range(self) -> float:
+        """The distance from the waist over which the radius grows by sqrt(2)."""
+        return float(self.parameters[2])
+
+    def radius(self, positions: ArrayLike) -> NDArray[np.float64]:
+        """Return the fitted radius at ``positions``."""
+        return radius_along_beam(positions, *self.parameters)
+
+
+def radius_along_beam(
+    positions: ArrayLike,
+    waist_radius: float,
+    waist_position: float,
+    rayleigh_range: float,
+) -> NDArray[np.float64]:
+    """Return the 1/e^2 intensity radius of a Gaussian beam at ``positions`` along its
+    axis, ``w0 sqrt(1 + ((z - z0) / zR)^2)``.
+    """
+    positions = np.asarray(positions, dtype=np.float64)
+    distance = (positions - waist_position) / rayleigh_range
+    return waist_radius * np.sqrt(1.0 + distance**2)
+
+
+def fit_focus(positions: ArrayLike, radii: ArrayLike) -> FocusFit:
+    """Fit the focus of a Gaussian beam to ``radii`` measured at ``positions`` along it.
+
+    Args:
+        positions: Three or more different positions along the beam.
+        radii: The 1/e^2 intensity radius at each position.
+
+    Returns:
+        FocusFit: The fitted parameters and their covariance.
+    """
+    positions = np.asarray(positions, dtype=np.float64)
+    radii = np.asarray(radii, dtype=np.float64)
+    smallest = int(np.argmin(radii))
+    # The scales of the waist radius, the waist position and the Rayleigh range.
+    scales = np.array([radii[smallest], np.ptp(positions), np.ptp(positions)])
+    scaled_positions = positions / scales[1]
+    scaled_radii = radii / scales[0]
+    waist_position = scaled_positions[smallest]
+    farthest = int(np.argmax(np.abs(scaled_positions - waist_position)))
+    distance = abs(scaled_positions[farthest] - waist_position)
+    growth = scaled_radii[farthest] ** 2 - 1.0
+    rayleigh_range = distance / math.sqrt(growth) if growth > 0 else distance
+    parameters, covariance = curve_fit(
+        radius_along_beam,
+        scaled_positions,
+        scaled_radii,
+        p0=(1.0, waist_position, rayleigh_range),
+        bounds=((0.0, -np.inf, 0.0), (np.inf, np.inf, np.inf)),
+    )
+    return FocusFit(parameters * scales, covariance * np.outer(scales, scales))
 
 
 def _model(points: NDArray[np.float64], *parameters: float) -> NDArray[np.float64]:
