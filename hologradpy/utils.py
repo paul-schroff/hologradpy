@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import time
+from os import PathLike
 from typing import Iterable, TypeVar
 
 import numpy as np
@@ -10,6 +11,7 @@ import torch
 from array_api_compat import is_torch_array
 from jaxtyping import Shaped
 from numpy.typing import NDArray
+from PIL import Image
 
 if importlib.util.find_spec("ipywidgets") is not None:
     # The widget bar, which is the nicer one and always renders under a kernel.
@@ -142,6 +144,55 @@ def as_image(
             f"{tuple(array.shape)}. Index the batch, wavelength or component first."
         )
     return array.reshape(height, width)
+
+
+def load_grayscale_image(
+    path: str | PathLike, device: torch.device | None = None
+) -> NDArray | torch.Tensor:
+    """Load a picture file as a grayscale ``(height, width)`` image in [0, 1], with
+    row 0 at the top.
+
+    Pillow reads the file, so PNG, JPEG, BMP, TIFF and GIF work. A file with several
+    frames gives its first frame. The values are used as stored, without gamma
+    decoding.
+
+    - Colour becomes luma, with Pillow's ITU-R 601-2 weights.
+    - An alpha channel multiplies the gray, so transparent pixels are 0.
+    - 8-bit values are divided by 255, and 16-bit values by 65535.
+    - Floating-point values are kept as they are.
+
+    Args:
+        path: The picture file.
+        device: The device of the returned tensor. If None, a numpy array is returned.
+
+    Returns:
+        The image, as float64 numpy, or as a float32 tensor on ``device``.
+
+    Raises:
+        ValueError: A value lies outside [0, 1].
+    """
+    with Image.open(path) as picture:
+        if "transparency" in picture.info:
+            # A palette, gray or RGB picture with a transparent colour.
+            picture = picture.convert("RGBA")
+        if "A" in picture.getbands():
+            alpha = np.asarray(picture.getchannel("A"), dtype=np.float64) / 255
+            gray = np.asarray(picture.convert("L"), dtype=np.float64) / 255 * alpha
+        elif picture.mode == "F":
+            gray = np.asarray(picture, dtype=np.float64)
+        elif picture.mode.startswith("I"):
+            # 16-bit pictures, which Pillow opens as "I;16" or "I".
+            gray = np.asarray(picture, dtype=np.float64) / 65535
+        else:
+            gray = np.asarray(picture.convert("L"), dtype=np.float64) / 255
+    if not (np.all(gray >= 0) and np.all(gray <= 1)):
+        raise ValueError(
+            f"The picture's values run from {gray.min()} to {gray.max()}, outside "
+            f"[0, 1]: {path}."
+        )
+    if device is not None:
+        return torch.as_tensor(gray, dtype=torch.float32, device=device)
+    return gray
 
 
 def unsqueeze_to(input: torch.Tensor, max_dim: int, dim: int = 0) -> torch.Tensor:

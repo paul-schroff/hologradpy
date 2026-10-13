@@ -4,16 +4,21 @@ The two progress helpers exist so a long loop can show a bar without the loop ha
 know whether one is wanted, so what matters is that turning the bar off changes nothing
 except the output. ``as_image`` is the one way the package turns a field into a 2-D
 image, so it has to refuse to drop anything but a singleton axis.
+``load_grayscale_image`` reads picture files written by Pillow, so each test pins how
+one kind of file becomes values in [0, 1].
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 import torch
+from PIL import Image
 
 from hologradpy.optics.complex_amplitude import ComplexAmplitude
-from hologradpy.utils import ProgressBar, as_image, progress
+from hologradpy.utils import ProgressBar, as_image, load_grayscale_image, progress
 
 
 def test_progress_yields_every_element_either_way() -> None:
@@ -112,3 +117,73 @@ def test_as_image_reads_a_field_as_a_plain_tensor() -> None:
     image = as_image(field)
     assert type(image) is torch.Tensor
     assert image.shape == (4, 4)
+
+
+def _saved(folder: Path, name: str, pixels: np.ndarray) -> Path:
+    """``pixels`` saved by Pillow as ``name`` in ``folder``. The dtype and shape set the
+    mode: uint8 gray, RGB or RGBA, uint16 for 16 bits, float32 for floats.
+    """
+    path = folder / name
+    Image.fromarray(pixels).save(path)
+    return path
+
+
+def test_an_8_bit_picture_is_divided_by_255(tmp_path: Path) -> None:
+    pixels = np.array([[0, 128, 255]], dtype=np.uint8)
+    image = load_grayscale_image(_saved(tmp_path, "gray.png", pixels))
+    assert image.dtype == np.float64
+    np.testing.assert_allclose(image, [[0, 128 / 255, 1]])
+
+
+def test_the_first_row_is_the_top_of_the_picture(tmp_path: Path) -> None:
+    pixels = np.zeros((3, 2), dtype=np.uint8)
+    pixels[0] = 255
+    image = load_grayscale_image(_saved(tmp_path, "top.png", pixels))
+    np.testing.assert_array_equal(image, pixels / 255)
+
+
+def test_colour_becomes_luma(tmp_path: Path) -> None:
+    green = np.array([[[0, 255, 0]]], dtype=np.uint8)
+    image = load_grayscale_image(_saved(tmp_path, "green.png", green))
+    assert abs(image[0, 0] - 0.587) <= 1 / 255
+
+
+def test_a_transparent_pixel_is_dark(tmp_path: Path) -> None:
+    pixels = np.full((1, 2, 4), 255, dtype=np.uint8)
+    pixels[0, 0, 3] = 0
+    image = load_grayscale_image(_saved(tmp_path, "alpha.png", pixels))
+    np.testing.assert_allclose(image, [[0, 1]])
+
+
+def test_a_16_bit_picture_is_divided_by_65535(tmp_path: Path) -> None:
+    pixels = np.array([[0, 32768, 65535]], dtype=np.uint16)
+    image = load_grayscale_image(_saved(tmp_path, "deep.png", pixels))
+    np.testing.assert_allclose(image, [[0, 32768 / 65535, 1]])
+
+
+def test_a_float_picture_is_kept_as_it_is(tmp_path: Path) -> None:
+    pixels = np.array([[0, 0.25, 1]], dtype=np.float32)
+    image = load_grayscale_image(_saved(tmp_path, "float.tif", pixels))
+    np.testing.assert_allclose(image, pixels)
+
+
+def test_a_float_picture_outside_0_to_1_is_refused(tmp_path: Path) -> None:
+    pixels = np.array([[0, 2]], dtype=np.float32)
+    with pytest.raises(ValueError, match="outside"):
+        load_grayscale_image(_saved(tmp_path, "bright.tif", pixels))
+
+
+def test_a_jpeg_loads_as_one_gray_channel(tmp_path: Path) -> None:
+    pixels = np.random.default_rng(0).integers(0, 256, (8, 6, 3), dtype=np.uint8)
+    image = load_grayscale_image(_saved(tmp_path, "photo.jpg", pixels))
+    assert image.shape == (8, 6)
+    assert 0 <= image.min() and image.max() <= 1
+
+
+def test_a_device_gives_a_float32_tensor(tmp_path: Path) -> None:
+    path = _saved(tmp_path, "gray.png", np.array([[0, 255]], dtype=np.uint8))
+    image = load_grayscale_image(path, device=torch.device("cpu"))
+    assert type(image) is torch.Tensor
+    assert image.dtype == torch.float32
+    assert image.device == torch.device("cpu")
+    np.testing.assert_allclose(image.numpy(), load_grayscale_image(path))
