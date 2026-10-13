@@ -259,6 +259,21 @@ def test_the_blur_leaves_an_impulse_where_it_found_it(beam_radius) -> None:
     assert float((blurred - torch.flip(blurred, dims=(-2, -1))).abs().max()) == 0.0
 
 
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_the_blur_keeps_the_input_dtype(dtype) -> None:
+    """conv2d needs the kernel in the input's dtype. The kernel was always float32, so
+    a float64 input raised. Both blur an impulse to the same kernel.
+    """
+    image = torch.zeros(9, 9, dtype=dtype)
+    image[4, 4] = 1.0
+
+    blurred = gaussian_blur(image, 2.0)
+
+    assert blurred.dtype == dtype
+    in_float32 = gaussian_blur(image.float(), 2.0)
+    np.testing.assert_allclose(blurred.numpy(), in_float32.numpy(), atol=1e-7)
+
+
 def _point(distance, direction_degrees, major, minor, angle_degrees):
     """The intensity of a beam at ``distance`` from its centre, towards
     ``direction_degrees`` from +x towards +y.

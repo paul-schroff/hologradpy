@@ -373,7 +373,7 @@ def gaussian_blur(
     focal spot.
 
     The kernel is a :func:`gaussian_beam_intensity`. Its side is set by the major
-    radius.
+    radius. It has the input's dtype and device.
 
     Args:
         input: Input tensor.
@@ -391,8 +391,12 @@ def gaussian_blur(
         ValueError: The minor radius is larger than the major radius.
     """
     kernel_size = int(3 * beam_radius_major // 2 * 2 + 1)
+    # A unit pixel size in the input's dtype, so the grid and the kernel have it too.
+    # conv2d refuses a kernel of another dtype.
     kernel_grid = get_spatial_grid(
-        (kernel_size, kernel_size), pixel_size=(1, 1), device=input.device
+        (kernel_size, kernel_size),
+        pixel_size=torch.ones(2, dtype=input.dtype, device=input.device),
+        device=input.device,
     )
     kernel = gaussian_beam_intensity(
         *kernel_grid,
