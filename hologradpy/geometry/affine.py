@@ -10,11 +10,10 @@ from .matrices import homogeneous_matrix, rotation_matrix_from_angle
 
 
 class AffineTransform(GeometricTransform):
-    """A 6-DOF affine transform: a 2x2 linear map plus a translation.
+    """A 6-DOF affine transform, a 2x2 linear map plus a translation.
 
     The homogeneous matrix has a ``[0, 0, 1]`` bottom row, so the linear part
-    (rotation, scale, shear and an optional mirror) is meaningful and can be
-    decomposed. Fitted from point pairs with ``cv2.estimateAffine2D``.
+    decomposes into a rotation, a scale, a shear and an optional mirror.
     """
 
     @property
@@ -22,29 +21,50 @@ class AffineTransform(GeometricTransform):
         return 6
 
     @classmethod
-    def fit(
-        cls, source: ArrayLike, destination: ArrayLike, *, robust: bool = True
-    ) -> AffineTransform:
-        """Estimate an affine transform from ``source -> destination`` point pairs.
-
-        ``robust=True`` (the default) uses ``cv2.estimateAffine2D`` (RANSAC).
-        ``robust=False`` uses a plain least-squares fit
-        (``[source | 1] -> destination``).
+    def fit(cls, source: ArrayLike, destination: ArrayLike) -> AffineTransform:
+        """Estimate an affine transform from ``source -> destination`` point pairs, by
+        least squares on ``[source | 1] -> destination``.
         """
         source = np.asarray(source, dtype=np.float64).reshape(-1, 2)
         destination = np.asarray(destination, dtype=np.float64).reshape(-1, 2)
-        if robust:
-            import cv2
-
-            matrix, _ = cv2.estimateAffine2D(
-                source.reshape(-1, 1, 2), destination.reshape(-1, 1, 2)
-            )
-            if matrix is None:
-                raise ValueError("estimateAffine2D failed to fit an affine transform.")
-            return cls(matrix)
         design = np.hstack([source, np.ones((len(source), 1))])
         solution, *_ = np.linalg.lstsq(design, destination, rcond=None)
         return cls(solution.T)
+
+    @classmethod
+    def fit_robust(
+        cls, source: ArrayLike, destination: ArrayLike
+    ) -> tuple[AffineTransform, NDArray[np.bool_]]:
+        """Estimate a transform from ``source -> destination`` point pairs, leaving out
+        the pairs it does not describe.
+
+        Each round fits the inliers with :meth:`fit`, starting from every pair. A pair
+        is an inlier of the next round when its residual lies within five times the
+        median residual of the current inliers, or within one destination unit. The
+        rounds stop once the inliers stay the same, or after three rounds.
+
+        Args:
+            source: The ``(N, 2)`` source points.
+            destination: The ``(N, 2)`` destination points.
+
+        Returns:
+            tuple[AffineTransform, NDArray]: The transform of the last round, and True
+            at each pair within the threshold of that round.
+        """
+        source = np.asarray(source, dtype=np.float64).reshape(-1, 2)
+        destination = np.asarray(destination, dtype=np.float64).reshape(-1, 2)
+        inliers = np.ones(len(source), dtype=bool)
+        for _ in range(3):
+            transform = cls.fit(source[inliers], destination[inliers])
+            residuals = np.linalg.norm(
+                transform.transform_points(source) - destination, axis=1
+            )
+            threshold = max(5.0 * float(np.median(residuals[inliers])), 1.0)
+            within = residuals <= threshold
+            if np.array_equal(within, inliers):
+                break
+            inliers = within
+        return transform, inliers
 
     @classmethod
     def from_components(

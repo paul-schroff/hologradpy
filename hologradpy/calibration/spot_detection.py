@@ -1,7 +1,5 @@
-"""Shared spot-detection and spot-localization helpers for the calibrators.
-
-These are used by both the camera-mapping and wavefront calibrators, so they live at the
-``calibration`` level rather than inside ``camera_mapping``.
+"""Spot-detection and spot-localization helpers, shared by the camera-mapping and the
+wavefront calibrators.
 """
 
 from __future__ import annotations
@@ -14,9 +12,6 @@ from numpy.typing import NDArray
 from scipy.ndimage import uniform_filter
 from scipy.stats import norm
 
-if TYPE_CHECKING:
-    from .camera_mapping.mapping import CameraMapping
-
 from ..hardware import Camera, SLM, as_camera, as_slm
 
 from ..profiles.phase import linear_phase
@@ -28,8 +23,12 @@ from ..grids import get_spatial_grid, metres_to_pixel
 from ..utils import gpu_to_numpy
 from ..roi import ROI
 
-# Analysis window half-width in focal-spot radii
-_WINDOW_SPOT_RADII = 12.0
+if TYPE_CHECKING:
+    from .camera_mapping.mapping import CameraMapping
+    from ..optics import SLMFourierLensModel
+
+# The half-width of the window a spot is detected and fitted in, in focal-spot radii.
+DETECTION_HALF_WIDTH_RADII = 12.0
 
 # Enclosure threshold (fraction of the peak height)
 _ENCLOSURE_EDGE_FRACTION = 0.6
@@ -182,10 +181,12 @@ def detect_spot(
     ):
         return None
 
-    half_window = round(_WINDOW_SPOT_RADII * spot_radius_px)
-    top = max(row - half_window, 0)
-    left = max(column - half_window, 0)
-    window = image[top:row + half_window + 1, left:column + half_window + 1]
+    half_window = round(DETECTION_HALF_WIDTH_RADII * spot_radius_px)
+    window = (
+        ROI.centered((row, column), (2 * half_window + 1, 2 * half_window + 1))
+        .trimmed_to(image.shape)
+        .crop(image)
+    )
 
     # Checking the spot has a reasonable size
     half_max_radius_px = _HALF_MAX_RADIUS_FACTOR * spot_radius_px
@@ -228,7 +229,7 @@ def get_diffraction_spot_position(
     slm: SLM,
     camera: Camera,
     linear_phase_tilt: tuple[float, float],
-    focal_length: float,
+    slm_camera_model: SLMFourierLensModel,
     exposure_time: float | None = None,
     slm_mask_diameter: float | None = None,
     units: Literal["metres", "pixels"] = "metres",
@@ -239,9 +240,8 @@ def get_diffraction_spot_position(
     mask: NDArray[np.bool_] | None = None,
     search_roi: ROI | None = None,
 ) -> tuple[tuple[float, float], float, NDArray, ROI]:
-    """This function generates a spot on the camera by displaying a linear phase
-    gradient inside a circular aperture on the SLM. The position of the spot is found by
-    fitting a Gaussian to the camera image.
+    """Display a linear phase gradient inside a circular aperture on the SLM, and
+    locate the spot it makes on the camera by fitting a Gaussian.
 
     The whole sensor is read out while the spot is measured, so every position, mask
     and region is in whole-sensor pixels. The camera's exposure, gain and region of
@@ -251,35 +251,36 @@ def get_diffraction_spot_position(
     Args:
         slm: Instance of your SLM subclass.
         camera: Instance of your camera subclass.
-        linear_phase_tilt: x and y gradient of the linear phase.
-        focal_length: Focal length of the Fourier lens in metres.
+        linear_phase_tilt: The displacement ``(x, y)`` of the spot in the focal plane,
+            in metres.
+        slm_camera_model: The model of the setup, which gives the steering phase and
+            the focal length.
         exposure_time: Exposure time in seconds. If None, the camera autoexposes on the
             searched pixels. The spot is fitted with a warning when it is overexposed
             even at the shortest exposure.
         slm_mask_diameter: Diameter of the circular aperture in metres. If None, the
             diameter is set to the size of the SLM.
-        units: Units of the returned spot position: "metres" (default) for the (x, y)
-            coordinates in the camera plane, or "pixels" for integer camera pixel
-            coordinates. The focal spot radius is always in metres.
+        units: Units of the returned spot position, "metres" for the (x, y)
+            coordinates in the camera plane or "pixels" for integer camera pixel
+            coordinates.
         roi_pad: Padding in pixels added around the detected spot when cropping the
             camera image before the fit (passed to ROI.detect).
         roi_threshold: Fraction of the peak intensity used to detect the spot region of
             interest (passed to ROI.detect).
         verbose: If True, prints progress messages to the console.
-        mask: True at the pixels of the whole sensor to measure, and False where light
-            must not steer the exposure or the fit, such as the zeroth order. The
-            pixels outside the mask are left out of the exposure, the spot search and
-            the fit. Everything is measured when None.
+        mask: True at the pixels of the whole sensor to measure, and False elsewhere,
+            such as over the zeroth order. The pixels outside the mask are left out of
+            the exposure, the spot search and the fit. Everything is measured when None.
         search_roi: The region of the whole sensor to search for the spot. The
-            exposure is metered on this region, and the fitted region stays within it.
+            camera is autoexposed on this region, and the fitted region stays within it.
             The region is trimmed to the sensor. The whole sensor is searched when None.
 
     Returns:
         tuple[tuple[float, float], float, NDArray, ROI]: The x and y coordinates of the
-        spot on the full sensor (in metres or pixels, see ``units``), the focal spot
-        radius in metres, the cropped camera image for the fit, and the region of
-        interest of the crop in whole-sensor pixels. The cropped image is as captured,
-        including any pixels outside the mask.
+        spot on the full sensor in ``units``, the focal spot radius in metres, the
+        cropped camera image for the fit, and the region of interest of the crop in
+        whole-sensor pixels. The cropped image is as captured, including any pixels
+        outside the mask.
 
     Raises:
         ValueError: When ``units`` is neither "metres" nor "pixels", when ``mask`` is
@@ -297,21 +298,15 @@ def get_diffraction_spot_position(
     if slm_mask_diameter is None:
         slm_mask_diameter = min(slm.aperture_extent)
 
-    slm_grid = get_spatial_grid(slm.resolution, slm.pixel_size)
-
-    slm_phase = linear_phase(
-        *slm_grid,
-        *linear_phase_tilt,
-        focal_length=focal_length,
-        wavenumber=2 * np.pi / slm.wavelength,
+    slm_phase = slm_camera_model.steering_phase(linear_phase_tilt)
+    aperture = circular_mask(
+        *slm_camera_model.input_geometry.get_spatial_grid(), slm_mask_diameter / 2
     )
-
-    aperture = circular_mask(*slm_grid, slm_mask_diameter / 2)
 
     focal_spot_radius_guess = get_focal_spot_radius(
         beam_radius=slm_mask_diameter / 2,
         wavelength=slm.wavelength,
-        focal_length=focal_length,
+        focal_length=slm_camera_model.focal_length,
     )
 
     # The whole sensor is read out, so the spot can be located anywhere on it.
@@ -428,6 +423,24 @@ def _meter_and_capture(
     with camera.preserve_exposure_gain_and_roi():
         camera.autoexpose(set_fraction=set_fraction, roi=roi)
         return np.asarray(camera.get_image(), dtype=float)
+
+
+def brightest_pixel(
+    image: NDArray[np.float64], mask: NDArray[np.bool_] | None = None
+) -> tuple[int, int]:
+    """The ``(row, column)`` of the brightest pixel of ``image``, after a 3x3 mean, so
+    a single hot pixel is not taken for the peak.
+
+    Args:
+        image: The frame.
+        mask: True at the pixels to search, in the shape of ``image``. Every pixel is
+            searched when None.
+    """
+    smoothed = uniform_filter(image, size=3)
+    if mask is not None:
+        smoothed = np.where(mask, smoothed, -np.inf)
+    peak = np.unravel_index(int(np.argmax(smoothed)), image.shape)
+    return (int(peak[0]), int(peak[1]))
 
 
 def _brightest_pixel(

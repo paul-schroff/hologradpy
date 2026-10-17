@@ -324,7 +324,7 @@ def test_map_camera_fills_sensor_and_respects_border():
         number_of_spots=30, seed=1
     )
     detected = np.asarray(mapping.detected_points, dtype=float)
-    height, width = camera.shape
+    height, width = camera.sensor_resolution
     # Spots span most of each axis (fill the sensor) ...
     assert detected[:, 0].max() - detected[:, 0].min() > 0.5 * width
     assert detected[:, 1].max() - detected[:, 1].min() > 0.5 * height
@@ -368,11 +368,11 @@ def test_map_camera_accepts_explicit_coarse_mapping():
     assert mapping.fit.reprojection_rms < 2.0
 
 
-def test_the_mapper_reads_the_output_layer_geometry(simulated_setup):
-    """On a model with a separate warp, the simulated image is the warp's camera grid,
-    and the Fourier lens before the warp samples the padded focal plane.
+def test_the_output_plane_is_the_output_layer_geometry(simulated_setup):
+    """On a model with a separate warp, the mappers map against the warp's camera grid.
+    The Fourier lens before the warp samples the padded focal plane.
     """
-    slm, camera, _ = simulated_setup
+    slm, _, _ = simulated_setup
     model = SLMFFTAffine(
         input_geometry=slm.input_geometry,
         virtual_slm=VirtualSLM(full_scale_cycles=1.0),
@@ -382,9 +382,10 @@ def test_the_mapper_reads_the_output_layer_geometry(simulated_setup):
         slm_field=PixelwiseSLMField(),
         padded_resolution=(512, 512),
     )
-    mapper = SpotArrayMapper(slm, camera, model)
+    # The modules size their planes on the first forward pass.
+    model()
 
-    pixel_size_out, resolution_out = mapper._model_output_geometry()
+    pixel_size_out, resolution_out = model.output_plane
 
     assert resolution_out == (240, 320)
     np.testing.assert_allclose(pixel_size_out, (30e-6, 30e-6))
@@ -398,66 +399,6 @@ def test_disc_mask_membership():
     assert mask[4, 8]  # exactly on the radius (<=)
     assert not mask[4, 9]  # just outside
     assert not mask[0, 0]
-
-
-# --- _match_targets -------------------------------------------------------------
-
-
-def _random_targets(number: int, seed: int) -> np.ndarray:
-    rng = np.random.default_rng(seed)
-    return rng.uniform([-1.5e-3, -1.0e-3], [1.5e-3, 1.0e-3], size=(number, 2))
-
-
-def test_match_targets_recovers_large_rotation():
-    targets = _random_targets(15, seed=2)
-    pitch = 30e-6
-    scale = 1.1 / pitch  # within the pruning tolerance of the expected scale
-    angle = np.radians(120.0)
-    rotation = scale * np.array(
-        [[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]]
-    )
-    translation = np.array([160.0, 120.0])
-
-    rng = np.random.default_rng(3)
-    detected_full = targets @ rotation.T + translation
-    permutation = rng.permutation(len(targets))[:-2]  # 2 spots go undetected
-    detected = detected_full[permutation] + rng.normal(0, 0.1, (len(permutation), 2))
-
-    detected_indices, target_indices = SpotArrayMapper._match_targets(
-        detected, targets, expected_scale=1.0 / pitch, tolerance=3.0
-    )
-    assert len(detected_indices) == len(permutation)
-    # Every match pairs a detected point with the target it was generated from.
-    assert np.array_equal(permutation[detected_indices], target_indices)
-
-
-def test_match_targets_handles_mirrored_camera():
-    targets = _random_targets(12, seed=4)
-    pitch = 30e-6
-    angle = np.radians(-35.0)
-    rotation = np.array(
-        [[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]]
-    )
-    mirror = np.array([[1.0, 0.0], [0.0, -1.0]])
-    matrix = (1.0 / pitch) * rotation @ mirror
-    detected = targets @ matrix.T + np.array([100.0, 80.0])
-
-    detected_indices, target_indices = SpotArrayMapper._match_targets(
-        detected, targets, expected_scale=1.0 / pitch, tolerance=3.0
-    )
-    assert len(detected_indices) == len(targets)
-    # detected was built from targets in order, so the match is the identity.
-    assert np.array_equal(detected_indices, target_indices)
-
-
-def test_match_targets_raises_without_consensus():
-    targets = _random_targets(10, seed=5)
-    rng = np.random.default_rng(6)
-    detected = rng.uniform(0, 300, size=(10, 2))  # unrelated point cloud
-    with pytest.raises(RuntimeError):
-        SpotArrayMapper._match_targets(
-            detected, targets, expected_scale=1.0 / 30e-6, tolerance=1.0
-        )
 
 
 # --- _detect_peaks --------------------------------------------------------------
@@ -521,7 +462,6 @@ def _no_fit_mapping() -> CameraMapping:
         transform=transform,
         detected_points=detected,
         calculated_points=calculated,
-        zeroth_order_position=(0.0, 0.0),
         spot_fit=FocalSpotFit(waist=1.0),
         fit=MappingFit(
             reprojection_errors=np.zeros((4, 2)), reprojection_rms=0.0

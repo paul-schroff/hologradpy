@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 import torch
 import numpy as np
 from numpy.typing import NDArray
@@ -10,7 +9,6 @@ from scipy.ndimage import gaussian_filter
 from ....geometry import AffineTransform
 
 from ....hardware import Camera, SLM
-from ....hardware.camera import CameraData
 from ....roi import ROI
 
 from ....profiles.amplitude import checkerboard
@@ -20,19 +18,21 @@ from ....optics.systems import SLMFFT
 from ....utils import as_image, gpu_to_numpy
 from ....profiles.phase import analytic_phase_guess
 from ....profiles.masks import rectangular_mask
-from ....grids import get_spatial_grid, pixel_to_metres, plane_center
+from ....grids import get_spatial_grid, pixel_to_metres
 
 from ....holography.phase_retrieval import PixelwisePhaseRetriever
 from ....holography.vortices.vortex_annihilator import VortexAnnihilator
 
-from ..abstract import CameraMapper, CameraMapping
-from ..mapping import FocalSpotFit, MappingFit
+from ..abstract import CameraMapper
+from ..mapping import CameraMapping, FocalSpotFit
 from ..visualizer import CameraMappingVisualizationData
 
 DETECTOR_MARGIN = 20
 
 
 class CheckerboardMapper(CameraMapper):
+    mapping_name = "checkerboard"
+
     def __init__(
         self,
         slm: SLM,
@@ -111,22 +111,19 @@ class CheckerboardMapper(CameraMapper):
                 coarse_mapping.check_camera(self.camera)
 
             lens = self.slm_camera_model.fourier_lens
-            simulation_pixel_size = lens.pixel_size_out.tolist()[0]  # (y, x) metres
-            resolution_out = tuple(lens.resolution_out)  # (height, width)
-            focal_length = float(lens.focal_length)
+            # (y, x) metres and (height, width)
+            simulation_pixel_size, resolution_out = self.slm_camera_model.output_plane
             pitch = self.camera.pixel_size[::-1]  # (x, y) for Cartesian geometry
             camera_shape = tuple(self.camera.resolution)  # (height, width)
             focal_spot_radius = float(abs(coarse_mapping.spot_fit.waist))
+            magnification = self._magnification(coarse_mapping, simulation_pixel_size)
 
-            # Choose the board center (model-pixel shift), the square size, and the
-            # camera-pixel center the board lands on from the coarse transform.
             board_shift, square_size, center_camera = self._place_checkerboard(
                 number_of_squares,
                 square_size,
                 coarse_mapping,
-                focal_length,
+                magnification,
                 simulation_pixel_size,
-                resolution_out,
                 camera_shape,
             )
 
@@ -170,8 +167,6 @@ class CheckerboardMapper(CameraMapper):
                 shift_y=board_shift_metres[1],
             )
 
-            inverse = np.asarray(coarse_mapping.inverse_transform, dtype=np.float64)
-            magnification = float(np.sqrt(abs(np.linalg.det(inverse[:, :2]))))
             squares_plus = (number_of_squares[1] + 1, number_of_squares[0] + 1)
             center_metres = pixel_to_metres(
                 center_camera, self.camera.pixel_size, camera_shape
@@ -289,66 +284,70 @@ class CheckerboardMapper(CameraMapper):
                         "or use the more robust SpotArrayMapper."
                     )
 
-            # Fitting affine transformation to detected and calculated corners
-            affine = AffineTransform.fit(detected_corners, calculated_corners)
-            transform = affine.as_matrix(homogeneous=False)
-            reprojection_errors, reprojection_rms = self.calculate_reprojection_error(
-                detected_corners, calculated_corners, transform
+            # The corners the transform does not describe are left out of the mapping.
+            affine, inliers = AffineTransform.fit_robust(
+                detected_corners, calculated_corners
             )
-
-            zeroth_order_position = CameraMapping.zeroth_order_from(
-                affine, self.slm_camera_model.fourier_lens.resolution_out
-            )
-
-            # Generating and returning CameraMapping dataclass.
-            return CameraMapping(
-                timestamp=datetime.now(),
-                name="checkerboard",
-                transform=transform,
-                detected_points=detected_corners,
-                calculated_points=calculated_corners,
-                zeroth_order_position=zeroth_order_position,
-                spot_fit=FocalSpotFit(waist=focal_spot_radius),
-                fit=MappingFit(
-                    reprojection_errors=reprojection_errors,
-                    reprojection_rms=reprojection_rms,
-                ),
-                camera_data=CameraData.from_camera(self.camera),
-                output_pixel_size=(
-                    float(simulation_pixel_size[0]),
-                    float(simulation_pixel_size[1]),
-                ),
-                output_resolution=(int(resolution_out[0]), int(resolution_out[1])),
-                visualization_data=CameraMappingVisualizationData(
+            return self._record(
+                affine,
+                detected_corners[inliers],
+                calculated_corners[inliers],
+                FocalSpotFit(waist=focal_spot_radius),
+                CameraMappingVisualizationData(
                     camera_image=averaged_camera_image,
                     simulated_image=simulated_camera_image,
                 ),
+                excluded_points=[
+                    (float(x), float(y)) for x, y in detected_corners[~inliers]
+                ],
             )
+
+    @staticmethod
+    def _magnification(
+        coarse_mapping: CameraMapping, pixel_size_out: tuple[float, float]
+    ) -> float:
+        """Camera pixels per model pixel.
+
+        Args:
+            coarse_mapping: The mapping the magnification is measured through.
+            pixel_size_out: The pitch ``(y, x)`` of the model plane in metres.
+        """
+        pixels_per_metre = coarse_mapping.sensor_pixels_per_metre
+        return float(
+            np.sqrt(
+                abs(np.linalg.det(pixels_per_metre))
+                * pixel_size_out[0]
+                * pixel_size_out[1]
+            )
+        )
 
     def _place_checkerboard(
         self,
         number_of_squares: tuple[int, int],
         square_size: int | None,
         coarse_mapping: CameraMapping,
-        focal_length: float,
-        pixel_size_out: list[float],
-        resolution_out: tuple[int, int],
+        magnification: float,
+        pixel_size_out: tuple[float, float],
         camera_shape: tuple[int, int],
     ) -> tuple[tuple[int, int], int, tuple[float, float]]:
-        """Choose the checkerboard's model-pixel center shift, square size, and the
-        camera-pixel center it lands on, from the coarse transform.
+        """Choose the shift of the board centre in model pixels, the square size, and
+        the camera pixel the board centre lands on.
 
-        ``square_size`` (model px) defaults so the board width is <= 1/4 of the
-        Nyquist-rectangle width and spans ~half the sensor. The board is placed in
-        the sensor quadrant opposite the zeroth order (clear of it), or at the
-        sensor center when the zeroth order is off the sensor.
+        ``square_size`` defaults so the board width is at most a quarter of the
+        Nyquist-rectangle width and spans about half the sensor. The board is placed
+        clear of the zeroth order, in the sensor quadrant opposite it. When the zeroth
+        order is off the sensor, the board is placed at the sensor centre.
+
+        Args:
+            number_of_squares: Squares in (rows, columns).
+            square_size: Square size in model-plane pixels, or None for the default.
+            coarse_mapping: The coarse mapping that places the board on the sensor.
+            magnification: Camera pixels per model pixel.
+            pixel_size_out: The pitch ``(y, x)`` of the model plane in metres.
+            camera_shape: The ``(height, width)`` of the sensor.
         """
         rows, columns = number_of_squares
-        transform = np.asarray(coarse_mapping.transform, dtype=np.float64)
-        inverse = np.asarray(coarse_mapping.inverse_transform, dtype=np.float64)
-        magnification = float(np.sqrt(abs(np.linalg.det(inverse[:, :2]))))
         height, width = camera_shape
-        model_center = np.array(plane_center(resolution_out), dtype=float)
         addressable = self.slm_camera_model.addressable_half_extent()  # (x, y) m
 
         if square_size is None:
@@ -369,7 +368,7 @@ class CheckerboardMapper(CameraMapper):
                 "or square_size."
             )
 
-        zeroth = np.array(coarse_mapping.zeroth_order_xy)
+        zeroth = np.asarray(coarse_mapping.zeroth_order_xy)
         dc_on_sensor = 0.0 <= zeroth[0] < width and 0.0 <= zeroth[1] < height
 
         if dc_on_sensor:
@@ -388,12 +387,12 @@ class CheckerboardMapper(CameraMapper):
                 "The checkerboard cannot be placed clear of the zeroth order on "
                 "this sensor. Reduce number_of_squares / square_size."
             )
-        model_point = AffineTransform.from_matrix(transform).transform_points(
-            center_camera
+        board_x, board_y = coarse_mapping.sensor_to_image_plane(
+            [(center_camera[1], center_camera[0])]
         )[0]
         shift = (
-            int(round(model_point[0] - model_center[0])),
-            int(round(model_point[1] - model_center[1])),
+            int(round(board_x / pixel_size_out[1])),
+            int(round(board_y / pixel_size_out[0])),
         )
         return shift, square_size, (float(center_camera[0]), float(center_camera[1]))
 

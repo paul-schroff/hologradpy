@@ -42,14 +42,14 @@ from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.profiles.amplitude import (
     gaussian_beam_intensity,
 )
-from hologradpy.geometry import inverse_partial_affine_parameters
 from hologradpy.calibration.camera_mapping import (
     CameraMapping,
     CoarseMapper,
     FocalSpotFit,
 )
-from hologradpy.geometry import PartialAffineTransform
+from hologradpy.geometry import AffineTransform, PartialAffineTransform
 from hologradpy.grids import plane_center
+from hologradpy.utils import as_image
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -74,9 +74,32 @@ def _synthetic_mapping(transform: PartialAffineTransform) -> CameraMapping:
         transform=transform.as_matrix(homogeneous=False),
         detected_points=detected.tolist(),
         calculated_points=calculated.tolist(),
-        zeroth_order_position=(0.0, 0.0),
         spot_fit=FocalSpotFit(waist=1.0),
     )
+
+
+def test_a_mirrored_mapping_places_its_zeroth_order_through_its_full_affine():
+    """A partial affine describes no mirror."""
+    resolution = (64, 80)
+    mirrored = AffineTransform.from_components(
+        scale=1.2, angle_deg=10.0, shift=(5.0, -3.0), mirror=True
+    )
+    detected = np.random.default_rng(0).uniform(0.0, 64.0, size=(12, 2))
+    mapping = CameraMapping(
+        timestamp=datetime.now(),
+        name="mirrored",
+        transform=mirrored.as_matrix(homogeneous=False),
+        detected_points=detected.tolist(),
+        calculated_points=mirrored.transform_points(detected).tolist(),
+        spot_fit=FocalSpotFit(waist=1.0),
+        output_pixel_size=CAM_PIX,
+        output_resolution=resolution,
+    )
+
+    column, row = mirrored.inverse().transform_points([plane_center(resolution)])[0]
+
+    assert mapping.is_mirrored
+    assert mapping.zeroth_order_position == pytest.approx((row, column))
 
 
 def test_partial_affine_refits_similarity_from_correspondences():
@@ -91,12 +114,12 @@ def test_partial_affine_refits_similarity_from_correspondences():
     np.testing.assert_allclose(refit.translation, [6.0, -3.0], atol=1e-3)
 
 
-# --- inverse_partial_affine_parameters (pure-numpy core) ------------------------
+# --- the components of a similarity --------------------------------------------
 
 
 def test_the_identity_inverts_to_identity_parameters():
-    scale, angle, shift = inverse_partial_affine_parameters(
-        PartialAffineTransform.from_components(), center_xy=(160, 120)
+    scale, angle, shift = (
+        PartialAffineTransform.from_components().inverse().components((160, 120))
     )
     assert scale == pytest.approx(1.0)
     assert angle == pytest.approx(0.0)
@@ -104,18 +127,28 @@ def test_the_identity_inverts_to_identity_parameters():
 
 
 def test_a_rotation_about_the_center_inverts_to_the_opposite_angle():
-    """The parameters describe the inverse of the camera -> model similarity, so a
-    rotation about the centre lands in the parameters with its sign reversed.
+    """The partial affine of a model applies the inverse of the camera -> model
+    similarity.
     """
     transform = PartialAffineTransform.from_components(
         angle_deg=-9.0, center=(160, 120)
     )
-    scale, angle, shift = inverse_partial_affine_parameters(
-        transform, center_xy=(160, 120)
-    )
+    scale, angle, shift = transform.inverse().components((160, 120))
     assert scale == pytest.approx(1.0)
     assert angle == pytest.approx(9.0)
     np.testing.assert_allclose(shift, (0.0, 0.0), atol=1e-9)
+
+
+def test_the_components_rebuild_the_similarity():
+    transform = PartialAffineTransform.from_components(
+        scale=1.3, angle_deg=25.0, shift=(4.0, -7.0), center=(160, 120)
+    )
+
+    scale, angle, shift = transform.components((160, 120))
+
+    assert scale == pytest.approx(1.3)
+    assert angle == pytest.approx(25.0)
+    np.testing.assert_allclose(shift, (4.0, -7.0), atol=1e-9)
 
 
 # --- oracle round trips ---------------------------------------------------------
@@ -487,6 +520,53 @@ def test_a_seeded_reference_finds_the_true_zeroth_order():
 
     expected = (CAM_RES[0] // 2 + TRUTH_SHIFT[1], CAM_RES[1] // 2 + TRUTH_SHIFT[0])
     np.testing.assert_allclose(mapping.zeroth_order_position, expected, atol=1.0)
+
+
+def _spot_centroid(image: np.ndarray, half_window: int = 4) -> tuple[float, float]:
+    """The ``(row, column)`` centroid of the window around the brightest pixel."""
+    row, column = np.unravel_index(int(np.argmax(image)), image.shape)
+    window = image[
+        row - half_window : row + half_window + 1,
+        column - half_window : column + half_window + 1,
+    ]
+    rows, columns = np.indices(window.shape)
+    return (
+        row - half_window + float((rows * window).sum() / window.sum()),
+        column - half_window + float((columns * window).sum() / window.sum()),
+    )
+
+
+def test_the_zeroth_order_of_a_mapping_is_where_the_calibrated_model_puts_it():
+    """A camera with pixels 5 % wider than tall is no similarity of the model
+    plane. The full affine of its mapping and the partial affine then place the zeroth
+    order 7 pixels apart. The mapping places it through the partial affine.
+    """
+    geometry, slm, beam = _geometry_and_beam()
+    wide_pixels = (CAM_PIX[0], 1.05 * CAM_PIX[1])
+    shift = (130.0, 90.0)  # (x, y) sensor pixels from the centre to the zeroth order
+    truth = SLMCZT(
+        input_geometry=geometry,
+        virtual_slm=slm.virtual_slm,
+        camera_resolution=CAM_RES,
+        camera_pixel_size=wide_pixels,
+        focal_length=FOCAL,
+        slm_field=PixelwiseSLMField(beam),
+        camera_shift=(shift[0] * wide_pixels[1], shift[1] * wide_pixels[0]),
+    )
+    camera = SimulatedCameraTorch(truth, orientation=CameraOrientation())
+    camera.set_exposure(1e-3)
+    camera.get_image()
+    reference = _czt(geometry, beam, VirtualSLM(full_scale_cycles=1.0), 0.0, (0.0, 0.0))
+
+    mapping = CoarseMapper(slm, camera, reference).map_camera()
+    reference.calibrate_from_mapping(mapping)
+    with torch.no_grad():
+        reference.virtual_slm.set_phase(np.zeros(tuple(geometry.resolution)))
+        image = as_image(reference().intensity).cpu().numpy()
+
+    np.testing.assert_allclose(
+        _spot_centroid(image), mapping.zeroth_order_position, atol=0.5
+    )
 
 
 def test_mapping_a_calibrated_model_gives_the_same_mapping():
