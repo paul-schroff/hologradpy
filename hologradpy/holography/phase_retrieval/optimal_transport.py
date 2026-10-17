@@ -7,6 +7,7 @@ import torch
 from .abstract import PhaseRetrieverBase
 from .recorder import RetrievalRun
 
+from ...optics.modules.geometric_transforms import warp_affine
 from ...optics.systems import SLMFourierLensModel
 from ...roi import ROI
 from ...utils import ProgressBar
@@ -64,6 +65,24 @@ class OptimalTransportPhaseRetriever(PhaseRetrieverBase):
             return self.source_intensity
         return self.slm_camera_model.slm_field.get_wavefront().abs() ** 2
 
+    def _image_plane_target(self) -> torch.Tensor:
+        """The target in the model's image plane, sampled on the output grid."""
+        partial_affine = self.slm_camera_model.focal_plane_partial_affine
+        if partial_affine is None:
+            return self.target
+        target = self.target.double()
+        height, width = target.shape[-2:]
+        sampled = warp_affine(
+            target.reshape(1, 1, height, width),
+            torch.as_tensor(
+                partial_affine.transform.inverse().matrix,
+                dtype=torch.float64,
+                device=target.device,
+            )[None],
+            (height, width),
+        )
+        return sampled.reshape(height, width).to(self.target.dtype)
+
     def retrieve_phase(
         self,
         number_of_iterations: int = 1000,
@@ -90,24 +109,12 @@ class OptimalTransportPhaseRetriever(PhaseRetrieverBase):
         """
         self.timer.start()
         self.run = run if run is not None else RetrievalRun()
-
-        borrowed = progress_bar is not None
-        if borrowed:
-            progress_bar.reset(total=number_of_iterations)
-        else:
-            progress_bar = ProgressBar(
-                total=number_of_iterations,
-                description="Optimal transport",
-                verbose=verbose,
-            ).__enter__()
+        with self._show_progress(
+            number_of_iterations, "Optimal transport", verbose, progress_bar
+        ) as bar:
+            phase = self._transport_phase(number_of_iterations, bar.update)
 
         virtual_slm = self.slm_camera_model.virtual_slm
-        try:
-            phase = self._transport_phase(number_of_iterations, progress_bar.update)
-        finally:
-            if not borrowed:
-                progress_bar.close()
-
         virtual_slm.set_phase(phase.to(torch.float32))
         self.timer.stop()
         return virtual_slm.get_phase().detach()
@@ -124,29 +131,32 @@ class OptimalTransportPhaseRetriever(PhaseRetrieverBase):
         # The grids are tensor products, so one row and one column between them carry
         # every coordinate the separable kernel needs.
         slm_axis_y, slm_axis_x = slm_y[:, 0].double(), slm_x[0, :].double()
-        beam = self._beam().double()
+        # Detached, so a field being fitted builds no graph over the Sinkhorn sweeps.
+        beam = self._beam().detach().double()
 
         # Crop the target to the box it occupies. A box is still a tensor product, so
         # the kernel stays separable and empty cells only cost a row of it. It also
         # keeps the regularization meaningful: a target adrift on a wide canvas would
         # otherwise take its scale from the canvas corner rather than from itself.
         camera_x, camera_y = model[-1].get_spatial_grid_output()
-        region = ROI.detect(self.target, threshold=SUPPORT_THRESHOLD, pad=1)
-        target = region.crop(self.target).double()
+        image_plane_target = self._image_plane_target()
+        region = ROI.detect(image_plane_target, threshold=SUPPORT_THRESHOLD, pad=1)
+        target = region.crop(image_plane_target).double()
         target_axis_y = region.crop(camera_y)[:, 0].double()
         target_axis_x = region.crop(camera_x)[0, :].double()
 
+        source_y = _centred(slm_axis_y, beam.sum(dim=1))
+        source_x = _centred(slm_axis_x, beam.sum(dim=0))
+        wanted_y = _centred(target_axis_y, target.sum(dim=1))
+        wanted_x = _centred(target_axis_x, target.sum(dim=0))
+
         # One scalar per plane, never one per axis.
-        slm_scale = max(slm_axis_y.abs().max(), slm_axis_x.abs().max())
-        target_scale = max(target_axis_y.abs().max(), target_axis_x.abs().max())
+        slm_scale = max(source_y.abs().max(), source_x.abs().max())
+        target_scale = max(wanted_y.abs().max(), wanted_x.abs().max())
 
         epsilon = self.regularization
-        kernel_y = _kernel(
-            slm_axis_y / slm_scale, target_axis_y / target_scale, epsilon
-        )
-        kernel_x = _kernel(
-            slm_axis_x / slm_scale, target_axis_x / target_scale, epsilon
-        )
+        kernel_y = _kernel(source_y / slm_scale, wanted_y / target_scale, epsilon)
+        kernel_x = _kernel(source_x / slm_scale, wanted_x / target_scale, epsilon)
 
         # Weighted by the target's own metres, so the map is returned in metres.
         map_y, map_x = _separable_map(
@@ -168,6 +178,11 @@ class OptimalTransportPhaseRetriever(PhaseRetrieverBase):
         return (wavenumber / model.focal_length) * integrate_along_path(
             map_x, map_y, pitch
         )
+
+
+def _centred(axis: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
+    """The coordinates of ``axis`` less their mean weighted by ``weights``."""
+    return axis - (axis * weights).sum() / weights.sum()
 
 
 def _kernel(

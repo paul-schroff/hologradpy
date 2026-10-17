@@ -142,6 +142,56 @@ def test_a_shifted_target_moves_the_spot_there():
     assert math.hypot(centre_x - shift[0], centre_y - shift[1]) < tolerance
 
 
+def test_a_target_far_off_the_axis_is_reached_at_its_radius():
+    """A target several of its own radii from the axis lands where it was asked for and
+    as wide. A pattern placed clear of the zeroth order sits this far out.
+    """
+    model = _model()
+    wanted = 60e-6
+    shift = (-300e-6, -200e-6)
+    target = _gaussian_target(model, wanted, shift=shift)
+
+    _retriever(model, target).retrieve_phase()
+
+    with torch.no_grad():
+        image = model().intensity.squeeze().detach().to(torch.float64)
+    camera_x, camera_y = model[-1].get_spatial_grid_output()
+    centre_x = float((image * camera_x).sum() / image.sum())
+    centre_y = float((image * camera_y).sum() / image.sum())
+    variance_x = (image * (camera_x - centre_x) ** 2).sum() / image.sum()
+    radius_x = 2 * float(variance_x.sqrt())
+    focal_spot = get_focal_spot_radius(BEAM_RADIUS, WAVELENGTH, FOCAL_LENGTH)
+
+    assert math.hypot(centre_x - shift[0], centre_y - shift[1]) < 0.25 * wanted
+    assert radius_x == pytest.approx(math.hypot(wanted, focal_spot), rel=0.2)
+
+
+def test_the_light_lands_on_the_target_through_the_camera_mapping():
+    """The model's focal-plane partial affine zooms, turns and shifts the image onto the
+    camera, and the target is given in the camera's frame. The transport aims through
+    the partial affine, so the light lands on the target.
+    """
+    model = _model()
+    partial_affine = model.focal_plane_partial_affine
+    with torch.no_grad():
+        partial_affine.scale_factor.fill_(1.03)
+        partial_affine.angle.fill_(4.0)
+        partial_affine.shift.copy_(torch.tensor([7.0, -5.0]))
+    wanted = 60e-6
+    shift = (-150e-6, 100e-6)
+    target = _gaussian_target(model, wanted, shift=shift)
+
+    _retriever(model, target).retrieve_phase()
+
+    with torch.no_grad():
+        image = model().intensity.squeeze().detach().to(torch.float64)
+    camera_x, camera_y = model[-1].get_spatial_grid_output()
+    centre_x = float((image * camera_x).sum() / image.sum())
+    centre_y = float((image * camera_y).sum() / image.sum())
+
+    assert math.hypot(centre_x - shift[0], centre_y - shift[1]) < 0.25 * wanted
+
+
 # --- the contract with PhaseRetrieverBase -------------------------------------------
 
 
@@ -198,6 +248,18 @@ def test_the_phase_has_the_slm_resolution():
     phase = _retriever(model, target).retrieve_phase()
 
     assert phase.shape == tuple(model.virtual_slm.slm_resolution)
+
+
+def test_a_learnable_field_leaves_no_graph_on_the_phase():
+    """The model's field takes gradients, as a field being fitted does."""
+    model = _model()
+    model.slm_field.amplitude.requires_grad_(True)
+    target = _gaussian_target(model, 60e-6)
+
+    phase = _retriever(model, target)._transport_phase(8)
+
+    assert model.slm_field.get_wavefront().requires_grad
+    assert not phase.requires_grad
 
 
 def test_an_explicit_source_intensity_is_used():
