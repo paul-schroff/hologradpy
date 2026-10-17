@@ -94,6 +94,36 @@ def lens_phase(
     return -0.5 * wavenumber / focal_length * (x**2 + y**2)
 
 
+def defocus_phase(
+    x: ArrayLike,
+    y: ArrayLike,
+    defocus: float,
+    focal_length: float,
+    wavenumber: float,
+) -> ArrayLike | float:
+    """Return the lens on the SLM that moves the focus of a Fourier lens by ``defocus``
+    along the beam, about (0, 0) of ``x`` and ``y``.
+
+    A lens of focal length ``-focal_length**2 / defocus`` moves the focus by
+    ``defocus``. A positive ``defocus`` moves the focus away from the SLM.
+
+    - If ``defocus`` is 0, return 0.0.
+
+    Args:
+        x: x coordinates on the SLM, in metres.
+        y: y coordinates on the SLM, in metres.
+        defocus: How far the focus moves along the beam, in metres.
+        focal_length: The focal length of the Fourier lens, in metres.
+        wavenumber: Wavenumber ``2 * pi / wavelength``.
+
+    Returns:
+        ArrayLike | float: The phase in radians, on the grid of ``x`` and ``y``.
+    """
+    if defocus == 0:
+        return 0.0
+    return lens_phase(x, y, -(focal_length**2) / defocus, wavenumber)
+
+
 def spherical_surface(
     x: ArrayLike,
     y: ArrayLike,

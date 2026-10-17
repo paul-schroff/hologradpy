@@ -5,6 +5,7 @@ The fit of a beam is tested with the calibrators, in test_raster_calibrator.py.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 
 import pytest
@@ -132,6 +133,20 @@ def test_with_defocus_a_loaded_calibration_gets_its_defocus_back(tmp_path):
     )
     assert restored.beam == beam
     assert "removed_defocus" not in restored.metadata
+
+
+def test_a_lean_calibration_keeps_all_but_its_visualization_data():
+    beam = GaussianZernikeBeam(GAUSSIAN, 400e-6, ((2, 0),), (1.5,))
+    calibration = replace(
+        WavefrontCalibrationData.from_beam(beam, GEOMETRY), visualization_data=object()
+    )
+
+    lean = calibration.lean()
+
+    assert lean.visualization_data is None
+    assert lean.beam == calibration.beam
+    assert lean.complex_amplitude is calibration.complex_amplitude
+    assert (lean.name, lean.timestamp) == (calibration.name, calibration.timestamp)
 
 
 def test_a_calibration_without_a_removed_defocus_has_none_to_add_back():

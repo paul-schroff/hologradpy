@@ -20,7 +20,9 @@ from hologradpy.fourier_optics import (
     get_focal_spot_radius,
 )
 from hologradpy.profiles.phase import (
+    defocus_phase,
     hermite_gaussian_phase,
+    lens_phase,
     linear_phase,
     tilt_to_angle,
     binary_phase_grating,
@@ -415,4 +417,33 @@ def test_the_hg_phase_keeps_the_dtype_of_a_tensor():
     phase = hermite_gaussian_phase(x, y, 1, 1)
 
     assert phase.dtype == torch.float64
+
+
+# --- defocus_phase ------------------------------------------------------------
+
+
+def test_a_defocus_is_a_lens_of_minus_f_squared_over_the_defocus():
+    x, y = _grid()
+
+    phase = defocus_phase(x, y, 2e-3, FOCAL_LENGTH, WAVENUMBER)
+
+    np.testing.assert_allclose(
+        phase, lens_phase(x, y, -(FOCAL_LENGTH**2) / 2e-3, WAVENUMBER)
+    )
+
+
+def test_a_positive_defocus_is_a_diverging_lens():
+    """The phase grows away from (0, 0), so the focus moves away from the SLM."""
+    x, y = _grid()
+
+    phase = defocus_phase(x, y, 2e-3, FOCAL_LENGTH, WAVENUMBER)
+
+    assert phase[3, 3] == 0.0
+    assert np.all(phase >= 0.0)
+
+
+def test_no_defocus_is_no_phase():
+    x, y = _grid()
+
+    assert defocus_phase(x, y, 0.0, FOCAL_LENGTH, WAVENUMBER) == 0.0
 

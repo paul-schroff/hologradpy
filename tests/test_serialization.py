@@ -107,6 +107,14 @@ def test_the_awkward_shapes_survive(tmp_path) -> None:
     assert reloaded.notes == "unset"
 
 
+def test_saving_creates_a_missing_folder(tmp_path) -> None:
+    path = tmp_path / "new" / "folder" / "shapes.asdf"
+
+    _shapes().save(path)
+
+    assert Shapes.load(path).size == (900, 1440)
+
+
 def test_a_field_survives(tmp_path) -> None:
     """ComplexAmplitude cannot be rebuilt from its state, so it has a converter."""
     path = tmp_path / "field.asdf"

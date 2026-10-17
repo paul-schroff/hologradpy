@@ -116,6 +116,9 @@ class SLM(ABC):
             f"{type(self).__name__} cannot be given gray levels directly."
         )
 
+    def close(self) -> None:
+        """Release the device, such as its connection or its screen."""
+
     def _checked_levels(self, levels: NDArray | torch.Tensor) -> NDArray:
         """Displayable levels at the SLM's resolution, in its level dtype.
 

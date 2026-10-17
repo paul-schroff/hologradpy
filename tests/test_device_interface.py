@@ -463,6 +463,11 @@ def test_a_device_without_a_bitdepth_says_so() -> None:
         device.phase_to_levels(np.zeros((4, 4)))
 
 
+def test_every_slm_can_be_closed() -> None:
+    """A device that holds nothing to release inherits the base SLM's close()."""
+    _BareSlm().close()
+
+
 # --- auto-wrap: as_camera / as_slm --------------------------------------
 
 

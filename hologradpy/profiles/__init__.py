@@ -28,6 +28,7 @@ from .masks import (
 from .phase import (
     tilt_to_angle,
     lens_phase,
+    defocus_phase,
     spherical_surface,
     doublet_lens,
     linear_phase,
@@ -62,6 +63,7 @@ __all__ = [
     "checkerboard",
     "tilt_to_angle",
     "lens_phase",
+    "defocus_phase",
     "spherical_surface",
     "doublet_lens",
     "linear_phase",

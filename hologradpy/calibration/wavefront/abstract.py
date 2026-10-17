@@ -91,6 +91,12 @@ class WavefrontCalibrationData(SaveableRecord):
         defocus = float(metadata.pop("removed_defocus"))
         return self._add_defocus(defocus, metadata)
 
+    def lean(self) -> WavefrontCalibrationData:
+        """Return a copy without the visualization data, such as a raster scan's frames,
+        ready to save.
+        """
+        return replace(self, visualization_data=None)
+
     def _fitted_beam(self) -> GaussianZernikeBeam:
         """Return the fitted beam.
 

@@ -442,12 +442,14 @@ class SaveableRecord:
         return stored
 
     def save(self, filename: str | os.PathLike) -> None:
-        """Write this record to ``filename``.
+        """Write this record to ``filename``, and create its folder if it is missing.
 
         Args:
             filename: The file to write.
         """
-        asdf.AsdfFile({"record": self}).write_to(str(Path(filename)))
+        path = Path(filename)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        asdf.AsdfFile({"record": self}).write_to(str(path))
 
     @classmethod
     def load(cls: type[RecordType], filename: str | os.PathLike) -> RecordType:
