@@ -269,12 +269,12 @@ def test_frames_left_from_earlier_triggers_are_dropped(camera):
 
 
 def test_the_frame_wait_allows_for_the_exposure(camera):
-    from hologradpy.hardware.camera.thorlabs import FRAME_TIMEOUT_S
+    from hologradpy.hardware.camera.thorlabs import FRAME_TIMEOUT
 
     device, fake = camera
     device.set_exposure(0.5)
     device.get_image()
-    assert fake.timeouts[-1] == pytest.approx(0.5 + FRAME_TIMEOUT_S)
+    assert fake.timeouts[-1] == pytest.approx(0.5 + FRAME_TIMEOUT)
 
 
 def test_averaging_sums_frames(camera):

@@ -7,7 +7,6 @@ for a MATRIX VISION BlueFOX3.
 from __future__ import annotations
 
 import re
-import warnings
 from typing import Any
 
 import numpy as np
@@ -210,12 +209,12 @@ class GenTLCamera(Camera):
             width=int(self._read("Width", self._sensor_resolution[1])),
         )
 
-    def set_roi(self, roi: ROI | None) -> None:
-        """Set the region of interest, restarting acquisition around the change.
+    def _set_roi(self, roi: ROI | None) -> None:
+        """Write the region of interest, restarting acquisition around the change.
 
         ``Width`` and ``Height`` are not writable while the camera streams. The camera
-        reads out the smallest window on its increment grid that holds the region, and
-        every frame is cropped to the region.
+        reads out the smallest window on its increment grid that holds the region. Every
+        frame is cropped to the region.
         """
         self._acquirer.stop()
         try:
@@ -291,34 +290,17 @@ class GenTLCamera(Camera):
     def get_exposure(self) -> float:
         return float(self._read("ExposureTime", 0.0)) / MICROSECONDS_PER_SECOND
 
-    def set_exposure(self, exposure_s: float) -> None:
-        """Set the exposure time in seconds.
+    def _set_exposure(self, exposure: float) -> None:
+        """Write the exposure time in seconds to the ``ExposureTime`` node.
 
-        An exposure outside :attr:`exposure_bounds` is clipped into them with a
-        warning, since the camera rejects a value outside its node's range. The value
-        is clipped in the node's microseconds, so a bound converted to seconds and back
-        still lands on the node's limit.
-
-        Args:
-            exposure_s: The exposure in seconds.
+        The camera rejects a value outside its node's range, so the value is clipped
+        to that range in the node's microseconds. A bound converted to seconds and back
+        then stays inside the node's range.
         """
-        exposure = float(exposure_s)
         exposure_us = exposure * MICROSECONDS_PER_SECOND
         node = self._node("ExposureTime")
         if node is not None:
-            low_us, high_us = float(node.min), float(node.max)
-            bounds = (
-                low_us / MICROSECONDS_PER_SECOND,
-                high_us / MICROSECONDS_PER_SECOND,
-            )
-            exposure_us = min(max(exposure_us, low_us), high_us)
-            if not bounds[0] <= exposure <= bounds[1]:
-                warnings.warn(
-                    f"An exposure of {exposure} s is outside the camera's bounds "
-                    f"{bounds} s, so {exposure_us / MICROSECONDS_PER_SECOND} s is "
-                    "applied.",
-                    stacklevel=2,
-                )
+            exposure_us = min(max(exposure_us, float(node.min)), float(node.max))
         self._write("ExposureTime", exposure_us)
 
     def _gain_node_in_db(self):
@@ -342,60 +324,16 @@ class GenTLCamera(Camera):
         node = self._gain_node_in_db()
         return 0.0 if node is None else float(node.value)
 
-    def set_gain(self, gain: float) -> None:
-        """Set the gain in dB.
-
-        A gain outside :attr:`gain_bounds` is clipped into them with a warning, since
-        the camera rejects a value outside its node's range.
-
-        Args:
-            gain: The gain in dB.
-
-        Raises:
-            NotImplementedError: The camera has no ``Gain`` node in dB.
-        """
-        bounds = self.gain_bounds
-        if bounds is None:
-            raise NotImplementedError(
-                "This camera has no Gain node in dB, so its gain cannot be set."
-            )
-        gain = float(gain)
-        if not bounds[0] <= gain <= bounds[1]:
-            clipped = min(max(gain, bounds[0]), bounds[1])
-            warnings.warn(
-                f"A gain of {gain} dB is outside the camera's gain range {bounds} dB, "
-                f"so {clipped} dB is applied.",
-                stacklevel=2,
-            )
-            gain = clipped
+    def _set_gain(self, gain: float) -> None:
+        """Write the gain in dB to the ``Gain`` node."""
         self._write("Gain", gain)
 
-    def _get_image(
-        self, exposure: float | None = None, averaging: int = 1
-    ) -> NDArray:
-        """Capture a frame as a ``(height, width)`` array of digital counts.
-
-        Each frame is triggered on its own, and several frames are summed.
-
-        Args:
-            exposure: The exposure in seconds, set before the capture when given.
-            averaging: The number of frames to sum.
-
-        Returns:
-            NDArray: One frame in the streamed pixel format, or the float64 sum of
-            ``averaging`` frames.
-        """
-        if exposure is not None:
-            self.set_exposure(exposure)
-
-        frames = [self._fetch_frame() for _ in range(max(int(averaging), 1))]
-        if len(frames) == 1:
-            return frames[0]
-        return np.sum(np.stack(frames).astype(np.float64), axis=0)
-
-    def _fetch_frame(self) -> NDArray:
+    def _get_image(self) -> NDArray:
         """Trigger one exposure, copy the frame out of the transport buffer, and crop
         it to the region of interest.
+
+        Returns:
+            NDArray: The frame in the streamed pixel format.
         """
         self._restart_if_due()
 
@@ -412,9 +350,7 @@ class GenTLCamera(Camera):
         roi, window = self._requested_roi, self._window
         if roi is None or window is None:
             return frame
-        top = int(roi.top_row) - window.top_row
-        left = int(roi.left_column) - window.left_column
-        return frame[top : top + int(roi.height), left : left + int(roi.width)]
+        return roi.relative_to(window).crop(frame)
 
     def _execute(self, name: str) -> None:
         """Fire a GenICam command node."""
@@ -498,12 +434,6 @@ class GenTLCamera(Camera):
         harvester, self._harvester = getattr(self, "_harvester", None), None
         if harvester is not None:
             harvester.reset()
-
-    def __enter__(self) -> GenTLCamera:
-        return self
-
-    def __exit__(self, *_) -> None:
-        self.close()
 
     def __del__(self) -> None:
         try:

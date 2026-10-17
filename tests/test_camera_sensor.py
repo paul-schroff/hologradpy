@@ -286,9 +286,9 @@ def test_camera_exposure_drives_sensor() -> None:
     assert camera.sensor.exposure_time == float(camera.exposure)
 
 
-def test_get_image_tensor_matches_get_image() -> None:
-    """The tensor path runs the full pipeline (orientation, ROI crop, averaging) on
-    tensors and matches the numpy frame value for value.
+def test_get_image_sums_reoriented_crops() -> None:
+    """Each frame of a sum is reoriented and cropped to the region, so a noiseless sum
+    of three frames is three times one frame.
     """
     model = _make_model()
     camera = SimulatedCameraTorch(
@@ -300,16 +300,12 @@ def test_get_image_tensor_matches_get_image() -> None:
     camera.set_exposure(1e-3)
     camera.set_roi(ROI(2, 3, 10, 8))
 
-    tensor_image = camera.get_image_tensor()
-    assert isinstance(tensor_image, torch.Tensor)
-    assert tuple(tensor_image.shape) == (10, 8)
+    single = camera.get_image()
+    assert single.shape == (10, 8)
 
-    numpy_image = camera.get_image()
-    np.testing.assert_array_equal(numpy_image, tensor_image.cpu().numpy())
-
-    tensor_summed = camera.get_image_tensor(averaging=3)
-    numpy_summed = camera.get_image(averaging=3)
-    np.testing.assert_array_equal(numpy_summed, tensor_summed.cpu().numpy())
+    summed = camera.get_image(averaging=3)
+    assert summed.dtype == np.float64
+    np.testing.assert_array_equal(summed, 3 * single.astype(np.float64))
 
 
 def test_autoexpose_never_accepts_a_saturated_frame() -> None:

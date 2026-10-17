@@ -13,19 +13,22 @@ import numpy as np
 from numpy.typing import NDArray
 
 #: A background in counts, as one level for every pixel, a whole-sensor frame, or a
-#: function of the exposure in seconds returning either.
+#: function returning either. The function takes the equivalent exposure in seconds
+#: (:meth:`~hologradpy.hardware.camera.Camera.get_equivalent_exposure`).
 Background = float | NDArray | Callable[[float], float | NDArray]
 
 
 def background_at(
-    background: Background, exposure: float | None, frame_shape: tuple[int, int]
+    background: Background,
+    equivalent_exposure: float | None,
+    frame_shape: tuple[int, int],
 ) -> float | NDArray[np.float64]:
-    """The background in counts of a frame taken at ``exposure``.
+    """The background in counts of a frame taken at ``equivalent_exposure``.
 
     Args:
-        background: One level for every pixel, a whole-sensor frame, or a function of
-            the exposure in seconds returning either.
-        exposure: The exposure of the frame in seconds, or None where it is unknown.
+        background: The background to evaluate.
+        equivalent_exposure: The equivalent exposure of the frame in seconds, or None
+            where it is unknown.
         frame_shape: The ``(height, width)`` of the frame to subtract the background
             from.
 
@@ -33,16 +36,16 @@ def background_at(
         float | NDArray[np.float64]: The level, or a frame of ``frame_shape``.
 
     Raises:
-        ValueError: The background is a function and ``exposure`` is None, it holds a
-            count that is not finite, or it is a frame of another shape.
+        ValueError: The background is a function and ``equivalent_exposure`` is None,
+            it holds a count that is not finite, or it is a frame of another shape.
     """
     if callable(background):
-        if exposure is None:
+        if equivalent_exposure is None:
             raise ValueError(
                 "The background is a function of the exposure, and the frames record "
                 "no exposure. Pass a level or a whole-sensor frame."
             )
-        background = background(float(exposure))
+        background = background(float(equivalent_exposure))
     counts = np.asarray(background, dtype=np.float64)
     if not np.all(np.isfinite(counts)):
         raise ValueError("A background holds finite counts only.")

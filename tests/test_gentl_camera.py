@@ -565,7 +565,7 @@ def test_a_gain_node_in_another_unit_cannot_be_set(camera):
 
     assert device.gain_bounds is None
     assert device.get_gain() == 0.0
-    with pytest.raises(NotImplementedError, match="Gain node in dB"):
+    with pytest.raises(NotImplementedError, match="no gain range"):
         device.set_gain(6.0)
     assert harvester.node_map.Gain.writes == [0.0]  # Written once, when opened.
 
