@@ -98,13 +98,11 @@ class GeometricWarp(OpticsModule):
         pixel frame first.
         """
         partial_affine = self.focal_plane_partial_affine
-        scale = self.scale * partial_affine.scale_factor
-        angle = pixel_frame_angle(partial_affine.angle)
-        shift = torch.stack(pixel_frame_vector(partial_affine.shift))
-        linear = rotation_matrix_from_angle(angle) * scale[..., None, :]
-        return homogeneous_matrix(
-            linear,
-            self.shift_center + shift,
+        return _pixel_matrix(
+            self.scale * partial_affine.scale_factor,
+            partial_affine.angle,
+            partial_affine.shift,
+            self.shift_center,
             self.rotation_center + self.rotation_center_shift,
         )
 
@@ -163,6 +161,67 @@ class GeometricWarp(OpticsModule):
             complex_amplitude.wavelength,
             self.pixel_size_out,
         )
+
+
+def warp_image(
+    image: torch.Tensor,
+    pixel_size_in: tuple[float, float],
+    resolution_out: tuple[int, int],
+    pixel_size_out: tuple[float, float],
+    shift: tuple[float, float] = (0.0, 0.0),
+    angle_degrees: float = 0.0,
+) -> torch.Tensor:
+    """Return a real ``image`` resampled onto an output plane, as :class:`GeometricWarp`
+    resamples a field.
+
+    The image is scaled by the ratio of the pixel sizes and turned counterclockwise by
+    ``angle_degrees``, both about its centre pixel. Its centre pixel then lands on the
+    output's centre pixel, moved by ``shift``. Output pixels that map outside the image
+    are 0.
+
+    Args:
+        image: The ``(height, width)`` real image.
+        pixel_size_in: The image's ``(y, x)`` pixel size.
+        resolution_out: The output's ``(height, width)``.
+        pixel_size_out: The output's ``(y, x)`` pixel size.
+        shift: ``(x, y)`` in output pixels.
+        angle_degrees: The angle in degrees.
+
+    Returns:
+        torch.Tensor: The ``(height, width)`` resampled image, in the dtype and on the
+        device of ``image``.
+    """
+    like = {"dtype": image.dtype, "device": image.device}
+    scale = torch.tensor(pixel_size_in, **like) / torch.tensor(pixel_size_out, **like)
+    rotation_center = torch.tensor(plane_center(tuple(image.shape)), **like)
+    shift_center = torch.tensor(plane_center(resolution_out), **like) - rotation_center
+    matrix = _pixel_matrix(
+        scale.flip(-1),
+        torch.tensor(float(angle_degrees), **like),
+        torch.tensor(shift, **like),
+        shift_center,
+        rotation_center,
+    )
+    return _warp_affine(image[None, None], matrix[None], resolution_out)[0, 0]
+
+
+def _pixel_matrix(
+    scale: torch.Tensor,
+    angle: torch.Tensor,
+    shift: torch.Tensor,
+    shift_center: torch.Tensor,
+    rotation_center: torch.Tensor,
+) -> torch.Tensor:
+    """The homogeneous matrix mapping input ``(column, row)`` pixels to output pixels.
+
+    The input is scaled by ``scale``, ``(x, y)``, and turned by ``angle`` in degrees,
+    both about ``rotation_center``. It is then moved by ``shift_center + shift``. The
+    angle and the ``(x, y)`` shift are physical, so both are converted to the pixel
+    frame first.
+    """
+    linear = rotation_matrix_from_angle(pixel_frame_angle(angle)) * scale[..., None, :]
+    shift = torch.stack(pixel_frame_vector(shift))
+    return homogeneous_matrix(linear, shift_center + shift, rotation_center)
 
 
 def _pixel_to_normalized_matrix(

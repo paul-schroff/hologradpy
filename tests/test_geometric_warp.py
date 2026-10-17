@@ -8,7 +8,7 @@ import torch
 from hologradpy.geometry import PartialAffineTransform
 from hologradpy.grids import pixel_frame_angle, pixel_frame_vector, plane_center
 from hologradpy.optics.complex_amplitude import ComplexAmplitude
-from hologradpy.optics.modules.geometric_transforms import GeometricWarp
+from hologradpy.optics.modules.geometric_transforms import GeometricWarp, warp_image
 
 WAVELENGTH = 650e-9
 PIXEL_SIZE = (8e-6, 8e-6)
@@ -98,6 +98,22 @@ def test_quarter_turn_about_the_center_matches_rot90():
     expected = torch.rot90(data, k=1, dims=(0, 1))
     torch.testing.assert_close(
         _warped(data, angle=90.0), expected, rtol=0.0, atol=1e-12
+    )
+
+
+def test_an_image_warps_as_the_real_part_of_a_field():
+    """warp_image takes the field warp's matrix and resampling, with no field around the
+    image.
+    """
+    generator = torch.Generator().manual_seed(2)
+    image = torch.rand((29, 37), generator=generator, dtype=torch.float64)
+    warp = GeometricWarp((41, 33), (5e-6, 5e-6), shift=(1.3, -0.7), angle=12.0)
+    field = warp(ComplexAmplitude(image.to(torch.complex128), WAVELENGTH, (7e-6, 7e-6)))
+
+    warped = warp_image(image, (7e-6, 7e-6), (41, 33), (5e-6, 5e-6), (1.3, -0.7), 12.0)
+
+    torch.testing.assert_close(
+        warped, field.as_tensor().reshape(41, 33).real, rtol=0.0, atol=1e-12
     )
 
 

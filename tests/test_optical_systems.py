@@ -23,6 +23,8 @@ from hologradpy.optics.systems import (
 )
 from hologradpy.optics.modules.slm_fields import PSFSLMField, PixelwiseSLMField
 from hologradpy.optics.modules.virtual_slms.abstract import VirtualSLM
+from hologradpy.profiles.phase import linear_phase
+from hologradpy.utils import as_image
 
 from .registry import nufft_case
 
@@ -398,3 +400,71 @@ def test_a_swapped_layer_survives_save_and_load(tmp_path) -> None:
 
     assert isinstance(restored.slm_field, PSFSLMField)
     torch.testing.assert_close(restored().intensity, expected)
+
+
+def _czt_window(
+    camera_shift: tuple[float, float], camera_angle: float = 0.0
+) -> SLMCZT:
+    """An SLMCZT whose window moves by ``camera_shift`` and turns by ``camera_angle``,
+    run once.
+    """
+    model = SLMCZT(
+        input_geometry=_input_geometry(),
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
+        camera_resolution=CAMERA_RESOLUTION,
+        camera_pixel_size=CAMERA_PIXEL_SIZE,
+        focal_length=0.1,
+        slm_field=_slm_field(),
+        camera_shift=camera_shift,
+        camera_angle=camera_angle,
+    )
+    with torch.no_grad():
+        model()
+    return model
+
+
+def test_the_output_is_the_focal_field_where_the_window_shows_it() -> None:
+    """On a window moved off the zeroth order and zoomed, the output field at a pixel
+    is the focal field at the pixel's focal-plane position.
+    """
+    model = _czt_window((-60e-6, 40e-6))
+    generator = torch.Generator().manual_seed(0)
+    phase = 2 * torch.pi * torch.rand(SLM_RESOLUTION, generator=generator)
+    with torch.no_grad():
+        model.focal_plane_partial_affine.scale_factor.fill_(1.25)
+        model.virtual_slm.set_phase(phase)
+        output = as_image(model()).to(torch.complex128)
+        x, y = model.fourier_lens.get_spatial_grid_output()
+        focal_x, focal_y = model.focal_plane_positions(x.double(), y.double())
+    pixels = [(3, 4), (12, 12), (20, 7)]
+    positions = [(float(focal_x[pixel]), float(focal_y[pixel])) for pixel in pixels]
+
+    field = model.focal_field(positions)
+
+    expected = torch.stack([output[pixel] for pixel in pixels])
+    torch.testing.assert_close(
+        field, expected, rtol=1e-4, atol=1e-4 * float(expected.abs().max())
+    )
+
+
+@pytest.mark.parametrize("camera_angle", [0.0, 8.0])
+def test_a_spot_lands_on_the_pixel_nearest_its_focal_plane_position(
+    camera_angle: float,
+) -> None:
+    """A grating steers the light 85 um right and 47 um down from the zeroth order. The
+    window is moved and turned. Its brightest pixel is the one whose focal-plane
+    position is nearest that point.
+    """
+    model = _czt_window((-60e-6, 40e-6), camera_angle)
+    x, y = model.virtual_slm.get_slm_grid()
+    phase = linear_phase(
+        x, y, 85e-6, -47e-6, wavenumber=2 * torch.pi / 800e-9, focal_length=0.1
+    )
+    with torch.no_grad():
+        model.virtual_slm.set_phase(phase)
+        intensity = as_image(model().intensity)
+        grid_x, grid_y = model.fourier_lens.get_spatial_grid_output()
+        focal_x, focal_y = model.focal_plane_positions(grid_x, grid_y)
+
+    distance = (focal_x - 85e-6) ** 2 + (focal_y + 47e-6) ** 2
+    assert int(intensity.argmax()) == int(distance.argmin())

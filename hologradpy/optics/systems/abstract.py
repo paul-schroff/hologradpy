@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, TypeVar
 
 import torch
 import torch.nn as nn
+from numpy.typing import ArrayLike
 from torch import Tensor
 
 from ..modules.virtual_slms.abstract import VirtualSLM
@@ -16,8 +17,10 @@ from ..modules.virtual_slms.abstract import VirtualSLM
 from ..modules.abstract import OpticsModule
 from ...fourier_optics import (
     addressable_half_extent,
+    focal_field,
     intensity_nyquist_pixel_size,
 )
+from ...utils import as_image
 from ..complex_amplitude import ComplexAmplitude, FieldGeometry, pixel_area
 from ..modules.grid_adapter import GridAdapter
 from ..modules.slm_fields import SLMField
@@ -694,6 +697,67 @@ class SLMFourierLensModel(OpticalSystem):
             float(self.input_geometry.wavelength),
             self.focal_length,
             self.input_geometry.pixel_size,
+        )
+
+    def focal_plane_positions(self, x: Tensor, y: Tensor) -> tuple[Tensor, Tensor]:
+        """Return where points of the output plane lie in the focal plane, ``(x, y)`` in
+        metres from the zeroth order.
+
+        ``x`` and ``y`` are in the output plane's own coordinates, as
+        ``get_spatial_grid_output`` gives them. The method subtracts the focal-plane
+        partial affine's shift, in metres. It divides the result by the zoom and turns
+        it by minus the angle. A positive angle rotates counterclockwise.
+
+        - If the model has no focal-plane partial affine, return ``x`` and ``y``.
+        """
+        partial_affine = self.focal_plane_partial_affine
+        if partial_affine is None:
+            return x, y
+        pixel_size_out = torch.as_tensor(self[-1].pixel_size_out).reshape(-1, 2)[0]
+        pitch_y, pitch_x = (float(pitch) for pitch in pixel_size_out)
+        shift_x, shift_y = (float(shift) for shift in partial_affine.shift.detach())
+        scale_factor = partial_affine.scale_factor.detach()
+        scale_x, scale_y = (float(scale) for scale in scale_factor)
+        angle = math.radians(float(partial_affine.angle.detach()))
+        unzoomed_x = (x - shift_x * pitch_x) / scale_x
+        unzoomed_y = (y - shift_y * pitch_y) / scale_y
+        return (
+            unzoomed_x * math.cos(angle) + unzoomed_y * math.sin(angle),
+            unzoomed_y * math.cos(angle) - unzoomed_x * math.sin(angle),
+        )
+
+    def focal_field(self, positions: Tensor | ArrayLike) -> Tensor:
+        """Return the field that the Fourier lens makes at focal-plane positions, as
+        :func:`~hologradpy.fourier_optics.focal_field` gives it.
+
+        The method runs the model once, without gradients, and takes the field that
+        enters the lens.
+
+        Args:
+            positions: ``(N, 2)`` focal-plane positions, ``(x, y)`` in metres from the
+                zeroth order.
+
+        Returns:
+            Tensor: The ``(N,)`` complex128 field at the positions, on the model's
+            device.
+        """
+        entering = []
+        hook = self.fourier_lens.register_forward_pre_hook(
+            lambda lens, inputs: entering.append(inputs[0])
+        )
+        try:
+            with torch.no_grad():
+                self()
+        finally:
+            hook.remove()
+        field = entering[0]
+        pixel_size = field.pixel_size.reshape(-1, 2)[0]
+        return focal_field(
+            as_image(field).to(torch.complex128),
+            positions,
+            tuple(float(pitch) for pitch in pixel_size),
+            float(field.wavelength.reshape(-1)[0]),
+            self.focal_length,
         )
 
     def incident_power(self) -> float:

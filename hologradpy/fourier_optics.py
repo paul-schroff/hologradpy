@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import math
-
 import torch
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 from torch import Tensor
+
+from .grids import pixel_frame_vector
 
 
 def fourier_lens_pixel_size(
@@ -230,4 +230,103 @@ def get_focal_spot_radius(
             get_focal_spot_radius(radius, wavelength, focal_length)
             for radius in beam_radius
         )
-    return (wavelength * focal_length) / (math.pi * beam_radius)
+    return (wavelength * focal_length) / (torch.pi * beam_radius)
+
+
+def focal_field(
+    field: Tensor,
+    positions: Tensor | ArrayLike,
+    pixel_size: tuple[float, float],
+    wavelength: float,
+    focal_length: float,
+) -> Tensor:
+    """Return the field that a Fourier lens makes at focal-plane positions, from the
+    field on a grid before the lens.
+
+    The field at each position is the lens's Fourier transform there, so a position
+    can lie between output pixels. It includes the lens's prefactor,
+    :func:`fourier_lens_power_prefactor`.
+
+    Args:
+        field: The ``(height, width)`` field on the grid. Its centre pixel is
+            ``(height // 2, width // 2)``.
+        positions: ``(N, 2)`` focal-plane positions, ``(x, y)`` in metres from the
+            zeroth order.
+        pixel_size: The grid's ``(y, x)`` pitch in metres.
+        wavelength: The wavelength in metres.
+        focal_length: The focal length of the lens in metres.
+
+    Returns:
+        Tensor: The ``(N,)`` field at the positions, in the dtype of ``field``.
+    """
+    rows, columns = _fourier_phasors(
+        positions, tuple(field.shape), pixel_size, wavelength, focal_length, field
+    )
+    prefactor = fourier_lens_power_prefactor(
+        pixel_size[0] * pixel_size[1], wavelength, focal_length
+    )
+    return prefactor * (rows * (field @ columns.T).T).sum(-1)
+
+
+def focal_field_adjoint(
+    spot_field: Tensor,
+    positions: Tensor | ArrayLike,
+    resolution: tuple[int, int],
+    pixel_size: tuple[float, float],
+    wavelength: float,
+    focal_length: float,
+) -> Tensor:
+    """Return the field on a grid that the adjoint of :func:`focal_field` makes from
+    the field at focal-plane positions.
+
+    Args:
+        spot_field: The ``(N,)`` field at the positions.
+        positions: ``(N, 2)`` focal-plane positions, ``(x, y)`` in metres from the
+            zeroth order.
+        resolution: The grid's ``(height, width)``.
+        pixel_size: The grid's ``(y, x)`` pitch in metres.
+        wavelength: The wavelength in metres.
+        focal_length: The focal length of the lens in metres.
+
+    Returns:
+        Tensor: The ``(height, width)`` field on the grid, in the dtype of
+        ``spot_field``.
+    """
+    rows, columns = _fourier_phasors(
+        positions, resolution, pixel_size, wavelength, focal_length, spot_field
+    )
+    prefactor = fourier_lens_power_prefactor(
+        pixel_size[0] * pixel_size[1], wavelength, focal_length
+    )
+    return (rows.conj().T * (prefactor * spot_field)) @ columns.conj()
+
+
+def _fourier_phasors(
+    positions: Tensor | ArrayLike,
+    resolution: tuple[int, int],
+    pixel_size: tuple[float, float],
+    wavelength: float,
+    focal_length: float,
+    like: Tensor,
+) -> tuple[Tensor, Tensor]:
+    """Return the factors of a Fourier lens's transform at focal-plane positions,
+    ``(N, height)`` for the rows and ``(N, width)`` for the columns.
+
+    The field at position ``n`` is the sum over the grid of the field times
+    ``rows[n, :, None] * columns[n, None, :]``. The factors are in the dtype and on the
+    device of ``like``.
+    """
+    height, width = resolution
+    pitch_y, pitch_x = pixel_size
+    positions = torch.as_tensor(positions, dtype=torch.float64, device=like.device)
+    # Radians per metre of focal-plane position and per metre across the grid.
+    scale = 2 * torch.pi / (wavelength * focal_length)
+    rows = torch.arange(height, dtype=torch.float64, device=like.device)
+    columns = torch.arange(width, dtype=torch.float64, device=like.device)
+    # The x of each column and the y of each row, in metres.
+    x, y = pixel_frame_vector(
+        ((columns - width // 2) * pitch_x, (rows - height // 2) * pitch_y)
+    )
+    row_phasors = torch.exp(-1j * scale * positions[:, 1:] * y)
+    column_phasors = torch.exp(-1j * scale * positions[:, :1] * x)
+    return row_phasors.to(like.dtype), column_phasors.to(like.dtype)

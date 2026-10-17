@@ -146,6 +146,38 @@ def test_the_line_sits_where_it_is_shifted_to(axis) -> None:
 
 
 @pytest.mark.parametrize("grid", [_numpy_grid, _torch_grid], ids=["numpy", "torch"])
+def test_a_line_turned_by_90_degrees_runs_along_the_other_axis(grid) -> None:
+    """The turn acts about the line's centre."""
+    x, y = grid()
+    centre = {"shift_x": 60e-6, "shift_y": -40e-6}
+
+    turned = np.asarray(top_hat_1D(
+        x, y, PLATEAU, SHOULDER, WAIST, axis="x", angle_degrees=90.0, **centre
+    ))
+    upright = np.asarray(top_hat_1D(x, y, PLATEAU, SHOULDER, WAIST, axis="y", **centre))
+
+    assert np.abs(turned - upright).max() < 1e-12
+
+
+def test_a_line_turned_by_30_degrees_runs_from_x_towards_y() -> None:
+    """A point 80 um along the turned line is on the plateau. Its mirror image across
+    the x axis is far off the line.
+    """
+    along = np.radians(30.0)
+    on_line = (80e-6 * np.cos(along), 80e-6 * np.sin(along))
+    mirrored = (on_line[0], -on_line[1])
+
+    def line_at(point):
+        x, y = (np.asarray(value) for value in point)
+        return float(top_hat_1D(
+            x, y, PLATEAU, SHOULDER, WAIST, axis="x", angle_degrees=30.0
+        ))
+
+    assert line_at(on_line) == pytest.approx(1.0, abs=1e-6)
+    assert line_at(mirrored) < 1e-3
+
+
+@pytest.mark.parametrize("grid", [_numpy_grid, _torch_grid], ids=["numpy", "torch"])
 def test_the_shoulder_profiles_accept_both_namespaces(grid) -> None:
     """torch.sqrt takes only tensors, so the square root of two has to be a float."""
     x, y = grid()

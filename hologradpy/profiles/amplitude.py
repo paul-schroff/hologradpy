@@ -322,9 +322,13 @@ def top_hat_1D(
     shift_x: float = 0.0,
     shift_y: float = 0.0,
     intensity: float = 1.0,
+    angle_degrees: float = 0.0,
 ) -> ArrayLike:
     """A top hat with Gaussian shoulders along one axis and a Gaussian beam profile
     across the other.
+
+    The line is turned counterclockwise by ``angle_degrees``, about its centre
+    ``(shift_x, shift_y)``.
 
     Args:
         x: X meshgrid.
@@ -333,11 +337,14 @@ def top_hat_1D(
             (1 - 1/e^4 intensity threshold).
         shoulder_radius: Radius of the Gaussian shoulders capping the ends.
         beam_radius: 1/e^2 intensity radius across the line.
-        axis: The axis the flat direction runs along, `"x"` or `"y"`. Defaults to
-            `"y"`, a line standing upright with the Gaussian across it in x.
+        axis: The axis the flat direction runs along before the turn, `"x"` or `"y"`.
+            Defaults to `"y"`, a line standing upright with the Gaussian across it in
+            x.
         shift_x: X-offset of the line. Defaults to 0.0.
         shift_y: Y-offset of the line. Defaults to 0.0.
         intensity: Peak intensity. Defaults to 1.0.
+        angle_degrees: The counterclockwise angle of the line, in degrees. Defaults to
+            0.0.
 
     Returns:
         ArrayLike: The line profile, peaking at `intensity`.
@@ -345,20 +352,25 @@ def top_hat_1D(
     Raises:
         ValueError: when `axis` is neither `"x"` nor `"y"`.
     """
+    dx, dy = x - shift_x, y - shift_y
+    if angle_degrees:
+        angle = math.radians(angle_degrees)
+        dx, dy = (
+            dx * math.cos(angle) + dy * math.sin(angle),
+            dy * math.cos(angle) - dx * math.sin(angle),
+        )
     match axis:
         case "y":
-            along, along_shift = y, shift_y
-            across, across_shift = x, shift_x
+            along, across = dy, dx
         case "x":
-            along, along_shift = x, shift_x
-            across, across_shift = y, shift_y
+            along, across = dx, dy
         case _:
             raise ValueError(f"axis must be 'x' or 'y', not {axis!r}.")
 
     plateau = top_hat_gaussian_shoulders(
-        along, along_shift, plateau_width, shoulder_radius, 1.0
+        along, 0.0, plateau_width, shoulder_radius, 1.0
     )
-    profile = gaussian_beam_intensity_1D(across, beam_radius, across_shift)
+    profile = gaussian_beam_intensity_1D(across, beam_radius)
     return intensity * plateau * profile
 
 

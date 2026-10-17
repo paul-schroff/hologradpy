@@ -41,8 +41,8 @@ CAMERA_PIXEL_SIZE = (14e-6, 14e-6)
 REGULARIZATION = 1e-3
 
 
-def _model() -> SLMCZT:
-    """A small model.
+def _model(camera_shift: tuple[float, float] = (0.0, 0.0)) -> SLMCZT:
+    """A small model, whose output window moves by ``camera_shift``.
 
     The camera pitch is set independently of the SLM's, so the lattice the transport
     needs cannot be the model's own grid and has to be built.
@@ -66,6 +66,7 @@ def _model() -> SLMCZT:
         camera_pixel_size=CAMERA_PIXEL_SIZE,
         focal_length=FOCAL_LENGTH,
         padded_resolution=(256, 256),
+        camera_shift=camera_shift,
     )
     model()
     return model
@@ -140,6 +141,25 @@ def test_a_shifted_target_moves_the_spot_there():
 
     tolerance = 0.25 * math.hypot(*shift)
     assert math.hypot(centre_x - shift[0], centre_y - shift[1]) < tolerance
+
+
+def test_a_target_on_a_window_off_the_zeroth_order_is_reached():
+    """The model's window shows the plane 300 um right and 200 um down from the zeroth
+    order. The target is drawn on that window, and the spot lands on it.
+    """
+    model = _model(camera_shift=(-300e-6, 200e-6))
+    shift = (40e-6, -30e-6)
+    target = _gaussian_target(model, 60e-6, shift=shift)
+
+    _retriever(model, target).retrieve_phase()
+
+    with torch.no_grad():
+        image = model().intensity.squeeze().detach().to(torch.float64)
+    camera_x, camera_y = model[-1].get_spatial_grid_output()
+    centre_x = float((image * camera_x).sum() / image.sum())
+    centre_y = float((image * camera_y).sum() / image.sum())
+
+    assert math.hypot(centre_x - shift[0], centre_y - shift[1]) < 20e-6
 
 
 # --- the contract with PhaseRetrieverBase -------------------------------------------

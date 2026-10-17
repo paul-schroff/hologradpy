@@ -159,6 +159,9 @@ class OptimalTransportPhaseRetriever(PhaseRetrieverBase):
             number_of_iterations,
             on_sweep,
         )
+        # The map holds output-plane coordinates. The lens needs focal-plane positions,
+        # measured from the zeroth order.
+        map_x, map_y = model.focal_plane_positions(map_x, map_y)
 
         # The (y, x) pitch of the SLM grid, the size of a step between its samples.
         pitch = (

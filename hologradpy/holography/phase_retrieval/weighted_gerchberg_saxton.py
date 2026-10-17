@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from numpy.typing import ArrayLike
 
-from ...grids import pixel_frame_vector
+from ...fourier_optics import focal_field, focal_field_adjoint
 from ...optics.systems import SLMFourierLensModel
 from ...utils import ProgressBar
 from .abstract import PhaseRetrieverBase
@@ -145,34 +145,6 @@ class WeightedGerchbergSaxtonPhaseRetriever(PhaseRetrieverBase):
         self.timer.stop()
         return self.slm_camera_model.virtual_slm.get_phase().detach()
 
-    def _spot_phasors(
-        self, height: int, width: int, dtype: torch.dtype
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """The phase factors that carry the SLM field to the spots, ``(N, height)``
-        along the rows of the SLM and ``(N, width)`` along its columns.
-
-        The field at spot ``n`` is the sum over the SLM of the field times
-        ``row_phasors[n, :, None] * column_phasors[n, None, :]``, which is the Fourier
-        transform of the lens evaluated at the position of the spot.
-        """
-        geometry = self.slm_camera_model.input_geometry
-        pitch_y, pitch_x = geometry.pixel_size.reshape(-1, 2)[0].tolist()
-        wavelength = float(geometry.wavelength.reshape(-1)[0])
-        # Radians per metre of focal-plane position and per metre across the SLM.
-        scale = 2 * np.pi / (wavelength * self.slm_camera_model.focal_length)
-        positions = torch.as_tensor(
-            self.target_positions, dtype=torch.float64, device=self.device
-        )
-        rows = torch.arange(height, dtype=torch.float64, device=self.device)
-        columns = torch.arange(width, dtype=torch.float64, device=self.device)
-        # The x of each column and the y of each row, in metres.
-        x, y = pixel_frame_vector(
-            ((columns - width // 2) * pitch_x, (rows - height // 2) * pitch_y)
-        )
-        row_phasors = torch.exp(-1j * scale * positions[:, 1:] * y)
-        column_phasors = torch.exp(-1j * scale * positions[:, :1] * x)
-        return row_phasors.to(dtype), column_phasors.to(dtype)
-
     def _iterate(self, number_of_iterations: int) -> None:
         """Iterate, and set the virtual SLM to the result, beam phase corrected.
 
@@ -184,17 +156,28 @@ class WeightedGerchbergSaxtonPhaseRetriever(PhaseRetrieverBase):
             beam = model.slm_field.get_wavefront().detach().to(self.device)
         height, width = beam.shape[-2:]
         amplitude = beam.abs()
-        row_phasors, column_phasors = self._spot_phasors(height, width, beam.dtype)
+        geometry = model.input_geometry
+        pixel_size = tuple(geometry.pixel_size.reshape(-1, 2)[0].tolist())
+        wavelength = float(geometry.wavelength.reshape(-1)[0])
 
         def propagate_to_spots(field: torch.Tensor) -> torch.Tensor:
             """The ``(N,)`` field at the spots."""
-            return (row_phasors * (field @ column_phasors.T).T).sum(-1)
+            return focal_field(
+                field, self.target_positions, pixel_size, wavelength, model.focal_length
+            )
 
         def propagate_from_spots(spot_field: torch.Tensor) -> torch.Tensor:
             """The ``(height, width)`` SLM field, by the adjoint of
             ``propagate_to_spots``.
             """
-            return (row_phasors.conj().T * spot_field) @ column_phasors.conj()
+            return focal_field_adjoint(
+                spot_field,
+                self.target_positions,
+                (height, width),
+                pixel_size,
+                wavelength,
+                model.focal_length,
+            )
 
         def set_slm_phase(field_phase: torch.Tensor) -> None:
             """Set the SLM to the phase that turns the beam into a field of phase
