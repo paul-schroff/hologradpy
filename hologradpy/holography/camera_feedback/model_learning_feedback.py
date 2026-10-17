@@ -345,7 +345,6 @@ class ModelLearningFeedbackCorrector(FeedbackCorrectorBase):
             history,
             corrected_targets=[record.corrected_target for record in records],
             measured_images=[record.measured_image for record in records],
-            background_images=None,
             final_camera_image=final_camera_image,
             initial_guess=initial_guess,
             retrievals=retrievals,
