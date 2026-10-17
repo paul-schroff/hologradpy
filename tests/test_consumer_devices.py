@@ -32,15 +32,14 @@ from hologradpy.calibration.camera_mapping import (
 from hologradpy.calibration.exposure import expose_until_spot
 from hologradpy.calibration.speckle import DatasetGenerator
 from hologradpy.calibration.spot_detection import (
-    capture_focal_spot,
     detect_spot,
     get_diffraction_spot_position,
     has_prominent_peak,
-    tilt_to_sensor_center,
 )
 from hologradpy.calibration.wavefront.raster_calibration import RasterCalibrator
 from hologradpy.calibration.wavefront.speckle_calibration import (
     PSFSpeckleCalibrator,
+    capture_focal_spot,
 )
 from hologradpy.geometry import PartialAffineTransform
 from hologradpy.grids import pixel_to_metres, plane_center
@@ -60,6 +59,7 @@ from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.optics.systems import SLMCZT, SLMFFT
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
 from hologradpy.profiles.masks import disc_mask
+from hologradpy.profiles.phase import linear_phase
 from hologradpy.roi import ROI
 from tests.native_camera_fakes import CroppingCamera, StrictSimulatedCamera
 from tests.test_device_interface import _RawSlm
@@ -176,7 +176,6 @@ def _mapping_centered_on(
         transform=truth.as_matrix(homogeneous=False),
         detected_points=detected.tolist(),
         calculated_points=truth.transform_points(detected).tolist(),
-        zeroth_order_position=zeroth_order_position,
         spot_fit=FocalSpotFit(waist=waist),
         output_pixel_size=(pixel_pitch, pixel_pitch),
         output_resolution=sensor_resolution,
@@ -192,7 +191,12 @@ def _raw_mapping() -> CameraMapping:
     )
 
 
-def _model_for(slm: SLM, sensor_resolution: tuple[int, int], pitch: float) -> SLMCZT:
+def _model_for(
+    slm: SLM,
+    sensor_resolution: tuple[int, int],
+    pitch: float,
+    focal_length: float,
+) -> SLMCZT:
     """A model of the native ``slm`` in front of a sensor of ``sensor_resolution``."""
     dtype = torch.get_default_dtype()
     geometry = FieldGeometry(
@@ -205,13 +209,15 @@ def _model_for(slm: SLM, sensor_resolution: tuple[int, int], pitch: float) -> SL
         virtual_slm=VirtualSLM.from_slm(slm),
         camera_resolution=sensor_resolution,
         camera_pixel_size=(pitch, pitch),
-        focal_length=RAW_FOCAL_LENGTH,
+        focal_length=focal_length,
         slm_field=PixelwiseSLMField(),
     )
 
 
 def _raw_model(raw_slm: _RawSlm) -> SLMCZT:
-    return _model_for(as_slm(raw_slm), RAW_SENSOR_RESOLUTION, RAW_PIXEL_PITCH)
+    return _model_for(
+        as_slm(raw_slm), RAW_SENSOR_RESOLUTION, RAW_PIXEL_PITCH, RAW_FOCAL_LENGTH
+    )
 
 
 def _holds_native_devices(consumer: object) -> None:
@@ -230,7 +236,7 @@ def _has_prominent_peak(raw_slm, raw_camera, tmp_path) -> None:
 
 
 def _tilt_to_sensor_center(raw_slm, raw_camera, tmp_path) -> None:
-    tilt = tilt_to_sensor_center(raw_camera, _raw_mapping())
+    tilt = _raw_mapping().tilt_to_sensor_center(raw_camera)
     assert tilt == pytest.approx((0.0, 0.0), abs=1e-15)
 
 
@@ -241,7 +247,9 @@ def _expose_until_spot(raw_slm, raw_camera, tmp_path) -> None:
 
 
 def _capture_focal_spot(raw_slm, raw_camera, tmp_path) -> None:
-    kernel = capture_focal_spot(raw_slm, raw_camera, _raw_mapping(), 0.1, 15)
+    kernel = capture_focal_spot(
+        raw_slm, raw_camera, _raw_mapping(), _raw_model(raw_slm), 15
+    )
     assert np.unravel_index(int(np.argmax(kernel)), kernel.shape) == (7, 7)
 
 
@@ -250,7 +258,7 @@ def _dataset_generator(raw_slm, raw_camera, tmp_path) -> None:
         raw_slm,
         raw_camera,
         _raw_mapping(),
-        RAW_FOCAL_LENGTH,
+        _raw_model(raw_slm),
         tmp_path / "dataset.asdf",
     )
     _holds_native_devices(generator)
@@ -318,10 +326,10 @@ def _mapping_of_another_camera(raw_camera) -> CameraMapping:
 
 MAPPING_CONSUMERS: dict[str, Callable[..., object]] = {
     "tilt_to_sensor_center": lambda slm, camera, mapping, tmp_path: (
-        tilt_to_sensor_center(camera, mapping)
+        mapping.tilt_to_sensor_center(camera)
     ),
     "DatasetGenerator": lambda slm, camera, mapping, tmp_path: DatasetGenerator(
-        slm, camera, mapping, RAW_FOCAL_LENGTH, tmp_path / "dataset.asdf"
+        slm, camera, mapping, _raw_model(slm), tmp_path / "dataset.asdf"
     ),
     "SimpleFeedbackCorrector": lambda slm, camera, mapping, tmp_path: (
         SimpleFeedbackCorrector(
@@ -392,8 +400,8 @@ class _SpotCamera(CroppingCamera):
     It records every requested exposure and the exposure of every rendered frame.
 
     Args:
-        scene: A function returning the counts per second at each pixel, called for
-            every frame, so the scene can follow what an SLM shows.
+        scene: A function returning the counts per second at each pixel. It is called
+            for every frame, so the scene can follow what an SLM shows.
         exposure_bounds: The ``(min, max)`` exposure stated by the camera.
         exposure_s: The starting exposure in seconds.
         strict: Refuse an exposure outside the camera's limits with ``ValueError``. A
@@ -401,6 +409,8 @@ class _SpotCamera(CroppingCamera):
         exposure_step_s: Round every exposure up to a whole number of these steps,
             or None to apply exposures as asked.
         sensor_resolution: The ``(height, width)`` of the sensor.
+        gain_bounds: The ``(min, max)`` gain in dB, or None for a camera that cannot
+            set its gain.
     """
 
     def __init__(
@@ -412,9 +422,13 @@ class _SpotCamera(CroppingCamera):
         strict: bool = False,
         exposure_step_s: float | None = None,
         sensor_resolution: tuple[int, int] = SPOT_SENSOR_RESOLUTION,
+        gain_bounds: tuple[float, float] | None = None,
     ) -> None:
         super().__init__(
-            sensor_resolution, exposure_bounds=exposure_bounds, exposure_s=exposure_s
+            sensor_resolution,
+            exposure_bounds=exposure_bounds,
+            exposure_s=exposure_s,
+            gain_bounds=gain_bounds,
         )
         self._scene = scene
         self._strict = strict
@@ -441,7 +455,7 @@ class _SpotCamera(CroppingCamera):
 
     def render_sensor_frame(self) -> NDArray[np.uint16]:
         self.frame_exposures.append(self.get_exposure())
-        counts = np.floor(self._scene() * self.get_exposure())
+        counts = np.floor(self._scene() * self.get_equivalent_exposure())
         return np.clip(counts, 0, self.max_pixel_value).astype(np.uint16)
 
 
@@ -530,6 +544,40 @@ def test_expose_until_spot_sets_only_an_exposure_it_captures_at() -> None:
     assert camera.get_exposure() == camera.frame_exposures[-1]
 
 
+def test_expose_until_spot_leaves_out_the_excluded_pixels() -> None:
+    """A stuck pixel at full scale is an excluded pixel, so a frame dark but for it
+    counts as dark. The exposure then rises.
+    """
+
+    def scene() -> NDArray:
+        rates = np.zeros(SPOT_SENSOR_RESOLUTION)
+        rates[10, 20] = 1e12
+        return rates
+
+    camera = _SpotCamera(scene, exposure_s=1e-3)
+    camera.excluded_pixels = [(10, 20)]
+
+    assert expose_until_spot(camera, 1e-4, max_steps=2) is None
+
+    assert camera.frame_exposures == pytest.approx([1e-3, 2e-2])
+
+
+def test_expose_until_spot_raises_the_gain_beyond_the_gain_onset() -> None:
+    """The steps follow the equivalent exposure, so a step beyond the gain onset raises
+    the gain. The exposure takes up what the largest gain leaves.
+    """
+    camera = _SpotCamera(
+        lambda: np.zeros(SPOT_SENSOR_RESOLUTION),
+        exposure_s=0.08,
+        gain_bounds=(0.0, 24.0),
+    )
+
+    assert expose_until_spot(camera, 1e-4, max_steps=2) is None
+
+    assert camera.get_gain() == 24.0
+    assert camera.get_equivalent_exposure() == pytest.approx(0.08 / 0.05)
+
+
 # --- The main order of CoarseMapper --------------------------------------------------
 
 FOUND_TILT = (1e-3, 5e-4)
@@ -559,7 +607,7 @@ def _main_order_mapper(
     )
     mapper = CoarseMapper(_RecordingSlm(), camera, model)
     monkeypatch.setattr(
-        mapper, "_display_tilt", lambda tilt, focal_length: shown.append(tilt)
+        mapper, "_display_tilt", lambda tilt: shown.append(tilt)
     )
     return mapper, camera
 
@@ -599,7 +647,7 @@ def test_prefer_main_order_restores_the_exposure_either_way(
         {FOUND_TILT: found_scene, MIRRORED_TILT: mirrored_scene}, monkeypatch
     )
 
-    tilt = mapper._prefer_main_order(FOUND_TILT, focal_length=0.25)
+    tilt = mapper._prefer_main_order(FOUND_TILT)
 
     assert tilt == preferred
     assert min(camera.requested_exposures, default=1e-2) >= 1e-4
@@ -628,12 +676,19 @@ def _position_in_pixels(position: tuple[float, float]) -> tuple[float, float]:
     )
 
 
+def _spot_model(slm: SLM) -> SLMCZT:
+    return _model_for(
+        slm, SPOT_SENSOR_RESOLUTION, SPOT_PIXEL_PITCH, SPOT_FOCAL_LENGTH
+    )
+
+
 def _locate(camera: _SpotCamera, **options) -> tuple[tuple[float, float], ROI]:
+    slm = _RecordingSlm()
     position, _, _, roi = get_diffraction_spot_position(
-        _RecordingSlm(),
+        slm,
         camera,
         (0.0, 0.0),
-        SPOT_FOCAL_LENGTH,
+        _spot_model(slm),
         verbose=False,
         **options,
     )
@@ -677,11 +732,12 @@ def test_a_spot_beside_the_mask_is_fitted_at_its_own_peak(gap: float) -> None:
         SPOT_SENSOR_RESOLUTION, (zeroth_order[1], zeroth_order[0]), mask_radius
     )
 
+    slm = _WideRecordingSlm()
     position, _, _, _ = get_diffraction_spot_position(
-        _WideRecordingSlm(),
+        slm,
         _SpotCamera(lambda: scene),
         (0.0, 0.0),
-        SPOT_FOCAL_LENGTH,
+        _spot_model(slm),
         verbose=False,
         mask=kept,
     )
@@ -712,11 +768,12 @@ def test_diffraction_spot_takes_a_mask_and_a_search_region_together() -> None:
     search = ROI(10, 10, 44, 70)
     camera = _SpotCamera(_probe_and_zeroth_order)
 
+    slm = _RecordingSlm()
     position, _, cropped, roi = get_diffraction_spot_position(
-        _RecordingSlm(),
+        slm,
         camera,
         (0.0, 0.0),
-        SPOT_FOCAL_LENGTH,
+        _spot_model(slm),
         verbose=False,
         mask=~_zeroth_order_disc(),
         search_roi=search,
@@ -764,8 +821,9 @@ def test_autoexposure_converges_when_the_overexposure_cut_passes_the_lower_bound
         strict=True,
     )
 
+    slm = _RecordingSlm()
     position, _, cropped, _ = get_diffraction_spot_position(
-        _RecordingSlm(), camera, (0.0, 0.0), SPOT_FOCAL_LENGTH, verbose=False
+        slm, camera, (0.0, 0.0), _spot_model(slm), verbose=False
     )
 
     assert float(np.max(cropped)) == pytest.approx(0.8 * 255, abs=0.05 * 255)
@@ -876,13 +934,13 @@ def _aligned_bench_mapping() -> CameraMapping:
 
 def _locate_the_probe(bench: _Bench, tmp_path) -> None:
     get_diffraction_spot_position(
-        bench.slm, bench.camera, BENCH_PROBE_TILT, BENCH_FOCAL_LENGTH, verbose=False
+        bench.slm, bench.camera, BENCH_PROBE_TILT, bench.mapping_model(), verbose=False
     )
 
 
 def _capture_the_focal_spot(bench: _Bench, tmp_path) -> None:
     capture_focal_spot(
-        bench.slm, bench.camera, _aligned_bench_mapping(), BENCH_FOCAL_LENGTH, 15
+        bench.slm, bench.camera, _aligned_bench_mapping(), bench.mapping_model(), 15
     )
 
 
@@ -895,19 +953,30 @@ def _capture_speckle(bench: _Bench, tmp_path) -> None:
         bench.slm,
         bench.camera,
         _aligned_bench_mapping(),
-        BENCH_FOCAL_LENGTH,
+        bench.mapping_model(),
         tmp_path / "dataset.asdf",
         number_of_random_patterns=2,
     ).generate_dataset((1.5e-3, 1.5e-3), seed=0)
 
 
 def _run_camera_feedback(bench: _Bench, tmp_path) -> None:
+    # A grating that steers the light onto the target, since the absolute cost of the
+    # loop needs light inside the target's patch to descend from.
+    target_position = (1.5e-3, 0.0)
+    steering = linear_phase(
+        *bench.slm.get_spatial_grid(),
+        tilt_x=target_position[0],
+        tilt_y=target_position[1],
+        wavenumber=2 * np.pi / bench.slm.wavelength,
+        focal_length=BENCH_FOCAL_LENGTH,
+    )
     SimpleFeedbackCorrector(
         slm=bench.slm,
         camera=bench.camera,
         slm_camera_model=bench.sensor_model(),
         target=torch.ones(8, 8),
-        target_position=(1.5e-3, 0.0),
+        target_position=target_position,
+        init_slm_phase=steering,
         camera_mapping=_aligned_bench_mapping(),
     ).run(retriever_iterations=[3], averages=1, verbose=False)
 
@@ -948,12 +1017,12 @@ def test_get_diffraction_spot_position_leaves_the_camera_as_it_found_it() -> Non
     bench = _Bench(add_noise=False)
     bench.camera.set_exposure(PRESET_EXPOSURE)
     expected = get_diffraction_spot_position(
-        bench.slm, bench.camera, BENCH_PROBE_TILT, BENCH_FOCAL_LENGTH, verbose=False
+        bench.slm, bench.camera, BENCH_PROBE_TILT, bench.mapping_model(), verbose=False
     )[0]
     bench.camera.set_roi(PRESET_REGION)
 
     position = get_diffraction_spot_position(
-        bench.slm, bench.camera, BENCH_PROBE_TILT, BENCH_FOCAL_LENGTH, verbose=False
+        bench.slm, bench.camera, BENCH_PROBE_TILT, bench.mapping_model(), verbose=False
     )[0]
 
     assert position == pytest.approx(expected, rel=1e-9)
@@ -984,7 +1053,7 @@ def test_exposure_requests_stay_inside_the_cameras_bounds() -> None:
         bench.slm,
         bench.camera,
         tilt,
-        BENCH_FOCAL_LENGTH,
+        model,
         units="pixels",
         verbose=False,
     )[0]
@@ -1001,7 +1070,7 @@ def test_the_focal_spot_is_captured_with_a_region_preset() -> None:
     bench.camera.set_roi(ROI(0, 0, 60, 80))
 
     kernel = capture_focal_spot(
-        bench.slm, bench.camera, _aligned_bench_mapping(), BENCH_FOCAL_LENGTH, 15
+        bench.slm, bench.camera, _aligned_bench_mapping(), bench.mapping_model(), 15
     )
 
     assert np.unravel_index(int(np.argmax(kernel)), kernel.shape) == (7, 7)
@@ -1019,11 +1088,11 @@ def test_integer_frames_flow_through_the_consumers() -> None:
             bench.slm,
             bench.camera,
             BENCH_PROBE_TILT,
-            BENCH_FOCAL_LENGTH,
+            bench.mapping_model(),
             verbose=False,
         )
         kernel = capture_focal_spot(
-            bench.slm, bench.camera, _aligned_bench_mapping(), BENCH_FOCAL_LENGTH, 15
+            bench.slm, bench.camera, _aligned_bench_mapping(), bench.mapping_model(), 15
         )
         results.append((position, radius, kernel))
 
