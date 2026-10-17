@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -21,10 +22,8 @@ from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
     FieldGeometry,
 )
-from hologradpy.optics.modules.slm_fields import (
-    PSFSLMField,
-    kernel_size_from_waist,
-)
+from hologradpy.grids import odd_sample_count
+from hologradpy.optics.modules.slm_fields import PSFSLMField
 from hologradpy.calibration.wavefront.speckle_calibration import (
     PSFSpeckleCalibrator,
     PixelwiseSpeckleCalibrator,
@@ -40,7 +39,13 @@ SLM_RESOLUTION = (256, 256)
 SLM_PIXEL_SIZE = 12.5e-6
 WAVELENGTH = 630e-9
 FOCAL_LENGTH = 0.25
-CAMERA_PIXEL_SIZE = (20e-6, 20e-6)
+# The kernel's pitch, the intensity Nyquist pitch of the square SLM.
+KERNEL_PITCH = WAVELENGTH * FOCAL_LENGTH / (2 * SLM_RESOLUTION[1] * SLM_PIXEL_SIZE)
+
+
+def _extent_of(samples: int) -> float:
+    """The image-plane extent of a kernel with an odd number of ``samples`` per axis."""
+    return (samples - 0.5) * KERNEL_PITCH
 
 
 def _uniform_field(resolution=SLM_RESOLUTION) -> ComplexAmplitude:
@@ -67,8 +72,7 @@ def test_gaussian_psf_maps_to_the_conjugate_gaussian_beam(psf_waist) -> None:
     """
     module = PSFSLMField(
         focal_length=FOCAL_LENGTH,
-        camera_pixel_size=CAMERA_PIXEL_SIZE,
-        psf_kernel_size=48,
+        psf_extent=_extent_of(39),
         psf_gaussian_waist=psf_waist,
     )
     amplitude = (
@@ -100,15 +104,11 @@ def test_the_kernel_is_a_single_complex_parameter() -> None:
     reals, so the two are the same optimization to the bit, and one parameter is
     the simpler interface.
     """
-    module = PSFSLMField(
-        focal_length=FOCAL_LENGTH,
-        camera_pixel_size=CAMERA_PIXEL_SIZE,
-        psf_kernel_size=16,
-    )
+    module = PSFSLMField(focal_length=FOCAL_LENGTH, psf_extent=_extent_of(15))
     module(_uniform_field())
 
     assert module.psf_kernel.is_complex()
-    assert module.get_psf_kernel().shape == (16, 16)
+    assert module.get_psf_kernel().shape == (15, 15)
     assert sum(1 for _ in module.parameters()) == 1
 
 
@@ -116,11 +116,7 @@ def test_kernel_gradients_reach_the_whole_slm_field() -> None:
     """Every kernel pixel must move the whole field, which is why it converges
     at a different step size from a per-pixel field.
     """
-    module = PSFSLMField(
-        focal_length=FOCAL_LENGTH,
-        camera_pixel_size=CAMERA_PIXEL_SIZE,
-        psf_kernel_size=16,
-    )
+    module = PSFSLMField(focal_length=FOCAL_LENGTH, psf_extent=_extent_of(15))
     module(_uniform_field())
     module.psf_kernel.requires_grad_(True)
 
@@ -144,25 +140,20 @@ def test_multiple_wavelengths_are_refused_clearly() -> None:
         wavelength=geometry.wavelength,
         pixel_size=geometry.pixel_size,
     )
-    module = PSFSLMField(
-        focal_length=FOCAL_LENGTH,
-        camera_pixel_size=CAMERA_PIXEL_SIZE,
-        psf_kernel_size=16,
-    )
+    module = PSFSLMField(focal_length=FOCAL_LENGTH, psf_extent=_extent_of(15))
     with pytest.raises(NotImplementedError, match="single wavelength"):
         module(field)
 
 
-def test_kernel_size_tracks_the_fitted_waist() -> None:
-    """A broader measured spot buys a larger kernel, which is the point: the
-    waist is fitted to the aberrated spot, so the kernel grows with the
-    aberration.
+def test_the_sample_count_tracks_the_extent() -> None:
+    """A wider extent takes more samples, always an odd number of at least 3, so the
+    grid has a centre sample.
     """
-    small = kernel_size_from_waist(5e-6, 3.45e-6)
-    large = kernel_size_from_waist(15e-6, 3.45e-6)
+    small = odd_sample_count(10 * 5e-6, 3.45e-6)
+    large = odd_sample_count(10 * 15e-6, 3.45e-6)
     assert large > small
-    assert small % 2 == 1 and large % 2 == 1  # centered kernels
-    assert kernel_size_from_waist(1e-9, 3.45e-6) >= 3  # never degenerate
+    assert small % 2 == 1 and large % 2 == 1
+    assert odd_sample_count(1e-9, 3.45e-6) >= 3
 
 
 def test_a_static_field_model_is_not_treated_as_a_psf_one(tmp_path) -> None:
@@ -194,10 +185,20 @@ def test_a_static_field_model_is_not_treated_as_a_psf_one(tmp_path) -> None:
     assert not isinstance(field, PSFSLMField)
     assert not hasattr(field, "get_psf_kernel")
 
-    # It gets the unconstrained field's settings, prior included, not the PSF's.
-    settings = calibrator._fit_settings(torch.ones(4, 4))
-    assert isinstance(settings.loss, SumOfLosses)
-    assert settings.learning_rate == pytest.approx(1e-2)
+    # It gets the unconstrained field's Adam fit, prior included, not the PSF's.
+    settings: dict = {}
+
+    def adam(fitter, loss, learning_rate, *arguments):
+        settings.update(loss=loss, learning_rate=learning_rate)
+        return []
+
+    calibrator._fit_by_adam = adam
+    frames = SimpleNamespace(
+        region=torch.ones(4, 4, dtype=torch.bool), dtype=torch.float32
+    )
+    calibrator._fit(SimpleNamespace(frames=frames), None, False)
+    assert isinstance(settings["loss"], SumOfLosses)
+    assert settings["learning_rate"] == pytest.approx(1e-2)
 
 
 def test_psf_calibration_runs_end_to_end() -> None:
@@ -218,9 +219,7 @@ def test_psf_calibration_runs_end_to_end() -> None:
         slm_camera_model=_build_model(
             slm, camera, SMALL_FOCAL_LENGTH,
             slm_field=PSFSLMField.from_camera_mapping(
-                _synthetic_mapping(),
-                focal_length=SMALL_FOCAL_LENGTH,
-                camera_pixel_size=tuple(camera.pixel_size),
+                _synthetic_mapping(), focal_length=SMALL_FOCAL_LENGTH
             ),
         ),
         dataset_path=Path(tempfile.mkdtemp()) / "dataset.asdf",
@@ -236,15 +235,10 @@ def test_psf_calibration_runs_end_to_end() -> None:
     field_pixels = 2 * SMALL_SLM_RESOLUTION[0] * SMALL_SLM_RESOLUTION[1]
     assert trainable < field_pixels
 
-    # Enough epochs to be past Adam's opening transient. The first steps overshoot to
-    # several times the starting loss. The batches are drawn in an order set by the
-    # global torch generator, so at 10 epochs the loss can still lie above its
-    # starting value. By 20 epochs it lies below a quarter of that value for every
-    # order tried, and by 30 it reaches 0.002 from 0.073.
     result = calibrator.calibrate(
         speckle_pattern_extent=(5e-4, 5e-4),
-        number_of_epochs=20,
-        batch_size=2,
+        steps=3,
+        chunk_size=2,
         seed=0,
         verbose=False,
     )
@@ -260,11 +254,10 @@ def test_psf_calibration_runs_end_to_end() -> None:
 
 
 def _implied_focal_shift(field: torch.Tensor) -> tuple[float, float]:
-    """The focal-plane displacement, in camera pixels, implied by the beam tilt.
+    """The focal-plane displacement, in kernel samples, implied by the beam tilt.
 
-    A linear phase across the SLM shifts the whole focal pattern, so fitting the
-    tilt and converting it is the direct way to ask whether a mapping has put
-    the beam where it belongs.
+    A linear phase across the SLM shifts the whole focal pattern, so the fitted tilt
+    fixes where a mapping has put the beam.
     """
     phase = np.angle(field.detach().cpu().numpy())
     unwrapped = np.unwrap(np.unwrap(phase, axis=0), axis=1).ravel()
@@ -273,7 +266,7 @@ def _implied_focal_shift(field: torch.Tensor) -> tuple[float, float]:
     y = (rows - phase.shape[0] / 2).ravel().astype(float)
     design = np.stack([np.ones_like(x), x, y], axis=1)
     piston, tilt_x, tilt_y = np.linalg.lstsq(design, unwrapped, rcond=None)[0]
-    scale = WAVELENGTH * FOCAL_LENGTH / (SLM_PIXEL_SIZE * CAMERA_PIXEL_SIZE[1])
+    scale = WAVELENGTH * FOCAL_LENGTH / (SLM_PIXEL_SIZE * KERNEL_PITCH)
     return (
         float(tilt_x / (2 * math.pi) * scale),
         float(tilt_y / (2 * math.pi) * scale),
@@ -281,11 +274,7 @@ def _implied_focal_shift(field: torch.Tensor) -> tuple[float, float]:
 
 
 def _delta_kernel_field(kernel_size: int, shift_pixels: int) -> torch.Tensor:
-    module = PSFSLMField(
-        focal_length=FOCAL_LENGTH,
-        camera_pixel_size=CAMERA_PIXEL_SIZE,
-        psf_kernel_size=kernel_size,
-    )
+    module = PSFSLMField(focal_length=FOCAL_LENGTH, psf_extent=_extent_of(kernel_size))
     module(_uniform_field())
     center = kernel_size // 2
     seed = torch.zeros(kernel_size, kernel_size)
@@ -314,13 +303,12 @@ def test_a_centered_kernel_puts_no_tilt_on_the_beam() -> None:
 
 @pytest.mark.parametrize("shift_pixels", [1, 2, 3])
 def test_a_shifted_kernel_tilts_the_beam_by_the_matching_amount(shift_pixels) -> None:
-    """Shifting the kernel by n camera pixels must displace the focal pattern by n.
+    """Shifting the kernel by n samples displaces the focal pattern by n samples of
+    the kernel's pitch.
 
-    Pins the origin convention in a way the amplitude cannot hide. The mapping
-    runs the transform in the negative direction, so the implied displacement
-    comes back with the opposite sign to the kernel shift, which is a
-    convention rather than an error: what matters is that the magnitude is
-    exact, since that is what fixes the beam's position.
+    The amplitude does not show the origin convention, so this test pins it. The
+    mapping runs the transform in the negative direction, so the implied displacement
+    has the opposite sign to the kernel shift. The magnitude fixes the beam's position.
     """
     reference = _delta_kernel_field(33, 0)
     shifted = _delta_kernel_field(33, shift_pixels)
@@ -333,7 +321,7 @@ def test_a_shifted_kernel_tilts_the_beam_by_the_matching_amount(shift_pixels) ->
         2
         * math.pi
         * shift_pixels
-        * CAMERA_PIXEL_SIZE[1]
+        * KERNEL_PITCH
         * SLM_PIXEL_SIZE
         / (WAVELENGTH * FOCAL_LENGTH)
     )
@@ -344,16 +332,12 @@ def test_a_shifted_kernel_tilts_the_beam_by_the_matching_amount(shift_pixels) ->
 def test_the_gaussian_seed_is_centred_on_the_sample_the_lens_uses(kernel_size) -> None:
     """An off-centre kernel is a linear phase across the SLM plane.
 
-    ``kernel_size_from_waist`` always returns an odd size so the kernel has a centre
-    sample, and the chirp-z that consumes this plane centres it at ``size // 2``. The
-    seed is built on ``get_spatial_grid``, so it has to agree, or a freshly built model
-    starts with a tilt nobody asked for.
+    ``odd_sample_count`` always returns an odd size, so the kernel has a centre sample.
+    The chirp-z that maps the kernel to the SLM plane centres it at ``size // 2``. The
+    seed is built on ``get_spatial_grid``, which has to centre it on the same sample. A
+    freshly built model then starts without a tilt.
     """
-    module = PSFSLMField(
-        focal_length=FOCAL_LENGTH,
-        camera_pixel_size=CAMERA_PIXEL_SIZE,
-        psf_kernel_size=kernel_size,
-    )
+    module = PSFSLMField(focal_length=FOCAL_LENGTH, psf_extent=_extent_of(kernel_size))
     module(_uniform_field())
 
     kernel = module.get_psf_kernel().detach().abs()
@@ -362,3 +346,74 @@ def test_the_gaussian_seed_is_centred_on_the_sample_the_lens_uses(kernel_size) -
     assert peak == (kernel_size // 2, kernel_size // 2)
     # Symmetric to the bit, so the kernel carries no tilt of its own.
     assert float((kernel - torch.flip(kernel, dims=(-2, -1))).abs().max()) == 0.0
+
+
+@pytest.mark.parametrize("camera_pitch", [10e-6, 20e-6], ids=["10um", "20um"])
+def test_the_kernel_is_sampled_at_the_intensity_nyquist_pitch_of_the_slm(
+    camera_pitch,
+) -> None:
+    """The pitch is ``lambda f / (2 L)`` along each axis, whatever the camera pitch of
+    the seed. The side is the odd number of samples that covers the extent. The SLM is
+    not square, so the two axes differ.
+    """
+    resolution = (192, 256)
+    waist = 60e-6
+    spot = _gaussian_spot(waist, camera_pitch)
+    module = PSFSLMField(
+        focal_length=FOCAL_LENGTH,
+        psf_extent=10 * waist,
+        init_psf_kernel=spot,
+        init_psf_kernel_pixel_size=(camera_pitch, camera_pitch),
+    )
+    module(_uniform_field(resolution))
+
+    pitch = tuple(
+        WAVELENGTH * FOCAL_LENGTH / (2 * count * SLM_PIXEL_SIZE) for count in resolution
+    )
+    assert module.psf_pixel_size == pytest.approx(pitch, rel=1e-6)
+    # 600 um over pitches of 32.8 and 24.6 um, 18.3 and 24.4 samples, rounded up to odd.
+    assert module.psf_kernel_size == (19, 25)
+    assert tuple(module.get_psf_kernel().shape) == (19, 25)
+
+
+def _gaussian_spot(waist: float, pitch: float) -> torch.Tensor:
+    """The amplitude of a focal spot of ``waist`` on a camera crop of ten waists."""
+    side = odd_sample_count(10 * waist, pitch)
+    axis = (torch.arange(side, dtype=torch.float64) - side // 2) * pitch
+    grid_y, grid_x = torch.meshgrid(axis, axis, indexing="ij")
+    return torch.exp(-(grid_x**2 + grid_y**2) / waist**2).float()
+
+
+@pytest.mark.parametrize("camera_pitch", [10e-6, 20e-6], ids=["10um", "20um"])
+def test_a_spot_at_the_camera_pitch_seeds_the_field_it_makes(camera_pitch) -> None:
+    """The spot is Gaussian, so its field is the conjugate Gaussian beam made by a
+    Gaussian kernel of the same waist.
+    """
+    waist = 60e-6
+    seeded = PSFSLMField(
+        focal_length=FOCAL_LENGTH,
+        psf_extent=10 * waist,
+        init_psf_kernel=_gaussian_spot(waist, camera_pitch),
+        init_psf_kernel_pixel_size=(camera_pitch, camera_pitch),
+    )
+    gaussian = PSFSLMField(
+        focal_length=FOCAL_LENGTH, psf_extent=10 * waist, psf_gaussian_waist=waist
+    )
+    seeded(_uniform_field())
+    gaussian(_uniform_field())
+
+    field = seeded.get_wavefront().detach()
+    expected = gaussian.get_wavefront().detach()
+    scale = (field.conj() * expected).sum() / (field.abs() ** 2).sum()
+    error = float((scale * field - expected).norm() / expected.norm())
+    assert seeded.wavefront_fit_residual < 1e-3
+    assert error < 1e-3
+
+
+def test_a_spot_without_its_pitch_is_refused() -> None:
+    with pytest.raises(ValueError, match="init_psf_kernel_pixel_size"):
+        PSFSLMField(
+            focal_length=FOCAL_LENGTH,
+            psf_extent=_extent_of(15),
+            init_psf_kernel=torch.ones(5, 5),
+        )

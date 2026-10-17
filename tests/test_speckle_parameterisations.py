@@ -8,21 +8,23 @@ only through a full calibration, where a wrong cost still produces a plausible r
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 import torch
 
+from hologradpy.grids import odd_sample_count
 from hologradpy.optics.modules.slm_fields import (
     PSFSLMField,
     PixelwiseSLMField,
 )
-from hologradpy.loss_functions import MaskedIntensityMSE, SumOfLosses
+from hologradpy.loss_functions import SumOfLosses
+from hologradpy.calibration.speckle import SpeckleCalibrator
 from hologradpy.calibration.wavefront.speckle_calibration import (
     PSFCalibratorVisualizer,
     PSFSpeckleCalibrator,
     PSFSpeckleVisualizationData,
-    SpeckleCalibrator,
     SpeckleCalibratorVisualizer,
     SpeckleVisualizationData,
     PixelwiseSpeckleCalibrator,
@@ -50,12 +52,12 @@ def _build_model(*args, **kwargs):
     return build(*args, **kwargs)
 
 
-def _psf_field(camera, focal_length, kernel_size: int = 7, init_psf_kernel=None):
+def _psf_field(camera, focal_length, psf_extent: float = 3e-4, init_psf_kernel=None):
     return PSFSLMField(
         focal_length=focal_length,
-        camera_pixel_size=tuple(camera.pixel_size),
-        psf_kernel_size=kernel_size,
+        psf_extent=psf_extent,
         init_psf_kernel=init_psf_kernel,
+        init_psf_kernel_pixel_size=tuple(camera.pixel_size),
     )
 
 
@@ -86,20 +88,25 @@ def _psf_calibrator(tmp_path, slm_field=None):
     )
 
 
-def test_the_base_calibrator_cannot_be_instantiated() -> None:
-    """The neutral base has no cost of its own, so picking it must fail rather than
-    quietly fit without whatever prior the parameterization needed.
-    """
-    assert "_fit_settings" in SpeckleCalibrator.__abstractmethods__
+def _adam_settings(calibrator) -> dict:
+    """The cost and the step size the calibrator's fit gives the Adam fit."""
+    settings: dict = {}
 
-    with pytest.raises(TypeError, match="abstract"):
-        SpeckleCalibrator(
-            slm=None,
-            camera=None,
-            camera_mapping=None,
-            slm_camera_model=None,
-            dataset_path="dataset.asdf",
-        )
+    def adam(fitter, loss, learning_rate, *arguments):
+        settings.update(loss=loss, learning_rate=learning_rate)
+        return []
+
+    calibrator._fit_by_adam = adam
+    frames = SimpleNamespace(region=MASK > 0, dtype=MASK.dtype)
+    calibrator._fit(SimpleNamespace(frames=frames), None, False)
+    return settings
+
+
+def test_the_base_calibrator_has_no_fit_of_its_own() -> None:
+    """The neutral base has no cost of its own. Each parameterization supplies its fit,
+    with whatever prior it needs.
+    """
+    assert "_fit" in SpeckleCalibrator.__abstractmethods__
 
 
 def test_a_field_of_the_wrong_type_is_replaced(tmp_path, capsys) -> None:
@@ -138,39 +145,59 @@ def test_a_pixelwise_field_asks_for_the_smoothness_prior(tmp_path) -> None:
     """Stored one value per SLM pixel, so it is unconstrained and needs a prior. One
     term per quantity, so each can be weighted and plotted on its own.
     """
-    settings = _pixelwise_calibrator(tmp_path)._fit_settings(MASK)
+    settings = _adam_settings(_pixelwise_calibrator(tmp_path))
 
-    assert isinstance(settings.loss, SumOfLosses)
-    assert [type(term).__name__ for term in settings.loss.terms] == [
+    assert isinstance(settings["loss"], SumOfLosses)
+    assert [type(term).__name__ for term in settings["loss"].terms] == [
         "MaskedIntensityMSE",
         "PhaseSmoothness",
         "AmplitudeSmoothness",
     ]
-    assert settings.learning_rate == pytest.approx(1e-2)
+    assert settings["learning_rate"] == pytest.approx(1e-2)
 
 
-def test_a_psf_field_asks_for_the_bare_mismatch_and_a_larger_step(tmp_path) -> None:
-    """Band limited by construction, so no prior, and one kernel pixel moves the whole
-    SLM plane, so a larger step.
+def test_a_psf_field_is_fitted_by_levenberg_marquardt(tmp_path) -> None:
+    """Its fit is the fitter's Levenberg-Marquardt fit with a translation per frame,
+    with its own settings.
     """
-    settings = _psf_calibrator(tmp_path)._fit_settings(MASK)
+    calls: list[dict] = []
+    fitter = SimpleNamespace(
+        fit_levenberg_marquardt=lambda **settings: calls.append(settings) or [1.0]
+    )
 
-    assert isinstance(settings.loss, MaskedIntensityMSE)
-    assert settings.learning_rate == pytest.approx(3e-2)
+    costs = _psf_calibrator(tmp_path)._fit(fitter, None, False, steps=2, chunk_size=4)
+
+    assert costs == [1.0]
+    assert calls == [
+        dict(
+            steps=2,
+            chunk_size=4,
+            subset_indices=None,
+            fit_translations=True,
+            verbose=False,
+        )
+    ]
 
 
 def test_a_built_kernel_is_measured_from_the_camera(tmp_path) -> None:
-    """A kernel the calibrator builds starts from the real focal spot, which carries
-    whatever aberration is actually present, rather than an idealised Gaussian.
+    """A kernel built by the calibrator starts from the real focal spot, which carries
+    the aberration actually present. The spot is captured at the camera's pitch, on a
+    crop of the kernel's extent.
     """
+    from .test_speckle_calibrator import CAMERA_PIXEL_SIZE
+
     calibrator = _psf_calibrator(tmp_path)
     field = calibrator.slm_camera_model.slm_field
-    kernel = field.init_psf_kernel
+    spot = field.init_psf_kernel
 
-    assert kernel is not None
-    assert tuple(kernel.shape[-2:]) == field.psf_kernel_size
-    assert torch.isfinite(kernel).all()
-    assert float(kernel.abs().max()) > 0.0
+    assert spot is not None
+    side = odd_sample_count(
+        10 * float(calibrator.camera_mapping.spot_fit.waist), CAMERA_PIXEL_SIZE[1]
+    )
+    assert tuple(spot.shape[-2:]) == (side, side)
+    assert field.init_psf_kernel_pixel_size == pytest.approx(CAMERA_PIXEL_SIZE)
+    assert torch.isfinite(spot).all()
+    assert float(spot.abs().max()) > 0.0
 
 
 def test_a_supplied_psf_field_is_used_exactly_as_given(tmp_path) -> None:
@@ -178,7 +205,7 @@ def test_a_supplied_psf_field_is_used_exactly_as_given(tmp_path) -> None:
     remeasured, including its starting kernel.
     """
     supplied = torch.full((5, 5), 0.25)
-    slm_field = _psf_field(_setup()[1], 0.25, kernel_size=5, init_psf_kernel=supplied)
+    slm_field = _psf_field(_setup()[1], 0.25, init_psf_kernel=supplied)
     calibrator = _psf_calibrator(tmp_path, slm_field=slm_field)
 
     assert calibrator.slm_camera_model.slm_field is slm_field
@@ -192,18 +219,18 @@ def test_a_pixelwise_calibrator_seeds_nothing(tmp_path) -> None:
     calibrator = _pixelwise_calibrator(tmp_path)
 
     assert not hasattr(calibrator.slm_camera_model.slm_field, "init_psf_kernel")
-    assert calibrator._visualization_extras() == {}
+    assert calibrator._fit_visualization_extras() == {}
 
 
 def test_the_psf_calibrator_records_its_kernel_for_the_visualizer(tmp_path) -> None:
     """The extra payload is the whole reason the two visualizers differ."""
     calibrator = _psf_calibrator(tmp_path)
+    field = calibrator.slm_camera_model.slm_field
 
-    kernel_size = calibrator.slm_camera_model.slm_field.psf_kernel_size
-
-    extras = calibrator._visualization_extras()
-    assert set(extras) == {"psf_kernel"}
-    assert extras["psf_kernel"].shape == kernel_size
+    extras = calibrator._fit_visualization_extras()
+    assert set(extras) == {"psf_kernel", "psf_pixel_size"}
+    assert extras["psf_kernel"].shape == field.psf_kernel_size
+    assert extras["psf_pixel_size"] == field.psf_pixel_size
     assert calibrator.visualization_data_type is PSFSpeckleVisualizationData
 
 

@@ -1,11 +1,10 @@
-from ....speckle.calibrator import FitSettings
 from .abstract import WavefrontSpeckleCalibrator
 from .pixelwise_calibrator import PixelwiseSpeckleCalibrator
-from .psf_calibrator import PSFSpeckleCalibrator
+from .psf_calibrator import PSFSpeckleCalibrator, capture_focal_spot
 
 __all__ = [
-    "FitSettings",
     "WavefrontSpeckleCalibrator",
     "PixelwiseSpeckleCalibrator",
     "PSFSpeckleCalibrator",
+    "capture_focal_spot",
 ]

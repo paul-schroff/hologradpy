@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import ClassVar, Sequence
+from typing import Any, ClassVar, Sequence
 
 from abc import abstractmethod
 from datetime import datetime
@@ -10,9 +10,8 @@ import torch
 
 from ..wavefront_fitter import WavefrontFitter
 from .....calibration.speckle import SpeckleCaptureData
-from .....calibration.speckle.calibrator import FitSettings, SpeckleCalibrator
+from .....calibration.speckle.calibrator import SpeckleCalibrator
 
-from .....datasets import CaptureStore
 from .....hardware.camera import Background
 from ..visualizer import SpeckleVisualizationData
 
@@ -66,24 +65,17 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
         already have one of :attr:`slm_field_type`.
         """
 
-    @abstractmethod
-    def _fit_settings(self, mask: torch.Tensor) -> FitSettings:
-        """The cost and step size this parameterization is fitted with.
-
-        Args:
-            mask: The region of interest, cropped to its bounding box and already in the
-                model's dtype and on its device.
+    def _fit_visualization_extras(self) -> dict:
+        """Payload fields of the fitted field beyond the shared panels. Most
+        parameterizations add none.
         """
-
-    def _visualization_extras(self) -> dict:
-        """Payload fields beyond the shared panels. Most parameterizations add none."""
         return {}
 
-    def fit_wavefront(self, *args, **kwargs) -> list[float]:
-        """Fit the SLM-plane field to a captured dataset. The wavefront name for
-        :meth:`~hologradpy.calibration.speckle.calibrator.SpeckleCalibrator.fit`.
+    def _calibration_metadata_extras(self) -> dict:
+        """Metadata of the calibration record beyond the shared entries. Most
+        parameterizations add none.
         """
-        return self.fit(*args, **kwargs)
+        return {}
 
     def _injected_field(self) -> np.ndarray | None:
         return getattr(self.camera, "static_slm_field", None)
@@ -101,78 +93,6 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
 
         intensity = np.abs(injected) ** 2
         return intensity > beam_mask_threshold * intensity.max()
-
-    def dataset_visualization_data(
-        self,
-        capture_data: SpeckleCaptureData | None = None,
-        sample_index: int = 0,
-    ) -> SpeckleVisualizationData:
-        """The captured dataset before any fitting.
-
-        Args:
-            capture_data: The dataset to show. Defaults to the one from the last
-                :meth:`fit_wavefront`, so a fitted calibrator needs no argument.
-            sample_index: Which captured pattern to show.
-
-        Returns:
-            SpeckleVisualizationData: Carrying only what a dataset holds.
-
-        Raises:
-            RuntimeError: If no dataset has been captured or loaded yet.
-        """
-        if capture_data is not None:
-            self.capture_data = capture_data
-
-        if self.capture_data is None:
-            raise RuntimeError(
-                "No dataset to show. Capture one with "
-                "calibrator.dataset_generator.generate_dataset(...) and pass it as "
-                "capture_data."
-            )
-
-        with CaptureStore.open(self.dataset_path) as store:
-            sample = store.read(sample_index)
-        return self.visualization_data_type(
-            camera_image=sample["camera_image"],
-            roi_mask=self.capture_data.roi_mask,
-            slm_pattern=sample["slm_levels"],
-        )
-
-    def _build_visualization_data(
-        self,
-        recovered_amplitude: np.ndarray,
-        recovered_phase: np.ndarray,
-        beam_mask: np.ndarray,
-    ) -> SpeckleVisualizationData | None:
-        """Collect the panels' inputs, or None if anything needed is missing.
-
-        Visualization must never be the reason a calibration fails, so a problem
-        here degrades to no figure rather than losing the recovered field.
-        """
-        try:
-            measured_roi, predicted_roi = self.fitter.measured_and_predicted_roi(0)
-            with CaptureStore.open(self.dataset_path) as store:
-                sample = store.read(0)
-            return self.visualization_data_type(
-                camera_image=sample["camera_image"],
-                roi_mask=self.capture_data.roi_mask,
-                slm_pattern=sample["slm_levels"],
-                measured_roi=measured_roi,
-                predicted_roi=predicted_roi,
-                recovered_amplitude=recovered_amplitude,
-                recovered_phase=recovered_phase,
-                loss_history=list(self.loss_history),
-                loss_component_history={
-                    label: list(values)
-                    for label, values in self.loss_component_history.items()
-                },
-                injected_field=self._injected_field(),
-                beam_mask=beam_mask,
-                **self._visualization_extras(),
-            )
-        except (RuntimeError, OSError, KeyError, IndexError) as error:
-            print(f"Could not collect visualization data ({error}).")
-            return None
 
     def _residual_metrics(
         self,
@@ -248,11 +168,16 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
                 "focal_length": self.focal_length,
                 "number_of_random_patterns": self.number_of_random_patterns,
                 "beam_mask_threshold": beam_mask_threshold,
-                "background_level": self.fitter.background_level,
+                "background_level": self.fitter.frames.background_level,
                 **self._residual_metrics(phase_no_tilt, comparison_mask),
+                **self._calibration_metadata_extras(),
             },
             visualization_data=self._build_visualization_data(
-                amplitude, phase_no_tilt, comparison_mask
+                recovered_amplitude=amplitude,
+                recovered_phase=phase_no_tilt,
+                injected_field=self._injected_field(),
+                beam_mask=comparison_mask,
+                **self._fit_visualization_extras(),
             ),
         )
 
@@ -260,21 +185,19 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
         self,
         speckle_pattern_extent: tuple[float, float] | None = None,
         speckle_pattern_tilt: tuple[float, float] | None = None,
-        number_of_epochs: int = 50,
-        batch_size: int = 5,
         subset_indices: Sequence[int] | None = None,
         benchmark_calibration: WavefrontCalibrationData | None = None,
         seed: int | None = None,
         verbose: bool = True,
         beam_mask_threshold: float = BEAM_MASK_THRESHOLD_DEFAULT,
         background: Background | None = None,
+        **fit_settings: Any,
     ) -> WavefrontCalibrationData:
         """Capture a dataset, fit the model to it, and return the wavefront.
 
-        The :class:`WavefrontCalibratorBase` entry point, so a caller can treat this and
-        :class:`RasterCalibrator` interchangeably. To capture once and refit several
-        times, call the two phases yourself: ``dataset_generator.generate_dataset(...)``
-        followed by :meth:`fit_wavefront`.
+        This is the :class:`WavefrontCalibratorBase` entry point, so a caller can treat
+        this calibrator and :class:`RasterCalibrator` interchangeably. A dataset
+        captured once can be refitted several times with :meth:`fit`.
 
         Args:
             speckle_pattern_extent: Full width ``(y, x)`` of the speckle in the image
@@ -282,47 +205,55 @@ class WavefrontSpeckleCalibrator(SpeckleCalibrator):
                 interest. Defaults to the largest speckle whose image fits on the
                 sensor around the speckle centre, measured through the camera mapping.
             speckle_pattern_tilt: Image-plane position ``(x, y)`` of the speckle centre
-                in metres, measured from the zeroth order. None, the default, steers the
-                speckle to the sensor centre, and ``(0.0, 0.0)`` keeps it on the zeroth
-                order.
-            number_of_epochs: Passes over the dataset.
-            batch_size: Patterns per optimizer step.
+                in metres, measured from the zeroth order. None steers the speckle to
+                the sensor centre, and ``(0.0, 0.0)`` keeps it on the zeroth order.
             subset_indices: Fit only these patterns of the dataset. Defaults to all.
-            benchmark_calibration: An existing calibration whose correction, the
-                negative of its phase, is added to every pattern, for measuring the
+            benchmark_calibration: An existing calibration. Its correction, the
+                negative of its phase, is added to every pattern, to measure the
                 residual of a previous fit.
             seed: Seed for the pattern noise.
             verbose: Print the loss as the fit runs.
             beam_mask_threshold: Fraction of the peak intensity above which a pixel
-                counts as illuminated, passed to
-                :meth:`generate_slm_beam_calibration`. Defaults to 1/e^4 (~0.0183).
-            background: The counts subtracted from every frame before the fit, as
-                one level for every pixel, a whole-sensor frame, or a function of the
-                exposure in seconds returning either, evaluated at the exposure the
-                dataset was captured at. None, the default, subtracts nothing.
+                counts as illuminated, passed to :meth:`generate_slm_beam_calibration`.
+            background: The counts subtracted from every frame before the fit, in any
+                form :meth:`fit` takes. None subtracts nothing.
+            **fit_settings: The settings of the parameterization's fit (:meth:`fit`).
 
         Returns:
             WavefrontCalibrationData: The fitted SLM-plane complex amplitude.
         """
-        # A previous fit holds the file mapped, which blocks writing over it.
-        self.release_dataset()
-
-        capture_data = self.dataset_generator.generate_dataset(
+        capture_data = self._capture_dataset(
             speckle_pattern_extent,
-            tilt=speckle_pattern_tilt,
-            benchmark_calibration=benchmark_calibration,
-            seed=seed,
+            speckle_pattern_tilt,
+            benchmark_calibration,
+            seed,
         )
 
-        self.fit_wavefront(
-            number_of_epochs=number_of_epochs,
-            batch_size=batch_size,
-            subset_indices=subset_indices,
-            verbose=verbose,
+        self.fit(
             capture_data=capture_data,
             background=background,
+            subset_indices=subset_indices,
+            verbose=verbose,
+            **fit_settings,
         )
 
         return self.generate_slm_beam_calibration(
             beam_mask_threshold=beam_mask_threshold
+        )
+
+    def _capture_dataset(
+        self,
+        speckle_pattern_extent: tuple[float, float] | None,
+        speckle_pattern_tilt: tuple[float, float] | None,
+        benchmark_calibration: WavefrontCalibrationData | None,
+        seed: int | None,
+    ) -> SpeckleCaptureData:
+        """Capture a dataset with :attr:`dataset_generator`. The arguments are those of
+        :meth:`calibrate`.
+        """
+        return self.dataset_generator.generate_dataset(
+            speckle_pattern_extent,
+            tilt=speckle_pattern_tilt,
+            benchmark_calibration=benchmark_calibration,
+            seed=seed,
         )

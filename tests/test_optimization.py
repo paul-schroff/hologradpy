@@ -1,5 +1,5 @@
 """The conjugate gradient solver for linear least squares, and the Levenberg-Marquardt
-solver built on the same conjugate gradients.
+optimizer built on the same conjugate gradients.
 """
 
 from __future__ import annotations
@@ -8,8 +8,8 @@ import torch
 from scipy.optimize import least_squares
 
 from hologradpy.optimization import (
+    LevenbergMarquardt,
     _ChunkedResidual,
-    levenberg_marquardt,
     solve_linear_least_squares,
 )
 
@@ -86,14 +86,47 @@ def _peak_residual(data: torch.Tensor, number_of_chunks: int):
     return chunk_residual
 
 
+def _levenberg_marquardt(
+    chunk_residual,
+    starts: list[torch.Tensor],
+    number_of_chunks: int,
+    steps: int,
+    cg_steps: int = 10,
+) -> tuple[torch.Tensor, list[float]]:
+    """The fitted parameters, joined into one vector, and the cost before every step and
+    after the last. ``chunk_residual(vector, chunk)`` takes the parameters joined into
+    one vector. Each tensor of ``starts`` is one parameter, and so one block.
+    """
+    parameters = [torch.nn.Parameter(start.clone()) for start in starts]
+    optimizer = LevenbergMarquardt(
+        parameters, number_of_chunks=number_of_chunks, cg_steps=cg_steps
+    )
+
+    def closure(chunk, values):
+        return chunk_residual(
+            torch.cat(list(parameters if values is None else values)), chunk
+        )
+
+    costs = [optimizer.step(closure) for _ in range(steps)]
+    with torch.no_grad():
+        costs.append(
+            0.5
+            * sum(
+                float((closure(chunk, None) ** 2).sum())
+                for chunk in range(number_of_chunks)
+            )
+        )
+    return torch.cat([parameter.detach() for parameter in parameters]), costs
+
+
 def test_a_peak_fit_reaches_the_least_squares_optimum() -> None:
     """From a start far off in every parameter, the fit lands on the optimum that
     scipy's trust-region solver finds, and the cost never rises.
     """
     data = _noisy_peak()
 
-    fitted, costs = levenberg_marquardt(
-        _peak_residual(data, 1), 1, ROUGH_START, [slice(0, 3)], steps=20
+    fitted, costs = _levenberg_marquardt(
+        _peak_residual(data, 1), [ROUGH_START], 1, steps=20
     )
 
     reference = least_squares(
@@ -113,11 +146,9 @@ def test_a_peak_fit_reaches_the_least_squares_optimum() -> None:
 def test_one_chunk_and_several_give_the_same_parameters() -> None:
     data = _noisy_peak()
 
-    whole, _ = levenberg_marquardt(
-        _peak_residual(data, 1), 1, ROUGH_START, [slice(0, 3)], steps=20
-    )
-    chunked, _ = levenberg_marquardt(
-        _peak_residual(data, 4), 4, ROUGH_START, [slice(0, 3)], steps=20
+    whole, _ = _levenberg_marquardt(_peak_residual(data, 1), [ROUGH_START], 1, steps=20)
+    chunked, _ = _levenberg_marquardt(
+        _peak_residual(data, 4), [ROUGH_START], 4, steps=20
     )
 
     torch.testing.assert_close(chunked, whole, rtol=1e-6, atol=1e-8)
@@ -146,19 +177,19 @@ def test_blocks_of_different_curvature_converge_as_alike_ones() -> None:
     more than 1 % of the cost above the optimum.
     """
     start = torch.zeros(4, dtype=torch.float64)
-    blocks = [slice(0, 2), slice(2, 4)]
+    blocks = [start[:2], start[2:]]
 
-    _, alike = levenberg_marquardt(
-        _two_block_residual(1.0), 1, start, blocks, steps=6, cg_steps=2
+    _, alike = _levenberg_marquardt(
+        _two_block_residual(1.0), blocks, 1, steps=6, cg_steps=2
     )
-    _, apart = levenberg_marquardt(
-        _two_block_residual(100.0), 1, start, blocks, steps=6, cg_steps=2
+    _, apart = _levenberg_marquardt(
+        _two_block_residual(100.0), blocks, 1, steps=6, cg_steps=2
     )
-    _, one_block = levenberg_marquardt(
-        _two_block_residual(100.0), 1, start, [slice(0, 4)], steps=6, cg_steps=2
+    _, one_block = _levenberg_marquardt(
+        _two_block_residual(100.0), [start], 1, steps=6, cg_steps=2
     )
-    _, converged = levenberg_marquardt(
-        _two_block_residual(100.0), 1, start, blocks, steps=30
+    _, converged = _levenberg_marquardt(
+        _two_block_residual(100.0), blocks, 1, steps=30
     )
 
     torch.testing.assert_close(
@@ -199,13 +230,13 @@ def test_a_block_that_leaves_the_residual_alone_keeps_its_values() -> None:
     def residual_with_an_idle_block(parameters: torch.Tensor, chunk: int):
         return _peak(parameters[:3], POSITIONS) - data
 
-    start = torch.cat([ROUGH_START, torch.tensor([5.0], dtype=torch.float64)])
-    fitted, _ = levenberg_marquardt(
-        residual_with_an_idle_block, 1, start, [slice(0, 3), slice(3, 4)], steps=20
+    fitted, _ = _levenberg_marquardt(
+        residual_with_an_idle_block,
+        [ROUGH_START, torch.tensor([5.0], dtype=torch.float64)],
+        1,
+        steps=20,
     )
-    alone, _ = levenberg_marquardt(
-        _peak_residual(data, 1), 1, ROUGH_START, [slice(0, 3)], steps=20
-    )
+    alone, _ = _levenberg_marquardt(_peak_residual(data, 1), [ROUGH_START], 1, steps=20)
 
     assert float(fitted[3]) == 5.0
     torch.testing.assert_close(fitted[:3], alone, rtol=1e-6, atol=1e-8)

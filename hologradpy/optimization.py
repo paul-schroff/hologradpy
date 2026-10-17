@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 
 import torch
 from torch import Tensor
+
+from .utils import as_real_vector, from_real_vector
 
 
 def solve_linear_least_squares(
@@ -52,17 +54,9 @@ def solve_linear_least_squares(
     return solution, relative_error
 
 
-def levenberg_marquardt(
-    chunk_residual: Callable[[Tensor, int], Tensor],
-    number_of_chunks: int,
-    parameters: Tensor,
-    blocks: Sequence[slice],
-    steps: int,
-    cg_steps: int = 10,
-    callback: Callable[[int, float], None] | None = None,
-) -> tuple[Tensor, list[float]]:
-    """The parameters that minimize half the sum of squares of a residual, by
-    Levenberg-Marquardt.
+class LevenbergMarquardt(torch.optim.Optimizer):
+    """Levenberg-Marquardt steps of the parameters that minimize half the sum of squares
+    of a residual.
 
     The residual is given in chunks, so a large fit holds the graph of one chunk at a
     time. Each step solves the damped Gauss-Newton equations
@@ -72,10 +66,10 @@ def levenberg_marquardt(
     is a one-sided difference from the residuals at the current parameters, with one
     forward pass per chunk. A product ``J^T w`` is one backward pass per chunk.
 
-    Each block of the parameters is scaled to unit curvature, the mean diagonal of
+    Each parameter tensor is a block, scaled to unit curvature, the mean diagonal of
     ``J^T J`` over the block. This is Marquardt's scaling of the normal equations by
     their diagonal, taken per block, so the damping and the conjugate gradients treat
-    blocks of different units alike. The curvature is measured once at the start from a
+    blocks of different units alike. The curvature is measured at the first step from a
     backward pass of random weights ``w``, since ``E |J_b^T w|^2 = trace(J_b^T J_b)``.
     The difference step moves the scaled parameters by 1e-3 of the residual's norm, so
     it changes the residual by a similar amount along every block.
@@ -84,65 +78,89 @@ def levenberg_marquardt(
     lowers the cost is taken and divides the damping by 3. Any other step is dropped
     and multiplies the damping by 4 (Madsen, Nielsen and Tingleff 2004, Sec. 3.2).
 
-    Args:
-        chunk_residual: The real residual of one chunk of the data,
-            ``chunk_residual(parameters, chunk)``, differentiable in ``parameters``.
-        number_of_chunks: The chunks the residual is split into. With a single chunk,
-            the graph is held through each step.
-        parameters: The real vector the fit starts from.
-        blocks: Slices of ``parameters``, each scaled by its own curvature. Parameters
-            outside every block keep their values. A block that leaves the residual
-            unchanged also keeps its values.
-        steps: The Levenberg-Marquardt steps.
-        cg_steps: The conjugate gradient steps of each Levenberg-Marquardt step.
-        callback: Called after every step with its index and the cost.
-
-    Returns:
-        tuple[Tensor, list[float]]: The fitted parameters, and the cost before the first
-        step and after each step taken. The steps end early at a point where the
-        gradient vanishes.
+    The closure of :meth:`step` is ``closure(chunk, values)``. It returns the real
+    residual of one chunk of the data with the parameters replaced by ``values``, one
+    tensor per parameter in their order, differentiable in ``values``. For None, it
+    takes the parameters themselves. The parameters change only when a step lowers the
+    cost. A step dropped leaves the residual and its graph at the current point for the
+    next step with the same closure.
     """
-    residual = _ChunkedResidual(
-        chunk_residual, number_of_chunks, parameters.detach().clone()
-    )
-    costs = [residual.cost]
 
-    generator = torch.Generator(device=residual.values[0].device).manual_seed(0)
-    random_weights = [
-        torch.randn(
-            values.shape, generator=generator, device=values.device, dtype=values.dtype
-        )
-        for values in residual.values
-    ]
-    sensitivity = residual.transpose_product(random_weights)
-    del random_weights
-    scale = torch.zeros_like(residual.point)
-    for block in blocks:
-        curvature = float((sensitivity[block].double() ** 2).mean())
-        if curvature > 0.0:
-            scale[block] = curvature**-0.5
+    def __init__(
+        self,
+        params: Iterable[torch.nn.Parameter],
+        number_of_chunks: int = 1,
+        cg_steps: int = 10,
+    ) -> None:
+        """
+        Args:
+            params: The parameters to fit, real or complex, of one real dtype.
+            number_of_chunks: The chunks the residual is split into. With a single
+                chunk, the graph is held through each step.
+            cg_steps: The conjugate gradient steps of each Levenberg-Marquardt step.
+        """
+        super().__init__(params, {})
+        self.number_of_chunks: int = number_of_chunks
+        self.cg_steps: int = cg_steps
+        self._scale: Tensor | None = None
+        self._damping: float | None = None
+        self._residual: _ChunkedResidual | None = None
+        self._closure: Callable[[int, list[Tensor] | None], Tensor] | None = None
 
-    def scaled_jacobian_product(scaled_direction: Tensor) -> list[Tensor]:
-        """``J`` applied to ``scale * scaled_direction``, by a one-sided difference."""
-        size = (
-            1e-3
-            * (2.0 * residual.cost) ** 0.5
-            / float(scaled_direction.double().norm())
-        )
-        return residual.jacobian_product(scale * scaled_direction, size)
+    def step(self, closure: Callable[[int, list[Tensor] | None], Tensor]) -> float:
+        """Take one Levenberg-Marquardt step, and return the cost before it.
 
-    damping: float | None = None
-    for step in range(steps):
+        Args:
+            closure: ``closure(chunk, values)``, the residual of one chunk with the
+                parameters replaced by ``values``.
+
+        Returns:
+            float: Half the sum of squares of the residual before the step. The
+            parameters stay where they are when the gradient there vanishes.
+        """
+        parameters = [p for group in self.param_groups for p in group["params"]]
+        point, blocks = as_real_vector(parameters)
+        residual = self._residual
+        if (
+            residual is None
+            or closure is not self._closure
+            or not torch.equal(residual.point, point)
+        ):
+            residual = _ChunkedResidual(
+                lambda values, chunk: closure(
+                    chunk, from_real_vector(values, parameters, blocks)
+                ),
+                self.number_of_chunks,
+                point,
+            )
+            self._residual, self._closure = residual, closure
+        cost = residual.cost
+        if self._scale is None:
+            self._scale = self._block_scale(residual, blocks)
+        scale = self._scale
+
+        def scaled_jacobian_product(scaled_direction: Tensor) -> list[Tensor]:
+            """``J`` applied to ``scale * scaled_direction``, by a one-sided
+            difference.
+            """
+            size = (
+                1e-3
+                * (2.0 * residual.cost) ** 0.5
+                / float(scaled_direction.double().norm())
+            )
+            return residual.jacobian_product(scale * scaled_direction, size)
+
         scaled_gradient = scale * residual.transpose_product(residual.values)
         gradient_norm = float((scaled_gradient.double() ** 2).sum())
         if gradient_norm == 0.0:
-            break
-        if damping is None:
+            return cost
+        if self._damping is None:
             curvature = sum(
                 float((product.double() ** 2).sum())
                 for product in scaled_jacobian_product(scaled_gradient)
             )
-            damping = 1e-3 * curvature / gradient_norm
+            self._damping = 1e-3 * curvature / gradient_norm
+        damping = self._damping
 
         # The damped normal equations (S J^T J S + damping) z = -S J^T r, with S the
         # scale and z the scaled step.
@@ -151,23 +169,46 @@ def levenberg_marquardt(
             * residual.transpose_product(scaled_jacobian_product(direction))
             + damping * direction,
             -scaled_gradient,
-            cg_steps,
+            self.cg_steps,
             1e-4,
         )
 
         trial = residual.point + scale * scaled_step
         trial_values = residual.values_at(trial)
-        if _cost_of(trial_values) < residual.cost:
+        if _cost_of(trial_values) < cost:
             residual.move_to(trial, trial_values)
-            damping /= 3.0
+            with torch.no_grad():
+                for parameter, value in zip(
+                    parameters, from_real_vector(trial, parameters, blocks)
+                ):
+                    parameter.copy_(value)
+            self._damping = damping / 3.0
         else:
-            damping *= 4.0
-        costs.append(residual.cost)
-        if callback is not None:
-            callback(step, residual.cost)
+            self._damping = damping * 4.0
+        return cost
 
-    residual.release_graph()
-    return residual.point, costs
+    @staticmethod
+    def _block_scale(residual: _ChunkedResidual, blocks: Sequence[slice]) -> Tensor:
+        """The scale of every block, the inverse square root of its curvature, or zero
+        for a block that leaves the residual unchanged.
+        """
+        generator = torch.Generator(device=residual.values[0].device).manual_seed(0)
+        random_weights = [
+            torch.randn(
+                values.shape,
+                generator=generator,
+                device=values.device,
+                dtype=values.dtype,
+            )
+            for values in residual.values
+        ]
+        sensitivity = residual.transpose_product(random_weights)
+        scale = torch.zeros_like(residual.point)
+        for block in blocks:
+            curvature = float((sensitivity[block].double() ** 2).mean())
+            if curvature > 0.0:
+                scale[block] = curvature**-0.5
+        return scale
 
 
 def _conjugate_gradient(
@@ -273,7 +314,3 @@ class _ChunkedResidual:
             values = self.chunk_residual(leaf, chunk)
             total = total + torch.autograd.grad(values, leaf, weight)[0]
         return total
-
-    def release_graph(self) -> None:
-        """Let go of the held graph."""
-        self._held_graph = None

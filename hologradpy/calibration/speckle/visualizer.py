@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -35,6 +37,13 @@ class SpeckleVisualizerBase(BaseVisualizer):
     ``loss_component_history``.
     """
 
+    #: The step each entry of ``loss_history`` is recorded after, the x-axis label of
+    #: the convergence panel.
+    loss_entry_name: ClassVar[str] = "epoch"
+    #: The number of the first entry of ``loss_history``, 0 when it holds the cost
+    #: before the fit's first step.
+    first_loss_entry: ClassVar[int] = 1
+
     def __init__(self, data: VisualizationData) -> None:
         self.data = data
 
@@ -48,7 +57,7 @@ class SpeckleVisualizerBase(BaseVisualizer):
         if value is None:
             raise RuntimeError(
                 f"This payload carries no {name}, so it was recorded from a captured "
-                "dataset rather than a finished fit. Run fit_wavefront and read the "
+                "dataset before any fit. Run the calibrator's fit and read the "
                 "calibration's visualization_data, or call render_dataset() for the "
                 "panels a dataset alone can fill."
             )
@@ -178,10 +187,10 @@ class SpeckleVisualizerBase(BaseVisualizer):
         if len(components) < 2:
             components = {}
 
-        epochs = np.arange(1, len(history) + 1)
+        first = self.first_loss_entry
         curves = [
             {
-                "x": epochs,
+                "x": np.arange(first, first + len(history)),
                 "y": history,
                 "color": foreground_color(),
                 "label": "total",
@@ -189,7 +198,7 @@ class SpeckleVisualizerBase(BaseVisualizer):
         ]
         curves += [
             {
-                "x": np.arange(1, len(values) + 1),
+                "x": np.arange(first, first + len(values)),
                 "y": values,
                 "style": "--",
                 "label": label,
@@ -200,7 +209,7 @@ class SpeckleVisualizerBase(BaseVisualizer):
         self.draw_line(
             axs,
             curves,
-            xlabel="epoch",
+            xlabel=self.loss_entry_name,
             ylabel="loss",
             title="convergence",
             yscale="log" if min(history) > 0 else "linear",

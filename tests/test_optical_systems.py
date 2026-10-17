@@ -21,8 +21,10 @@ from hologradpy.optics.systems import (
     SLMNUFFT,
     SLMCZT,
 )
+from hologradpy.optics.modules.propagators import PartialAffineFourierLens
 from hologradpy.optics.modules.slm_fields import PSFSLMField, PixelwiseSLMField
 from hologradpy.optics.modules.virtual_slms.abstract import VirtualSLM
+from hologradpy.roi import ROI
 
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
@@ -190,6 +192,25 @@ def test_addressable_half_extent_reads_a_per_wavelength_pitch() -> None:
     half_extent = 800e-9 * 0.1 / (2 * 10e-6)
     assert model.addressable_half_extent() == pytest.approx(
         (half_extent, half_extent)
+    )
+
+
+def test_the_steering_phase_steps_by_the_displacement_per_pixel() -> None:
+    """A spot moved by ``u`` in the focal plane takes a phase step of
+    ``2 pi u p / (lambda f)`` per SLM pixel of pitch ``p``.
+    """
+    model = _make_slm_fft()
+    tilt = (100e-6, -50e-6)
+
+    phase = model.steering_phase(tilt)
+
+    step_x, step_y = (2 * torch.pi * u * 10e-6 / (800e-9 * 0.1) for u in tilt)
+    assert tuple(phase.shape) == SLM_RESOLUTION
+    torch.testing.assert_close(
+        phase.diff(dim=-1), torch.full_like(phase[:, 1:], step_x), rtol=1e-4, atol=0
+    )
+    torch.testing.assert_close(
+        phase.diff(dim=-2), torch.full_like(phase[1:, :], step_y), rtol=1e-4, atol=0
     )
 
 
@@ -385,7 +406,7 @@ def test_a_swapped_layer_survives_save_and_load(tmp_path) -> None:
     model = _make_slm_czt()
     model()
     model.slm_field = PSFSLMField(
-        focal_length=0.1, camera_pixel_size=CAMERA_PIXEL_SIZE, psf_kernel_size=7
+        focal_length=0.1, psf_extent=7 * CAMERA_PIXEL_SIZE[0]
     )
     expected = model().intensity.detach().clone()
 
@@ -395,3 +416,48 @@ def test_a_swapped_layer_survives_save_and_load(tmp_path) -> None:
 
     assert isinstance(restored.slm_field, PSFSLMField)
     torch.testing.assert_close(restored().intensity, expected)
+
+
+@pytest.mark.parametrize("name", SYSTEM_IDS)
+def test_a_restricted_output_is_the_crop_of_the_whole_plane(name: str) -> None:
+    """The chirp-z and the NUFFT lenses compute the rectangle themselves, and every
+    other model crops to it. The model reports the rectangle as its ``output_roi``
+    inside the block. The whole plane comes back when the block ends, also after an
+    exception.
+
+    The chirp-z model is turned and shifted by tens of um, so its window samples the
+    spectrum near the zeroth order. The float32 frequencies of the transform hold their
+    precision there.
+    """
+    if name == "SLMCZT":
+        system = SLMCZT(
+            input_geometry=_input_geometry(),
+            virtual_slm=VirtualSLM(full_scale_cycles=1.0),
+            camera_resolution=CAMERA_RESOLUTION,
+            camera_pixel_size=CAMERA_PIXEL_SIZE,
+            focal_length=0.1,
+            slm_field=_slm_field(),
+            camera_angle=5.0,
+            camera_shift=(20e-6, -30e-6),
+        )
+    else:
+        system = SYSTEM_FACTORIES[name]()
+    roi = ROI(4, 6, 10, 12)
+    with torch.no_grad():
+        whole = system().as_tensor()
+        with system.restrict_output_to(roi):
+            window = system().as_tensor()
+            reported_roi = system.output_roi
+            lens_roi = getattr(system[-1], "output_roi", None)
+        with pytest.raises(RuntimeError), system.restrict_output_to(roi):
+            raise RuntimeError
+        after = system().as_tensor()
+
+    reference = roi.crop(whole)
+    assert reported_roi == roi
+    if isinstance(system[-1], PartialAffineFourierLens):
+        assert lens_roi == roi
+    assert system.output_roi is None
+    assert tuple(window.shape[-2:]) == (10, 12)
+    assert float((window - reference).abs().max() / reference.abs().max()) < 1e-3
+    assert torch.equal(after, whole)

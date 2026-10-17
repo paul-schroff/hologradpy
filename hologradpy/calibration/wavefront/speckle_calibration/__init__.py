@@ -1,10 +1,9 @@
-from ...speckle import DatasetGenerator, SpeckleCaptureData, SpeckleCalibrator
 from .wavefront_fitter import WavefrontFitter
 from .speckle_calibrator import (
-    FitSettings,
     PSFSpeckleCalibrator,
     PixelwiseSpeckleCalibrator,
     WavefrontSpeckleCalibrator,
+    capture_focal_spot,
 )
 from .visualizer import (
     PSFCalibratorVisualizer,
@@ -14,7 +13,6 @@ from .visualizer import (
 )
 
 __all__ = [
-    "SpeckleCalibrator",
     "WavefrontSpeckleCalibrator",
     "PixelwiseSpeckleCalibrator",
     "PSFSpeckleCalibrator",
@@ -22,8 +20,6 @@ __all__ = [
     "PSFCalibratorVisualizer",
     "SpeckleVisualizationData",
     "PSFSpeckleVisualizationData",
-    "SpeckleCaptureData",
-    "DatasetGenerator",
-    "FitSettings",
     "WavefrontFitter",
+    "capture_focal_spot",
 ]

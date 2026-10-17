@@ -21,7 +21,7 @@ from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
     FieldGeometry,
 )
-from hologradpy.optics.systems import SLMFFTAffine
+from hologradpy.optics.systems import SLMFFT, SLMFFTAffine
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.profiles.amplitude import (
     gaussian_beam_intensity,
@@ -37,6 +37,8 @@ from hologradpy.calibration.camera_mapping import (
 from hologradpy.calibration.wavefront.raster_calibration import (
     SuperpixelSlicer,
 )
+from hologradpy.geometry import AffineTransform
+from hologradpy.grids import plane_center
 from hologradpy.roi import ROI
 from hologradpy.utils import as_image
 
@@ -96,12 +98,19 @@ def _build_setup(
     return slm, camera
 
 
+# The sensor of _build_setup's camera, and the output plane of a synthetic mapping.
+SENSOR_RESOLUTION = (240, 320)
+CAMERA_PITCH = 30e-6
+
+
 def _synthetic_mapping(
     rotation_deg=0.0, scale=1.5, mirror=False, zeroth=(160.0, 120.0)
 ):
-    """A CameraMapping with a known camera-px -> model-px transform.
+    """A CameraMapping with a known camera-px -> model-px transform, which sends the
+    zeroth order at ``zeroth`` (row, column) to the centre of the output plane.
 
-    ``zeroth`` is the stored ``(y, x)`` zeroth-order position.
+    The output plane is sampled at the camera pitch over ``scale``, so the camera
+    images the focal plane at unit magnification.
     """
     angle = np.radians(rotation_deg)
     linear = scale * np.array(
@@ -109,40 +118,42 @@ def _synthetic_mapping(
     )
     if mirror:
         linear = linear @ np.array([[1.0, 0.0], [0.0, -1.0]])
-    transform = np.hstack([linear, np.zeros((2, 1))])
+    zeroth_xy = np.array([zeroth[1], zeroth[0]])
+    center = np.asarray(plane_center(SENSOR_RESOLUTION), dtype=float)
+    transform = AffineTransform.from_matrix(
+        np.column_stack([linear, center - linear @ zeroth_xy])
+    )
+    detected = np.random.default_rng(0).uniform(0.0, 240.0, size=(12, 2))
+    output_pitch = CAMERA_PITCH / scale
     return CameraMapping(
         timestamp=datetime.now(),
         name="coarse",
-        transform=transform,
-        detected_points=[],
-        calculated_points=[],
-        zeroth_order_position=zeroth,
+        transform=transform.as_matrix(homogeneous=False),
+        detected_points=detected.tolist(),
+        calculated_points=transform.transform_points(detected).tolist(),
         spot_fit=FocalSpotFit(waist=8e-6),
+        output_pixel_size=(output_pitch, output_pitch),
+        output_resolution=SENSOR_RESOLUTION,
     )
 
 
 # --- fast unit tests (synthetic mapping, model-free path) ----------------------
 
 
-def _zeroth_xy(mapping):
-    return np.array(
-        [mapping.zeroth_order_position[1], mapping.zeroth_order_position[0]]
-    )
-
-
-def test_without_an_output_pitch_the_fit_grids_are_only_turned_and_mirrored():
-    """With neither a model nor a recorded output pitch, the map from camera metres to
-    focal-plane metres is the rotation and mirror of the mapping, at unit
-    magnification.
+def test_a_camera_at_unit_magnification_keeps_the_fit_grids_in_metres():
+    """A camera that images the focal plane at unit magnification turns and mirrors
+    the fit grids, and leaves their scale.
     """
     slm, camera = _build_setup()
     calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
     calibrator.camera_mapping = _synthetic_mapping(rotation_deg=30.0, scale=2.0)
     matrix = calibrator._orientation_matrix()
-    np.testing.assert_allclose(matrix @ matrix.T, np.eye(2), atol=1e-9)
+    # The partial affine is refitted from the point pairs, which holds it to about
+    # 1e-9.
+    np.testing.assert_allclose(matrix @ matrix.T, np.eye(2), atol=1e-6)
     # An aligned camera gives the identity, so the fit grids are left untouched.
     calibrator.camera_mapping = _synthetic_mapping(rotation_deg=0.0, scale=1.7)
-    np.testing.assert_allclose(calibrator._orientation_matrix(), np.eye(2), atol=1e-9)
+    np.testing.assert_allclose(calibrator._orientation_matrix(), np.eye(2), atol=1e-6)
 
 
 def test_the_fit_grids_carry_camera_metres_into_focal_plane_metres():
@@ -167,25 +178,19 @@ def test_the_fit_grids_carry_camera_metres_into_focal_plane_metres():
     assert float(focal_y[0]) == pytest.approx(linear[1, 0] * output_pitch)
 
 
-def test_a_supplied_model_that_has_not_run_sets_the_scale():
-    """A model whose output geometry is not built yet runs once, and its output pitch
-    scales the map from camera metres to focal-plane metres.
+def test_a_supplied_model_that_has_not_run_runs_once():
+    """The output geometry of a model is built on its first pass, so a model without
+    one runs once.
     """
     slm, camera = _build_setup()
     calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
-    model = calibrator._build_slm_camera_model()
+    model = SLMFFT.from_slm(slm, FOCAL_LENGTH, tuple(camera.pixel_size))
     assert model[-1].pixel_size_out is None
 
     calibrator._ensure_camera_mapping(_synthetic_mapping(), model)
 
-    pitch_y, pitch_x = model[-1].pixel_size_out.tolist()[0]
-    camera_pitch_y, camera_pitch_x = camera.pixel_size
-    expected = (
-        np.diag([pitch_x, pitch_y])
-        @ calibrator.camera_mapping.affine.linear
-        @ np.diag([1.0 / camera_pitch_x, 1.0 / camera_pitch_y])
-    )
-    np.testing.assert_allclose(calibrator._orientation_matrix(), expected)
+    assert model[-1].pixel_size_out is not None
+    assert calibrator._slm_camera_model is model
 
 
 @pytest.mark.parametrize("mirror", [False, True])
@@ -199,8 +204,8 @@ def test_main_placement_is_diagonal_and_clears_dc(mirror):
     roi = (20, 20)
     tilt, target, _ = calibrator._ensure_and_place_main(roi, None, None)
 
-    height, width = camera.shape
-    zeroth = _zeroth_xy(mapping)  # (x, y)
+    height, width = camera.sensor_resolution
+    zeroth = np.asarray(mapping.zeroth_order_xy)
     offset = np.asarray(target) - zeroth
     assert 0 < target[0] < width and 0 < target[1] < height  # on sensor
     assert np.hypot(*offset) >= 2 * max(roi) - 1e-6  # clears DC by 2 * roi
@@ -214,7 +219,7 @@ def test_lattice_placement_same_diagonal_further_out():
     calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
     mapping = _synthetic_mapping(zeroth=(90.0, 70.0))
     calibrator.camera_mapping = mapping
-    zeroth = _zeroth_xy(mapping)
+    zeroth = np.asarray(mapping.zeroth_order_xy)
     roi = (20, 20)
     _, main_target, direction = calibrator._ensure_and_place_main(roi, None, None)
     main_distance = float(np.hypot(*(np.asarray(main_target) - zeroth)))
@@ -239,7 +244,12 @@ def test_auto_tilt_lands_spot_on_target(camera_angle):
 
     (tilt, target, _) = calibrator._ensure_and_place_main((40, 40), None, None)
     (spot_x, spot_y), _, _, _ = get_diffraction_spot_position(
-        slm, camera, tilt, focal_length=FOCAL_LENGTH, units="pixels", verbose=False
+        slm,
+        camera,
+        tilt,
+        slm_camera_model=calibrator._model,
+        units="pixels",
+        verbose=False,
     )
     # The recovered camera rotation matches the injected angle.
     assert calibrator.camera_mapping.rotation_degrees == pytest.approx(
@@ -268,7 +278,7 @@ def _corner_setup(exposure_bounds: tuple[float, float] = (0.0, 1.0)):
         (slice(height - corner, height), slice(width - corner, width)),
     ]
     roi = calibrator.get_roi_size(corner, corner)
-    sensor_height, sensor_width = camera.shape
+    sensor_height, sensor_width = camera.sensor_resolution
     window = (
         min(4 * roi[0], sensor_height),  # height
         min(4 * roi[1], sensor_width),  # width
@@ -290,21 +300,6 @@ def test_lattice_corner_slices_span_the_slm_corners():
         (slice(height - size, height), slice(0, size)),
         (slice(height - size, height), slice(width - size, width)),
     ]
-
-
-def test_capture_averaged_reduces_noise(monkeypatch):
-    slm, camera = _build_setup()
-    calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
-    rng = np.random.default_rng(0)
-    shape = camera.shape
-    # Fresh per-frame noise about a constant signal, as a real sensor delivers.
-    monkeypatch.setattr(
-        camera, "get_image", lambda *a, **k: rng.normal(100.0, 10.0, size=shape)
-    )
-    single = np.asarray(camera.get_image(), dtype=float)
-    averaged = calibrator._capture_averaged(1e-3, 25)
-    # Averaging 25 frames should cut the noise spread by roughly 1/5.
-    assert averaged.std() < 0.5 * single.std()
 
 
 @pytest.mark.parametrize(
@@ -342,7 +337,7 @@ def test_corner_steering_recovers_offset_under_noise(
         )
         return spot + rng.normal(16.0, 4.0, size=(window_height, window_width))
 
-    monkeypatch.setattr(calibrator, "_capture_averaged", fake_capture)
+    monkeypatch.setattr(calibrator.camera, "get_averaged_image", fake_capture)
     tilts = calibrator.calibrate_lattice_corner_tilts(
         corner_slices, lattice_tilt, roi, spot_center, exposure_time=1e-3
     )
@@ -402,7 +397,7 @@ def test_corner_steering_gates_pure_noise(monkeypatch):
         # No spot: the validity gate must reject every corner fit and steer none.
         return rng.normal(16.0, 2.0, size=(window_height, window_width))
 
-    monkeypatch.setattr(calibrator, "_capture_averaged", fake_capture)
+    monkeypatch.setattr(calibrator.camera, "get_averaged_image", fake_capture)
     tilts = calibrator.calibrate_lattice_corner_tilts(
         corner_slices, lattice_tilt, roi, spot_center, exposure_time=1e-3
     )
@@ -431,7 +426,7 @@ def test_a_corner_overexposed_at_the_shortest_exposure_is_captured_there(monkeyp
         corner_exposures.append(exposure)
         return rng.normal(16.0, 2.0, size=window)
 
-    monkeypatch.setattr(calibrator, "_capture_averaged", capture)
+    monkeypatch.setattr(camera, "get_averaged_image", capture)
     calibrator.calibrate_lattice_corner_tilts(
         corner_slices, (300e-6, 300e-6), roi, spot_center
     )
@@ -541,16 +536,12 @@ def test_calibrate_records_the_scan_for_the_animation(tmp_path) -> None:
 
 
 def test_a_supplied_model_must_match_the_calibrator_focal_length() -> None:
-    """A model with a different focal length is rejected rather than used.
-
-    The model is not only a coordinate reference for the coarse mapping:
-    ``_orientation_matrix`` reads ``pixel_size_out`` off its output layer, and that
-    spacing scales with the focal length. A mismatched model therefore biases the
-    camera to focal-plane scale and misplaces every tilt, with no error to point at.
+    """The model describes the same lens as the calibrator, so a different focal length
+    means one of them is wrong.
     """
     slm, camera = _build_setup()
     calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
-    model = calibrator._build_slm_camera_model()
+    model = SLMFFT.from_slm(slm, FOCAL_LENGTH, tuple(camera.pixel_size))
     assert np.isclose(model.focal_length, FOCAL_LENGTH)
 
     mismatched = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH * 1.2)
@@ -581,7 +572,10 @@ def test_addressable_half_extent_needs_no_model() -> None:
     assert np.isclose(extent[1], wavelength * FOCAL_LENGTH / (2 * pitch_y))
     # and it agrees with what the model would have said
     assert np.allclose(
-        extent, calibrator._build_slm_camera_model().addressable_half_extent()
+        extent,
+        SLMFFT.from_slm(
+            slm, FOCAL_LENGTH, tuple(camera.pixel_size)
+        ).addressable_half_extent(),
     )
 
 
@@ -844,6 +838,27 @@ def test_the_spot_search_autoexposes(monkeypatch):
     ) < 3.0
 
 
+def test_the_default_window_of_the_intensity_scan_is_the_central_lobe():
+    """Without a camera_roi_size, the intensity scan reads out the central lobe of the
+    superpixel's sinc^2 (get_roi_size). This is the window that calibrate passes to the
+    scan.
+    """
+    slm, camera = _build_setup()
+    calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
+
+    _, camera_images = calibrator.measure_intensity(
+        number_of_superpixels_x=2,
+        number_of_superpixels_y=2,
+        superpixel_width=32,
+        superpixel_height=32,
+        linear_phase_tilt=(1.5e-3, 1.5e-3),
+        verbose=False,
+    )
+
+    roi_width, roi_height = calibrator.get_roi_size(32, 32)
+    assert camera_images.shape[1:] == (roi_height, roi_width)
+
+
 def test_the_scans_put_the_camera_settings_back():
     """The intensity scan, the phase scan and the corner steering each leave the
     camera's exposure and region of interest as they found them.
@@ -878,3 +893,26 @@ def test_the_scans_put_the_camera_settings_back():
         corner_slices, (300e-6, 300e-6), roi, spot_center
     )
     assert (camera.roi, camera.get_exposure()) == (region, 2e-3)
+
+
+def test_the_superpixel_sides_are_divisors_of_the_slm_sides() -> None:
+    """The superpixel sides are the divisors of the SLM sides closest to what is asked,
+    so the superpixels tile the SLM.
+    """
+    slm_shape = (1024, 1280)
+
+    assert SuperpixelSlicer.size_for_counts(slm_shape, 16, 16) == (80, 64)
+    # 1280 / 12 = 106.7 lies nearer 128 than 80, and 1024 / 12 = 85.3 nearer 64.
+    assert SuperpixelSlicer.size_for_counts(slm_shape, 12, 12) == (128, 64)
+    assert SuperpixelSlicer.counts_for_size(slm_shape, 33, 30) == (40, 32)
+
+
+def test_the_superpixel_average_is_the_mean_over_the_superpixels_at_each_pixel():
+    slicer = SuperpixelSlicer((4, 6), 2, 2, 4, 2)
+
+    average, covered = slicer.average([2.0, 6.0, 2.0, 6.0], slicer.slices)
+
+    # The superpixels of a row span columns 0 to 3 and 2 to 5, and overlap in 2 and 3.
+    np.testing.assert_array_equal(average[0], [2.0, 2.0, 4.0, 4.0, 6.0, 6.0])
+    assert covered.all()
+    assert SuperpixelSlicer.center(slicer.slices[1]) == (4.0, 1.0)

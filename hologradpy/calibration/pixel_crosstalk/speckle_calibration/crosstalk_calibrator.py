@@ -1,19 +1,18 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import ClassVar, Sequence
+from typing import Any, ClassVar, Sequence
 
 import numpy as np
 import torch
 from numpy.typing import NDArray
 
-from ....datasets import CaptureStore
 from ....hardware.camera import Background
 from ....loss_functions import MaskedIntensityMSE
 from ....optics.modules.pixel_crosstalk import ConvolutionalCrosstalk, PixelCrosstalk
 
-from ...speckle import SpeckleCaptureData
-from ...speckle.calibrator import FitSettings, SpeckleCalibrator
+from ...speckle.calibrator import SpeckleCalibrator
+from ...model_fit import ModelFitter
 
 from .crosstalk_fitter import CrosstalkFitter
 from .records import PixelCrosstalkCalibrationData
@@ -61,16 +60,37 @@ class CrosstalkSpeckleCalibrator(SpeckleCalibrator):
         """The crosstalk model being fitted."""
         return self.slm_camera_model.virtual_slm.pixel_crosstalk
 
-    def _fit_settings(self, mask: torch.Tensor) -> FitSettings:
-        return FitSettings(
-            loss=MaskedIntensityMSE(mask), learning_rate=self.learning_rate
+    def _fit(
+        self,
+        fitter: ModelFitter,
+        subset_indices: Sequence[int] | None,
+        verbose: bool,
+        number_of_epochs: int = 50,
+        batch_size: int = 5,
+    ) -> list[float]:
+        """Adam steps on the masked intensity cost at :attr:`learning_rate`, and the
+        mean loss of each epoch.
+
+        Args:
+            fitter: The fitter of the dataset.
+            subset_indices: Which dataset samples to fit against, or None for all.
+            verbose: Show a progress bar.
+            number_of_epochs: Passes over the dataset.
+            batch_size: Phase patterns per step.
+        """
+        return self._fit_by_adam(
+            fitter,
+            MaskedIntensityMSE(fitter.frames.region.to(fitter.frames.dtype)),
+            self.learning_rate,
+            subset_indices,
+            verbose,
+            number_of_epochs,
+            batch_size,
         )
 
-    def fit_crosstalk(self, *args, **kwargs) -> list[float]:
-        """Fit the crosstalk model to a captured dataset. The crosstalk name for
-        :meth:`~hologradpy.calibration.speckle.calibrator.SpeckleCalibrator.fit`.
-        """
-        return self.fit(*args, **kwargs)
+    def _visualization_extras(self) -> dict:
+        """The upscale factor of the crosstalk model, which every panel draws on."""
+        return {"upscale_factor": self.pixel_crosstalk.upscale_factor}
 
     def recovered_kernel(self) -> NDArray:
         """The fitted fringing-field kernel, on the sub-pixel grid."""
@@ -86,70 +106,6 @@ class CrosstalkSpeckleCalibrator(SpeckleCalibrator):
             array = parameter.detach().cpu().numpy()
             values[name] = float(array) if array.ndim == 0 else array
         return values
-
-    def dataset_visualization_data(
-        self,
-        capture_data: SpeckleCaptureData | None = None,
-        sample_index: int = 0,
-    ) -> CrosstalkVisualizationData:
-        """The captured dataset before any fitting.
-
-        Args:
-            capture_data: The dataset to show. Defaults to the one from the last
-                :meth:`fit_crosstalk`, so a fitted calibrator needs no argument.
-            sample_index: Which captured pattern to show.
-
-        Returns:
-            CrosstalkVisualizationData: Carrying only what a dataset holds.
-
-        Raises:
-            RuntimeError: If no dataset has been captured or loaded yet.
-        """
-        if capture_data is not None:
-            self.capture_data = capture_data
-
-        if self.capture_data is None:
-            raise RuntimeError(
-                "No dataset to show. Capture one with "
-                "calibrator.dataset_generator.generate_dataset(...) and pass it as "
-                "capture_data."
-            )
-
-        with CaptureStore.open(self.dataset_path) as store:
-            sample = store.read(sample_index)
-        return self.visualization_data_type(
-            camera_image=sample["camera_image"],
-            roi_mask=self.capture_data.roi_mask,
-            upscale_factor=self.pixel_crosstalk.upscale_factor,
-            slm_pattern=sample["slm_levels"],
-        )
-
-    def _build_visualization_data(
-        self, kernel: NDArray
-    ) -> CrosstalkVisualizationData | None:
-        """Collect the panels' inputs, or None if anything needed is missing."""
-        try:
-            measured_roi, predicted_roi = self.fitter.measured_and_predicted_roi(0)
-            with CaptureStore.open(self.dataset_path) as store:
-                sample = store.read(0)
-            return self.visualization_data_type(
-                camera_image=sample["camera_image"],
-                roi_mask=self.capture_data.roi_mask,
-                upscale_factor=self.pixel_crosstalk.upscale_factor,
-                slm_pattern=sample["slm_levels"],
-                measured_roi=measured_roi,
-                predicted_roi=predicted_roi,
-                kernel=kernel,
-                injected_kernel=self._injected_kernel(),
-                loss_history=list(self.loss_history),
-                loss_component_history={
-                    label: list(values)
-                    for label, values in self.loss_component_history.items()
-                },
-            )
-        except (RuntimeError, OSError, KeyError, IndexError) as error:
-            print(f"Could not collect visualization data ({error}).")
-            return None
 
     def _residual_metrics(self, kernel: NDArray) -> dict:
         """How close the recovered kernel came, when the model injected one."""
@@ -188,60 +144,49 @@ class CrosstalkSpeckleCalibrator(SpeckleCalibrator):
                 "focal_length": self.focal_length,
                 "number_of_random_patterns": self.number_of_random_patterns,
                 "learning_rate": self.learning_rate,
-                "background_level": self.fitter.background_level,
+                "background_level": self.fitter.frames.background_level,
                 **self._residual_metrics(kernel),
             },
-            visualization_data=self._build_visualization_data(kernel),
+            visualization_data=self._build_visualization_data(
+                kernel=kernel, injected_kernel=self._injected_kernel()
+            ),
         )
 
     def calibrate(
         self,
-        speckle_pattern_extent: tuple[float, float] | None = None,
-        number_of_epochs: int = 50,
-        batch_size: int = 5,
         subset_indices: Sequence[int] | None = None,
         seed: int | None = None,
         verbose: bool = True,
         background: Background | None = None,
+        **fit_settings: Any,
     ) -> PixelCrosstalkCalibrationData:
         """Capture a dataset, fit the model to it, and return the kernel.
 
-        To capture once and refit several times, call the two phases yourself:
-        ``dataset_generator.generate_dataset(...)`` followed by :meth:`fit_crosstalk`.
+        The patterns are drawn per pixel and fill the whole addressable area, and the
+        region of interest is the sensor minus the zeroth order. A dataset captured
+        once can be refitted several times with :meth:`fit`.
 
         Args:
-            speckle_pattern_extent: Full width ``(y, x)`` of the speckle in the image
-                plane, in metres. When None, the patterns are drawn per pixel and
-                fill the whole addressable area. The region of interest is then the
-                sensor minus the zeroth order. With an extent, the patterns are band
-                limited, so the fit loses most of its signal.
-            number_of_epochs: Passes over the dataset.
-            batch_size: Patterns per optimizer step.
             subset_indices: Fit only these patterns of the dataset. Defaults to all.
             seed: Seed for the pattern noise.
             verbose: Print the loss as the fit runs.
-            background: The counts subtracted from every frame before the fit. It is
-                one level for every pixel, a whole-sensor frame, or a function of the
-                exposure in seconds returning either. A function is evaluated at the
-                recorded exposure of the dataset. None, the default, subtracts nothing.
+            background: The counts subtracted from every frame before the fit, in any
+                form :meth:`fit` takes. None subtracts nothing.
+            **fit_settings: The settings of the Adam fit (:meth:`_fit`).
 
         Returns:
             PixelCrosstalkCalibrationData: The fitted kernel and its parameters.
         """
-        # A previous fit holds the file mapped, which blocks writing over it.
-        self.release_dataset()
-
         capture_data = self.dataset_generator.generate_dataset(
-            speckle_pattern_extent, seed=seed, pattern="uniform"
+            seed=seed, pattern="uniform"
         )
 
-        self.fit_crosstalk(
-            number_of_epochs=number_of_epochs,
-            batch_size=batch_size,
-            subset_indices=subset_indices,
-            verbose=verbose,
+        self.fit(
             capture_data=capture_data,
             background=background,
+            subset_indices=subset_indices,
+            verbose=verbose,
+            **fit_settings,
         )
 
         return self.generate_crosstalk_calibration()
