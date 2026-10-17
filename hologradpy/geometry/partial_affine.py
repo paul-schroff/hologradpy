@@ -66,26 +66,19 @@ class PartialAffineTransform(AffineTransform):
         """The rotation angle in degrees."""
         return self.rotation_degrees
 
+    def components(
+        self, center: tuple[float, float] = (0.0, 0.0)
+    ) -> tuple[float, float, tuple[float, float]]:
+        """The ``(scale, angle_deg, shift)`` that :meth:`from_components` builds this
+        transform from.
 
-def inverse_partial_affine_parameters(
-    transform: PartialAffineTransform, center_xy: tuple[float, float]
-) -> tuple[float, float, tuple[float, float]]:
-    """The ``(scale, angle_deg, shift_xy)`` of the inverse of a fitted camera -> model
-    similarity, the model -> camera map that a focal-plane partial affine applies.
+        Args:
+            center: The ``(x, y)`` point that the scale and the rotation keep fixed.
 
-    The scale and the rotation keep ``center_xy`` fixed. All quantities are in
-    ``(x, y)`` output pixels.
-
-    Args:
-        transform: The camera -> model similarity fitted by the camera mappers.
-        center_xy: The point that the scale and the rotation keep fixed.
-
-    Returns:
-        tuple[float, float, tuple[float, float]]: The uniform scale, the angle in
-        degrees and the shift.
-    """
-    inverse = PartialAffineTransform.from_matrix(transform.inverse().matrix)
-    # The shift about center_xy, inverting the translation of from_components.
-    center = np.asarray(center_xy, dtype=np.float64)
-    shift = inverse.translation - (center - inverse.linear @ center)
-    return inverse.scale, inverse.angle_degrees, (float(shift[0]), float(shift[1]))
+        Returns:
+            tuple[float, float, tuple[float, float]]: The uniform scale, the angle in
+            degrees and the ``(x, y)`` shift.
+        """
+        center = np.asarray(center, dtype=np.float64)
+        shift = self.translation - (center - self.linear @ center)
+        return self.scale, self.angle_degrees, (float(shift[0]), float(shift[1]))

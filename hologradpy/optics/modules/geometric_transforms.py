@@ -5,21 +5,21 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 from jaxtyping import Float
-from torch.nn import Parameter
 
 from ...geometry import homogeneous_matrix, rotation_matrix_from_angle
+from ...grids import plane_center
 from .abstract import capture_init, OpticsModule
 from .learnable_partial_affine import LearnablePartialAffine
 from ..complex_amplitude import ComplexAmplitude
 
 
 class GeometricWarp(OpticsModule):
-    """Differentiable geometric warp of the field (a resampling transform).
+    """Differentiable bilinear resampling of the field through an affine pixel matrix.
 
-    Resamples the field through an affine pixel matrix with bilinear interpolation.
     Output pixels that map outside the input are zero. The map is parameterized by
     :attr:`focal_plane_partial_affine`, which the affine optical systems calibrate.
-    ``rotation_center_shift`` moves the centre of the rotation and is not part of it.
+    The centre of the input plane lands on the centre of the output plane
+    (:func:`~hologradpy.grids.plane_center`) when the partial affine holds no shift.
     """
 
     @capture_init
@@ -30,14 +30,9 @@ class GeometricWarp(OpticsModule):
         scale_factor: tuple[float, float] = (1, 1),
         shift: tuple[float, float] = (0, 0),
         angle: float = 0.0,
-        rotation_center_shift: tuple[float, float] = (0, 0),
-        verbose: bool = False,
     ) -> None:
         super().__init__(pixel_size_out, resolution_out)
 
-        self.verbose = verbose
-
-        self.init_rotation_center_shift = rotation_center_shift
         self.focal_plane_partial_affine = LearnablePartialAffine(
             resolution_out,
             scale_factor=scale_factor,
@@ -46,9 +41,6 @@ class GeometricWarp(OpticsModule):
             learnable=False,
         )
 
-        self.register_parameter("rotation_center_shift", None)
-        self.rotation_center_shift: Parameter | None
-
     def lazy_init(self, complex_amplitude: ComplexAmplitude) -> None:
         number_of_wavelengths = complex_amplitude.wavelength.numel()
 
@@ -56,44 +48,17 @@ class GeometricWarp(OpticsModule):
             device=complex_amplitude.device, dtype=complex_amplitude.dtype_r
         )
 
-        # Shift of the rotation center relative to the shift_center
-        self.rotation_center_shift = Parameter(
-            torch.tensor(
-                self.init_rotation_center_shift,
-                dtype=complex_amplitude.dtype_r,
-                device=complex_amplitude.device,
-            ).repeat(number_of_wavelengths, 1),
-            requires_grad=False,
-        )
-
         # Setting scaling to pixel size ratios
         self.scale = (self.pixel_size_in / self.pixel_size_out).fliplr()
 
-        # Setting the rotation center to the center of the input image
-        rotation_center = tuple(self.resolution_in[i] // 2 for i in range(2))[::-1]
-        self.rotation_center = torch.tensor(
-            rotation_center,
-            dtype=complex_amplitude.dtype_r,
-            device=complex_amplitude.device,
-        ).repeat(number_of_wavelengths, 1)  # Repeat for batch dimension if needed
-
-        # Shift moving the center of the input image to the center of the
-        # output image
-        resolution_out = torch.tensor(
-            self.resolution_out,
-            dtype=complex_amplitude.dtype_r,
-            device=complex_amplitude.device,
-        )
-        resolution_in = torch.tensor(
-            self.resolution_in,
-            dtype=complex_amplitude.dtype_r,
-            device=complex_amplitude.device,
-        )
-
-        self.shift_center = (
-            self.rotation_center * (self.scale - 1)
-            + (resolution_out - resolution_in * self.scale) / 2
-        ).fliplr()
+        options = {
+            "dtype": complex_amplitude.dtype_r,
+            "device": complex_amplitude.device,
+        }
+        center_in = torch.tensor(plane_center(self.resolution_in), **options)
+        center_out = torch.tensor(plane_center(self.resolution_out), **options)
+        self.rotation_center = center_in.repeat(number_of_wavelengths, 1)
+        self.shift_center = (center_out - center_in).repeat(number_of_wavelengths, 1)
 
         self.affine_matrix = self.get_affine_matrix()
 
@@ -101,8 +66,8 @@ class GeometricWarp(OpticsModule):
         """The matrix mapping input ``(x, y)`` pixels to output pixels, per wavelength.
 
         The field is scaled by the pixel-size ratio times ``scale_factor`` and rotated
-        by ``angle``, both about the rotation centre, then shifted by ``shift_center +
-        shift``.
+        by ``angle`` about the centre of the input plane. It is then shifted by
+        ``shift_center + shift``.
         """
         partial_affine = self.focal_plane_partial_affine
         scale = self.scale * partial_affine.scale_factor
@@ -110,7 +75,7 @@ class GeometricWarp(OpticsModule):
         return homogeneous_matrix(
             linear,
             self.shift_center + partial_affine.shift,
-            self.rotation_center + self.rotation_center_shift,
+            self.rotation_center,
         )
 
     def forward(
@@ -123,11 +88,6 @@ class GeometricWarp(OpticsModule):
         resampling, the per-wavelength affine matrix is tiled to match, and the
         original rank is restored on output.
         """
-        if self.verbose:
-            print("Scale:", self.scale.data)
-            print("Shift:", self.focal_plane_partial_affine.shift.data)
-            print("Angle:", self.focal_plane_partial_affine.angle.data)
-
         number_of_wavelengths = complex_amplitude.number_of_wavelengths
 
         # Collapse all batch dimensions into a single leading axis and merge
@@ -152,7 +112,7 @@ class GeometricWarp(OpticsModule):
         # grid_sample takes real images, so the real and imaginary parts are resampled
         # as two channels on one grid.
         channels = torch.view_as_real(field).permute(0, 3, 1, 2)
-        warped = _warp_affine(channels, affine_matrix, self.resolution_out)
+        warped = warp_affine(channels, affine_matrix, self.resolution_out)
         transformed_field = torch.view_as_complex(
             warped.permute(0, 2, 3, 1).contiguous()
         )
@@ -198,7 +158,7 @@ def _pixel_to_normalized_matrix(
     )
 
 
-def _warp_affine(
+def warp_affine(
     image: Float[torch.Tensor, "batch channel H W"],
     pixel_matrix: Float[torch.Tensor, "batch 3 3"],
     resolution_out: tuple[int, int],

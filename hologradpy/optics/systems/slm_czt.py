@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..modules.learnable_partial_affine import LearnablePartialAffine
+from ...grids import metres_to_pixel_shift
 from ..modules.propagators import FourierLensCZT
 from ..modules.slm_fields import SLMField
 from ..modules.virtual_slms.abstract import VirtualSLM
@@ -8,7 +8,6 @@ from ..complex_amplitude import FieldGeometry
 
 from .abstract import (
     SLMFourierLensModel,
-    camera_shift_pixels,
     slm_stages,
     upscaled_padding,
 )
@@ -59,14 +58,10 @@ class SLMCZT(SLMFourierLensModel):
                 focal_length,
                 resolution_out=camera_resolution,
                 pixel_size_out=camera_pixel_size,
-                shift=camera_shift_pixels(camera_shift, camera_pixel_size),
+                shift=metres_to_pixel_shift(camera_shift, camera_pixel_size),
                 angle=camera_angle,
                 learnable=True,
                 power_normalized=power_normalized,
                 padded_resolution=upscaled_padding(padded_resolution, virtual_slm),
             ),
         )
-
-    @property
-    def focal_plane_partial_affine(self) -> LearnablePartialAffine:
-        return self.fourier_lens.focal_plane_partial_affine

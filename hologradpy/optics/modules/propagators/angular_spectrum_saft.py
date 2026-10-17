@@ -8,7 +8,7 @@ from torch.fft import fftshift
 
 from ....fourier_transforms import SemiAnalyticalFourierTransform, fft_2d
 from ....grids import get_frequency_grid, get_pixel_grid
-from ....utils import to_canvas
+from ....utils import resolve_padded_resolution, to_canvas
 
 from ..abstract import OpticsModule, capture_init
 from ...complex_amplitude import ComplexAmplitude, broadcast_wavelength_operand
@@ -48,7 +48,8 @@ class AngularSpectrumSAFT(OpticsModule):
                 to the Fresnel pitch, where the residual is smoothest.
             resolution_out: Output resolution ``(height, width)``. Defaults to the
                 input's.
-            padded_resolution: Resolution to transform on. Defaults to twice the input.
+            padded_resolution: Resolution to transform on, even and at least the
+                input resolution. Defaults to twice the input.
         """
         super().__init__(
             pixel_size_out=pixel_size_out, resolution_out=resolution_out
@@ -58,11 +59,9 @@ class AngularSpectrumSAFT(OpticsModule):
         self._warned = False
 
     def lazy_init(self, complex_amplitude: ComplexAmplitude) -> None:
-        resolution_in = complex_amplitude.resolution
-        if self._padded_resolution_init is None:
-            self._padded_resolution = tuple(2 * length for length in resolution_in)
-        else:
-            self._padded_resolution = self._padded_resolution_init
+        self._padded_resolution = resolve_padded_resolution(
+            self._padded_resolution_init, complex_amplitude.resolution
+        )
 
         pitch = complex_amplitude.pixel_size.reshape(-1, 2)[0].to(torch.float64)
 

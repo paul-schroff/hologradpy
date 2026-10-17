@@ -83,6 +83,13 @@ ADJOINT_FACTORIES: dict[str, callable] = {
         resolution_out=RESOLUTION,
         pixel_size_out=(5e-6, 5e-6),
     ),
+    # An output plane of another size than the input, so the adjoint has to return a
+    # field on the input plane.
+    "FourierLensNUFFTResampled": lambda: FourierLensNUFFT(
+        focal_length=0.1,
+        resolution_out=(6, 10),
+        pixel_size_out=(5e-6, 5e-6),
+    ),
     "PointingInstability": lambda: PointingInstability(
         tilt_std=(1e-4, 1e-4), seed=0
     ),

@@ -79,14 +79,19 @@ def fourier_filter(image: Tensor, band_mask: Tensor) -> Tensor:
     """``image`` with its spectrum set to zero outside the band.
 
     Args:
-        image: The image ``(..., H, W)``.
-        band_mask: The mask of :func:`intensity_band_mask` for the same grid.
+        image: The image ``(..., H, W)``, real or complex.
+        band_mask: The band in the centred layout of
+            :func:`~hologradpy.fourier_transforms.fft_2d`, such as the mask of
+            :func:`intensity_band_mask` for the same grid.
 
     Returns:
-        Tensor: The filtered image, real.
+        Tensor: The filtered image, real for a real ``image`` and complex for a
+        complex one.
     """
-    spectrum = fft_2d(image) * band_mask.to(image.device)
-    return ifft_2d(spectrum).real.to(image.dtype)
+    filtered = ifft_2d(fft_2d(image) * band_mask.to(image.device))
+    if image.is_complex():
+        return filtered
+    return filtered.real.to(image.dtype)
 
 
 def white_noise_rms(

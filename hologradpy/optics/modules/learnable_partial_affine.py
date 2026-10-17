@@ -6,7 +6,7 @@ import torch
 from torch import nn
 from torch.nn import Parameter
 
-from ...geometry import PartialAffineTransform, inverse_partial_affine_parameters
+from ...geometry import AffineTransform, PartialAffineTransform
 from ...grids import plane_center
 
 
@@ -53,6 +53,19 @@ class LearnablePartialAffine(nn.Module):
             torch.tensor(float(angle), dtype=torch.float64), requires_grad=learnable
         )
 
+    @property
+    def transform(self) -> AffineTransform:
+        """The map the parameters apply, from the plane without the partial affine to
+        the output plane, in ``(x, y)`` output pixels. The shift is applied after the
+        zoom and the rotation about :attr:`center`.
+        """
+        return AffineTransform.from_components(
+            scale=tuple(float(value) for value in self.scale_factor.detach().cpu()),
+            angle_deg=float(self.angle.detach()),
+            shift=tuple(float(value) for value in self.shift.detach().cpu()),
+            center=self.center,
+        )
+
     def set(self, transform: PartialAffineTransform) -> None:
         """Set the parameters to the inverse of a fitted camera -> model similarity,
         starting from identity.
@@ -60,9 +73,7 @@ class LearnablePartialAffine(nn.Module):
         Args:
             transform: The camera -> model similarity fitted by the camera mappers.
         """
-        scale, angle_deg, shift = inverse_partial_affine_parameters(
-            transform, self.center
-        )
+        scale, angle_deg, shift = transform.inverse().components(self.center)
         with torch.no_grad():
             self.scale_factor.fill_(scale)
             self.shift.copy_(

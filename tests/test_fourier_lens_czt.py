@@ -12,9 +12,14 @@ from __future__ import annotations
 import pytest
 import torch
 
+import hologradpy.fourier_transforms.czt as chirp_z_module
 from hologradpy.optics.complex_amplitude import ComplexAmplitude
 from hologradpy.optics.modules.propagators import FourierLensCZT
-from hologradpy.fourier_transforms import fft_2d, padded_resolution_for_rotation
+from hologradpy.fourier_transforms import (
+    fft_2d,
+    fft_shear,
+    padded_resolution_for_rotation,
+)
 
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
@@ -113,6 +118,27 @@ def test_czt_lens_static_has_no_grad_parameters() -> None:
     assert lens.focal_plane_partial_affine.scale_factor.requires_grad is False
     assert lens.focal_plane_partial_affine.shift.requires_grad is False
     assert lens.focal_plane_partial_affine.angle.requires_grad is False
+
+
+def test_a_frozen_partial_affine_runs_the_lens_of_a_fixed_one(monkeypatch) -> None:
+    """A fitter of other parameters freezes the partial affine
+    (``set_gradient_requirements``). The lens then runs as one built with
+    ``learnable=False``, with no shear at an angle of zero.
+    """
+    shears = []
+
+    def counted_shear(*args):
+        shears.append(args)
+        return fft_shear(*args)
+
+    monkeypatch.setattr(chirp_z_module, "fft_shear", counted_shear)
+    field = make_field(RESOLUTION, 1, seed=3)
+    frozen = FourierLensCZT(FOCAL_LENGTH, RESOLUTION, (5e-6, 8e-6))
+    frozen.focal_plane_partial_affine.requires_grad_(False)
+    fixed = FourierLensCZT(FOCAL_LENGTH, RESOLUTION, (5e-6, 8e-6), learnable=False)
+
+    assert torch.equal(frozen(field).as_tensor(), fixed(field).as_tensor())
+    assert shears == []
 
 
 def test_czt_lens_preserves_batch_rank_and_geometry() -> None:

@@ -5,10 +5,11 @@ from dataclasses import replace
 
 import torch
 from torch import Tensor
+from torch.fft import ifftshift
 
 from ....fourier_transforms import fft_2d, ifft_2d
 from ....grids import get_frequency_grid
-from ....utils import to_canvas
+from ....utils import resolve_padded_resolution, to_canvas
 
 from ..abstract import OpticsModule
 from ...complex_amplitude import (
@@ -129,21 +130,9 @@ class AngularSpectrumMethod(OpticsModule):
     def lazy_init(
         self: AngularSpectrumMethod, complex_amplitude: ComplexAmplitude
     ) -> None:
-        resolution_in = complex_amplitude.resolution
-
-        if self._padded_resolution_init is None:
-            self._padded_resolution = tuple(2 * resolution_in[i] for i in range(2))
-        else:
-            if (
-                self._padded_resolution_init[0] < resolution_in[0]
-                or self._padded_resolution_init[1] < resolution_in[1]
-            ):
-                raise ValueError(
-                    "Padded resolution must be at least as large as input resolution."
-                )
-            if any(self._padded_resolution_init[i] % 2 for i in range(2)):
-                raise ValueError("Padded resolution must be even.")
-            self._padded_resolution = self._padded_resolution_init
+        self._padded_resolution = resolve_padded_resolution(
+            self._padded_resolution_init, complex_amplitude.resolution
+        )
 
         self.register_buffer("phase_factor", self._get_phase_factor(complex_amplitude))
 
@@ -152,28 +141,28 @@ class AngularSpectrumMethod(OpticsModule):
     ) -> Tensor:
         """Angular-spectrum transfer function ``(n_wavelengths, H, W)``.
 
-        The transfer function is evaluated on the padded frequency grid, in
-        radians per metre, the same grid :meth:`_plane_wave_sum` decomposes the
-        field over.
+        It is evaluated on the padded frequency grid in radians per metre.
+        :meth:`_plane_wave_sum` decomposes the field over the same frequencies.
         """
         frequency_grid_x, frequency_grid_y = get_frequency_grid(
             self._padded_resolution,
-            complex_amplitude.pixel_size[0],
+            complex_amplitude.pixel_size[0].to(torch.float64),
             complex_amplitude.device,
         )
 
         # Per-wavelength wavenumber broadcast over the (padded) frequency grid.
-        wavenumber = complex_amplitude.wavenumber.reshape(-1, 1, 1)
+        wavenumber = complex_amplitude.wavenumber.reshape(-1, 1, 1).to(torch.float64)
         axial_frequency_squared = (
             wavenumber**2
             - frequency_grid_x.unsqueeze(0) ** 2
             - frequency_grid_y.unsqueeze(0) ** 2
         )
         # ``+ 0j`` allows the square root to go imaginary for evanescent waves.
-        return torch.exp(
+        transfer_function = torch.exp(
             1j * self.propagation_distance
             * torch.sqrt(axial_frequency_squared + 0j)
         )
+        return ifftshift(transfer_function, dim=(-2, -1)).to(complex_amplitude.dtype_c)
 
     def _propagate(
         self: AngularSpectrumMethod,
@@ -184,8 +173,10 @@ class AngularSpectrumMethod(OpticsModule):
             transfer_function, complex_amplitude.ndim
         )
         padded = to_canvas(complex_amplitude, self._padded_resolution)
-        spectrum = fft_2d(padded, norm="ortho")
-        propagated = ifft_2d(spectrum * transfer_function, norm="ortho")
+        spectrum = fft_2d(padded, norm="ortho", fft_shift=False)
+        propagated = ifft_2d(
+            spectrum * transfer_function, norm="ortho", fft_shift=False
+        )
         out = to_canvas(propagated, self.resolution_out)
         return out.with_geometry(
             wavelength=complex_amplitude.wavelength,

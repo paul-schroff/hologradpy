@@ -17,13 +17,12 @@ from .abstract import GeometricTransform
 from .affine import AffineTransform
 from .dihedral import dihedral_affine_matrix, dihedral_array_transform
 from .matrices import homogeneous_matrix, rotation_matrix_from_angle
-from .partial_affine import PartialAffineTransform, inverse_partial_affine_parameters
+from .partial_affine import PartialAffineTransform
 
 __all__ = [
     "GeometricTransform",
     "AffineTransform",
     "PartialAffineTransform",
-    "inverse_partial_affine_parameters",
     "homogeneous_matrix",
     "rotation_matrix_from_angle",
     "dihedral_array_transform",
