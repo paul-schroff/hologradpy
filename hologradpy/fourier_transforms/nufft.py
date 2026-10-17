@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 from torch import Tensor
 
 from ..utils import resolve_device
 from .abstract import FourierBase
+from .sampling import get_zoom_frequency_grid, rotated_zoom_trajectory
+
+if TYPE_CHECKING:
+    from ..roi import ROI
 
 try:
     from pytorch_finufft.functional import finufft_type1, finufft_type2
@@ -41,78 +45,24 @@ def _as_per_wavelength(
     return tensor
 
 
-def _build_rotated_trajectory(
-    grid_size: tuple[int, int],
-    resolution_out: tuple[int, int],
-    magnification: Tensor,
-    shift: Tensor,
-    angle: float | Tensor,
-    device: torch.device,
-    dtype: torch.dtype,
-) -> Tensor:
-    """Per-wavelength k-space sample points of a scaled + shifted + rotated zoom
-    window, in rad/sample, laid out as ``(2, n_wl, hw)`` (``[0] = kx``,
-    ``[1] = ky``).
-
-    The un-rotated window matches :func:`get_zoom_frequency_grid`: along each
-    axis the native bin spacing ``2*pi / grid_size`` is divided by the
-    magnification and offset by ``shift``. ``magnification`` / ``shift`` are
-    ``(n_wl, 2)`` in ``(x, y)`` order; ``grid_size`` / ``resolution_out`` are
-    ``(height, width)``. The rotation ``R(angle)`` mixes the two axes:
-    ``kx = gx*cos - gy*sin``, ``ky = gx*sin + gy*cos``.
-    """
-    number_of_wavelengths = max(magnification.shape[0], shift.shape[0])
-    magnification = magnification.expand(number_of_wavelengths, 2)
-    shift = shift.expand(number_of_wavelengths, 2)
-
-    grid_height, grid_width = grid_size
-    out_height, out_width = resolution_out
-
-    def axis(length_in: int, length_out: int, mag: Tensor, offset: Tensor) -> Tensor:
-        step = (2 * torch.pi / length_in) / mag  # (n_wl,)
-        indices = torch.arange(
-            -(length_out // 2), length_out - length_out // 2,
-            device=device, dtype=dtype,
-        )  # (length_out,)
-        return indices.unsqueeze(0) * step.unsqueeze(-1) + offset.unsqueeze(-1)
-
-    omega_x = axis(grid_width, out_width, magnification[:, 0], shift[:, 0])
-    omega_y = axis(grid_height, out_height, magnification[:, 1], shift[:, 1])
-
-    grid_x = omega_x[:, None, :].expand(number_of_wavelengths, out_height, out_width)
-    grid_y = omega_y[:, :, None].expand(number_of_wavelengths, out_height, out_width)
-
-    angle = torch.as_tensor(angle, dtype=dtype, device=device)
-    cos_angle, sin_angle = torch.cos(angle), torch.sin(angle)
-    sample_x = grid_x * cos_angle - grid_y * sin_angle
-    sample_y = grid_x * sin_angle + grid_y * cos_angle
-
-    return torch.stack(
-        (
-            sample_x.reshape(number_of_wavelengths, -1),
-            sample_y.reshape(number_of_wavelengths, -1),
-        ),
-        dim=0,
-    )
-
-
 class NUFFTPartialAffine(FourierBase):
     """A partial affine of the spectrum via the non-uniform FFT (``FINUFFT``).
 
-    The sample points come from :func:`_build_rotated_trajectory` -- the same
-    scaled + shifted window the chirp-z zoom uses, with an extra rotation that,
-    because the NUFFT evaluates arbitrary k-space points, is simply a rotation of
-    the trajectory (no shears). ``magnification`` and ``shift`` may carry a
-    leading wavelength axis ``(n_wl, 2)`` so the trajectory differs per
-    wavelength; ``angle`` is a scalar in radians. The points are evaluated by the
-    general (interpolating) non-uniform FFT, so ``is_gridded`` is ``False`` and
-    the amplitude is the exact DFT sum to within the requested ``eps``, which
-    FINUFFT defaults to ``1e-6``.
+    The sample points are the window of :func:`get_zoom_frequency_grid` turned by
+    :func:`rotated_zoom_trajectory`, the points the chirp-z zoom samples. The NUFFT
+    evaluates arbitrary k-space points, so the rotation needs no shear of the field.
+    ``magnification`` and ``shift`` may carry a leading wavelength axis ``(n_wl, 2)``,
+    giving one trajectory per wavelength. ``angle`` is a scalar in radians. The NUFFT
+    interpolates, so the amplitude matches the exact DFT sum to within the requested
+    ``eps``. FINUFFT defaults ``eps`` to ``1e-6``.
 
-    ``forward``/``adjoint`` operate on a flattened ``(n_images, n_wl, H, W)``
-    field (the leading batch already collapsed by the caller). FINUFFT takes one
-    trajectory per call and broadcasts it over leading batch dimensions, so the
-    image axis rides along for free and only the wavelength axis is a loop.
+    With ``output_roi``, only that rectangle of the ``resolution_out`` grid is
+    evaluated.
+
+    ``forward`` and ``adjoint`` take a ``(n_images, n_wl, H, W)`` field, with any
+    leading batch axes collapsed into ``n_images`` by the caller. FINUFFT takes one
+    trajectory per call and broadcasts it over the image axis, so only the wavelength
+    axis is looped over.
     """
 
     def __init__(
@@ -126,6 +76,7 @@ class NUFFTPartialAffine(FourierBase):
         dtype: torch.dtype = torch.float32,
         device: torch.device | None = None,
         norm: str | None = None,
+        output_roi: ROI | None = None,
         **nufft_kwargs: Any,
     ) -> None:
         if finufft_type1 is None:
@@ -144,14 +95,21 @@ class NUFFTPartialAffine(FourierBase):
         device = resolve_device(device)
         magnification = _as_per_wavelength(magnification, device, dtype)
         shift = _as_per_wavelength(shift, device, dtype)
-        frequencies = _build_rotated_trajectory(
-            grid_size, resolution_out, magnification, shift, angle, device, dtype
+        omega_x, omega_y = get_zoom_frequency_grid(
+            grid_size,
+            resolution_out,
+            (magnification[:, 0], magnification[:, 1]),
+            (shift[:, 0], shift[:, 1]),
+            device,
+            output_roi,
         )
+        frequencies = rotated_zoom_trajectory(omega_x, omega_y, angle)
+        if output_roi is not None:
+            resolution_out = (output_roi.height, output_roi.width)
 
         super().__init__(
             resolution,
             frequencies=frequencies,
-            is_gridded=False,
             resolution_out=resolution_out,
             device=device,
         )

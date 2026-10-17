@@ -4,6 +4,7 @@ import torch
 from torch import Tensor
 from torch.fft import fftshift
 
+from ..grids import get_pixel_grid
 from ..utils import resolve_device, to_canvas
 from .abstract import FourierBase
 from .fft import fft_2d, ifft_2d
@@ -88,7 +89,6 @@ class SemiAnalyticalFourierTransform(FourierBase):
         super().__init__(
             resolution,
             frequencies=None,
-            is_gridded=True,
             resolution_out=resolution,
             device=device,
         )
@@ -97,19 +97,7 @@ class SemiAnalyticalFourierTransform(FourierBase):
 
         # Padded to twice the resolution, so the convolution does not wrap.
         self._padded = tuple(2 * length for length in resolution)
-        rows = torch.arange(
-            -(self._padded[0] // 2),
-            self._padded[0] - self._padded[0] // 2,
-            device=device,
-            dtype=torch.float64,
-        )
-        columns = torch.arange(
-            -(self._padded[1] // 2),
-            self._padded[1] - self._padded[1] // 2,
-            device=device,
-            dtype=torch.float64,
-        )
-        grid_x, grid_y = torch.meshgrid(columns, rows, indexing="xy")
+        grid_x, grid_y = get_pixel_grid(self._padded, device, torch.float64)
 
         curvature_x, cross, curvature_y = curvature
         chirp = torch.exp(
@@ -146,19 +134,7 @@ class SemiAnalyticalFourierTransform(FourierBase):
 
     def _lattice(self) -> tuple[Tensor, Tensor]:
         """The integer lattice the output is indexed by, as an ``(x, y)`` pair."""
-        rows = torch.arange(
-            -(self.resolution[0] // 2),
-            self.resolution[0] - self.resolution[0] // 2,
-            device=self.device,
-            dtype=torch.float64,
-        )
-        columns = torch.arange(
-            -(self.resolution[1] // 2),
-            self.resolution[1] - self.resolution[1] // 2,
-            device=self.device,
-            dtype=torch.float64,
-        )
-        return torch.meshgrid(columns, rows, indexing="xy")
+        return get_pixel_grid(self.resolution, self.device, torch.float64)
 
     def _convolve(self, padded: Tensor, spectrum: Tensor) -> Tensor:
         """Convolve a padded field with a chirp held in bin order. No fftshifts are

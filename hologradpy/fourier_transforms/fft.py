@@ -31,8 +31,8 @@ def ifft_2d(
     fft_shift: bool = True,
 ) -> Tensor:
     if fft_shift is True:
-        return ifftshift(
-            ifftn(fftshift(input, dim=(-1, -2)), norm=norm, dim=(-1, -2)),
+        return fftshift(
+            ifftn(ifftshift(input, dim=(-1, -2)), norm=norm, dim=(-1, -2)),
             dim=(-1, -2),
         )
     else:
@@ -40,9 +40,9 @@ def ifft_2d(
 
 
 class FastFourierTransform(FourierBase):
-    """The full DFT on the native, resolution-preserving bin grid (``is_gridded``).
+    """The full DFT on the native, resolution-preserving bin grid.
 
-    ``forward`` is :func:`fft_2d`, ``adjoint`` is :func:`ifft_2d`; with
+    ``forward`` is :func:`fft_2d` and ``adjoint`` is :func:`ifft_2d`. With
     ``norm="ortho"`` they are exact conjugate transposes.
     """
 
@@ -62,7 +62,6 @@ class FastFourierTransform(FourierBase):
         super().__init__(
             resolution,
             frequencies=frequencies,
-            is_gridded=True,
             resolution_out=resolution,
             device=device,
         )

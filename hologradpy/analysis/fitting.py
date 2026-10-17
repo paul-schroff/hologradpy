@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Callable, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
 import torch
+from torch import Tensor
 from scipy.ndimage import gaussian_filter
 from scipy.optimize import curve_fit
 
 
+from ..fourier_transforms import cross_correlation_peak, translate_real
 from ..profiles.amplitude import gaussian_beam_intensity
 from ..profiles.zernike import Zernike
 
@@ -322,3 +325,142 @@ def fit_optical_lattice_fringes(
         x, y, data, fit_function, p0=p0, bounds=bounds, maxfev=max_iterations
     )
     return popt, pcov
+
+
+@dataclass(frozen=True)
+class TranslationFit:
+    """The translation that moves a pattern onto an image, and the brightness that
+    matches them.
+
+    The image is modelled as ``scale * pattern(r - shift) + offset``. ``shift`` is the
+    translation ``(rows, columns)`` in samples, positive towards increasing index, as
+    :func:`~hologradpy.fourier_transforms.translate.fft_translate` takes it. ``scale``
+    is the brightness gain and ``offset`` the background level between the two.
+    Fitting them keeps a difference in brightness out of the shift. ``offset`` is zero
+    unless it was fitted.
+    """
+
+    shift: tuple[float, float]
+    scale: float
+    offset: float
+
+
+def fit_scale(
+    image: Tensor, pattern: Tensor, region: Tensor, fit_offset: bool = False
+) -> tuple[float, float]:
+    """The brightness gain, and with ``fit_offset`` the background level, that best
+    match ``pattern`` to ``image`` inside ``region``.
+
+    The least-squares fit of ``image ~ scale * pattern``, or of
+    ``image ~ scale * pattern + offset`` with ``fit_offset``. A fitted offset absorbs
+    the mean of any light the pattern lacks in the region, such as a leak into a dark
+    margin. The offset is therefore fitted only on request.
+
+    Args:
+        image: The measured image.
+        pattern: The pattern on the same grid.
+        region: True where the fit is evaluated.
+        fit_offset: Fit the background level as well.
+
+    Returns:
+        tuple[float, float]: The gain ``scale``, and the background level ``offset``,
+        which is zero without ``fit_offset``.
+
+    Raises:
+        ValueError: The pattern has no structure inside the region to fit.
+    """
+    inside = region.to(torch.bool)
+    image_inside = image[inside].to(torch.float64)
+    pattern_inside = pattern[inside].to(torch.float64)
+    if fit_offset:
+        pattern_inside = pattern_inside - pattern_inside.mean()
+
+    power = float((pattern_inside**2).sum())
+    if power <= 0.0:
+        raise ValueError(
+            "The pattern is constant inside the region, so neither its scale nor its "
+            "translation can be fitted."
+        )
+    if not fit_offset:
+        return float((pattern_inside * image_inside).sum()) / power, 0.0
+
+    scale = float((pattern_inside * (image_inside - image_inside.mean())).sum()) / power
+    offset = float(image_inside.mean()) - scale * float(pattern[inside].mean())
+    return scale, offset
+
+
+def fit_translation(
+    image: Tensor,
+    pattern: Tensor,
+    region: Tensor,
+    fit_offset: bool = False,
+    max_iterations: int = 20,
+    tolerance: float = 1e-4,
+) -> TranslationFit:
+    """The sub-sample translation that moves ``pattern`` onto ``image`` inside
+    ``region``.
+
+    The image is modelled as ``scale * pattern(r - shift) + offset``. The brightness
+    gain ``scale``, and with ``fit_offset`` the background level ``offset``, are fitted
+    with the translation, so the translation follows the shape alone. The translation
+    starts at the peak of the cross-correlation inside the region
+    (:func:`~hologradpy.fourier_transforms.translate.cross_correlation_peak`).
+    Gauss-Newton steps then refine it, translating the pattern by
+    :func:`~hologradpy.fourier_transforms.translate.translate_real`. The gain and the
+    background level follow in closed form at every step (:func:`fit_scale`).
+
+    Args:
+        image: The measured image ``(H, W)``.
+        pattern: The pattern on the same grid.
+        region: True where the fit is evaluated. The pattern has to vary inside it.
+        fit_offset: Fit the background level as well.
+        max_iterations: The most Gauss-Newton steps taken.
+        tolerance: The fit stops once a step moves the translation by less than this,
+            in samples.
+
+    Returns:
+        TranslationFit: The translation, the gain and the background level.
+    """
+    dtype = torch.promote_types(image.dtype, torch.float32)
+    image = image.to(dtype)
+    pattern = pattern.to(dtype)
+    weights = region.to(dtype)
+
+    shift = cross_correlation_peak(image, pattern, region)
+    for _ in range(max_iterations):
+        moved = translate_real(pattern, shift)
+        scale, offset = fit_scale(image, moved, region, fit_offset)
+        residual = (image - scale * moved - offset) * weights
+
+        # The derivative of scale * pattern(r - shift) by the shift is minus the scale
+        # times the gradient of the translated pattern.
+        gradient_rows, gradient_columns = torch.gradient(moved, dim=(-2, -1))
+        jacobian_rows = -scale * gradient_rows * weights
+        jacobian_columns = -scale * gradient_columns * weights
+        normal = torch.tensor(
+            [
+                [
+                    float((jacobian_rows**2).sum()),
+                    float((jacobian_rows * jacobian_columns).sum()),
+                ],
+                [
+                    float((jacobian_rows * jacobian_columns).sum()),
+                    float((jacobian_columns**2).sum()),
+                ],
+            ],
+            dtype=torch.float64,
+        )
+        projected = torch.tensor(
+            [
+                float((jacobian_rows * residual).sum()),
+                float((jacobian_columns * residual).sum()),
+            ],
+            dtype=torch.float64,
+        )
+        step = torch.linalg.lstsq(normal, projected[:, None]).solution[:, 0]
+        shift = (shift[0] + float(step[0]), shift[1] + float(step[1]))
+        if float(step.abs().max()) < tolerance:
+            break
+
+    scale, offset = fit_scale(image, translate_real(pattern, shift), region, fit_offset)
+    return TranslationFit(shift=shift, scale=scale, offset=offset)

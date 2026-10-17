@@ -19,6 +19,7 @@ from hologradpy.fourier_transforms import (
     fft_2d,
     ChirpZPartialAffine,
 )
+from hologradpy.roi import ROI
 
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
@@ -251,3 +252,41 @@ def _rotation_matches_the_rotated_sample_grid() -> None:
         expected = (phase * field).sum(dim=(-2, -1)).reshape(resolution_out)
 
         assert _relative_error(transform.forward(field), expected) < 1e-10, degrees
+
+
+# %% An output region of interest
+def test_an_output_roi_samples_the_whole_grid_there() -> None:
+    """The rectangle is a slice of the uniformly spaced output frequencies, so it holds
+    the values of the whole grid there, turned and shifted alike.
+    """
+    field = _random_field(48)
+    roi = ROI(10, 17, 12, 20)
+    for angle in (0.0, 0.15):
+        whole = ChirpZPartialAffine((48, 48), (60, 72), (1.7, 1.7), (0.3, -0.2), angle)
+        window = ChirpZPartialAffine(
+            (48, 48), (60, 72), (1.7, 1.7), (0.3, -0.2), angle, output_roi=roi
+        )
+        output = window.forward(field)
+        assert tuple(output.shape) == (12, 20)
+        assert _relative_error(output, roi.crop(whole.forward(field))) < 1e-3
+
+
+def test_an_output_roi_keeps_the_adjoint_its_transpose() -> None:
+    torch.manual_seed(1)
+    field = _random_field(32)
+    samples = (torch.randn(10, 14) + 1j * torch.randn(10, 14)).to(torch.complex64)
+    czt = ChirpZPartialAffine(
+        (32, 32), (40, 40), (1.3, 1.3), angle=0.1, output_roi=ROI(5, 9, 10, 14)
+    )
+    forward_inner = (czt.forward(field) * samples.conj()).sum()
+    adjoint_inner = (field * czt.adjoint(samples).conj()).sum()
+    assert abs(complex(forward_inner - adjoint_inner)) < 1e-3 * abs(
+        complex(forward_inner)
+    )
+
+
+def test_an_output_roi_outside_the_grid_is_refused() -> None:
+    with pytest.raises(ValueError, match="output region of interest"):
+        ChirpZPartialAffine(
+            (32, 32), (40, 40), (1.0, 1.0), output_roi=ROI(35, 0, 10, 10)
+        )

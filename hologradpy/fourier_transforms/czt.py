@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import torch
 from torch import Tensor
 
 from scipy.fft import next_fast_len
 
+from ..grids import centered_indices
 from ..utils import resolve_device
 from .abstract import FourierBase
-from .sampling import get_zoom_frequency_grid
+from .sampling import get_zoom_frequency_grid, rotated_zoom_trajectory
 from .shear import fft_shear
+
+if TYPE_CHECKING:
+    from ..roi import ROI
 
 
 def _convolution_length(length: int, points: int) -> int:
@@ -82,7 +88,11 @@ def _czt_adjoint_last(samples: Tensor, omega: Tensor, length: int) -> Tensor:
 
 
 class ChirpZPartialAffine(FourierBase):
-    """The exact DFT sampled on a partial affine of the spectrum."""
+    """The exact DFT sampled on a partial affine of the spectrum.
+
+    With ``output_roi``, only that rectangle of the ``resolution_out`` grid is
+    evaluated.
+    """
 
     def __init__(
         self,
@@ -92,11 +102,14 @@ class ChirpZPartialAffine(FourierBase):
         shift: tuple[float, float] = (0.0, 0.0),
         angle: float | Tensor = 0.0,
         device: torch.device | None = None,
+        output_roi: ROI | None = None,
     ) -> None:
         device = resolve_device(device)
         omega_x, omega_y = get_zoom_frequency_grid(
-            resolution, resolution_out, magnification, shift, device
+            resolution, resolution_out, magnification, shift, device, output_roi
         )
+        if output_roi is not None:
+            resolution_out = (output_roi.height, output_roi.width)
         rotates = torch.is_tensor(angle) or angle != 0.0
         angle = torch.as_tensor(angle, dtype=omega_x.dtype, device=omega_x.device)
         cosine, sine = torch.cos(angle), torch.sin(angle)
@@ -104,7 +117,6 @@ class ChirpZPartialAffine(FourierBase):
         super().__init__(
             resolution,
             frequencies=None,
-            is_gridded=True,
             resolution_out=resolution_out,
             device=device,
         )
@@ -118,24 +130,15 @@ class ChirpZPartialAffine(FourierBase):
         self._skew = sine * omega_x
 
         # The shear that is left, one shift per input column.
-        columns = torch.arange(resolution[1], device=device) - resolution[1] // 2
+        columns = centered_indices(resolution[1], device)
         self._shear = torch.tan(angle) * columns.to(omega_x.dtype)
         self._rotates = rotates
 
     def _build_frequencies(self) -> Tensor:
-        cosine, sine = torch.cos(self.angle), torch.sin(self.angle)
-        grid_x, grid_y = torch.meshgrid(self.omega_x, self.omega_y, indexing="xy")
-        return torch.stack(
-            (
-                (grid_x * cosine + grid_y * sine).flatten(),
-                (grid_y * cosine - grid_x * sine).flatten(),
-            ),
-            dim=0,
-        )
+        return rotated_zoom_trajectory(self.omega_x, self.omega_y, self.angle)
 
     def _skew_phase(self, field: Tensor) -> Tensor:
-        length = field.shape[-2]
-        rows = torch.arange(length, device=field.device) - length // 2
+        rows = centered_indices(field.shape[-2], field.device)
         return torch.exp(1j * self._skew[None, :] * rows.to(self._skew.dtype)[:, None])
 
     def forward(self, input: Tensor) -> Tensor:
