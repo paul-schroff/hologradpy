@@ -60,7 +60,7 @@ def fft_shear(field: Tensor, axis: int, shifts: Tensor) -> Tensor:
     zero-padded first so the cyclic FFT shift does not wrap real signal around the edge.
     """
     length = field.shape[axis]
-    pad = int(math.floor(float(shifts.abs().max()))) + 1
+    pad = math.floor(float(shifts.detach().abs().max())) + 1
     padded_length = next_fast_len(length + 2 * pad)
     padded = _pad_axis_asymmetric(field, axis, pad, padded_length - length - pad)
 
