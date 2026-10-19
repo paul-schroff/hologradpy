@@ -4,9 +4,12 @@ A **capture** is camera frames and the SLM levels that produced them, from a ben
 is irreproducible. A **retrieval's steps** are the optimizer's own parameter every nth
 iteration, from a search, and the image each one predicts is rebuilt rather than stored.
 They are separate stores because they are separate things.
+
+A :class:`HologramFrames` holds the levels and frames of a capture in memory, prepared
+for a fit of the model.
 """
 
-from .dataset import SampleDataset
+from .hologram_frames import HologramFrames
 from .stores import (
     PHASE_BITDEPTH_KEY,
     SAMPLE_DTYPE,
@@ -25,7 +28,7 @@ __all__ = [
     "SERIES",
     "CaptureStore",
     "CapturedSample",
+    "HologramFrames",
     "RetrievalSample",
     "RetrievalStepStore",
-    "SampleDataset",
 ]

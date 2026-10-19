@@ -27,6 +27,7 @@ from .slm_fields import PSFSLMField, SLMField, PixelwiseSLMField
 from .geometric_transforms import GeometricWarp, warp_image
 from .learnable_partial_affine import LearnablePartialAffine
 from .grid_adapter import GridAdapter
+from .zero_padding import ZeroPadding
 from .pixel_crosstalk import (
     ConvolutionalCrosstalk,
     FreeKernelCrosstalk,
@@ -64,6 +65,7 @@ __all__ = [
     "warp_image",
     "LearnablePartialAffine",
     "GridAdapter",
+    "ZeroPadding",
     "PixelCrosstalk",
     "ConvolutionalCrosstalk",
     "SuperGaussianCrosstalk",

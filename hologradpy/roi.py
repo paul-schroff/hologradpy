@@ -1,10 +1,11 @@
 """The native region-of-interest value object.
 
-``ROI`` is the ``(row, col)`` rectangular region of interest and the single abstraction
-for ROI handling. Its named constructors are :meth:`ROI.centered`,
-:meth:`ROI.from_bounds` and :meth:`ROI.detect`, and its methods include :meth:`crop` and
-:meth:`pad`. :meth:`lies_inside`, :meth:`moved_inside` and :meth:`trimmed_to` relate a
-region to the bounds of a frame. It works on numpy and torch arrays.
+``ROI`` is the single abstraction for ROI handling and works on numpy and torch arrays.
+Its named constructors are :meth:`ROI.centered`, :meth:`ROI.from_bounds` and
+:meth:`ROI.detect`. Its methods include :meth:`ROI.crop` and :meth:`ROI.pad`.
+:meth:`ROI.lies_inside`, :meth:`ROI.moved_inside` and :meth:`ROI.trimmed_to` relate a
+region to the bounds of a frame. :meth:`ROI.relative_to` gives a region in the
+coordinates of another.
 """
 
 from __future__ import annotations
@@ -129,6 +130,43 @@ class ROI:
             and right <= width_bound
         )
 
+    def relative_to(self, window: ROI) -> ROI:
+        """The ROI in the pixel coordinates of ``window``.
+
+        A camera can read out a window around its region of interest. Each frame of
+        that window is cropped with the region relative to the window.
+
+        Args:
+            window: The region whose top-left corner becomes the origin.
+
+        Returns:
+            The region of the same size, moved by the corner of ``window``.
+        """
+        return ROI(
+            int(self.top_row) - int(window.top_row),
+            int(self.left_column) - int(window.left_column),
+            int(self.height),
+            int(self.width),
+        )
+
+    def enclosing(self, other: ROI) -> ROI:
+        """The smallest region that holds both this region and ``other``.
+
+        Args:
+            other: The second region.
+
+        Returns:
+            The bounding box of the two regions.
+        """
+        top, bottom, left, right = self.to_bounds()
+        other_top, other_bottom, other_left, other_right = other.to_bounds()
+        return ROI.from_bounds(
+            min(top, other_top),
+            max(bottom, other_bottom),
+            min(left, other_left),
+            max(right, other_right),
+        )
+
     @classmethod
     def from_bounds(cls, top: int, bottom: int, left: int, right: int) -> ROI:
         """From ``(top, bottom, left, right)`` pixel indices, the convention returned by
@@ -164,11 +202,13 @@ class ROI:
         else:
             above = mask & (image > threshold * xp.max(image[mask]))
         rows, cols = xp.nonzero(above)
-        top = int(xp.clip(xp.min(rows) - pad, 0, image.shape[0]))
-        bottom = int(xp.clip(xp.max(rows) + pad + 1, 0, image.shape[0]))
-        left = int(xp.clip(xp.min(cols) - pad, 0, image.shape[1]))
-        right = int(xp.clip(xp.max(cols) + pad + 1, 0, image.shape[1]))
-        return cls(top, left, bottom - top, right - left)
+        padded = cls.from_bounds(
+            int(xp.min(rows)) - pad,
+            int(xp.max(rows)) + pad + 1,
+            int(xp.min(cols)) - pad,
+            int(xp.max(cols)) + pad + 1,
+        )
+        return padded.trimmed_to(image.shape[:2])
 
     def crop(self, image: ArrayLike) -> ArrayLike:
         """Crop ``image`` (any array with two trailing spatial axes) to this ROI.

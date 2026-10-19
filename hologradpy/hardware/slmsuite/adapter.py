@@ -25,7 +25,7 @@ from slmsuite.hardware.slms.slm import SLM as SLMSuiteSLM
 
 from ...phase_levels import LinearResponse, PhaseResponse
 from ...roi import ROI
-from ..camera import Camera, CameraOrientation, reorient_pixels
+from ..camera import Camera, CameraOrientation
 from ..slm import SLM
 from .conversions import pixel_size_from_pitch_um, wavelength_from_wav_um
 
@@ -68,21 +68,14 @@ def _delegated_property(wrapped: str, key: str, default: Any = None) -> property
 class SLMSuiteCameraAdapter(Camera):
     """A real slmsuite camera behind the HoloGradPy-native camera interface.
 
-    Geometry and units are converted here, at the single boundary. :meth:`get_image`
-    takes single untransformed frames from the wrapped camera, so slmsuite's own
-    ``averaging`` and ``hdr`` settings do not apply. It reorients each frame with the
-    camera's ``transform`` and then crops it to :attr:`roi`, in the same order as
-    :class:`~hologradpy.hardware.camera.SimulatedCameraTorch`. The region of interest
-    is applied in software on the displayed frame, so the wrapped camera reads out its
-    whole sensor. The template methods (``autoexpose``, ``get_averaged_image``,
-    ``get_spatial_grid``) are inherited from
-    :class:`~hologradpy.hardware.camera.Camera` and run on these members, so a real
-    camera and the simulator autoexpose identically.
+    :meth:`get_image` takes single untransformed frames from the wrapped camera, so
+    slmsuite's own ``averaging`` and ``hdr`` settings do not apply. The region of
+    interest is applied in software on the displayed frame, so the wrapped camera reads
+    out its whole sensor.
 
-    The region of interest, the excluded pixels, :attr:`frame_timeout_s` and
+    The region of interest, the excluded pixels, :attr:`frame_timeout` and
     :attr:`overexposed` are kept on the wrapped camera, so every adapter of one device
-    shares them. A driver setting outside the native interface is set on the wrapped
-    camera.
+    shares them.
     """
 
     # The device holds the region of interest, the excluded pixels, the frame timeout
@@ -91,9 +84,7 @@ class SLMSuiteCameraAdapter(Camera):
     _excluded_pixels = _delegated_property("_camera", "_hologradpy_excluded_pixels")
     _overexposed = _delegated_property("_camera", "_hologradpy_overexposed", False)
     #: The seconds to wait for each frame beyond its exposure, 1 s unless set.
-    frame_timeout_s = _delegated_property(
-        "_camera", "_hologradpy_frame_timeout_s", 1.0
-    )
+    frame_timeout = _delegated_property("_camera", "_hologradpy_frame_timeout", 1.0)
 
     def __init__(self, camera: SLMSuiteCamera) -> None:
         self._camera = camera
@@ -114,21 +105,17 @@ class SLMSuiteCameraAdapter(Camera):
     def pixel_size(self) -> NDArray[np.float64]:
         """Pixel pitch ``(y, x)`` of the displayed frame in metres.
 
-        A quarter turn exchanges the sensor's axes in the displayed frame, so the pitch
-        is exchanged with them.
+        A quarter turn of the :attr:`orientation` exchanges the sensor's axes in the
+        displayed frame, so the pitch is exchanged with them.
 
         Raises:
             ValueError: The wrapped camera does not state its pixel pitch.
         """
         pixel_size = pixel_size_from_pitch_um(self._camera.pitch_um)
-        if self._transform_swaps_axes:
+        orientation = self.orientation
+        if orientation is not None and orientation.swaps_axes():
             return pixel_size[::-1].copy()
         return pixel_size
-
-    @property
-    def _transform_swaps_axes(self) -> bool:
-        """True when the wrapped camera's frame transform exchanges height and width."""
-        return np.shape(self._camera.transform(np.zeros((3, 5)))) == (5, 3)
 
     @property
     def max_pixel_value(self) -> int:
@@ -166,128 +153,78 @@ class SLMSuiteCameraAdapter(Camera):
         roi = self._roi
         return ROI(0, 0, *self.sensor_resolution) if roi is None else roi
 
-    def set_roi(self, roi: ROI | None) -> None:
-        """Crop every frame to ``roi``, or return to the whole frame with None.
-
-        :meth:`get_image` crops each frame to the region after the transform, so the
-        region is in displayed coordinates. The wrapped camera keeps reading out the
-        whole sensor.
-
-        Args:
-            roi: The region in displayed ``(row, col)`` coordinates, or None.
-
-        Raises:
-            ValueError: ``roi`` is empty or reaches off the frame. The region is then
-                left as it was.
-        """
-        if roi is not None:
-            height, width = self.sensor_resolution
-            if not roi.lies_inside((height, width)):
-                raise ValueError(
-                    f"{roi} does not lie inside the {height} x {width} frame."
-                )
+    def _set_roi(self, roi: ROI | None) -> None:
+        """Crop every frame to ``roi``, or return to the whole frame with None."""
         self._roi = roi
 
-    def set_orientation(self, orientation: CameraOrientation) -> None:
-        """Mount the sensor in ``orientation``, reorienting every frame from here on.
-
-        The region of interest returns to the whole frame, and the excluded pixels
-        follow the sensor into the new frame
-        (:func:`~hologradpy.hardware.camera.reorient_pixels`). Everything is worked out
-        before the wrapped camera changes, so a failure leaves it as it was.
-
-        Args:
-            orientation: The orientation to mount the sensor in.
-
-        Raises:
-            NotImplementedError: The wrapped camera applies a transform outside the
-                eight orientations.
+    def _set_orientation(
+        self, orientation: CameraOrientation, raw_shape: tuple[int, int]
+    ) -> None:
+        """Set the wrapped camera's transform, and its ``shape`` and ``default_shape``
+        to the displayed frame, which exchanges height and width under a quarter turn.
         """
-        current = self.orientation
-        if current is None:
-            raise NotImplementedError(
-                f"{type(self._camera).__name__} applies a frame transform that is not "
-                "one of the eight orientations, so the shape it displays under a new "
-                "one cannot be worked out. Set its transform directly."
-            )
-        # The whole frame is shown in displayed axes, so a current quarter turn is
-        # undone to get the sensor resolution.
-        shown = self.sensor_resolution
-        raw_shape = (shown[1], shown[0]) if current.swaps_axes() else shown
-        new_shown = (
-            (raw_shape[1], raw_shape[0]) if orientation.swaps_axes() else raw_shape
+        shown = (
+            (raw_shape[1], raw_shape[0])
+            if orientation.swaps_axes()
+            else (raw_shape[0], raw_shape[1])
         )
-        excluded = reorient_pixels(
-            self.excluded_pixels, raw_shape, current, orientation
-        )
-        transform = orientation.transformation()
-
-        self._camera.transform = transform
-        self._camera.shape = new_shown
-        self._camera.default_shape = new_shown
-        self._roi = None
-        self.excluded_pixels = excluded
+        self._camera.transform = orientation.transformation()
+        self._camera.shape = shown
+        self._camera.default_shape = shown
 
     def get_exposure(self) -> float:
         """The current exposure time in seconds."""
         return float(self._camera.get_exposure())
 
-    def set_exposure(self, exposure_s: float) -> None:
-        """Set the exposure time in seconds."""
-        self._camera.set_exposure(exposure_s)
+    def _set_exposure(self, exposure: float) -> None:
+        """Set the exposure time in seconds on the wrapped camera."""
+        self._camera.set_exposure(exposure)
 
-    def _get_image(
-        self, exposure: float | None = None, averaging: int = 1
-    ) -> NDArray:
-        """Capture a frame as a ``(height, width)`` array of digital counts.
+    def _prepare_capture(self) -> None:
+        """Drop the pending frames of the wrapped camera with the driver's ``flush``.
 
-        The pending frames of the wrapped camera are dropped first
-        (:meth:`_discard_pending_frames`), so every frame is exposed after the call.
-        Each frame is then captured on its own, reoriented and cropped to
-        :attr:`roi`, and several frames are summed as crops.
+        Every frame of the next :meth:`get_image` call is therefore exposed after the
+        call. slmsuite's default ``flush`` captures and discards two frames. The ThorCam
+        driver drains the pending frames of its SDK without triggering.
+        """
+        self._camera.flush()
 
-        Args:
-            exposure: The exposure in seconds, set through :meth:`set_exposure`
-                before the capture when given.
-            averaging: The number of frames to sum.
-
-        Returns:
-            NDArray: One frame in the wrapped camera's dtype, or the float64 sum of
-            ``averaging`` frames.
+    def _get_image(self) -> NDArray:
+        """One frame from the wrapped camera, reoriented with its transform and
+        cropped to :attr:`roi`.
 
         Raises:
             TimeoutError: The wrapped camera returned no frame in any attempt.
-            RuntimeError: A frame does not match the whole-frame shape stated by the
-                wrapped camera.
+            RuntimeError: The reoriented frame does not match the whole-frame shape
+                stated by the wrapped camera.
         """
-        if exposure is not None:
-            self.set_exposure(exposure)
-        self._discard_pending_frames()
-        frame_count = max(1, int(averaging))
-        image = self._orient_and_crop(self._capture_frame())
-        if frame_count == 1:
-            return image
-        summed = image.astype(np.float64)
-        for _ in range(frame_count - 1):
-            summed += self._orient_and_crop(self._capture_frame())
-        return summed
+        shown = self._camera.transform(self._capture_frame())
+        expected = self.sensor_resolution
+        if tuple(np.shape(shown)) != expected:
+            raise RuntimeError(
+                f"'{self._camera.name}' returned a {tuple(np.shape(shown))} frame, and "
+                f"its whole frame is {expected}. Binning or a readout window set on "
+                "the driver directly is not followed by this adapter, so reset them "
+                "with set_binning() and set_woi(None) on the driver."
+            )
+        return self.roi.crop(shown)
 
     def _capture_frame(self) -> NDArray:
         """One frame from the wrapped camera, before the transform and the crop.
 
-        slmsuite hands back None for a frame that did not arrive in time, so a missing
+        slmsuite hands back None for a frame that did not arrive in time. A missing
         frame is captured again, up to the wrapped camera's ``capture_attempts``. Each
-        attempt waits :attr:`frame_timeout_s` beyond the exposure.
+        attempt waits :attr:`frame_timeout` beyond the exposure.
 
         Raises:
             TimeoutError: No attempt returned a frame.
         """
         name = self._camera.name
         attempts = max(1, int(self._camera.capture_attempts))
-        timeout_s = float(self.frame_timeout_s)
+        timeout = float(self.frame_timeout)
         for attempt in range(attempts):
             frame = self._camera.get_image(
-                timeout_s=timeout_s, transform=False, hdr=False, averaging=False
+                timeout_s=timeout, transform=False, hdr=False, averaging=False
             )
             if frame is not None:
                 if attempt > 0:
@@ -299,37 +236,9 @@ class SLMSuiteCameraAdapter(Camera):
                 return np.asarray(frame)
         raise TimeoutError(
             f"'{name}' returned no frame in {attempts} attempt(s), each waiting "
-            f"{timeout_s:.3g} s beyond the exposure. Check the trigger profile and the "
+            f"{timeout:.3g} s beyond the exposure. Check the trigger profile and the "
             "cable, and that no other program holds the camera."
         )
-
-    def _discard_pending_frames(self) -> None:
-        """Drop the pending frames of the wrapped camera with the driver's ``flush``.
-
-        The next frame is therefore exposed after this call. slmsuite's default
-        ``flush`` captures and discards two frames. The ThorCam driver drains the
-        pending frames of its SDK without triggering.
-        """
-        self._camera.flush()
-
-    def _orient_and_crop(self, frame: NDArray) -> NDArray:
-        """Reorient a raw frame with the wrapped camera's transform and crop it to
-        :attr:`roi`.
-
-        Raises:
-            RuntimeError: The reoriented frame does not match the whole-frame shape
-                stated by the wrapped camera.
-        """
-        shown = self._camera.transform(frame)
-        expected = self.sensor_resolution
-        if tuple(np.shape(shown)) != expected:
-            raise RuntimeError(
-                f"'{self._camera.name}' returned a {tuple(np.shape(shown))} frame, and "
-                f"its whole frame is {expected}. Binning or a readout window set on "
-                "the driver directly is not followed by this adapter, so reset them "
-                "with set_binning() and set_woi(None) on the driver."
-            )
-        return self.roi.crop(shown)
 
     def close(self, *args: Any, **kwargs: Any) -> None:
         """Close the wrapped camera, passing on the driver's own arguments."""

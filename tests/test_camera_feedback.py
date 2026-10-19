@@ -9,6 +9,7 @@ nothing.
 
 from __future__ import annotations
 
+import warnings
 from datetime import datetime
 from typing import Sequence
 
@@ -21,7 +22,6 @@ from hologradpy.calibration.camera_mapping import (
     CameraMapping,
     FocalSpotFit,
 )
-from hologradpy.calibration.spot_detection import tilt_to_sensor_center
 from hologradpy.datasets import CaptureStore, RetrievalStepStore
 from hologradpy.geometry import PartialAffineTransform
 from hologradpy.grids import get_spatial_grid, pixel_frame_vector, plane_center
@@ -29,7 +29,7 @@ from hologradpy.analysis.error_metrics import (
     DEFAULT_INTENSITY_METRICS,
     IntensityMetric,
     efficiency,
-    normalize,
+    rmse,
 )
 from hologradpy.hardware import (
     SimulatedCameraTorch,
@@ -40,6 +40,7 @@ from hologradpy.holography.camera_feedback import (
     CameraFeedbackData,
     CameraFeedbackVisualizer,
     SimpleFeedbackCorrector,
+    corrected_target_intensity,
 )
 from hologradpy.holography.phase_retrieval import (
     MODEL_CHECKPOINT_NAME,
@@ -61,9 +62,7 @@ from hologradpy.optics.modules.hardware_models import (
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.optics.systems import SLMCZT
-from hologradpy.profiles.amplitude import gaussian_beam_intensity
-from hologradpy.profiles.amplitude import super_gaussian
-from hologradpy.profiles.masks import rectangular_mask
+from hologradpy.profiles.amplitude import gaussian_beam_intensity, top_hat_2D
 from hologradpy.profiles.phase import linear_phase
 from hologradpy.roi import ROI
 from hologradpy.utils import gpu_to_numpy
@@ -125,6 +124,7 @@ def _model(
     geometry: FieldGeometry,
     virtual_slm: VirtualSLM,
     field: ComplexAmplitude,
+    camera_shift: tuple[float, float] = (0.0, 0.0),
 ) -> SLMCZT:
     model = SLMCZT(
         input_geometry=geometry,
@@ -133,34 +133,38 @@ def _model(
         camera_pixel_size=(CAMERA_PIXEL_SIZE, CAMERA_PIXEL_SIZE),
         focal_length=FOCAL_LENGTH,
         slm_field=PixelwiseSLMField(field),
+        camera_shift=camera_shift,
     )
     # Sizes the output grid, which the target is built on.
     model()
     return model
 
 
-# A patch smaller than the sensor, placed off axis. The offset matters physically: the
-# undiffracted zeroth order sits at the center of the sensor and cannot be controlled by
-# the hologram, so leaving it inside the signal region would have the loop trying to
-# correct light it has no say over, and would pollute every metric with it.
-PATCH_RESOLUTION = (24, 24)
-TARGET_POSITION = (250e-6, 0.0)
+# The focal spot of the 0.4 mm beam, the shoulders of the top hat.
+SPOT_RADIUS = WAVELENGTH * FOCAL_LENGTH / (np.pi * 0.4e-3)
+PLATEAU_WIDTH = 200e-6
+# A patch smaller than the sensor, placed off axis. The hologram cannot control the
+# undiffracted zeroth order at the centre of the sensor, so the patch keeps it out of
+# the signal region and out of every metric. The patch holds the top hat with a margin
+# of two spot radii on every side. It lies more than a spot radius from the zeroth
+# order and inside the camera's 640 um.
+PATCH_RESOLUTION = (21, 21)
+TARGET_POSITION = (350e-6, 0.0)
 
 
 def _target(model: SLMCZT = None) -> tuple[torch.Tensor, torch.Tensor]:
     """The target patch and its signal region, on their own grid at the camera pitch.
 
-    A flat top with a soft edge rather than a rectangle. A finite aperture cannot
-    make an infinitely sharp edge, so a rectangle asks the loop for something
-    unreachable, and it is not band limited: placing it between samples rings, which
-    put 24% overshoot on the target being chased. The order sets the softness, and
-    this one rolls off over about two camera pixels, its half maximum still at the
-    rectangle's own edge.
+    The target is hologradpy's 2D top hat of 200 x 200 um, four spot radii across, as
+    the lab's top hat is. The shoulders keep the target band limited, since a finite
+    aperture cannot make an infinitely sharp edge. The whole patch is the signal
+    region, so the absolute cost of a run counts all the light it holds.
     """
     grid = get_spatial_grid(PATCH_RESOLUTION, (CAMERA_PIXEL_SIZE, CAMERA_PIXEL_SIZE))
-    target = super_gaussian(*grid, 0.0, 0.0, 6, 6, 90e-6, 90e-6).float()
-    signal_region = rectangular_mask(*grid, 300e-6, 300e-6, 0.0, 0.0)
-    return target, signal_region
+    target = top_hat_2D(
+        *grid, 0.0, 0.0, PLATEAU_WIDTH, PLATEAU_WIDTH, SPOT_RADIUS, SPOT_RADIUS, 1.0
+    ).float()
+    return target, torch.ones_like(target)
 
 
 def _init_phase() -> torch.Tensor:
@@ -198,7 +202,8 @@ def _placed(
     frame_region = torch.zeros(CAMERA_RESOLUTION, dtype=signal_region.dtype)
 
     offset_column = int(round(TARGET_POSITION[0] / CAMERA_PIXEL_SIZE))
-    offset_row = int(round(TARGET_POSITION[1] / CAMERA_PIXEL_SIZE))
+    # The rows grow towards -y.
+    offset_row = -int(round(TARGET_POSITION[1] / CAMERA_PIXEL_SIZE))
     top = CAMERA_RESOLUTION[0] // 2 + offset_row - PATCH_RESOLUTION[0] // 2
     left = CAMERA_RESOLUTION[1] // 2 + offset_column - PATCH_RESOLUTION[1] // 2
 
@@ -211,14 +216,24 @@ def _placed(
     return frame_target, frame_region
 
 
-def _bench() -> tuple:
-    """A simulated bench, and a retriever whose model does not know its aberration."""
+def _bench(
+    aberration_scale: float = 1.0, camera_shift: tuple[float, float] = (0.0, 0.0)
+) -> tuple:
+    """A simulated bench, and a retriever on a model without the bench's aberration.
+
+    Args:
+        aberration_scale: The bench's aberration as a multiple of :func:`_aberration`.
+        camera_shift: The displacement of the bench's camera, in metres.
+    """
     torch.manual_seed(0)
     geometry = _geometry()
     slm = open_slm(SimulatedSLMTorch, input_geometry=geometry, bitdepth=8)
 
     hardware_model = _model(
-        geometry, slm.virtual_slm, _beam(geometry, _aberration(geometry))
+        geometry,
+        slm.virtual_slm,
+        _beam(geometry, aberration_scale * _aberration(geometry)),
+        camera_shift=camera_shift,
     )
     camera = SimulatedCameraTorch(hardware_model, bitdepth=12, read_noise=0.0)
 
@@ -260,7 +275,6 @@ def _identity_mapping(resolution=CAMERA_RESOLUTION) -> CameraMapping:
         transform=np.eye(3),
         detected_points=points,
         calculated_points=points,
-        zeroth_order_position=(resolution[1] / 2, resolution[0] / 2),
         spot_fit=FocalSpotFit(waist=2.0),
         output_pixel_size=(CAMERA_PIXEL_SIZE, CAMERA_PIXEL_SIZE),
         output_resolution=resolution,
@@ -333,6 +347,39 @@ def test_feedback_reduces_the_error(feedback_run: CameraFeedbackData) -> None:
     assert max(psnr_history) > psnr_history[0]
 
 
+def test_the_feedback_leaves_the_position_alone() -> None:
+    """A camera displaced by 1.5 pixels along x shows the pattern 1.5 pixels from the
+    target. The loop corrects the shape alone.
+    """
+    slm, camera, retriever, patch, region = _bench(
+        aberration_scale=0.0, camera_shift=(1.5 * CAMERA_PIXEL_SIZE, 0.0)
+    )
+    feedback = SimpleFeedbackCorrector(
+        slm=slm,
+        camera=camera,
+        slm_camera_model=retriever.slm_camera_model,
+        target=patch,
+        signal_region=region,
+        target_position=TARGET_POSITION,
+        init_slm_phase=_init_phase(),
+        loss_scale=LOSS_SCALE,
+        camera_mapping=_identity_mapping(),
+    )
+    data = feedback.run(
+        retriever_iterations=[40] * 4,
+        gain=0.7,
+        averages=1,
+        retrieve_options={"method": "cg"},
+        verbose=False,
+    )
+
+    offsets = data.metadata["pattern_offsets"]
+    assert len(offsets) == 4
+    for column, row in offsets:
+        assert abs(row) < 0.3
+        assert abs(column) == pytest.approx(1.5, abs=0.3)
+
+
 def test_records_every_iteration(feedback_run: CameraFeedbackData) -> None:
     assert feedback_run.number_of_iterations == ITERATIONS
     for series in (
@@ -370,15 +417,13 @@ def test_corrected_target_compensates_the_measurement(
 ) -> None:
     """Where the bench under-delivers, the served target is raised, and vice versa.
 
-    This is the sign of the discrepancy, the defect a short run's rms test would not
-    reliably catch.
+    The test pins the sign of the discrepancy, since the rms test of a short run does
+    not reliably catch a wrong sign. The recorded frame sits on the target, where the
+    loop moved it.
     """
     roi = feedback_run.signal_roi
     inside = roi.crop(feedback_run.signal_region).astype(bool)
-    measured = normalize(
-        feedback_run.full_measured_image(0), feedback_run.signal_region
-    )
-    shortfall = roi.crop(feedback_run.target) - roi.crop(measured)
+    shortfall = roi.crop(feedback_run.target) - feedback_run.measured_images[0]
     correction = (
         feedback_run.corrected_targets[1] - feedback_run.corrected_targets[0]
     )
@@ -732,8 +777,8 @@ def test_a_measured_mapping_is_kept(monkeypatch) -> None:
 
 
 def _similarity_mapping(similarity: PartialAffineTransform) -> CameraMapping:
-    """A mapping whose point pairs realize ``similarity``, onto an output plane of the
-    camera's grid. The stored zeroth order sits at the centre of the sensor.
+    """A mapping from point pairs that realize ``similarity``, with an output plane on
+    the camera's grid.
     """
     detected = np.random.default_rng(0).uniform(10.0, 54.0, size=(8, 2))
     return CameraMapping(
@@ -742,10 +787,6 @@ def _similarity_mapping(similarity: PartialAffineTransform) -> CameraMapping:
         transform=similarity.as_matrix(homogeneous=False),
         detected_points=detected.tolist(),
         calculated_points=similarity.transform_points(detected).tolist(),
-        zeroth_order_position=(
-            CAMERA_RESOLUTION[1] / 2,
-            CAMERA_RESOLUTION[0] / 2,
-        ),
         spot_fit=FocalSpotFit(waist=2.0),
         output_pixel_size=(CAMERA_PIXEL_SIZE, CAMERA_PIXEL_SIZE),
         output_resolution=CAMERA_RESOLUTION,
@@ -793,8 +834,7 @@ PLACEMENT_SIMILARITY = PartialAffineTransform.from_components(
 
 def test_the_target_and_the_zeroth_order_share_the_partial_affine() -> None:
     """The target and the zeroth order are placed through the inverse of the partial
-    affine the model is calibrated from, at the model's output pitch. The zeroth order
-    the mapping stores, here at the centre of the sensor, is not read.
+    affine the model is calibrated from, at the model's output pitch.
     """
     feedback = _feedback(camera_mapping=_similarity_mapping(PLACEMENT_SIMILARITY))
     inverse = PLACEMENT_SIMILARITY.inverse()
@@ -803,10 +843,36 @@ def test_the_target_and_the_zeroth_order_share_the_partial_affine() -> None:
         CAMERA_PIXEL_SIZE
     )
 
-    zeroth = inverse.transform_points([center])[0]
-    target = inverse.transform_points([steered])[0]
-    assert feedback.zeroth_order_pixels() == pytest.approx(tuple(zeroth))
-    assert feedback.target_center_pixels() == pytest.approx(tuple(target))
+    zeroth_column, zeroth_row = inverse.transform_points([center])[0]
+    target_column, target_row = inverse.transform_points([steered])[0]
+    assert feedback.camera_mapping.zeroth_order_position == pytest.approx(
+        (zeroth_column, zeroth_row)
+    )
+    assert feedback.target_center_pixels() == pytest.approx((target_column, target_row))
+
+
+def test_a_signal_region_over_the_zeroth_order_raises_a_warning() -> None:
+    """The zeroth order of PLACEMENT_SIMILARITY lies off the diagonal of the sensor, at
+    column 29.6 and row 34.2. A signal region over its pixel raises the warning. The
+    same region transposed, over column 34 and row 30, raises none.
+    """
+    feedback = _feedback(camera_mapping=_similarity_mapping(PLACEMENT_SIMILARITY))
+    center = np.asarray(plane_center(CAMERA_RESOLUTION), dtype=float)
+    column, row = (
+        round(value)
+        for value in PLACEMENT_SIMILARITY.inverse().transform_points([center])[0]
+    )
+    region_on_the_zeroth_order = torch.zeros(CAMERA_RESOLUTION, dtype=torch.bool)
+    region_on_the_zeroth_order[row - 1 : row + 2, column - 1 : column + 2] = True
+
+    feedback.signal_region = region_on_the_zeroth_order
+    with pytest.warns(UserWarning, match="lies inside the signal region"):
+        feedback._warn_if_zeroth_order_inside()
+
+    feedback.signal_region = region_on_the_zeroth_order.T.clone()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        feedback._warn_if_zeroth_order_inside()
 
 
 def test_a_tilt_to_the_sensor_centre_places_the_target_there() -> None:
@@ -816,7 +882,7 @@ def test_a_tilt_to_the_sensor_centre_places_the_target_there() -> None:
     mapping = _similarity_mapping(PLACEMENT_SIMILARITY)
     feedback = _feedback(camera_mapping=mapping)
 
-    feedback.target_position = tilt_to_sensor_center(feedback.camera, mapping)
+    feedback.target_position = mapping.tilt_to_sensor_center(feedback.camera)
 
     assert feedback.target_center_pixels() == pytest.approx(
         (CAMERA_RESOLUTION[1] / 2, CAMERA_RESOLUTION[0] / 2), abs=1e-6
@@ -1241,33 +1307,53 @@ def test_step_stride_without_a_directory_raises() -> None:
 
 
 def test_correction_is_confined_to_the_signal_region() -> None:
-    signal_region = np.zeros((4, 4))
-    signal_region[1:3, 1:3] = 1
-    corrected = np.ones((4, 4))
-    discrepancy = np.full((4, 4), 0.5)
+    signal_region = torch.zeros((4, 4), dtype=torch.bool)
+    signal_region[1:3, 1:3] = True
 
-    updated = SimpleFeedbackCorrector._corrected_target_for(
-        corrected, discrepancy, 1.0, signal_region, 0.0
+    updated = corrected_target_intensity(
+        torch.ones((4, 4)),
+        torch.zeros((4, 4)),
+        torch.full((4, 4), 0.5),
+        signal_region,
+        1.0,
     )
-    assert np.all(updated[signal_region == 0] == 0)
-    assert np.allclose(updated[signal_region == 1], 1.5)
+    assert torch.all(updated[~signal_region] == 0)
+    assert torch.allclose(updated[signal_region], torch.tensor(1.5))
 
 
 def test_correction_clamps_negatives() -> None:
-    signal_region = np.ones((3, 3))
-    updated = SimpleFeedbackCorrector._corrected_target_for(
-        np.full((3, 3), 0.2), np.full((3, 3), -1.0), 1.0, signal_region, 0.0
+    signal_region = torch.ones((3, 3), dtype=torch.bool)
+    updated = corrected_target_intensity(
+        torch.full((3, 3), 0.2),
+        torch.zeros((3, 3)),
+        torch.full((3, 3), -1.0),
+        signal_region,
+        1.0,
     )
-    assert np.all(updated >= 0)
+    assert torch.all(updated >= 0)
 
 
 def test_zero_gain_reproduces_the_target() -> None:
-    signal_region = np.ones((3, 3))
-    corrected = np.linspace(0, 1, 9).reshape(3, 3)
-    updated = SimpleFeedbackCorrector._corrected_target_for(
-        corrected, np.full((3, 3), 0.5), 0.0, signal_region, 0.0
+    signal_region = torch.ones((3, 3), dtype=torch.bool)
+    corrected = torch.linspace(0, 1, 9).reshape(3, 3)
+    updated = corrected_target_intensity(
+        corrected, torch.zeros((3, 3)), torch.full((3, 3), 0.5), signal_region, 0.0
     )
-    assert np.allclose(updated, corrected)
+    assert torch.allclose(updated, corrected)
+
+
+def test_the_recorded_frames_are_the_frames_the_metrics_compare(
+    feedback_run: CameraFeedbackData,
+) -> None:
+    """Each recorded frame is the frame its metrics were taken on, moved onto the target
+    and divided by the mean of its bright pixels. The panels therefore show what was
+    measured.
+    """
+    roi = feedback_run.signal_roi
+    region = roi.crop(np.asarray(feedback_run.signal_region)).astype(bool)
+    target = roi.crop(np.asarray(feedback_run.target))
+    for image, value in zip(feedback_run.measured_images, feedback_run.metrics["rmse"]):
+        assert rmse(region, target, image) == pytest.approx(value, rel=1e-6)
 
 
 def test_iteration_count_comes_from_the_retriever_iterations() -> None:
@@ -1637,8 +1723,8 @@ def test_run_result_renders(feedback_run: CameraFeedbackData) -> None:
 
 
 def test_every_iteration_is_exposed_and_recorded() -> None:
-    """Each hologram is metered on its own, and the exposure and the gain of every
-    measurement are recorded, whether the exposure was metered or given.
+    """Each hologram is autoexposed on its own, and the exposure and the gain of every
+    measurement are recorded, whether the exposure was found by autoexposure or given.
     """
     feedback = _feedback()
     entry_exposure = feedback.camera.get_exposure()
@@ -1666,14 +1752,14 @@ def test_every_iteration_is_exposed_and_recorded() -> None:
 
 def test_an_overexposed_measurement_is_reported() -> None:
     feedback = _feedback()
-    metered = feedback.camera.get_exposure()
+    autoexposed = feedback.camera.get_exposure()
 
     with pytest.warns(UserWarning, match="are overexposed"):
         data = feedback.run(
             retriever_iterations=[5],
             averages=1,
             autoexpose=False,
-            exposure=100 * metered,
+            exposure=100 * autoexposed,
             verbose=False,
         )
 
@@ -1745,11 +1831,43 @@ def test_overexposure_outside_the_signal_region_is_not_reported(monkeypatch) -> 
     assert data.metadata["overexposed_iterations"] == []
 
 
+def test_frames_are_moved_onto_the_target_before_the_average(monkeypatch) -> None:
+    """The camera moves every other frame by two pixels along the columns, modelling a
+    pointing jitter between frames. The loop compares the same pattern with the target
+    as on a camera without the jitter. The offset is the mean of the frames' offsets.
+    """
+    plain = _feedback().run(
+        retriever_iterations=[5], averages=2, autoexpose=False, verbose=False
+    )
+
+    feedback = _feedback()
+    camera = feedback.camera
+    capture_frame = camera._capture_frame
+    captured = []
+
+    def jittered_frame():
+        frame = capture_frame().detach().clone()
+        captured.append(frame)
+        return torch.roll(frame, shifts=2 if len(captured) % 2 else 0, dims=-1)
+
+    monkeypatch.setattr(camera, "_capture_frame", jittered_frame)
+    data = feedback.run(
+        retriever_iterations=[5], averages=2, autoexpose=False, verbose=False
+    )
+
+    assert len(captured) == 2
+    np.testing.assert_allclose(data.metrics["rmse"], plain.metrics["rmse"], rtol=1e-2)
+    column, row = data.metadata["pattern_offsets"][0]
+    plain_column, plain_row = plain.metadata["pattern_offsets"][0]
+    assert row == pytest.approx(plain_row, abs=0.05)
+    assert column == pytest.approx(plain_column + 1.0, abs=0.05)
+
+
 @pytest.mark.parametrize("form", ["level", "frame", "function"])
 def test_a_background_passed_in_leaves_the_loop_unchanged(monkeypatch, form) -> None:
     """The camera adds a background to every count. With the background passed in,
-    the loop runs as it does on a camera without one. The record keeps the raw frames,
-    and beside them the background subtracted from each frame.
+    the loop runs as it does on a camera without one. The record keeps the frames with
+    the background subtracted. It also keeps the background subtracted from each frame.
     """
     plain = _feedback()
     exposure = plain.camera.get_exposure()
@@ -1790,13 +1908,44 @@ def test_a_background_passed_in_leaves_the_loop_unchanged(monkeypatch, form) -> 
     for name, values in reference.metrics.items():
         np.testing.assert_allclose(shifted.metrics[name], values, rtol=1e-6)
     expected_background = shifted.signal_roi.crop(np.broadcast_to(added, shape))
-    for raw, clean, subtracted in zip(
+    for frame, clean, subtracted in zip(
         shifted.measured_images, reference.measured_images, shifted.background_images
     ):
-        np.testing.assert_allclose(raw, clean + expected_background)
+        np.testing.assert_allclose(frame, clean, rtol=1e-6, atol=1e-9)
         np.testing.assert_allclose(subtracted, expected_background)
     np.testing.assert_allclose(
         shifted.visualizer()._measured(1), reference.visualizer()._measured(1)
+    )
+
+
+def test_a_background_function_is_evaluated_at_the_equivalent_exposure(
+    monkeypatch,
+) -> None:
+    """With the gain raised, the counts above the black level follow the equivalent
+    exposure, so a background function is evaluated there.
+    """
+    feedback = _feedback()
+    camera = feedback.camera
+    exposure = camera.get_exposure()
+    monkeypatch.setattr(camera, "get_gain", lambda: 6.0)
+    evaluated_at: list[float] = []
+
+    def background(seconds: float) -> float:
+        evaluated_at.append(seconds)
+        return 0.0
+
+    feedback.run(
+        retriever_iterations=[5],
+        averages=1,
+        autoexpose=False,
+        exposure=exposure,
+        background=background,
+        verbose=False,
+    )
+
+    assert evaluated_at
+    assert evaluated_at == pytest.approx(
+        [exposure * 10.0 ** (6.0 / 20.0)] * len(evaluated_at)
     )
 
 

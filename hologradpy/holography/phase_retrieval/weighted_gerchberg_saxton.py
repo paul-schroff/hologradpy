@@ -16,8 +16,9 @@ class WeightedGerchbergSaxtonPhaseRetriever(PhaseRetrieverBase):
 
     The algorithm of D. Kim et al., Opt. Lett. 44, 3178 (2019). The field is evaluated
     at the spots only, as a sum over the SLM pixels (R. Di Leonardo et al., Opt.
-    Express 15, 1913 (2007)), so each spot lands exactly at its position. An iteration
-    costs two matrix products, whose size grows with the number of spots.
+    Express 15, 1913 (2007)), so each spot lands exactly at its position
+    (:func:`~hologradpy.fourier_optics.focal_field`). An iteration costs two matrix
+    products, which grow with the number of spots.
 
     The beam is the model's SLM field. Light falls on the SLM only, and the phase of the
     beam is corrected on the SLM.
@@ -125,23 +126,10 @@ class WeightedGerchbergSaxtonPhaseRetriever(PhaseRetrieverBase):
         """
         self.timer.start()
         self.run = run if run is not None else RetrievalRun()
-        borrowed = progress_bar is not None
-        if borrowed:
-            progress_bar.reset(total=number_of_iterations)
-        else:
-            progress_bar = ProgressBar(
-                total=number_of_iterations,
-                description="Weighted Gerchberg-Saxton",
-                verbose=verbose,
-            ).__enter__()
-        self.run.progress_bar = progress_bar
-        try:
+        with self._show_progress(
+            number_of_iterations, "Weighted Gerchberg-Saxton", verbose, progress_bar
+        ):
             self._iterate(number_of_iterations)
-        finally:
-            self.run.progress_bar = None
-            if not borrowed:
-                progress_bar.close()
-
         self.timer.stop()
         return self.slm_camera_model.virtual_slm.get_phase().detach()
 

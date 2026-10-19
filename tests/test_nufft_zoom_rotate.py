@@ -13,7 +13,8 @@ import math
 import pytest
 import torch
 
-from hologradpy.fourier_transforms import NUFFTPartialAffine
+from hologradpy.fourier_transforms import ChirpZPartialAffine, NUFFTPartialAffine
+from hologradpy.roi import ROI
 
 from .registry import requires_nufft
 
@@ -50,6 +51,7 @@ def test_adjoint_is_conjugate_transpose() -> None:
 
 
 def test_rotation_rotates_the_trajectory() -> None:
+    """The trajectory turns by ``-angle``, so the image turns by ``angle``."""
     angle = math.radians(25)
     common = dict(
         resolution=(12, 16),
@@ -62,11 +64,47 @@ def test_rotation_rotates_the_trajectory() -> None:
     rotated = NUFFTPartialAffine(angle=angle, **common)
 
     cos, sin = math.cos(angle), math.sin(angle)
-    expected_x = base.frequencies[0] * cos - base.frequencies[1] * sin
-    expected_y = base.frequencies[0] * sin + base.frequencies[1] * cos
+    expected_x = base.frequencies[0] * cos + base.frequencies[1] * sin
+    expected_y = base.frequencies[1] * cos - base.frequencies[0] * sin
 
     torch.testing.assert_close(rotated.frequencies[0], expected_x)
     torch.testing.assert_close(rotated.frequencies[1], expected_y)
+
+
+def test_the_nufft_samples_the_points_of_the_chirp_z() -> None:
+    """Both zooms sample one window in one rotation sense, so one can be checked
+    against the other.
+    """
+    settings = dict(
+        resolution_out=(12, 16),
+        magnification=(1.3, 1.1),
+        shift=(0.2, -0.1),
+        angle=math.radians(25),
+    )
+    nufft = NUFFTPartialAffine(resolution=(24, 32), **settings)
+    chirp_z = ChirpZPartialAffine((24, 32), **settings)
+
+    torch.testing.assert_close(nufft.frequencies[:, 0], chirp_z.frequencies)
+
+
+def test_an_output_roi_evaluates_that_rectangle_of_the_output() -> None:
+    common = dict(
+        resolution=(12, 16),
+        resolution_out=(14, 18),
+        magnification=(1.3, 1.1),
+        shift=(0.2, -0.1),
+        angle=math.radians(15),
+        grid_size=(24, 32),
+    )
+    roi = ROI(3, 5, 8, 10)
+    whole = NUFFTPartialAffine(**common)
+    window = NUFFTPartialAffine(**common, output_roi=roi)
+    field = _complex(2, 1, 12, 16, seed=0)
+
+    output = window.forward(field)
+
+    assert tuple(output.shape) == (2, 1, 8, 10)
+    torch.testing.assert_close(output, roi.crop(whole.forward(field)))
 
 
 def test_per_wavelength_trajectory_shape() -> None:

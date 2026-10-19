@@ -20,14 +20,11 @@ import torch
 from hologradpy.hardware import SimulatedSLMTorch, SimulatedCameraTorch
 from hologradpy.hardware import Camera, CameraOrientation, SLM
 from hologradpy.hardware.camera import reorient_pixels
+from hologradpy.hardware.camera.stuck_pixels import stuck_pixel_mask
 from hologradpy.hardware.slm import SLMData
 from hologradpy.hardware.slmsuite.conversions import (
     pixel_size_from_pitch_um,
-    pitch_um_from_pixel_size,
     wavelength_from_wav_um,
-    wav_um_from_wavelength,
-    roi_from_woi,
-    roi_to_woi,
 )
 from hologradpy.phase_levels import (
     LinearResponse,
@@ -68,13 +65,6 @@ CAMERA_PIXEL_SIZE = (30e-6, 20e-6)
 
 
 # --- ROI ------------------------------------------------------------------------
-
-
-def test_roi_woi_round_trip():
-    roi = ROI(top_row=5, left_column=8, height=20, width=30)
-    # slmsuite WOI is (x0, width, y0, height).
-    assert roi_to_woi(roi) == (8, 30, 5, 20)
-    assert roi_from_woi(roi_to_woi(roi)) == roi
 
 
 def test_roi_centered_and_slices():
@@ -128,16 +118,14 @@ def test_roi_detect_without_a_threshold_is_an_exact_lossless_box():
 # --- conversion helpers ---------------------------------------------------------
 
 
-def test_pixel_size_pitch_um_round_trip():
+def test_pixel_size_from_pitch_um():
     pitch_um = (20.0, 30.0)  # (x, y)
     pixel_size = pixel_size_from_pitch_um(pitch_um)  # (y, x) metres
     np.testing.assert_allclose(pixel_size, (30e-6, 20e-6))
-    np.testing.assert_allclose(pitch_um_from_pixel_size(pixel_size), pitch_um)
 
 
-def test_wavelength_round_trip():
+def test_wavelength_from_wav_um():
     assert wavelength_from_wav_um(0.63) == pytest.approx(0.63e-6)
-    assert wav_um_from_wavelength(0.63e-6) == pytest.approx(0.63)
 
 
 # --- native device properties ---------------------------------------------------
@@ -196,16 +184,17 @@ def test_slm_native_properties():
     assert sim.wavelength == pytest.approx(WAVELENGTH)
 
 
-def test_the_slm_gives_the_geometry_of_a_field_on_it():
+def test_the_geometry_of_a_field_on_the_slm():
     sim, _ = _build()
-    geometry = sim.to_field_geometry()
+    geometry = FieldGeometry.from_slm(sim)
     assert geometry.resolution == (256, 320)
     assert geometry.pixel_size.dtype == torch.float32
     torch.testing.assert_close(
         geometry.pixel_size, torch.tensor([[SLM_PITCH, SLM_PITCH]])
     )
     assert float(geometry.wavelength) == pytest.approx(WAVELENGTH)
-    assert sim.to_field_geometry(dtype=torch.float64).pixel_size.dtype == torch.float64
+    as_float64 = FieldGeometry.from_slm(sim, dtype=torch.float64)
+    assert as_float64.pixel_size.dtype == torch.float64
 
 
 # --- Grayscale levels ---------------------------------------------------
@@ -827,10 +816,10 @@ class _QuantizedCamera(CroppingCamera):
         self._gain = gain
         self.set_exposure_calls = 0
 
-    def set_exposure(self, exposure_s):
+    def _set_exposure(self, exposure):
         self.set_exposure_calls += 1
         lo, hi = self.exposure_bounds
-        snapped = round(exposure_s / self._step) * self._step
+        snapped = round(exposure / self._step) * self._step
         self._exposure_s = float(min(max(snapped, lo), hi))
 
     def render_sensor_frame(self):
@@ -1045,7 +1034,7 @@ def test_capture_exposure_sweep_drops_out_of_bounds_exposures():
         exposures=[1e-4, 1e-1, 5.0, 10.0]
     )
     assert exposures == [1e-4, 1e-1]  # the two out-of-bounds values are dropped
-    found = set(camera._detect_stuck_pixels(frames, exposures))
+    found = _stuck_pixels_of(camera, frames, exposures)
     assert found == _DISK_STUCK | {_DARK_STUCK_HIGH}
 
 
@@ -1070,11 +1059,21 @@ def test_detect_stuck_pixels_ignores_repeated_exposures():
         [np.asarray(camera.get_image(exposure), dtype=float) for exposure in exposures]
     )
 
-    found = set(camera._detect_stuck_pixels(frames, exposures))
+    found = _stuck_pixels_of(camera, frames, exposures)
 
     assert found == _DISK_STUCK | {_DARK_STUCK_HIGH}
     with pytest.raises(ValueError, match="two or more exposures"):
-        camera._detect_stuck_pixels(frames[:2], [1e-3, 1.1e-3])
+        _stuck_pixels_of(camera, frames[:2], [1e-3, 1.1e-3])
+
+
+def _stuck_pixels_of(
+    camera: Camera, frames: np.ndarray, exposures: list[float]
+) -> set[tuple[int, int]]:
+    """The ``(row, col)`` stuck pixels found in ``frames`` of ``camera``."""
+    stuck = stuck_pixel_mask(
+        frames, exposures, camera.max_pixel_value, camera.saturation_level
+    )
+    return {(row, col) for row, col in np.argwhere(stuck).tolist()}
 
 
 # --- CameraOrientation ----------------------------------------------------------
@@ -1182,7 +1181,6 @@ def test_set_orientation_swaps_the_displayed_shape_for_a_quarter_turn():
 
     camera.set_orientation(CameraOrientation("90"))
     assert camera.resolution == (320, 240)
-    assert camera.shape == (320, 240)
     assert camera.sensor_resolution == (320, 240)
     assert camera.get_image().shape == (320, 240)
 
@@ -1257,19 +1255,17 @@ def test_the_simulator_exchanges_its_pixel_pitch_under_a_quarter_turn():
     np.testing.assert_allclose(camera.pixel_size, CAMERA_PIXEL_SIZE, rtol=1e-6)
 
 
-def test_the_simulated_camera_reports_overexposure_on_either_path():
+def test_the_simulated_camera_reports_overexposure():
     _, camera = _build()
     exposure = camera.autoexpose(raise_on_rail=False)
 
-    camera.get_image_tensor()
+    camera.get_image()
     assert not camera.overexposed
 
     camera.set_exposure(10 * exposure)
-    camera.get_image_tensor()
-    assert camera.overexposed
     camera.get_image()
     assert camera.overexposed
-    camera.get_image_tensor(mask=np.zeros(camera.resolution, dtype=bool))
+    camera.get_image(mask=np.zeros(camera.resolution, dtype=bool))
     assert not camera.overexposed
 
 
@@ -1306,10 +1302,10 @@ def test_a_camera_that_cannot_be_reoriented_says_so():
         exposure_bounds = None
         roi = ROI(0, 0, 4, 4)
 
-        def set_roi(self, roi): ...
+        def _set_roi(self, roi): ...
         def get_exposure(self): return 0.0
-        def set_exposure(self, exposure_s): ...
-        def _get_image(self, exposure=None, averaging=1):
+        def _set_exposure(self, exposure): ...
+        def _get_image(self):
             return np.zeros((4, 4))
 
     camera = _Fixed()
@@ -2025,15 +2021,15 @@ def test_every_adapter_of_one_camera_shares_its_settings() -> None:
     the settings are kept on the camera itself.
     """
     raw = _raw_camera()
-    assert as_camera(raw).frame_timeout_s == 1.0
+    assert as_camera(raw).frame_timeout == 1.0
 
     as_camera(raw).set_roi(ROI(1, 2, 3, 4))
     as_camera(raw).excluded_pixels = [(0, 1)]
-    as_camera(raw).frame_timeout_s = 2.5
+    as_camera(raw).frame_timeout = 2.5
 
     assert as_camera(raw).roi == ROI(1, 2, 3, 4)
     assert SLMSuiteCameraAdapter(raw).excluded_pixels == [(0, 1)]
-    assert as_camera(raw).frame_timeout_s == 2.5
+    assert as_camera(raw).frame_timeout == 2.5
     copied = copy.copy(as_camera(raw))
     assert copied.roi == ROI(1, 2, 3, 4)
     assert as_camera(_raw_camera()).roi == ROI(0, 0, *_RAW_SENSOR_RESOLUTION)

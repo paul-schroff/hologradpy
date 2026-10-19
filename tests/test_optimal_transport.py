@@ -162,6 +162,164 @@ def test_a_target_on_a_window_off_the_zeroth_order_is_reached():
     assert math.hypot(centre_x - shift[0], centre_y - shift[1]) < 20e-6
 
 
+def test_a_target_on_a_window_3_mm_off_the_zeroth_order_is_reached():
+    """The model's window shows the plane 2.4 mm right and 1.8 mm down from the zeroth
+    order, 3 mm away and more than three window widths. The target is drawn on that
+    window, and the spot lands on it.
+    """
+    model = _model(camera_shift=(-2.4e-3, 1.8e-3))
+    shift = (40e-6, -30e-6)
+    target = _gaussian_target(model, 60e-6, shift=shift)
+
+    _retriever(model, target).retrieve_phase()
+
+    with torch.no_grad():
+        image = model().intensity.squeeze().detach().to(torch.float64)
+    camera_x, camera_y = model[-1].get_spatial_grid_output()
+    centre_x = float((image * camera_x).sum() / image.sum())
+    centre_y = float((image * camera_y).sum() / image.sum())
+
+    assert math.hypot(centre_x - shift[0], centre_y - shift[1]) < 20e-6
+
+
+def test_a_target_far_off_the_axis_is_reached_at_its_radius():
+    """A target several of its own radii from the axis lands where it was asked for and
+    as wide. A pattern placed clear of the zeroth order sits this far out.
+    """
+    model = _model()
+    wanted = 60e-6
+    shift = (-300e-6, -200e-6)
+    target = _gaussian_target(model, wanted, shift=shift)
+
+    _retriever(model, target).retrieve_phase()
+
+    with torch.no_grad():
+        image = model().intensity.squeeze().detach().to(torch.float64)
+    camera_x, camera_y = model[-1].get_spatial_grid_output()
+    centre_x = float((image * camera_x).sum() / image.sum())
+    centre_y = float((image * camera_y).sum() / image.sum())
+    variance_x = (image * (camera_x - centre_x) ** 2).sum() / image.sum()
+    radius_x = 2 * float(variance_x.sqrt())
+    focal_spot = get_focal_spot_radius(BEAM_RADIUS, WAVELENGTH, FOCAL_LENGTH)
+
+    assert math.hypot(centre_x - shift[0], centre_y - shift[1]) < 0.25 * wanted
+    assert radius_x == pytest.approx(math.hypot(wanted, focal_spot), rel=0.2)
+
+
+def test_the_light_lands_on_the_target_through_the_camera_mapping():
+    """The model's focal-plane partial affine turns, zooms and shifts the image onto the
+    camera, and the target is given in the camera's frame. The transport aims through
+    the partial affine, so the light lands on the target.
+    """
+    model = _model()
+    partial_affine = model.focal_plane_partial_affine
+    with torch.no_grad():
+        partial_affine.scale_factor.fill_(1.03)
+        partial_affine.angle.fill_(4.0)
+        partial_affine.shift.copy_(torch.tensor([7.0, -5.0]))
+    wanted = 60e-6
+    shift = (-150e-6, 100e-6)
+    target = _gaussian_target(model, wanted, shift=shift)
+
+    _retriever(model, target).retrieve_phase()
+
+    with torch.no_grad():
+        image = model().intensity.squeeze().detach().to(torch.float64)
+    camera_x, camera_y = model[-1].get_spatial_grid_output()
+    centre_x = float((image * camera_x).sum() / image.sum())
+    centre_y = float((image * camera_y).sum() / image.sum())
+
+    assert math.hypot(centre_x - shift[0], centre_y - shift[1]) < 0.25 * wanted
+
+
+def _turned_model(camera_pixel_size: tuple[float, float]) -> SLMCZT:
+    """A model with its camera turned by 20 degrees and moved 3 pixels along y.
+
+    The camera is 48 pixels high and 96 wide, so its centre lies at column 48 and row
+    24, and its column and row differ. The light lands on the L only when the
+    transport turns and zooms the L about that centre. The beam of 3 mm radius makes a
+    focal spot of 33 um radius, so an L with bars 5 camera pixels wide keeps its shape.
+    """
+    geometry = FieldGeometry(
+        resolution=SLM_RESOLUTION,
+        pixel_size=torch.tensor([64e-6, 64e-6]),
+        wavelength=torch.tensor(WAVELENGTH),
+    )
+    grid_x, grid_y = geometry.get_spatial_grid()
+    beam = ComplexAmplitude.from_geometry(
+        geometry, data=gaussian_beam_intensity(grid_x, grid_y, 3e-3).sqrt() + 0j
+    )
+    model = SLMCZT(
+        input_geometry=geometry,
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
+        slm_field=PixelwiseSLMField(beam),
+        camera_resolution=(48, 96),
+        camera_pixel_size=camera_pixel_size,
+        focal_length=FOCAL_LENGTH,
+        camera_angle=20.0,
+        camera_shift=(0.0, 3 * camera_pixel_size[0]),
+    )
+    model()
+    return model
+
+
+def _blurred_box(coordinate: torch.Tensor, low: float, high: float) -> torch.Tensor:
+    """1 between ``low`` and ``high`` and 0 outside, with each edge blurred by a
+    Gaussian of standard deviation 0.75, in the units of ``coordinate``.
+    """
+    scale = math.sqrt(2) * 0.75
+    return 0.5 * (
+        torch.erf((coordinate - low) / scale) - torch.erf((coordinate - high) / scale)
+    )
+
+
+# The (y, x) pitch of the camera and the (x, y) zoom of the partial affine, per case.
+TURNED_CAMERAS = {
+    "equal pitches": ((20e-6, 20e-6), (1.0, 1.0)),
+    "unequal pitches": ((20e-6, 14e-6), (1.0, 1.0)),
+    "anisotropic zoom": ((20e-6, 20e-6), (1.3, 0.8)),
+}
+
+
+@pytest.mark.parametrize("camera", TURNED_CAMERAS.values(), ids=list(TURNED_CAMERAS))
+def test_an_l_through_a_camera_turned_by_20_degrees_keeps_its_shape(camera):
+    """The camera is turned by 20 degrees, and the target is an L drawn on its pixels.
+    The light lands on the L in its shape. The image correlates with the target above
+    0.9, and its centroid lies within a pixel of the target's. The target is turned in
+    metres and then zoomed along the camera's x and y, as the lens turns and zooms the
+    image, so the shape holds on unequal pitches and under an anisotropic zoom.
+    """
+    camera_pixel_size, scale_factor = camera
+    model = _turned_model(camera_pixel_size)
+    with torch.no_grad():
+        model.focal_plane_partial_affine.scale_factor.copy_(torch.tensor(scale_factor))
+    camera_x, camera_y = model[-1].get_spatial_grid_output()
+    # Camera pixels from the centre, x right and y up.
+    x = camera_x.double() / camera_pixel_size[1]
+    y = camera_y.double() / camera_pixel_size[0]
+    # A vertical bar on the left and a horizontal bar along the bottom.
+    target = torch.maximum(
+        _blurred_box(x, 2, 7) * _blurred_box(y, -2, 18),
+        _blurred_box(x, 2, 22) * _blurred_box(y, -2, 3),
+    )
+
+    _retriever(model, target.to(torch.float32)).retrieve_phase()
+
+    with torch.no_grad():
+        image = model().intensity.squeeze().detach().to(torch.float64)
+    offset = math.hypot(
+        float((image * x).sum() / image.sum() - (target * x).sum() / target.sum()),
+        float((image * y).sum() / image.sum() - (target * y).sum() / target.sum()),
+    )
+    image, target = image - image.mean(), target - target.mean()
+    correlation = (image * target).sum() / torch.sqrt(
+        (image**2).sum() * (target**2).sum()
+    )
+
+    assert offset < 1.0
+    assert float(correlation) > 0.9
+
+
 # --- the contract with PhaseRetrieverBase -------------------------------------------
 
 
@@ -218,6 +376,18 @@ def test_the_phase_has_the_slm_resolution():
     phase = _retriever(model, target).retrieve_phase()
 
     assert phase.shape == tuple(model.virtual_slm.slm_resolution)
+
+
+def test_a_learnable_field_leaves_no_graph_on_the_phase():
+    """The model's field takes gradients, as a field being fitted does."""
+    model = _model()
+    model.slm_field.amplitude.requires_grad_(True)
+    target = _gaussian_target(model, 60e-6)
+
+    phase = _retriever(model, target)._transport_phase(8)
+
+    assert model.slm_field.get_wavefront().requires_grad
+    assert not phase.requires_grad
 
 
 def test_an_explicit_source_intensity_is_used():

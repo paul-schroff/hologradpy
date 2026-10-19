@@ -1,7 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 from numpy.typing import NDArray
+from scipy.ndimage import gaussian_filter
+
+
+def _closest_divisor(length: int, target: float) -> int:
+    """The divisor of ``length`` closest to ``target``, or the smaller one on a tie."""
+    divisors = [divisor for divisor in range(1, length + 1) if length % divisor == 0]
+    return min(divisors, key=lambda divisor: abs(divisor - target))
 
 
 class SuperpixelSlicer:
@@ -102,6 +111,75 @@ class SuperpixelSlicer:
         else:
             for i in self.superpixel_indices:
                 self.slices.append(self.get_slice(i))
+
+    @staticmethod
+    def counts_for_size(
+        slm_shape: tuple[int, int], superpixel_size: tuple[int, int]
+    ) -> tuple[int, int]:
+        """The ``(rows, columns)`` of superpixels that tile the SLM.
+
+        The superpixel sides are the divisors of the SLM sides closest to
+        ``superpixel_size``.
+
+        Args:
+            slm_shape: The ``(height, width)`` of the SLM.
+            superpixel_size: The ``(height, width)`` to come close to, in pixels.
+        """
+        superpixel_height = _closest_divisor(slm_shape[0], superpixel_size[0])
+        superpixel_width = _closest_divisor(slm_shape[1], superpixel_size[1])
+        return slm_shape[0] // superpixel_height, slm_shape[1] // superpixel_width
+
+    @staticmethod
+    def size_for_counts(
+        slm_shape: tuple[int, int], number_of_superpixels: tuple[int, int]
+    ) -> tuple[int, int]:
+        """The superpixel ``(height, width)`` in pixels.
+
+        The sides are the divisors of the SLM sides closest to the SLM height over the
+        rows and the SLM width over the columns.
+
+        Args:
+            slm_shape: The ``(height, width)`` of the SLM.
+            number_of_superpixels: The ``(rows, columns)`` to come close to.
+        """
+        rows, columns = number_of_superpixels
+        return (
+            _closest_divisor(slm_shape[0], slm_shape[0] / rows),
+            _closest_divisor(slm_shape[1], slm_shape[1] / columns),
+        )
+
+    @staticmethod
+    def center(superpixel_slice: tuple[slice, slice]) -> tuple[float, float]:
+        """The ``(column, row)`` centre of a superpixel, in SLM pixels."""
+        rows, columns = superpixel_slice
+        return (columns.start + columns.stop) / 2, (rows.start + rows.stop) / 2
+
+    def average(
+        self,
+        values: Sequence[float],
+        slices: Sequence[tuple[slice, slice]],
+    ) -> tuple[NDArray[np.float64], NDArray[np.bool_]]:
+        """The mean of ``values`` over the superpixels that cover each SLM pixel.
+
+        Args:
+            values: One value per superpixel.
+            slices: The superpixels, in the order of ``values``.
+
+        Returns:
+            tuple[NDArray, NDArray]: The map of means, and a mask that is True at the
+            pixels a superpixel covers. The map is zero where no superpixel lies.
+        """
+        total = np.zeros(self.slm_shape)
+        count = np.zeros(self.slm_shape)
+        for value, superpixel_slice in zip(values, slices):
+            total[superpixel_slice] += value
+            count[superpixel_slice] += 1
+        covered = count > 0
+        return total / np.where(covered, count, 1), covered
+
+    def blur(self, image: NDArray[np.float64]) -> NDArray[np.float64]:
+        """``image`` blurred by a Gaussian of half the larger superpixel separation."""
+        return gaussian_filter(image, sigma=max(self.superpixel_separation) / 2)
 
     @property
     def superpixel_separation(self) -> tuple[int, int]:

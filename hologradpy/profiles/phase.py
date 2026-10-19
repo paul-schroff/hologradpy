@@ -9,8 +9,9 @@ import torch
 
 from array_api_compat import array_namespace
 
+from ..analysis.fourier_filter import fourier_filter
 from ..fourier_optics import beam_shaping_focal_length, get_focal_spot_radius
-from ..fourier_transforms import fft_2d, ifft_2d
+from ..grids import get_pixel_grid
 
 ArrayLike = TypeVar("ArrayLike", torch.Tensor, NDArray)
 TiltUnits = Literal["degrees", "radians", "metres", "lines_per_mm"]
@@ -94,34 +95,57 @@ def lens_phase(
     return -0.5 * wavenumber / focal_length * (x**2 + y**2)
 
 
+def hyperbolic_lens_phase(
+    x: ArrayLike, y: ArrayLike, focal_length: float, wavenumber: float
+) -> ArrayLike:
+    """Calculates the phase of a lens that focuses a plane wave onto its focal point
+    without aberration, on a 2D grid.
+
+    The phase is ``-k (sqrt(r^2 + f^2) - f)``.
+
+    Args:
+        x: X coordinates in the lens plane from the optical axis, in metres.
+        y: Y coordinates in the lens plane from the optical axis, in metres.
+        focal_length: Focal length of the lens, in metres.
+        wavenumber: Wavenumber of the light, in radians per metre.
+
+    Returns:
+        ArrayLike: Lens phase in radians.
+    """
+    radius_squared = x**2 + y**2
+    xp = array_namespace(radius_squared)
+    return -wavenumber * radius_squared / (
+        xp.sqrt(radius_squared + focal_length**2) + focal_length
+    )
+
+
 def defocus_phase(
     x: ArrayLike,
     y: ArrayLike,
     defocus: float,
     focal_length: float,
     wavenumber: float,
-) -> ArrayLike | float:
-    """Return the lens on the SLM that moves the focus of a Fourier lens by ``defocus``
-    along the beam, about (0, 0) of ``x`` and ``y``.
+) -> ArrayLike:
+    """Calculates the SLM phase that moves the focus of the Fourier lens by
+    ``defocus`` along the beam.
 
-    A lens of focal length ``-focal_length**2 / defocus`` moves the focus by
-    ``defocus``. A positive ``defocus`` moves the focus away from the SLM.
-
-    - If ``defocus`` is 0, return 0.0.
+    A positive ``defocus`` moves the focus away from the SLM, so the camera's plane
+    lies ``defocus`` before the focus. To second order in the radius, the phase is a
+    lens of focal length ``-focal_length**2 / defocus``.
 
     Args:
-        x: x coordinates on the SLM, in metres.
-        y: y coordinates on the SLM, in metres.
+        x: X coordinates on the SLM from the optical axis, in metres.
+        y: Y coordinates on the SLM from the optical axis, in metres.
         defocus: How far the focus moves along the beam, in metres.
-        focal_length: The focal length of the Fourier lens, in metres.
-        wavenumber: Wavenumber ``2 * pi / wavelength``.
+        focal_length: Focal length of the Fourier lens, in metres.
+        wavenumber: Wavenumber of the light, in radians per metre.
 
     Returns:
-        ArrayLike | float: The phase in radians, on the grid of ``x`` and ``y``.
+        ArrayLike: Defocus phase in radians.
     """
-    if defocus == 0:
-        return 0.0
-    return lens_phase(x, y, -(focal_length**2) / defocus, wavenumber)
+    sine_squared = (x**2 + y**2) / focal_length**2
+    xp = array_namespace(sine_squared)
+    return wavenumber * defocus * sine_squared / (1 + xp.sqrt(1 - sine_squared))
 
 
 def spherical_surface(
@@ -417,30 +441,71 @@ def binary_phase_grating(
 def band_limited_random_phase(
     band_mask: torch.Tensor,
     generator: torch.Generator | None = None,
-    clip_sigma: float | None = None,
 ) -> torch.Tensor:
-    """Smooth random phase with diffracted light landing inside ``band_mask`` in the
-    Fourier plane.
+    """Random phase with light that fills ``band_mask`` in the Fourier plane.
 
     Args:
-        band_mask: The band-limiting mask.
-        generator: Random number generator.
-        clip_sigma: Clip the field at this many standard deviations before rescaling,
-            or None (default).
+        band_mask: The band-limiting mask, in the centred layout of
+            :func:`~hologradpy.fourier_transforms.fft_2d`.
+        generator: Random number generator, the global one for None.
 
     Returns:
-        torch.Tensor: The phase in ``[0, 2 * pi]``, shaped like ``band_mask``.
+        torch.Tensor: The phase in ``[0, 2 * pi)``, shaped like ``band_mask``.
     """
-    white = torch.randn(band_mask.shape, generator=generator, device=band_mask.device)
+    white = torch.randn(
+        band_mask.shape,
+        generator=generator,
+        device=band_mask.device,
+        dtype=torch.complex64,
+    )
+    field = fourier_filter(white, band_mask)
+    return torch.remainder(torch.angle(field), 2 * torch.pi)
 
-    field = ifft_2d(fft_2d(white + 0j) * band_mask).real
-    field = field / field.std()
 
-    if clip_sigma is not None:
-        field = field.clamp(-clip_sigma, clip_sigma)
+def random_diversity_phase(
+    band_mask: torch.Tensor,
+    weights: torch.Tensor,
+    rms: float,
+    generator: torch.Generator | None = None,
+) -> torch.Tensor:
+    """Smooth random phase with its diffracted light inside ``band_mask`` in the
+    Fourier plane.
 
-    lowest = field.min()
-    return (field - lowest) / (field.max() - lowest) * 2 * torch.pi
+    Real white noise is filtered by the band. The piston and the tilt are removed by a
+    least-squares fit weighted by ``weights``. The result is scaled to the weighted
+    RMS, ``rms``. A tilt only moves the pattern the phase diffracts, so the phase lies
+    in the band up to the plane removed.
+
+    Args:
+        band_mask: The band-limiting mask, in the centred layout of
+            :func:`~hologradpy.fourier_transforms.fft_2d`.
+        weights: The weight of every pixel, such as the intensity of the beam, in the
+            shape of ``band_mask``.
+        rms: The RMS of the phase over ``weights``, in radians.
+        generator: Random number generator, the global one for None.
+
+    Returns:
+        torch.Tensor: The phase in radians, in float64 and shaped like ``band_mask``.
+    """
+    white = torch.randn(
+        band_mask.shape,
+        generator=generator,
+        device=band_mask.device,
+        dtype=torch.float64,
+    )
+    phase = fourier_filter(white, band_mask)
+    weights = weights.to(phase).reshape(-1)
+    grid_x, grid_y = get_pixel_grid(tuple(phase.shape), phase.device, phase.dtype)
+    plane_basis = torch.stack((torch.ones_like(grid_x), grid_x, grid_y)).reshape(3, -1)
+    # The weighted least-squares plane, from its 3 x 3 normal equations.
+    weighted_basis = plane_basis * weights
+    plane = torch.linalg.solve(
+        weighted_basis @ plane_basis.T, weighted_basis @ phase.reshape(-1)
+    )
+    phase = phase - (plane @ plane_basis).reshape(phase.shape)
+
+    weighted_rms = torch.sqrt((weights * phase.reshape(-1) ** 2).sum() / weights.sum())
+    return phase * (rms / float(weighted_rms))
 
 
 def vortex_phase(

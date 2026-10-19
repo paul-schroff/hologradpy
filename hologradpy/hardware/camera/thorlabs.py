@@ -6,8 +6,6 @@ also runs the Kiralux and Quantalux cameras.
 
 from __future__ import annotations
 
-import warnings
-
 import numpy as np
 from numpy.typing import NDArray
 
@@ -15,7 +13,7 @@ from ...roi import ROI
 from .abstract import Camera, CameraOrientation, reorient_pixels
 
 # How long to wait for a triggered frame beyond its exposure, in seconds.
-FRAME_TIMEOUT_S = 2.0
+FRAME_TIMEOUT = 2.0
 
 
 class ThorlabsCamera(Camera):
@@ -80,7 +78,6 @@ class ThorlabsCamera(Camera):
 
         self._sensor_resolution: tuple[int, int] = self._raw_shape
         self._pixel_size = self._raw_pixel_size
-        self.transform = CameraOrientation().transformation()
         self._roi = ROI(0, 0, *self._raw_shape)
 
         # One frame per trigger, and none until the first trigger.
@@ -108,24 +105,13 @@ class ThorlabsCamera(Camera):
         """The current region of interest, in displayed ``(row, col)`` coordinates."""
         return self._roi
 
-    def set_roi(self, roi: ROI | None) -> None:
-        """Set the region of interest, or return to the whole frame with None.
+    def _set_roi(self, roi: ROI | None) -> None:
+        """Read out the part of the sensor under ``roi``, or the whole sensor for None.
 
-        Only the part of the sensor under the region is read out. Changing it re-arms
-        the camera, which takes a moment.
-
-        Args:
-            roi: The region in displayed ``(row, col)`` coordinates, or None.
-
-        Raises:
-            ValueError: ``roi`` is empty or reaches off the displayed frame. The region
-                is then left as it was.
+        Changing the region re-arms the camera, which takes a moment.
         """
-        height, width = self._sensor_resolution
         if roi is None:
-            roi = ROI(0, 0, height, width)
-        elif not roi.lies_inside((height, width)):
-            raise ValueError(f"{roi} does not lie inside the {height} x {width} frame.")
+            roi = ROI(0, 0, *self._sensor_resolution)
         self._read_out(self._sensor_region_of(roi))
         self._roi = roi
 
@@ -199,31 +185,19 @@ class ThorlabsCamera(Camera):
         self._window = window
         self._sensor_region = region
 
-    def set_orientation(self, orientation: CameraOrientation) -> None:
-        """Remount the sensor, reorienting every frame from here on.
-
-        The region of interest returns to the whole frame, since a crop is given in the
-        coordinates of the previous frame. The excluded pixels follow the sensor into
-        the new frame (:func:`~hologradpy.hardware.camera.reorient_pixels`), and the
-        pixel pitch is exchanged under a quarter turn.
-
-        Args:
-            orientation: The orientation to mount the sensor in.
+    def _set_orientation(
+        self, orientation: CameraOrientation, raw_shape: tuple[int, int]
+    ) -> None:
+        """Remount the sensor, exchanging the displayed height and width and the pixel
+        pitch under a quarter turn.
         """
-        excluded = self.excluded_pixels
-        if excluded:
-            excluded = reorient_pixels(
-                excluded, self._raw_shape, self.orientation, orientation
-            )
         if orientation.swaps_axes():
-            self._sensor_resolution = (self._raw_shape[1], self._raw_shape[0])
+            self._sensor_resolution = (raw_shape[1], raw_shape[0])
             self._pixel_size = self._raw_pixel_size[::-1].copy()
         else:
-            self._sensor_resolution = self._raw_shape
+            self._sensor_resolution = (raw_shape[0], raw_shape[1])
             self._pixel_size = self._raw_pixel_size
         self.transform = orientation.transformation()
-        self.set_roi(None)
-        self.excluded_pixels = excluded
 
     @property
     def exposure_bounds(self) -> tuple[float, float] | None:
@@ -232,25 +206,10 @@ class ThorlabsCamera(Camera):
     def get_exposure(self) -> float:
         return float(self._device.get_exposure())
 
-    def set_exposure(self, exposure_s: float) -> None:
-        """Set the exposure time in seconds, from the next frame on.
-
-        The acquisition keeps running. An exposure outside :attr:`exposure_bounds` is
-        clipped into them with a warning.
-
-        Args:
-            exposure_s: The exposure in seconds.
+    def _set_exposure(self, exposure: float) -> None:
+        """Set the exposure time in seconds, from the next frame on. The acquisition
+        keeps running.
         """
-        exposure = float(exposure_s)
-        bounds = self._exposure_bounds
-        if bounds is not None and not bounds[0] <= exposure <= bounds[1]:
-            clipped = min(max(exposure, bounds[0]), bounds[1])
-            warnings.warn(
-                f"An exposure of {exposure} s is outside the camera's bounds {bounds} "
-                f"s, so {clipped} s is applied.",
-                stacklevel=2,
-            )
-            exposure = clipped
         self._device.set_exposure(exposure)
 
     def _read_gain_range(self) -> tuple[float, float] | None:
@@ -276,59 +235,15 @@ class ThorlabsCamera(Camera):
             return 0.0
         return float(self._device.get_gain())
 
-    def set_gain(self, gain: float) -> None:
-        """Set the gain in dB, from the next frame on.
+    def _set_gain(self, gain: float) -> None:
+        """Set the gain in dB, from the next frame on. The acquisition keeps running.
 
-        The acquisition keeps running. A gain outside :attr:`gain_bounds` is clipped
-        into them with a warning. The camera sets the gain in steps of its own, and
-        :meth:`get_gain` reads back the step it applied.
-
-        Args:
-            gain: The gain in dB.
-
-        Raises:
-            NotImplementedError: The camera states no gain range.
+        The camera sets the gain in steps of its own. :meth:`get_gain` reads back the
+        step it applied.
         """
-        bounds = self._gain_bounds
-        if bounds is None:
-            raise NotImplementedError(
-                f"The {self.name} states no gain range, so its gain cannot be set."
-            )
-        gain = float(gain)
-        if not bounds[0] <= gain <= bounds[1]:
-            clipped = min(max(gain, bounds[0]), bounds[1])
-            warnings.warn(
-                f"A gain of {gain} dB is outside the camera's gain range {bounds} dB, "
-                f"so {clipped} dB is applied.",
-                stacklevel=2,
-            )
-            gain = clipped
         self._device.set_gain(gain)
 
-    def _get_image(
-        self, exposure: float | None = None, averaging: int = 1
-    ) -> NDArray:
-        """Capture a frame as a ``(height, width)`` array of digital counts.
-
-        Each frame is triggered on its own, and several frames are summed.
-
-        Args:
-            exposure: The exposure in seconds, set before the capture when given.
-            averaging: The number of frames to sum.
-
-        Returns:
-            NDArray: One frame in the sensor's dtype, or the float64 sum of
-            ``averaging`` frames.
-        """
-        if exposure is not None:
-            self.set_exposure(exposure)
-
-        frames = [self._capture_frame() for _ in range(max(int(averaging), 1))]
-        if len(frames) == 1:
-            return frames[0]
-        return np.sum(np.stack(frames).astype(np.float64), axis=0)
-
-    def _capture_frame(self) -> NDArray:
+    def _get_image(self) -> NDArray:
         """Trigger one exposure, and return its frame reoriented and cropped to the
         region of interest.
 
@@ -337,13 +252,10 @@ class ThorlabsCamera(Camera):
         """
         self._device.read_multiple_images()
         self._device.send_software_trigger()
-        self._device.wait_for_frame(timeout=self.get_exposure() + FRAME_TIMEOUT_S)
+        self._device.wait_for_frame(timeout=self.get_exposure() + FRAME_TIMEOUT)
         frame = self._device.read_oldest_image()
         # The window can be larger than the region, when the camera has a minimum size.
-        region, window = self._sensor_region, self._window
-        top = region.top_row - window.top_row
-        left = region.left_column - window.left_column
-        part = frame[top : top + region.height, left : left + region.width]
+        part = self._sensor_region.relative_to(self._window).crop(frame)
         # A copy, since the driver reuses its frame buffer.
         return np.array(self.transform(part))
 
@@ -356,12 +268,6 @@ class ThorlabsCamera(Camera):
             finally:
                 device.close()
 
-    def __enter__(self) -> ThorlabsCamera:
-        return self
-
-    def __exit__(self, *_) -> None:
-        self.close()
-
     def __del__(self) -> None:
         try:
             self.close()
@@ -373,8 +279,8 @@ def _window(roi: tuple) -> ROI:
     """A window as pylablib states it, ``(hstart, hend, vstart, vend, hbin, vbin)``,
     as an ROI.
     """
-    left, right, top, bottom = (int(value) for value in roi[:4])
-    return ROI(top, left, bottom - top, right - left)
+    left, right, top, bottom = roi[:4]
+    return ROI.from_bounds(top, bottom, left, right)
 
 
 def _widened(
@@ -383,11 +289,10 @@ def _widened(
     """``region`` widened by ``(top, left, bottom, right)`` margins, kept on a sensor
     of ``shape``.
     """
-    top = max(region.top_row - margins[0], 0)
-    left = max(region.left_column - margins[1], 0)
-    bottom = min(region.top_row + region.height + margins[2], shape[0])
-    right = min(region.left_column + region.width + margins[3], shape[1])
-    return ROI(top, left, bottom - top, right - left)
+    top, bottom, left, right = region.to_bounds()
+    return ROI.from_bounds(
+        top - margins[0], bottom + margins[2], left - margins[1], right + margins[3]
+    ).trimmed_to(shape)
 
 
 def _cut_off(window: ROI, region: ROI) -> tuple[bool, bool, bool, bool]:

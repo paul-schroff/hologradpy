@@ -80,6 +80,14 @@ def test_at_unit_zoom_it_is_the_angular_spectrum_method() -> None:
     assert _rms(zoomed, plain) < 1e-6
 
 
+@pytest.mark.parametrize("padded_resolution", [(129, 128), (128, 129)])
+def test_an_odd_padded_resolution_is_refused(padded_resolution) -> None:
+    propagator = AngularSpectrumSAFT(DISTANCE, padded_resolution=padded_resolution)
+
+    with pytest.raises(ValueError, match="even"):
+        propagator(_aperture())
+
+
 def test_the_output_pitch_defaults_to_the_input_pitch() -> None:
     """Always representable, where a coarser one would tile the plane."""
     field = _aperture()

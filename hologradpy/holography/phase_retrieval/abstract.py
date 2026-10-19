@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import os
 import warnings
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Generator, Sequence
 
 import torch
 import torchmin
@@ -145,15 +146,12 @@ class PhaseRetrievalData(SaveableRecord):
 
         # The parameter goes back exactly as it was, so a step holds it and not the
         # phase.
-        restore = model.virtual_slm.levels.detach().clone()
-        try:
-            model.virtual_slm.levels.data = torch.as_tensor(
-                fraction, dtype=restore.dtype, device=model.device
+        virtual_slm = model.virtual_slm
+        with virtual_slm.preserve_levels(), torch.no_grad():
+            virtual_slm.levels.data = torch.as_tensor(
+                fraction, dtype=virtual_slm.levels.dtype, device=model.device
             )
-            with torch.no_grad():
-                return fraction, gpu_to_numpy(as_image(model().intensity))
-        finally:
-            model.virtual_slm.levels.data = restore
+            return fraction, gpu_to_numpy(as_image(model().intensity))
 
     def _check_step(self, iteration: int) -> None:
         if iteration not in self.step_iterations:
@@ -175,12 +173,9 @@ class PhaseRetrieverBase:
 
     def __init__(self, slm_camera_model: SLMFourierLensModel) -> None:
         self.slm_camera_model: SLMFourierLensModel = slm_camera_model
-        # One run builds the modules that make their parameters lazily, so a starting
-        # phase can be set on a model that has not run yet.
-        if not slm_camera_model.virtual_slm.initialized:
-            with torch.no_grad():
-                slm_camera_model()
-        # The device is determined by the optical model rather than passed in.
+        # The modules make their state lazily, so a model that has not run yet is built
+        # here. A starting phase can then be set, and the SLM field read.
+        slm_camera_model.build()
         self.device: torch.device = slm_camera_model.device
 
         self.run: RetrievalRun = RetrievalRun()
@@ -192,6 +187,38 @@ class PhaseRetrieverBase:
         """The objective values of the most recent search."""
         return self.run.loss_history
 
+    @contextmanager
+    def _show_progress(
+        self,
+        number_of_iterations: int,
+        description: str,
+        verbose: bool,
+        progress_bar: ProgressBar | None,
+    ) -> Generator[ProgressBar, None, None]:
+        """A progress bar attached to :attr:`run` for the duration of a ``with`` block.
+
+        Args:
+            number_of_iterations: The steps of the bar.
+            description: The label of a new bar.
+            verbose: Show a new bar.
+            progress_bar: A bar to borrow, or None for a new one.
+
+        Yields:
+            ProgressBar: The bar.
+        """
+        if progress_bar is None:
+            bar_context = ProgressBar(
+                total=number_of_iterations, description=description, verbose=verbose
+            )
+        else:
+            progress_bar.reset(total=number_of_iterations)
+            bar_context = nullcontext(progress_bar)
+        with bar_context as bar:
+            self.run.progress_bar = bar
+            try:
+                yield bar
+            finally:
+                self.run.progress_bar = None
 
     def retrieve_phase(
         self,
@@ -541,7 +568,7 @@ class GradientPhaseRetriever(PhaseRetrieverBase):
         named_parameters = dict(self.slm_camera_model.named_parameters())
 
         if parameter_name not in named_parameters:
-            _ = self.slm_camera_model()
+            self.slm_camera_model.build()
             named_parameters = dict(self.slm_camera_model.named_parameters())
 
         if parameter_name not in named_parameters:
@@ -599,26 +626,13 @@ class GradientPhaseRetriever(PhaseRetrieverBase):
             learning_rate=learning_rate,
         )
 
-        borrowed = progress_bar is not None
-        if borrowed:
-            progress_bar.reset(total=number_of_iterations)
-        else:
-            progress_bar = ProgressBar(
-                total=number_of_iterations,
-                description="Phase retrieval",
-                verbose=verbose,
-            ).__enter__()
-
-        self.run.progress_bar = progress_bar
-        try:
+        with self._show_progress(
+            number_of_iterations, "Phase retrieval", verbose, progress_bar
+        ):
             if chosen in FIRST_ORDER_OPTIMIZERS:
                 self.step_first_order(number_of_iterations)
             else:
                 self.optimizer.step(self.closure)
-        finally:
-            self.run.progress_bar = None
-            if not borrowed:
-                progress_bar.close()
         if not torch.isfinite(self.parameter).all():
             # torchmin's line search computes in the parameter's precision. In float32
             # it can overflow and step to NaN.

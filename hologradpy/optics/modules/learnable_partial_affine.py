@@ -6,7 +6,7 @@ import torch
 from torch import nn
 from torch.nn import Parameter
 
-from ...geometry import PartialAffineTransform, inverse_partial_affine_parameters
+from ...geometry import PartialAffineTransform
 from ...grids import pixel_frame_angle, pixel_frame_vector, plane_center
 
 
@@ -16,10 +16,11 @@ class LearnablePartialAffine(nn.Module):
 
     ``scale_factor`` is the zoom along ``(x, y)``, ``shift`` the translation in output
     pixels along ``(x, y)``, and ``angle`` the rotation in degrees from +x towards +y.
-    All three are physical. The zoom and the rotation keep the centre of the output
-    plane fixed. A Fourier lens or a field warp holds one, reads its parameters in the
-    forward pass and converts them to the pixel frame. The camera-aware optical systems
-    calibrate it from a camera mapping through :meth:`set`.
+    All three are physical. The plane is turned by ``angle`` and then zoomed by
+    ``scale_factor`` along the output x and y, both about the centre of the output
+    plane, and then shifted by ``shift``. A Fourier lens or a field warp holds one,
+    reads its parameters in the forward pass and converts them to the pixel frame. The
+    camera-aware optical systems calibrate it from a camera mapping through :meth:`set`.
 
     The parameters are made in float64 on the CPU. The owning module moves them to the
     device and the dtype of its field when it is first run.
@@ -39,7 +40,7 @@ class LearnablePartialAffine(nn.Module):
                 the rotation keep its centre fixed.
             scale_factor: The starting zoom along ``(x, y)``.
             shift: The starting translation in output pixels along ``(x, y)``.
-            angle: The starting rotation in degrees.
+            angle: The starting rotation in degrees from +x towards +y.
             learnable: Whether the parameters require a gradient.
         """
         super().__init__()
@@ -64,9 +65,7 @@ class LearnablePartialAffine(nn.Module):
         Args:
             transform: The camera -> model similarity fitted by the camera mappers.
         """
-        scale, angle_degrees, shift = inverse_partial_affine_parameters(
-            transform, self.center
-        )
+        scale, angle_degrees, shift = transform.inverse().components(self.center)
         with torch.no_grad():
             self.scale_factor.fill_(scale)
             self.shift.copy_(

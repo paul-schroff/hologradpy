@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -269,6 +271,21 @@ class VirtualSLM(OpticsModule):
         if not isinstance(levels, torch.Tensor):
             levels = torch.as_tensor(np.asarray(levels))
         self.set_phase(self.levels_to_phase(levels, bitdepth))
+
+    @contextmanager
+    def preserve_levels(self) -> Generator[VirtualSLM, None, None]:
+        """Restore the levels when a ``with`` block ends, also after an exception.
+
+        Inside the block, other holograms can be displayed on the model.
+
+        Yields:
+            VirtualSLM: This SLM.
+        """
+        held_levels = self.levels.data.clone()
+        try:
+            yield self
+        finally:
+            self.levels.data = held_levels
 
     def _checked_bitdepth(self, bitdepth: int | None) -> int:
         """The response's own bit depth, and a loud error when a caller disagrees."""

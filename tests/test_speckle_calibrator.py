@@ -10,8 +10,10 @@ recovery bar): the calibrator fits the ``SLMCZT`` model of ``_build_model`` agai
 
 from __future__ import annotations
 
+import dataclasses
 import shutil
 from datetime import datetime
+from types import SimpleNamespace
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -32,16 +34,13 @@ from hologradpy.optics.systems import (
 from hologradpy.optics.modules.slm_fields import (
     PSFSLMField,
     PixelwiseSLMField,
-    kernel_size_from_waist,
-    waist_from_camera_mapping,
 )
 from hologradpy.optics.modules.pixel_crosstalk import SuperGaussianCrosstalk
 from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
 from hologradpy.profiles.gaussian_zernike import GaussianZernikeBeam
 from hologradpy.profiles.phase import linear_phase
-from hologradpy.grids import get_spatial_grid, plane_center
-from hologradpy.calibration.spot_detection import tilt_to_sensor_center
+from hologradpy.grids import get_spatial_grid, odd_sample_count, plane_center
 from hologradpy.analysis.fitting import remove_tilt
 from hologradpy.geometry import PartialAffineTransform
 from hologradpy.calibration.camera_mapping import (
@@ -54,6 +53,9 @@ from hologradpy.calibration.wavefront.speckle_calibration import (
     SpeckleCalibratorVisualizer,
     SpeckleVisualizationData,
 )
+from hologradpy.calibration.wavefront.speckle_calibration.speckle_calibrator import (
+    psf_calibrator,
+)
 from hologradpy.calibration import CrosstalkSpeckleCalibrator
 from hologradpy.calibration.speckle.records import (
     SpeckleCaptureData,
@@ -62,7 +64,6 @@ from hologradpy.datasets import CaptureStore
 from hologradpy.calibration.speckle.dataset_generator import (
     DatasetGenerator,
 )
-from hologradpy.calibration.speckle.dataset_transforms import PrepareSample
 from hologradpy.roi import ROI
 from hologradpy.holography.camera_feedback import SimpleFeedbackCorrector
 from hologradpy.loss_functions import (
@@ -160,16 +161,14 @@ def _synthetic_mapping(
     angle_deg: float = 0.0,
 ) -> CameraMapping:
     """A camera -> model mapping whose model plane is the camera grid, as in
-    :func:`_build_model`. With the defaults it is the identity, with the zeroth order at
-    the (square) camera centre.
+    :func:`_build_model`. With the defaults it is the identity.
 
-    The transform carries the zeroth order onto the centre of the model's output plane,
-    so the image-plane conversions of the mapping agree with its recorded zeroth order.
+    The transform carries the zeroth order onto the centre of the model's output plane.
 
     Args:
         zeroth_order_position: Where the zeroth order sits, ``(column, row)`` in camera
-            pixels.
-            It defaults to the sensor center. Pass one to model an off-axis camera.
+            pixels. Defaults to the centre of the (square) sensor. Pass one to model an
+            off-axis camera.
         scale: Model pixels per camera pixel.
         angle_deg: Rotation of the camera against the model plane, in degrees.
     """
@@ -192,7 +191,6 @@ def _synthetic_mapping(
         transform=truth.as_matrix(homogeneous=False),
         detected_points=detected.tolist(),
         calculated_points=calculated.tolist(),
-        zeroth_order_position=zeroth,
         spot_fit=FocalSpotFit(waist=CAMERA_PIXEL_SIZE[0] * 2),
         output_pixel_size=CAMERA_PIXEL_SIZE,
         output_resolution=CAMERA_RESOLUTION,
@@ -341,7 +339,7 @@ def _fitted_calibrator(tmp_path):
         number_of_random_patterns=3,
     )
     capture_data = calibrator.dataset_generator.generate_dataset((5e-4, 5e-4))
-    calibrator.fit_wavefront(
+    calibrator.fit(
         number_of_epochs=2,
         batch_size=1,
         capture_data=capture_data,
@@ -504,7 +502,7 @@ def test_fitting_without_a_dataset_fails_loudly(tmp_path) -> None:
     )
 
     with pytest.raises(RuntimeError, match="generate_dataset"):
-        calibrator.fit_wavefront(number_of_epochs=1, batch_size=1)
+        calibrator.fit(number_of_epochs=1, batch_size=1)
 
 
 def test_a_dataset_can_be_captured_once_and_refitted(tmp_path) -> None:
@@ -527,11 +525,11 @@ def test_a_dataset_can_be_captured_once_and_refitted(tmp_path) -> None:
     # epoch loss is over the same data every time. At a smaller batch, drop_last leaves
     # one batch of a randomly drawn subset and the epoch loss depends on which patterns
     # it happened to draw, which makes the comparison below a coin flip.
-    first = calibrator.fit_wavefront(
+    first = calibrator.fit(
         number_of_epochs=3, batch_size=3, verbose=False, capture_data=captured
     )
     # The second call needs no capture_data: the first one is remembered.
-    second = calibrator.fit_wavefront(number_of_epochs=3, batch_size=3, verbose=False)
+    second = calibrator.fit(number_of_epochs=3, batch_size=3, verbose=False)
 
     assert len(first) == 3 and len(second) == 3
     assert calibrator.capture_data is captured
@@ -540,13 +538,13 @@ def test_a_dataset_can_be_captured_once_and_refitted(tmp_path) -> None:
     assert second[0] < first[0]
 
 
-def test_a_coarse_mapping_is_run_when_none_is_supplied(tmp_path) -> None:
-    """The mapping is what seeds the model's affine and places the region of interest,
-    so a calibrator without one is useless. Rather than requiring the caller to run a
-    CoarseMapper first, it runs one itself.
+def test_a_spot_array_mapping_is_run_when_none_is_supplied(tmp_path) -> None:
+    """The mapping seeds the model's affine and places the region of interest, so a
+    calibrator needs one. When none is passed, the calibrator runs a SpotArrayMapper.
+    Its spots share one hologram and so one pointing of the beam.
 
-    Uses the coarse mapper's own setup: this repo's speckle fixtures are a 64x64 SLM
-    onto a 48x48 sensor, which is too small for the probe spots to be found.
+    The test runs on the setup of the coarse mapper tests. The speckle fixtures here put
+    a 64x64 SLM onto a 48x48 sensor, which is too small for the spot array.
     """
     from .test_coarse_mapper import _build_setup
 
@@ -568,6 +566,7 @@ def test_a_coarse_mapping_is_run_when_none_is_supplied(tmp_path) -> None:
     )
 
     assert isinstance(calibrator.camera_mapping, CameraMapping)
+    assert calibrator.camera_mapping.name == "spot_array"
     # It recovered the rotation the simulated camera was built with, so the mapping is a
     # real measurement and not an identity placeholder. Negated because the mapping runs
     # camera -> model, the opposite of the angle the camera was built with.
@@ -592,12 +591,10 @@ def _plain_model(slm, camera, focal_length: float = 0.25) -> SLMCZT:
 
 
 def test_the_calibrator_builds_the_field_it_fits_from_its_own_mapping(tmp_path) -> None:
-    """The whole point of the arrangement.
-
-    A PSF kernel's size follows from the fitted focal spot, so it cannot be chosen until
-    a camera mapping exists, and the mapping needs a model. Building the field after the
-    mapping rather than before breaks that loop: the caller hands over a plain model and
-    the calibrator installs a kernel that is both sized and seeded from the measurement.
+    """A PSF kernel's extent follows from the fitted focal spot, so it cannot be chosen
+    until a camera mapping exists. The mapping in turn needs a model. The calibrator
+    therefore builds the field after the mapping. The caller hands over a plain model,
+    and the calibrator installs a kernel sized and seeded from the measurement.
     """
     from .test_coarse_mapper import _build_setup
 
@@ -616,25 +613,30 @@ def test_the_calibrator_builds_the_field_it_fits_from_its_own_mapping(tmp_path) 
     field = calibrator.slm_camera_model.slm_field
     assert isinstance(field, PSFSLMField)
 
-    # Sized from the waist the mapping fitted, not from a guess.
-    expected = kernel_size_from_waist(
-        waist_from_camera_mapping(calibrator.camera_mapping),
-        float(camera.pixel_size[1]),
+    # Sampled at the intensity Nyquist pitch of the SLM, lambda f / (2 L) per axis.
+    pitch = tuple(
+        float(slm.wavelength) * 0.25 / (2 * count * float(slm.pixel_size[0]))
+        for count in slm.resolution
     )
-    assert field.psf_kernel_size == (expected, expected)
-    assert tuple(field.get_psf_kernel().shape) == (expected, expected)
+    assert field.psf_pixel_size == pytest.approx(pitch, rel=1e-6)
+    # Sized from the waist the mapping fitted, ten waists by default.
+    extent = 10 * float(calibrator.camera_mapping.spot_fit.waist)
+    expected = tuple(odd_sample_count(extent, axis_pitch) for axis_pitch in pitch)
+    assert field.psf_kernel_size == expected
+    assert tuple(field.get_psf_kernel().shape) == expected
 
-    # And seeded from the captured spot rather than the Gaussian fallback. lazy_init
-    # normalizes by the peak, so compare against that.
+    # And seeded from the captured spot, resampled onto the model's pixels at the
+    # mapping's output pitch. The kernel fits the SLM-plane field of the spot closely.
     assert field.init_psf_kernel is not None, "nothing was measured"
-    seed = field.init_psf_kernel.to(torch.complex64)
-    seed = seed / seed.abs().max()
-    assert torch.allclose(field.get_psf_kernel().detach(), seed, atol=1e-5)
+    assert field.init_psf_kernel_pixel_size == pytest.approx(
+        calibrator.camera_mapping.output_pixel_size
+    )
+    assert field.wavefront_fit_residual < 1e-2
 
 
 def test_the_psf_kernel_spans_the_requested_waists(tmp_path) -> None:
     """The default kernel is several times wider than a well-corrected spot, and the
-    margin only fits noise, so its size is the caller's to choose.
+    margin only fits noise. The extent is therefore the caller's to choose.
     """
     from .test_coarse_mapper import _build_setup
 
@@ -648,14 +650,75 @@ def test_the_psf_kernel_spans_the_requested_waists(tmp_path) -> None:
         psf_kernel_waists=5.0,
     )
 
-    expected = kernel_size_from_waist(
-        waist_from_camera_mapping(calibrator.camera_mapping),
-        float(camera.pixel_size[1]),
-        extent_in_waists=5.0,
-    )
     field = calibrator.slm_camera_model.slm_field
-    assert field.psf_kernel_size == (expected, expected)
-    assert tuple(field.get_psf_kernel().shape) == (expected, expected)
+    extent = 5.0 * float(calibrator.camera_mapping.spot_fit.waist)
+    expected = tuple(
+        odd_sample_count(extent, axis_pitch) for axis_pitch in field.psf_pixel_size
+    )
+    assert field.psf_kernel_size == expected
+    assert tuple(field.get_psf_kernel().shape) == expected
+    # The captured spot covers the same extent on the camera.
+    side = odd_sample_count(extent, float(camera.pixel_size[1]))
+    assert tuple(field.init_psf_kernel.shape) == (side, side)
+
+
+@pytest.mark.parametrize("scale", [2.0, 0.5])
+def test_a_spot_from_a_turned_camera_seeds_the_kernel_in_the_model_orientation(
+    tmp_path, monkeypatch, scale
+) -> None:
+    """The captured spot is a crop of the sensor, so it is turned and scaled like the
+    camera. The calibrator resamples it onto the model's pixels
+    (:meth:`~hologradpy.calibration.camera_mapping.CameraMapping.sensor_crop_to_model`),
+    and the seed then sits at the pitch of the mapping's output plane.
+
+    The camera is turned by 30 degrees, and the model samples the focal plane at half
+    or at twice the camera pitch. The crop side is counted at the finer of the two
+    pitches, so both the camera crop and the resampled seed span the kernel's extent of
+    ten waists.
+    """
+    slm, camera = _build_hardware()
+    output_pixel_size = (CAMERA_PIXEL_SIZE[0] / scale, CAMERA_PIXEL_SIZE[1] / scale)
+    mapping = dataclasses.replace(
+        _synthetic_mapping(scale=scale, angle_deg=30.0),
+        output_pixel_size=output_pixel_size,
+    )
+    model = SLMCZT(
+        input_geometry=slm.input_geometry,
+        virtual_slm=VirtualSLM.from_slm(slm),
+        camera_resolution=CAMERA_RESOLUTION,
+        camera_pixel_size=mapping.output_pixel_size,
+        focal_length=FOCAL_LENGTH,
+        slm_field=PixelwiseSLMField(),
+    )
+    crops = []
+
+    def capture(slm, camera, camera_mapping, slm_camera_model, kernel_size):
+        # An asymmetric crop, which a turn or a mirror changes.
+        crop = np.random.default_rng(0).uniform(size=(kernel_size, kernel_size))
+        crops.append(crop)
+        return crop
+
+    monkeypatch.setattr(psf_calibrator, "capture_focal_spot", capture)
+    calibrator = PSFSpeckleCalibrator(
+        slm=slm,
+        camera=camera,
+        slm_camera_model=model,
+        dataset_path=tmp_path / "dataset.asdf",
+        camera_mapping=mapping,
+        number_of_random_patterns=2,
+    )
+
+    side = odd_sample_count(
+        10 * float(mapping.spot_fit.waist),
+        min(CAMERA_PIXEL_SIZE[1], output_pixel_size[1]),
+    )
+    assert [crop.shape for crop in crops] == [(side, side)]
+    field = calibrator.slm_camera_model.slm_field
+    torch.testing.assert_close(
+        field.init_psf_kernel,
+        torch.as_tensor(mapping.sensor_crop_to_model(crops[0]), dtype=torch.float32),
+    )
+    assert field.init_psf_kernel_pixel_size == pytest.approx(mapping.output_pixel_size)
 
 
 def test_a_non_positive_psf_kernel_is_refused(tmp_path) -> None:
@@ -704,11 +767,7 @@ def test_a_supplied_field_of_the_right_type_is_kept(tmp_path) -> None:
     from .test_coarse_mapper import _build_setup
 
     slm, camera, _ = _build_setup()
-    psf_field = PSFSLMField(
-        focal_length=0.25,
-        camera_pixel_size=tuple(float(pitch) for pitch in camera.pixel_size),
-        psf_kernel_size=11,
-    )
+    psf_field = PSFSLMField(focal_length=0.25, psf_extent=2e-4)
     model = _plain_model(slm, camera)
     model.slm_field = psf_field
 
@@ -721,7 +780,8 @@ def test_a_supplied_field_of_the_right_type_is_kept(tmp_path) -> None:
     )
 
     assert calibrator.slm_camera_model.slm_field is psf_field
-    assert psf_field.psf_kernel_size == (11, 11)
+    assert psf_field.psf_extent == (2e-4, 2e-4)
+    assert psf_field.init_psf_kernel is None
 
 
 def test_a_supplied_mapping_skips_the_coarse_mapping(tmp_path) -> None:
@@ -766,7 +826,7 @@ def test_the_wavefront_fit_holds_the_partial_affine(tmp_path) -> None:
     }
 
     capture_data = calibrator.dataset_generator.generate_dataset((5e-4, 5e-4))
-    calibrator.fit_wavefront(
+    calibrator.fit(
         number_of_epochs=2, batch_size=1, capture_data=capture_data, verbose=False
     )
 
@@ -797,13 +857,39 @@ def test_the_crosstalk_fit_holds_the_partial_affine(tmp_path) -> None:
     }
 
     capture_data = calibrator.dataset_generator.generate_dataset((5e-4, 5e-4))
-    calibrator.fit_crosstalk(
+    calibrator.fit(
         number_of_epochs=2, batch_size=1, capture_data=capture_data, verbose=False
     )
 
     for name, value in lens.state_dict().items():
         assert torch.equal(value, calibrated[name]), name
     assert not any(parameter.requires_grad for parameter in lens.parameters())
+
+
+def test_a_crosstalk_calibration_draws_its_patterns_per_pixel(
+    tmp_path, monkeypatch
+) -> None:
+    """The crosstalk patterns are drawn one pixel at a time."""
+    slm, camera = _build_hardware()
+    model = _build_model(
+        slm, camera, pixel_crosstalk=SuperGaussianCrosstalk(upscale_factor=3)
+    )
+    calibrator = CrosstalkSpeckleCalibrator(
+        slm=slm,
+        camera=camera,
+        camera_mapping=_synthetic_mapping(),
+        slm_camera_model=model,
+        dataset_path=tmp_path / "dataset.asdf",
+        number_of_random_patterns=1,
+    )
+    monkeypatch.setattr(calibrator, "fit", lambda **_: None)
+    monkeypatch.setattr(calibrator, "generate_crosstalk_calibration", lambda: None)
+
+    calibrator.calibrate(seed=0, verbose=False)
+
+    generator = calibrator.dataset_generator
+    assert generator.phase_pattern_type == "uniform"
+    assert generator.metadata["speckle_extent"] is None
 
 
 def test_feedback_keeps_the_partial_affine_of_a_calibration(
@@ -860,15 +946,15 @@ def test_dataset_manifest_rejects_the_wrong_record_type(tmp_path) -> None:
 
 
 def test_capturing_before_generating_patterns_fails_loudly(tmp_path) -> None:
-    """Capturing without a region-of-interest mask raises instead of metering the
-    exposure against the whole sensor, zeroth order included.
+    """Capturing raises before a region-of-interest mask exists, since the autoexposure
+    measures inside the mask.
     """
     slm, camera = _build_hardware()
     generator = DatasetGenerator(
         slm=slm,
         camera=camera,
         camera_mapping=_synthetic_mapping(),
-        focal_length=FOCAL_LENGTH,
+        slm_camera_model=_build_model(slm, camera),
         dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=1,
     )
@@ -877,14 +963,17 @@ def test_capturing_before_generating_patterns_fails_loudly(tmp_path) -> None:
         generator.capture_camera_images()
 
 
-def _generator_for(camera_mapping, slm, camera, tmp_path) -> DatasetGenerator:
+def _generator_for(
+    camera_mapping, slm, camera, tmp_path, **options
+) -> DatasetGenerator:
     return DatasetGenerator(
         slm=slm,
         camera=camera,
         camera_mapping=camera_mapping,
-        focal_length=FOCAL_LENGTH,
+        slm_camera_model=_build_model(slm, camera),
         dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=1,
+        **options,
     )
 
 
@@ -948,7 +1037,7 @@ def test_the_zeroth_order_mask_is_sized_in_waists(tmp_path, waists) -> None:
         slm=slm,
         camera=camera,
         camera_mapping=mapping,
-        focal_length=FOCAL_LENGTH,
+        slm_camera_model=_build_model(slm, camera),
         dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=1,
         zeroth_order_mask_waists=waists,
@@ -994,7 +1083,7 @@ def test_a_negative_zeroth_order_mask_is_refused(tmp_path) -> None:
             slm=slm,
             camera=camera,
             camera_mapping=_synthetic_mapping(),
-            focal_length=FOCAL_LENGTH,
+            slm_camera_model=_build_model(slm, camera),
             dataset_path=tmp_path / "dataset.asdf",
             zeroth_order_mask_waists=-1.0,
         )
@@ -1035,7 +1124,7 @@ def test_the_default_steers_the_speckle_to_the_sensor_centre(tmp_path, zeroth) -
     generator.generate_phase_patterns(seed=0, verbose=False)
 
     assert generator.metadata["speckle_tilt"] == pytest.approx(
-        tilt_to_sensor_center(camera, mapping)
+        mapping.tilt_to_sensor_center(camera)
     )
     assert generator.metadata["speckle_extent"] == pytest.approx(
         tuple(n * pitch for n, pitch in zip(CAMERA_RESOLUTION, CAMERA_PIXEL_SIZE))
@@ -1101,12 +1190,9 @@ def test_a_tilted_speckle_lands_on_its_region_of_interest(tmp_path) -> None:
     assert inside > 20 * opposite
 
 
-def test_a_tilt_keeps_the_spot_at_the_speckle_centre_out_of_the_region(
-    tmp_path,
-) -> None:
-    """Each random pattern leaves part of its light undiffracted, and the tilt carries
-    the focal spot of that light to the speckle centre. The spot outshines the speckle,
-    so a disc of the zeroth-order radius around it leaves the region.
+def test_a_tilted_region_keeps_the_speckle_centre(tmp_path) -> None:
+    """The patterns form no undiffracted focal spot, so the tilt carries none to the
+    speckle centre.
     """
     slm, camera = _build_hardware()
     mapping = _synthetic_mapping()
@@ -1123,20 +1209,16 @@ def test_a_tilt_keeps_the_spot_at_the_speckle_centre_out_of_the_region(
     centre_column, centre_row = mapping.image_plane_to_sensor(tilt)[0]
     rows, columns = np.indices(generator.roi_mask.shape)
     distance = np.hypot(columns - centre_column, rows - centre_row)
-    # A pixel of slack either side for the grid convention.
-    assert not generator.roi_mask[distance < radius_pixels - 1].any()
-    assert generator.roi_mask[
-        (distance > radius_pixels + 1) & (distance < radius_pixels + 3)
-    ].all()
+    assert generator.roi_mask[distance < radius_pixels].all()
 
 
-def test_a_speckle_inside_its_centre_disc_is_refused(tmp_path) -> None:
+def test_a_speckle_inside_the_zeroth_order_disc_is_refused(tmp_path) -> None:
     slm, camera = _build_hardware()
     generator = _generator_for(_synthetic_mapping(), slm, camera, tmp_path)
 
     with pytest.raises(ValueError, match="region of interest is empty"):
         generator.generate_phase_patterns(
-            (2e-4, 2e-4), tilt=(6e-4, 0.0), seed=0, verbose=False
+            (2e-4, 2e-4), tilt=(0.0, 0.0), seed=0, verbose=False
         )
 
 
@@ -1146,8 +1228,19 @@ def test_a_magnified_mapping_scales_the_extent_and_keeps_the_region(tmp_path) ->
     sensor pixels.
     """
     slm, camera = _build_hardware()
-    plain = _generator_for(_synthetic_mapping(), slm, camera, tmp_path)
-    magnified = _generator_for(_synthetic_mapping(scale=2.0), slm, camera, tmp_path)
+    # A zeroth-order disc of 8.5 px. Its edge stays 0.015 px or more from every pixel,
+    # so the 3e-7 px rounding of the magnified mapping's zeroth order moves no pixel
+    # across it.
+    plain = _generator_for(
+        _synthetic_mapping(), slm, camera, tmp_path, zeroth_order_mask_waists=4.25
+    )
+    magnified = _generator_for(
+        _synthetic_mapping(scale=2.0),
+        slm,
+        camera,
+        tmp_path,
+        zeroth_order_mask_waists=4.25,
+    )
 
     assert magnified.largest_extent_on_sensor() == pytest.approx(
         tuple(2 * width for width in plain.largest_extent_on_sensor())
@@ -1314,7 +1407,7 @@ def test_a_benchmark_dataset_displays_the_corrected_pattern(tmp_path) -> None:
     )
 
 
-# --- Metering, overexposure, the background and the camera's state ------------------
+# --- Autoexposure, overexposure, the background and the camera's state --------------
 
 
 def _masked_peaks(generator: DatasetGenerator) -> list[float]:
@@ -1335,14 +1428,14 @@ def _speckle_generator(
         slm=slm,
         camera=camera,
         camera_mapping=_synthetic_mapping(),
-        focal_length=FOCAL_LENGTH,
+        slm_camera_model=_build_model(slm, camera),
         dataset_path=tmp_path / "dataset.asdf",
         number_of_random_patterns=number_of_random_patterns,
     )
 
 
-def test_capture_meters_the_first_pattern(tmp_path) -> None:
-    """The capture is metered on the first pattern and holds that exposure for every
+def test_capture_autoexposes_on_the_first_pattern(tmp_path) -> None:
+    """The camera is autoexposed on the first pattern and holds that exposure for every
     frame. The first frame therefore sits at the default set fraction of 0.75, and the
     record holds the exposure of the captured frames.
     """
@@ -1383,8 +1476,8 @@ def test_the_fit_subtracts_a_background_evaluated_at_the_capture_exposure(
     tmp_path,
 ) -> None:
     """Frames are stored raw. A background passed to the fit is evaluated at the
-    exposure recorded by the dataset. It is taken off every frame before the frame is
-    normalized.
+    equivalent exposure recorded by the dataset. It is taken off every frame before the
+    frame is normalized.
     """
     slm, camera = _build_hardware()
     calibrator = PixelwiseSpeckleCalibrator(
@@ -1403,7 +1496,7 @@ def test_the_fit_subtracts_a_background_evaluated_at_the_capture_exposure(
         evaluated_at.append(exposure)
         return 7.0
 
-    calibrator.fit_wavefront(
+    calibrator.fit(
         number_of_epochs=1,
         batch_size=1,
         capture_data=capture,
@@ -1411,30 +1504,59 @@ def test_the_fit_subtracts_a_background_evaluated_at_the_capture_exposure(
         verbose=False,
     )
 
-    assert evaluated_at == [capture.metadata["exposure_time"]]
+    assert evaluated_at == [capture.camera_data.equivalent_exposure]
     calibration = calibrator.generate_slm_beam_calibration()
     assert calibration.metadata["background_level"] == 7.0
-    fitter = calibrator.fitter
-    raw = fitter.store.read(0)
-    prepared = PrepareSample(
-        fitter.roi, fitter.roi_mask, fitter.device, fitter.dtype, background=7.0
-    )
-    assert torch.equal(
-        fitter.dataset[0]["camera_image"], prepared(raw)["camera_image"]
-    )
-
-    # A frame lifted by 7 counts and prepared with the background matches the raw
-    # frame prepared without one.
-    lifted = {**raw, "camera_image": np.asarray(raw["camera_image"]) + 7.0}
-    plain = PrepareSample(fitter.roi, fitter.roi_mask, fitter.device, fitter.dtype)
-    assert torch.allclose(
-        prepared(lifted)["camera_image"], plain(raw)["camera_image"], atol=1e-7
+    frames = calibrator.fitter.frames
+    with CaptureStore.open(calibrator.dataset_path) as store:
+        raw = np.asarray(store.read(0)["camera_image"], dtype=np.float64)
+    expected = frames.roi.crop(raw - 7.0)
+    expected = expected / expected[frames.region.cpu().numpy()].mean()
+    np.testing.assert_allclose(
+        frames.frames[0].double().cpu().numpy(), expected, rtol=1e-5, atol=1e-6
     )
 
-    calibrator.release_dataset()
-    calibrator.fit_wavefront(number_of_epochs=1, batch_size=1, verbose=False)
-    assert calibrator.fitter.background_level is None
-    calibrator.release_dataset()
+    calibrator.fit(number_of_epochs=1, batch_size=1, verbose=False)
+    assert calibrator.fitter.frames.background_level is None
+
+
+def test_the_background_is_evaluated_at_the_equivalent_exposure_of_a_capture(
+    tmp_path,
+) -> None:
+    """A dataset captured with the gain raised records the exposure and the gain. The
+    counts above the black level follow the equivalent exposure, so a background
+    function is evaluated there.
+    """
+    slm, camera = _build_hardware()
+    calibrator = PixelwiseSpeckleCalibrator(
+        slm=slm,
+        camera=camera,
+        camera_mapping=_synthetic_mapping(),
+        slm_camera_model=_build_model(slm, camera, FOCAL_LENGTH),
+        dataset_path=tmp_path / "dataset.asdf",
+        number_of_random_patterns=1,
+    )
+    capture = calibrator.dataset_generator.generate_dataset((5e-4, 5e-4), seed=0)
+    raised = dataclasses.replace(
+        capture, camera_data=dataclasses.replace(capture.camera_data, gain=6.0)
+    )
+    evaluated_at: list[float] = []
+
+    def background(exposure: float) -> float:
+        evaluated_at.append(exposure)
+        return 0.0
+
+    calibrator.fit(
+        number_of_epochs=1,
+        batch_size=1,
+        capture_data=raised,
+        background=background,
+        verbose=False,
+    )
+
+    assert evaluated_at == [
+        pytest.approx(capture.camera_data.exposure * 10.0 ** (6.0 / 20.0))
+    ]
 
 
 # The recovery test runs on its own, larger geometry. The smoke geometry above is
@@ -1462,10 +1584,6 @@ def _recovery_mapping() -> CameraMapping:
         transform=truth.as_matrix(homogeneous=False),
         detected_points=detected.tolist(),
         calculated_points=calculated.tolist(),
-        zeroth_order_position=(
-            RECOVERY_CAMERA_RESOLUTION[1] / 2,
-            RECOVERY_CAMERA_RESOLUTION[0] / 2,
-        ),
         spot_fit=FocalSpotFit(waist=RECOVERY_CAMERA_PIXEL_SIZE[0] * 2),
         output_pixel_size=RECOVERY_CAMERA_PIXEL_SIZE,
         output_resolution=RECOVERY_CAMERA_RESOLUTION,
@@ -1553,6 +1671,145 @@ def test_speckle_calibrator_recovers_injected_wavefront(tmp_path) -> None:
     # exposed, so the fit was being handed overexposed speckle. With that fixed it
     # reaches 0.9994 to 0.9995 across seeds, so the bar can mean something.
     assert abs(correlation) > 0.95
+
+
+# The patterns of a PSF calibration on the pointing bench, and the pointing jitter of
+# its beam, in metres of the focal plane per axis.
+POINTING_PATTERNS = 8
+POINTING_STD = 10e-6
+# The largest pointing shift reaches 0.7 of a speckle grain, and the fit registers it
+# in 6 Levenberg-Marquardt steps.
+POINTING_STEPS = 6
+
+
+def _pointing_bench(pointing_focal_shift_std: float | None):
+    """The recovery bench with its astigmatic beam pointed anew for every frame. The
+    hardware is the chirp-z model, so the bench is the kind of model the PSF
+    calibration fits.
+    """
+    torch.manual_seed(0)
+    geometry = FieldGeometry(
+        resolution=RECOVERY_SLM_RESOLUTION,
+        pixel_size=torch.tensor([12.5e-6, 12.5e-6], device=DEVICE),
+        wavelength=torch.tensor(0.63e-6, device=DEVICE),
+    )
+    slm = SimulatedSLMTorch(input_geometry=geometry, bitdepth=8)
+    grid_x, grid_y = geometry.get_spatial_grid()
+    amplitude = gaussian_beam_intensity(
+        grid_x, grid_y, beam_radius_major=RECOVERY_BEAM_RADIUS
+    ).sqrt()
+    injected_phase = (grid_x**2 - grid_y**2) / RECOVERY_BEAM_RADIUS**2
+    beam = ComplexAmplitude(
+        amplitude * torch.exp(1j * injected_phase),
+        wavelength=geometry.wavelength,
+        pixel_size=geometry.pixel_size,
+        power=1e-3,
+    )
+    hardware = SLMCZT(
+        input_geometry=geometry,
+        virtual_slm=slm.virtual_slm,
+        camera_resolution=RECOVERY_CAMERA_RESOLUTION,
+        camera_pixel_size=RECOVERY_CAMERA_PIXEL_SIZE,
+        focal_length=FOCAL_LENGTH,
+        slm_field=PixelwiseSLMField(beam),
+        pointing_focal_shift_std=pointing_focal_shift_std,
+        pointing_seed=1,
+    )
+    camera = SimulatedCameraTorch(hardware, read_noise=0.0)
+    camera.set_exposure(1e-3)
+    camera.get_image()
+    return slm, camera, hardware
+
+
+@pytest.fixture(scope="module")
+def pointing_calibrations(tmp_path_factory) -> dict:
+    """A PSF calibration of the pointing bench without jitter and with it, and the
+    bench's pointing of every captured frame, as a focal-plane translation less the
+    mean over the frames.
+    """
+    calibrations = {}
+    for label, std in (("steady", None), ("jittered", POINTING_STD)):
+        slm, camera, hardware = _pointing_bench(std)
+        calibrator = PSFSpeckleCalibrator(
+            slm=slm,
+            camera=camera,
+            camera_mapping=_recovery_mapping(),
+            slm_camera_model=_build_model(slm, camera, FOCAL_LENGTH),
+            dataset_path=tmp_path_factory.mktemp(label) / "dataset.asdf",
+            number_of_random_patterns=POINTING_PATTERNS,
+        )
+        pointing = getattr(hardware, "pointing_instability", None)
+        if pointing is not None:
+            pointing.record()
+        result = calibrator.calibrate(
+            speckle_pattern_extent=(1.5e-3, 1.5e-3),
+            steps=POINTING_STEPS,
+            chunk_size=4,
+            seed=0,
+            verbose=False,
+        )
+        true_translations = None
+        if pointing is not None:
+            # One frame per pattern, captured after the autoexposure.
+            angles = pointing.angle_history.numpy().astype(float)
+            shifts = angles[-POINTING_PATTERNS:] * FOCAL_LENGTH
+            true_translations = shifts - shifts.mean(axis=0)
+        calibrations[label] = SimpleNamespace(
+            calibrator=calibrator,
+            result=result,
+            true_translations=true_translations,
+        )
+    return calibrations
+
+
+def test_the_fitted_translations_follow_the_pointing_of_the_beam(
+    pointing_calibrations,
+) -> None:
+    """Each frame's fitted translation is the pointing the bench drew for that frame,
+    its angle times the focal length.
+    """
+    jittered = pointing_calibrations["jittered"]
+    fitted = np.asarray(jittered.result.metadata["frame_translations"])
+    error = fitted - jittered.true_translations
+
+    assert jittered.true_translations.std() > 0.5 * POINTING_STD
+    assert np.sqrt((error**2).mean()) < 0.02 * jittered.true_translations.std()
+
+
+def test_a_jittered_calibration_recovers_the_field_of_a_steady_one(
+    pointing_calibrations,
+) -> None:
+    """The translations take up the pointing jitter, so the field comes out as close
+    to the injected one as on the bench without it.
+    """
+    steady = pointing_calibrations["steady"].result.metadata["residual_phase_rms"]
+    jittered = pointing_calibrations["jittered"].result.metadata["residual_phase_rms"]
+
+    assert steady < 0.02
+    assert jittered < 1.5 * steady
+
+
+def test_the_record_holds_one_translation_per_frame_with_zero_mean(
+    pointing_calibrations,
+) -> None:
+    for calibration in pointing_calibrations.values():
+        translations = np.asarray(calibration.result.metadata["frame_translations"])
+        assert translations.shape == (POINTING_PATTERNS, 2)
+        assert np.abs(translations.mean(axis=0)).max() < 1e-12
+
+
+def test_the_fit_records_its_cost_before_and_after_each_step(
+    pointing_calibrations,
+) -> None:
+    """The fit records its cost before the first step and after each step, and the
+    cost never rises.
+    """
+    for calibration in pointing_calibrations.values():
+        costs = calibration.calibrator.loss_history
+        assert len(costs) == POINTING_STEPS + 1
+        assert all(later <= earlier for earlier, later in zip(costs, costs[1:]))
+        assert costs[-1] < 0.1 * costs[0]
+        assert calibration.result.visualization_data.loss_history == costs
 
 
 def _quadratic_phase(number_of_pixels: int) -> torch.Tensor:
@@ -1670,26 +1927,3 @@ def test_phase_patterns_are_reproducible_from_a_seed() -> None:
         band_limited_random_phase(band, generator=generator),
         band_limited_random_phase(band, generator=generator),
     )
-
-
-def test_phase_patterns_span_one_2pi_cycle_without_wrapping() -> None:
-    """The SLM wraps its phase into one 2 pi cycle, so a pattern spanning more
-    than that gains discontinuities it was never meant to have, and a
-    discontinuity is broadband: it scatters light right out of the region the
-    band limit was chosen to fill.
-    """
-    from hologradpy.profiles.phase import band_limited_random_phase
-
-    rows, columns = np.indices((64, 64))
-    band = torch.as_tensor(((rows - 32) ** 2 + (columns - 32) ** 2) < 10**2)
-
-    phase = band_limited_random_phase(
-        band, generator=torch.Generator().manual_seed(0)
-    ).numpy()
-
-    assert phase.min() >= 0.0
-    assert np.isclose(np.ptp(phase), 2 * np.pi)
-    steps = np.concatenate(
-        [np.abs(np.diff(phase, axis=0)).ravel(), np.abs(np.diff(phase, axis=1)).ravel()]
-    )
-    assert steps.max() < np.pi

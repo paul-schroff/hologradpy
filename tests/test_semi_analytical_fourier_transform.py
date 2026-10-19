@@ -227,6 +227,39 @@ def test_the_inverse_sums_the_other_way(curvature) -> None:
     assert (got - wanted).abs().max() / wanted.abs().max() < 1e-12
 
 
+def _point_symmetric_residual(resolution=RESOLUTION):
+    """Two spots, at the column and row offsets (1, 2) and (-1, -2) from the centre.
+
+    The pair is symmetric about the centre sample, so with the even chirp the sum is the
+    same at plus and minus each frequency. It is not symmetric about the centre row, so
+    the sign of the cross term changes the sum.
+    """
+    columns, rows = _grid(resolution)
+    width = 2 * 1.5**2
+    return (
+        torch.exp(-((columns - 1) ** 2 + (rows - 2) ** 2) / width)
+        + torch.exp(-((columns + 1) ** 2 + (rows + 2) ** 2) / width)
+    ).to(torch.complex128)
+
+
+@pytest.mark.parametrize("inverse", [False, True], ids=["forward", "inverse"])
+def test_the_lattice_rows_grow_down_the_array(inverse) -> None:
+    """The cross term multiplies the column offset by the row offset, and the row offset
+    grows down the array, as in the sum written out.
+
+    The residual is symmetric about the centre sample and not about the centre row, so
+    the comparison holds on either leg and depends on the sign of the row offset. The
+    spots fall to about 1e-10 at the edge, so the tolerance is 1e-9.
+    """
+    residual = _point_symmetric_residual()
+    transform = SemiAnalyticalFourierTransform(RESOLUTION, WITH_CROSS, inverse=inverse)
+
+    got = transform(residual)
+    reference = _direct(residual, WITH_CROSS, transform.frequencies)
+
+    assert (got - reference).abs().max() / reference.abs().max() < 1e-9
+
+
 def test_the_inverse_has_its_own_adjoint() -> None:
     """It reads the convolution elsewhere, so its transpose is not the forward's."""
     transform = SemiAnalyticalFourierTransform(

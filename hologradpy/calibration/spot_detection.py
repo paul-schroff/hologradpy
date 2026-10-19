@@ -1,12 +1,9 @@
-"""Shared spot-detection and spot-localization helpers for the calibrators.
-
-These are used by both the camera-mapping and wavefront calibrators, so they live at the
-``calibration`` level rather than inside ``camera_mapping``.
+"""Spot-detection and spot-localization helpers, shared by the camera-mapping and the
+wavefront calibrators.
 """
 
 from __future__ import annotations
 
-import warnings
 from typing import Literal, TYPE_CHECKING
 
 import numpy as np
@@ -14,22 +11,21 @@ from numpy.typing import NDArray
 from scipy.ndimage import uniform_filter
 from scipy.stats import norm
 
-if TYPE_CHECKING:
-    from .camera_mapping.mapping import CameraMapping
-
 from ..hardware import Camera, SLM, as_camera, as_slm
 
-from ..profiles.phase import linear_phase
 from ..fourier_optics import get_focal_spot_radius
 from ..profiles.masks import circular_mask
 
 from ..profiles.gaussian import Gaussian
-from ..grids import get_spatial_grid, metres_to_pixel
+from ..grids import metres_to_pixel
 from ..utils import gpu_to_numpy
 from ..roi import ROI
 
-# Analysis window half-width in focal-spot radii
-_WINDOW_SPOT_RADII = 12.0
+if TYPE_CHECKING:
+    from ..optics import SLMFourierLensModel
+
+# The half-width of the window a spot is detected and fitted in, in focal-spot radii.
+DETECTION_HALF_WIDTH_RADII = 12.0
 
 # Enclosure threshold (fraction of the peak height)
 _ENCLOSURE_EDGE_FRACTION = 0.6
@@ -182,10 +178,12 @@ def detect_spot(
     ):
         return None
 
-    half_window = round(_WINDOW_SPOT_RADII * spot_radius_px)
-    top = max(row - half_window, 0)
-    left = max(column - half_window, 0)
-    window = image[top:row + half_window + 1, left:column + half_window + 1]
+    half_window = round(DETECTION_HALF_WIDTH_RADII * spot_radius_px)
+    window = (
+        ROI.centered((column, row), (2 * half_window + 1, 2 * half_window + 1))
+        .trimmed_to(image.shape)
+        .crop(image)
+    )
 
     # Checking the spot has a reasonable size
     half_max_radius_px = _HALF_MAX_RADIUS_FACTOR * spot_radius_px
@@ -228,7 +226,7 @@ def get_diffraction_spot_position(
     slm: SLM,
     camera: Camera,
     linear_phase_tilt: tuple[float, float],
-    focal_length: float,
+    slm_camera_model: SLMFourierLensModel,
     exposure_time: float | None = None,
     slm_mask_diameter: float | None = None,
     units: Literal["metres", "pixels"] = "metres",
@@ -239,9 +237,8 @@ def get_diffraction_spot_position(
     mask: NDArray[np.bool_] | None = None,
     search_roi: ROI | None = None,
 ) -> tuple[tuple[float, float], float, NDArray, ROI]:
-    """This function generates a spot on the camera by displaying a linear phase
-    gradient inside a circular aperture on the SLM. The position of the spot is found by
-    fitting a Gaussian to the camera image.
+    """Display a linear phase gradient inside a circular aperture on the SLM, and
+    locate the spot it makes on the camera by fitting a Gaussian.
 
     The whole sensor is read out while the spot is measured, so every position, mask
     and region is in whole-sensor pixels. The camera's exposure, gain and region of
@@ -251,35 +248,36 @@ def get_diffraction_spot_position(
     Args:
         slm: Instance of your SLM subclass.
         camera: Instance of your camera subclass.
-        linear_phase_tilt: x and y gradient of the linear phase.
-        focal_length: Focal length of the Fourier lens in metres.
+        linear_phase_tilt: The displacement ``(x, y)`` of the spot in the focal plane,
+            in metres.
+        slm_camera_model: The model of the setup, which gives the steering phase and
+            the focal length.
         exposure_time: Exposure time in seconds. If None, the camera autoexposes on the
             searched pixels. The spot is fitted with a warning when it is overexposed
             even at the shortest exposure.
         slm_mask_diameter: Diameter of the circular aperture in metres. If None, the
             diameter is set to the size of the SLM.
-        units: Units of the returned spot position: "metres" (default) for the (x, y)
-            coordinates in the camera plane, or "pixels" for integer camera pixel
-            coordinates. The focal spot radius is always in metres.
+        units: Units of the returned spot position, "metres" for the (x, y)
+            coordinates in the camera plane or "pixels" for the integer camera pixel
+            ``(column, row)``.
         roi_pad: Padding in pixels added around the detected spot when cropping the
             camera image before the fit (passed to ROI.detect).
         roi_threshold: Fraction of the peak intensity used to detect the spot region of
             interest (passed to ROI.detect).
         verbose: If True, prints progress messages to the console.
-        mask: True at the pixels of the whole sensor to measure, and False where light
-            must not steer the exposure or the fit, such as the zeroth order. The
-            pixels outside the mask are left out of the exposure, the spot search and
-            the fit. Everything is measured when None.
+        mask: True at the pixels of the whole sensor to measure, and False elsewhere,
+            such as over the zeroth order. The pixels outside the mask are left out of
+            the exposure, the spot search and the fit. Everything is measured when None.
         search_roi: The region of the whole sensor to search for the spot. The
-            exposure is metered on this region, and the fitted region stays within it.
+            camera is autoexposed on this region, and the fitted region stays within it.
             The region is trimmed to the sensor. The whole sensor is searched when None.
 
     Returns:
-        tuple[tuple[float, float], float, NDArray, ROI]: The x and y coordinates of the
-        spot on the full sensor (in metres or pixels, see ``units``), the focal spot's
-        mean radius in metres, the cropped camera image for the fit, and the region of
-        interest of the crop in whole-sensor pixels. The cropped image is as captured,
-        including any pixels outside the mask.
+        tuple[tuple[float, float], float, NDArray, ROI]: The position of the spot on
+        the full sensor in ``units``, the focal spot's mean radius in metres, the
+        cropped camera image for the fit, and the region of interest of the crop in
+        whole-sensor pixels. The cropped image is as captured, including any pixels
+        outside the mask.
 
     Raises:
         ValueError: When ``units`` is neither "metres" nor "pixels", when ``mask`` is
@@ -297,21 +295,15 @@ def get_diffraction_spot_position(
     if slm_mask_diameter is None:
         slm_mask_diameter = min(slm.aperture_extent)
 
-    slm_grid = get_spatial_grid(slm.resolution, slm.pixel_size)
-
-    slm_phase = linear_phase(
-        *slm_grid,
-        *linear_phase_tilt,
-        focal_length=focal_length,
-        wavenumber=2 * np.pi / slm.wavelength,
+    slm_phase = slm_camera_model.steering_phase(linear_phase_tilt)
+    aperture = circular_mask(
+        *slm_camera_model.input_geometry.get_spatial_grid(), slm_mask_diameter / 2
     )
-
-    aperture = circular_mask(*slm_grid, slm_mask_diameter / 2)
 
     focal_spot_radius_guess = get_focal_spot_radius(
         beam_radius=slm_mask_diameter / 2,
         wavelength=slm.wavelength,
-        focal_length=focal_length,
+        focal_length=slm_camera_model.focal_length,
     )
 
     # The whole sensor is read out, so the spot can be located anywhere on it.
@@ -415,191 +407,20 @@ def get_diffraction_spot_position(
 
     return position, focal_spot_radius, cropped_camera_image, roi
 
-# TODO: Move to exposure.py?
-def _meter_and_capture(
-    camera: Camera, roi: ROI, set_fraction: float
-) -> NDArray[np.float64]:
-    """One frame, metered on ``roi``, with the camera's exposure, gain and region of
-    interest put back afterwards.
-    """
-    with camera.preserve_exposure_gain_and_roi():
-        camera.autoexpose(set_fraction=set_fraction, roi=roi)
-        return np.asarray(camera.get_image(), dtype=float)
 
-
-def _brightest_pixel(
-    image: NDArray[np.float64],
-    exclude: tuple[float, float] | None = None,
-    exclude_radius: float = 0.0,
+def brightest_pixel(
+    image: NDArray[np.float64], mask: NDArray[np.bool_] | None = None
 ) -> tuple[int, int]:
-    """The brightest pixel, as ``(column, row)``. A disc around the pixel ``exclude``,
-    ``(column, row)``, can be left out.
+    """The ``(column, row)`` of the brightest pixel of ``image``, after a 3x3 mean, so
+    a single hot pixel is not taken for the peak.
 
-    Smoothed with a 3x3 mean first, so a single hot pixel cannot claim the peak.
+    Args:
+        image: The frame.
+        mask: True at the pixels to search, in the shape of ``image``. Every pixel is
+            searched when None.
     """
     smoothed = uniform_filter(image, size=3)
-    if exclude is not None and exclude_radius > 0.0:
-        rows, columns = np.indices(image.shape)
-        blocked = (columns - exclude[0]) ** 2 + (rows - exclude[1]) ** 2 <= (
-            exclude_radius**2
-        )
-        smoothed = np.where(blocked, -np.inf, smoothed)
+    if mask is not None:
+        smoothed = np.where(mask, smoothed, -np.inf)
     row, column = np.unravel_index(int(np.argmax(smoothed)), image.shape)
     return (int(column), int(row))
-
-
-def tilt_to_sensor_center(
-    camera: Camera, camera_mapping: CameraMapping
-) -> tuple[float, float]:
-    """The tilt that steers a spot to the sensor centre, as ``(x, y)`` in metres. It is
-    the image-plane position of the sensor centre, measured from the zeroth order,
-    through
-    :meth:`~hologradpy.calibration.camera_mapping.CameraMapping.sensor_to_image_plane`.
-
-    Args:
-        camera: The camera, for its sensor resolution, or a driver that
-            :func:`~hologradpy.hardware.as_native.as_camera` wraps. The tilt aims at the
-            middle of the whole sensor, whatever region of interest is set.
-        camera_mapping: The fitted camera mapping, for its partial affine and its
-            output plane.
-
-    Returns:
-        tuple[float, float]: ``(tilt_x, tilt_y)`` in metres, ready for
-        :func:`~hologradpy.profiles.phase.linear_phase` with ``tilt_units="metres"``.
-
-    Raises:
-        ValueError: The mapping records no output plane, or was measured on a camera
-            with another sensor, pitch or orientation.
-    """
-    camera = as_camera(camera)
-    camera_mapping.check_camera(camera)
-    sensor_height, sensor_width = tuple(camera.sensor_resolution)
-    tilt_x, tilt_y = camera_mapping.sensor_to_image_plane(
-        [(sensor_width / 2.0, sensor_height / 2.0)]
-    )[0]
-    return (float(tilt_x), float(tilt_y))
-
-
-def capture_focal_spot(
-    slm: SLM,
-    camera: Camera,
-    camera_mapping: CameraMapping,
-    focal_length: float,
-    kernel_size: int | tuple[int, int],
-    set_fraction: float = 0.8,
-    search_factor: float = 3.0,
-) -> NDArray[np.float64]:
-    """Capture the amplitude of the focal spot, steered to the middle of the sensor.
-
-    The captured spot is the point spread function itself, so it is the natural seed
-    for a :class:`~hologradpy.optics.modules.slm_fields.PSFSLMField`. It carries
-    whatever aberration is actually present. A Gaussian of the fitted waist carries
-    only the width.
-
-    A linear phase steers the spot to the sensor centre.
-
-    The whole sensor is read out while the spot is captured, and the camera's exposure,
-    gain and region of interest are put back afterwards
-    (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_gain_and_roi`).
-
-    Args:
-        slm: The SLM, or a driver that :func:`~hologradpy.hardware.as_native.as_slm`
-            wraps. It displays the steering tilt.
-        camera: The camera to capture from, or a driver that
-            :func:`~hologradpy.hardware.as_native.as_camera` wraps.
-        camera_mapping: The fitted mapping, which sets the steering tilt.
-        focal_length: Fourier lens focal length in metres, which converts the tilt into
-            a phase ramp.
-        kernel_size: Crop side in camera pixels, as an int or ``(height, width)``.
-        set_fraction: Fraction of full scale to meter the spot to.
-        search_factor: The width of the metered and searched region, in kernel widths.
-            The whole sensor is searched when the spot is not found in this region.
-
-    Returns:
-        NDArray: The cropped amplitude, ``sqrt`` of the background-subtracted counts,
-        shaped ``kernel_size``.
-
-    Raises:
-        RuntimeError: If no spot is found anywhere on the sensor.
-    """
-    slm = as_slm(slm)
-    camera = as_camera(camera)
-    if isinstance(kernel_size, int):
-        kernel_size = (kernel_size, kernel_size)
-    height, width = int(kernel_size[0]), int(kernel_size[1])
-
-    with camera.preserve_exposure_gain_and_roi(full_sensor=True):
-        sensor = tuple(camera.sensor_resolution)
-        center = (sensor[1] / 2.0, sensor[0] / 2.0)  # (column, row)
-
-        tilt = tilt_to_sensor_center(camera, camera_mapping)
-        slm_grid = get_spatial_grid(slm.resolution, slm.pixel_size)
-        # The tilt is displayed over the full aperture, since the seed is the point
-        # spread function of the whole SLM. An aperture broadens this function.
-        slm.set_phase(
-            gpu_to_numpy(
-                linear_phase(
-                    *slm_grid,
-                    *tilt,
-                    focal_length=focal_length,
-                    wavenumber=2 * np.pi / slm.wavelength,
-                )
-            )
-        )
-
-        search = ROI.centered(
-            center,
-            (
-                min(int(search_factor * height), sensor[0]),
-                min(int(search_factor * width), sensor[1]),
-            ),
-        ).moved_inside(sensor)
-
-        image = _meter_and_capture(camera, search, set_fraction)
-
-        if has_prominent_peak(search.crop(image), camera):
-            column, row = _brightest_pixel(search.crop(image))
-            found = (search.left_column + column, search.top_row + row)
-        else:
-            zeroth = camera_mapping.zeroth_order_position
-            separation = float(
-                np.hypot(zeroth[0] - center[0], zeroth[1] - center[1])
-            )
-            found = _brightest_pixel(
-                image, exclude=zeroth, exclude_radius=separation / 2
-            )
-
-            offset = np.hypot(found[0] - center[0], found[1] - center[1])
-            # The first exposure was metered on background in a window without the
-            # spot, so the spot can be overexposed. The frame is metered again around
-            # the spot.
-            search = ROI.centered(
-                found, (search.height, search.width)
-            ).moved_inside(sensor)
-            image = _meter_and_capture(camera, search, set_fraction)
-            if not has_prominent_peak(search.crop(image), camera):
-                raise RuntimeError(
-                    "No focal spot found anywhere on the sensor after steering by "
-                    f"{tilt[0] * 1e3:.2f} x {tilt[1] * 1e3:.2f} mm. Check the camera "
-                    "mapping, and that the requested tilt is within the SLM's "
-                    "diffraction angle."
-                )
-            # The spot's brightest pixel in the frame metered on it. In the first frame
-            # it was overexposed, so its brightest pixel could lie off its centre.
-            column, row = _brightest_pixel(search.crop(image))
-            found = (search.left_column + column, search.top_row + row)
-            warnings.warn(
-                f"The steered focal spot landed {offset:.0f} px from the sensor "
-                f"center, outside the {search.height} x {search.width} px search "
-                "window, so the whole sensor was searched. That offset is the camera "
-                "mapping's error: the seed is still good, but the mapping is worth "
-                "refitting.",
-                stacklevel=2,
-            )
-
-    spot_roi = ROI.centered(found, (height, width)).moved_inside(sensor)
-
-    crop: NDArray[np.float64] = spot_roi.crop(image)
-    # A robust floor, so read-out background does not become part of the seed.
-    background: float = float(np.percentile(crop, 10.0))
-    return np.sqrt(np.clip(crop - background, 0.0, None))

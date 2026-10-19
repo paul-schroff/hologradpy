@@ -18,7 +18,14 @@ import torch
 from PIL import Image
 
 from hologradpy.optics.complex_amplitude import ComplexAmplitude
-from hologradpy.utils import ProgressBar, as_image, load_grayscale_image, progress
+from hologradpy.utils import (
+    ProgressBar,
+    as_image,
+    as_real_vector,
+    from_real_vector,
+    load_grayscale_image,
+    progress,
+)
 
 
 def test_progress_yields_every_element_either_way() -> None:
@@ -187,3 +194,16 @@ def test_a_device_gives_a_float32_tensor(tmp_path: Path) -> None:
     assert image.dtype == torch.float32
     assert image.device == torch.device("cpu")
     np.testing.assert_allclose(image.numpy(), load_grayscale_image(path))
+
+
+def test_a_complex_tensor_goes_through_the_real_vector_and_back() -> None:
+    generator = torch.Generator().manual_seed(3)
+    kernel = torch.randn(3, 4, generator=generator, dtype=torch.complex64)
+    gains = torch.randn(5, generator=generator)
+
+    vector, blocks = as_real_vector([kernel, gains])
+    restored = from_real_vector(vector, [kernel, gains], blocks)
+
+    assert vector.dtype == torch.float32 and vector.numel() == 2 * 12 + 5
+    assert torch.equal(restored[0], kernel)
+    assert torch.equal(restored[1], gains)

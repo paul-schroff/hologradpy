@@ -4,6 +4,7 @@ import torch
 from torch import Tensor
 from torch.fft import fftshift
 
+from ..grids import centered_indices
 from ..utils import resolve_device, to_canvas
 from .abstract import FourierBase
 from .fft import fft_2d, ifft_2d
@@ -44,13 +45,35 @@ def transformed_curvature(
     )
 
 
+def _centered_index_grid(
+    resolution: tuple[int, int], device: torch.device
+) -> tuple[Tensor, Tensor]:
+    """The centred indices of a grid, as a ``(column, row)`` pair of float64 grids.
+
+    Args:
+        resolution: ``(height, width)`` of the grid.
+        device: Where to build the indices.
+
+    Returns:
+        tuple[Tensor, Tensor]: The column and the row index of every sample.
+    """
+    height, width = resolution
+    return torch.meshgrid(
+        centered_indices(width, device, torch.float64),
+        centered_indices(height, device, torch.float64),
+        indexing="xy",
+    )
+
+
 class SemiAnalyticalFourierTransform(FourierBase):
     """The DFT of a field carrying a quadratic phase, without sampling that phase.
 
     A field with a strong wavefront curvature needs a large number of samples before its
-    phase is resolved. Splitting the field as ``V = U exp(i psi_q)`` with ``psi_q = Dx
-    x^2 + C xy + Dy y^2`` leaves a residual ``U`` that is smooth, and the quadratic
-    factor is carried analytically, so the samples only have to resolve ``U``.
+    phase is resolved. Splitting the field as ``V = U exp(i psi_q)`` with
+    ``psi_q = Dx c^2 + C c r + Dy r^2`` leaves a residual ``U`` that is smooth, and the
+    quadratic factor is carried analytically, so the samples only have to resolve ``U``.
+    Here ``c`` and ``r`` are the column and the row offset of a sample from the centre
+    of the grid, with ``r`` growing down the rows.
 
     The method is the implementation of Z. Wang, S. Zhang, O. Baladron-Zorita, C.
     Hellmann and F. Wyrowski, "Application of the semi-analytical Fourier transform to
@@ -88,7 +111,6 @@ class SemiAnalyticalFourierTransform(FourierBase):
         super().__init__(
             resolution,
             frequencies=None,
-            is_gridded=True,
             resolution_out=resolution,
             device=device,
         )
@@ -97,19 +119,7 @@ class SemiAnalyticalFourierTransform(FourierBase):
 
         # Padded to twice the resolution, so the convolution does not wrap.
         self._padded = tuple(2 * length for length in resolution)
-        rows = torch.arange(
-            -(self._padded[0] // 2),
-            self._padded[0] - self._padded[0] // 2,
-            device=device,
-            dtype=torch.float64,
-        )
-        columns = torch.arange(
-            -(self._padded[1] // 2),
-            self._padded[1] - self._padded[1] // 2,
-            device=device,
-            dtype=torch.float64,
-        )
-        grid_x, grid_y = torch.meshgrid(columns, rows, indexing="xy")
+        grid_x, grid_y = _centered_index_grid(self._padded, device)
 
         curvature_x, cross, curvature_y = curvature
         chirp = torch.exp(
@@ -146,19 +156,7 @@ class SemiAnalyticalFourierTransform(FourierBase):
 
     def _lattice(self) -> tuple[Tensor, Tensor]:
         """The integer lattice the output is indexed by, as a ``(column, row)`` pair."""
-        rows = torch.arange(
-            -(self.resolution[0] // 2),
-            self.resolution[0] - self.resolution[0] // 2,
-            device=self.device,
-            dtype=torch.float64,
-        )
-        columns = torch.arange(
-            -(self.resolution[1] // 2),
-            self.resolution[1] - self.resolution[1] // 2,
-            device=self.device,
-            dtype=torch.float64,
-        )
-        return torch.meshgrid(columns, rows, indexing="xy")
+        return _centered_index_grid(self.resolution, self.device)
 
     def _convolve(self, padded: Tensor, spectrum: Tensor) -> Tensor:
         """Convolve a padded field with a chirp held in bin order. No fftshifts are
@@ -208,7 +206,7 @@ class SemiAnalyticalFourierTransform(FourierBase):
         """How far the sample points reach, as a fraction of one period.
 
         Returns:
-            tuple[float, float]: ``max|k| / pi`` along ``x`` and along ``y``.
+            tuple[float, float]: ``max|k| / pi`` along the columns and along the rows.
         """
         frequencies = self.frequencies
         return (

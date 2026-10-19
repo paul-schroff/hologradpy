@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import math
+import warnings
+
 import torch
 from torch import Tensor
 
 from ....fourier_transforms import FastFourierTransform
-from ....utils import to_canvas
+from ....utils import resolve_padded_resolution, to_canvas
 
 from ..abstract import capture_init, OpticsModule
 from ....fourier_optics import (
@@ -17,6 +20,10 @@ from ...complex_amplitude import (
     broadcast_wavelength_operand,
     pixel_area,
 )
+
+# The number of samples above which an FFT sized from pixel_size_out warns of its
+# memory and time, 4096 x 4096.
+FFT_SAMPLES_WARNING = 4096 * 4096
 
 
 class FourierLensFFT(OpticsModule):
@@ -52,29 +59,14 @@ class FourierLensFFT(OpticsModule):
     def lazy_init(self, complex_amplitude: ComplexAmplitude) -> None:
         self.focal_length = self.focal_length.to(complex_amplitude.device)
 
-        # This lens genuinely computes its output geometry from the input; it sets
-        # _resolution_out / _pixel_size_out directly (pixel_size_out is also a
-        # dynamic property below). Branch on which constructor arg was given.
-        # Only padded_resolution is provided
-        if self._padded_resolution_init is not None:
-            # check if the provided padded resolution is at least
-            # as large as the input resolution
-            if (
-                self._padded_resolution_init[0] < complex_amplitude.resolution[0]
-                or self._padded_resolution_init[1] < complex_amplitude.resolution[1]
-            ):
-                raise ValueError(
-                    "Padded resolution must be at least as large as input resolution."
-                )
-
-            # Check if padded_resolution is even
-            parity = tuple(self._padded_resolution_init[i] % 2 for i in range(2))
-
-            if parity[0] != 0 or parity[1] != 0:
-                raise ValueError("Padded resolution must be even.")
-
+        # The output geometry is computed from the input, and set on _resolution_out
+        # and _pixel_size_out directly. Without pixel_size_out, the padded resolution
+        # is the one given, or twice the input resolution.
+        if self._pixel_size_out_init is None:
             self._padded_resolution = torch.tensor(
-                self._padded_resolution_init,
+                resolve_padded_resolution(
+                    self._padded_resolution_init, complex_amplitude.resolution
+                ),
                 device=complex_amplitude.device,
                 dtype=torch.int64,
             )
@@ -85,64 +77,48 @@ class FourierLensFFT(OpticsModule):
                 self._padded_resolution,
             )
         # Only pixel_size_out is provided
-        elif (
-            self._padded_resolution_init is None
-            and self._pixel_size_out_init is not None
-        ):
+        else:
             requested_pixel_size_out = torch.tensor(
                 self._pixel_size_out_init,
                 device=complex_amplitude.device,
                 dtype=torch.float32,
             )
 
-            max_pixel_size_out = self._get_pixel_size_out(
-                complex_amplitude.wavelength[0],
-                self.focal_length,
-                self.pixel_size_in[0],
-                torch.tensor(
-                    complex_amplitude.resolution,
-                    device=complex_amplitude.device,
-                ),
-            )
-
-            # Check if the requested pixel size is larger than the maximum
-            # allowed by the input geometry and focal length
-            if (
-                requested_pixel_size_out[0] > max_pixel_size_out[0]
-                or requested_pixel_size_out[1] > max_pixel_size_out[1]
-            ):
-                raise ValueError(
-                    "Requested pixel size out is too large for the given "
-                    "input geometry and focal length. Maximum pixel size out "
-                    f"for the first wavelength is {max_pixel_size_out}."
-                )
-
-            # Uses the first wavelength and pixel size for calculating the
-            # padded resolution.
+            # The padded resolution comes from the first wavelength and pixel size.
             self._padded_resolution = self._get_padded_resolution(
                 complex_amplitude.wavelength[0],
                 self.focal_length,
                 self.pixel_size_in[0],
                 requested_pixel_size_out,
             )
-
-            self._pixel_size_out = self._get_pixel_size_out(
-                complex_amplitude.wavelength,
-                self.focal_length,
-                self.pixel_size_in,
-                self._padded_resolution,
-            )
-        # If neither is provided, default to zero-padding to double the
-        # input resolution
-        else:
-            self._padded_resolution_init = tuple(
-                2 * complex_amplitude.resolution[i] for i in range(2)
-            )
-            self._padded_resolution = torch.tensor(
-                self._padded_resolution_init,
+            smallest = torch.tensor(
+                [2 * math.ceil(length / 2) for length in complex_amplitude.resolution],
                 device=complex_amplitude.device,
                 dtype=torch.int64,
             )
+            if bool((self._padded_resolution < smallest).any()):
+                coarsest = self._get_pixel_size_out(
+                    complex_amplitude.wavelength[0],
+                    self.focal_length,
+                    self.pixel_size_in[0],
+                    smallest,
+                )
+                raise ValueError(
+                    f"The output pitch {self._pixel_size_out_init} m needs an FFT of "
+                    f"{tuple(self._padded_resolution.tolist())} samples, fewer than "
+                    f"the input's {tuple(complex_amplitude.resolution)}. The coarsest "
+                    "pitch this input reaches is "
+                    f"{tuple(float(f'{value:.4g}') for value in coarsest.tolist())} m."
+                )
+            if int(self._padded_resolution.prod()) > FFT_SAMPLES_WARNING:
+                warnings.warn(
+                    f"The output pitch {self._pixel_size_out_init} m sizes the FFT at "
+                    f"{tuple(self._padded_resolution.tolist())} samples, more than "
+                    "4096 x 4096. Pass a coarser pixel_size_out, or a "
+                    "padded_resolution, to limit its memory and time.",
+                    stacklevel=2,
+                )
+
             self._pixel_size_out = self._get_pixel_size_out(
                 complex_amplitude.wavelength,
                 self.focal_length,

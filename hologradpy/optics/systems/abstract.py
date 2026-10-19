@@ -27,9 +27,13 @@ from ..modules.slm_fields import SLMField
 from ..modules.hardware_models import PointingInstability
 from ..modules.recording import RecordingMixin
 from ..modules.learnable_partial_affine import LearnablePartialAffine
+from ..modules.propagators.partial_affine_fourier_lens import PartialAffineFourierLens
+from ...grids import get_spatial_grid
+from ...profiles.phase import linear_phase
 
 if TYPE_CHECKING:
-    from ...calibration.camera_mapping.abstract import CameraMapping
+    from ...calibration.camera_mapping.mapping import CameraMapping
+    from ...roi import ROI
 
 
 T = TypeVar("T", bound=nn.Module)
@@ -68,6 +72,9 @@ class OpticalSystem(nn.Module):
         # device changes, so it stays correct after ``.to(device)`` without being
         # rebuilt on every forward.
         self._init_field_cache: ComplexAmplitude | None = None
+        # The rectangle forward crops the output to. restrict_output_to sets it when the
+        # last layer is not a PartialAffineFourierLens.
+        self._cropped_output_roi: ROI | None = None
 
         self._order: list[str] = []
 
@@ -185,7 +192,73 @@ class OpticalSystem(nn.Module):
 
         for name in self._order:
             out = getattr(self, name)(out)
-        return out
+
+        roi = self._cropped_output_roi
+        if roi is None:
+            return out
+        flat, batch_spec = out.flatten_batch()
+        return ComplexAmplitude.unflatten_batch(
+            roi.crop(flat), batch_spec, out.wavelength, out.pixel_size
+        )
+
+    @property
+    def output_roi(self) -> ROI | None:
+        """The rectangle of the output plane the system computes, or None for the whole
+        plane (:meth:`restrict_output_to`).
+        """
+        if self._cropped_output_roi is not None:
+            return self._cropped_output_roi
+        last_layer = self[-1]
+        if isinstance(last_layer, PartialAffineFourierLens):
+            return last_layer.output_roi
+        return None
+
+    @contextmanager
+    def restrict_output_to(self, roi: ROI) -> Generator[OpticalSystem, None, None]:
+        """Compute only ``roi`` of the output plane for the duration of a ``with``
+        block.
+
+        If the last layer is a chirp-z or a NUFFT lens
+        (:class:`~hologradpy.optics.modules.propagators.partial_affine_fourier_lens.PartialAffineFourierLens`),
+        it computes the rectangle alone, so a pass costs less the smaller the rectangle.
+        Any other system computes the whole plane and crops its output to the
+        rectangle. What the system computed before the block is computed again on exit,
+        also after an exception.
+
+        Args:
+            roi: The rectangle, in pixels of the output plane.
+
+        Yields:
+            OpticalSystem: This system, computing ``roi``.
+        """
+        last_layer = self[-1]
+        layer_computes_it = isinstance(last_layer, PartialAffineFourierLens)
+        if layer_computes_it:
+            held_roi = last_layer.output_roi
+            last_layer.output_roi = roi
+        else:
+            held_roi = self._cropped_output_roi
+            self._cropped_output_roi = roi
+        try:
+            yield self
+        finally:
+            if layer_computes_it:
+                last_layer.output_roi = held_roi
+            else:
+                self._cropped_output_roi = held_roi
+
+    def build(self) -> OpticalSystem:
+        """Build the modules that make their state lazily, with one forward pass of
+        the input field without a gradient.
+
+        Returns:
+            OpticalSystem: This system.
+        """
+        layers = self.layers().values()
+        if not all(getattr(layer, "initialized", True) for layer in layers):
+            with torch.no_grad():
+                self()
+        return self
 
     def layers(self) -> dict[str, OpticsModule]:
         return {name: getattr(self, name) for name in self._order}
@@ -369,8 +442,7 @@ class OpticalSystem(nn.Module):
 
     def save(self, filename: str) -> None:
         """Save the model parameters and the constructor metadata to a checkpoint."""
-        # Ensure lazily initialized modules have created their parameters.
-        _ = self()
+        self.build()
 
         checkpoint = OpticalSystemCheckpoint(
             class_name=self.__class__.__name__,
@@ -419,9 +491,7 @@ class OpticalSystem(nn.Module):
 
         spec.update(kwargs)
 
-        model = cls.from_checkpoint_spec(spec)
-        # Ensure lazy modules are initialized before loading saved weights.
-        _ = model()
+        model = cls.from_checkpoint_spec(spec).build()
         model.load_state_dict(state_dict, strict=strict)
         return model
 
@@ -500,21 +570,6 @@ def slm_stages(
     }
 
 
-def camera_shift_pixels(
-    camera_shift: tuple[float, float],
-    camera_pixel_size: tuple[float, float],
-) -> tuple[float, float]:
-    """A camera shift in metres as the output pixels the modules carrying it want.
-
-    ``camera_shift`` is ``(x, y)`` metres in the focal plane, the convention the rest of
-    the package states a position in. ``camera_pixel_size`` is ``(height, width)``, so x
-    is divided by the width pitch and y by the height pitch.
-    """
-    return (
-        float(camera_shift[0]) / float(camera_pixel_size[1]),
-        float(camera_shift[1]) / float(camera_pixel_size[0]),
-    )
-
 def upscaled_padding(
     padded_resolution: tuple[int, int] | None,
     virtual_slm: VirtualSLM,
@@ -576,10 +631,14 @@ class SLMFourierLensModel(OpticalSystem):
         """The learnable partial affine that maps the output plane onto the camera, or
         None for a model without one.
 
-        A plain FFT model has none and cannot be calibrated from a mapping. The other
-        models return the partial affine of the module that applies it, the Fourier
-        lens or the field warp.
+        It is the partial affine of the first layer that holds one, the Fourier lens or
+        the field warp. A plain FFT model has none and cannot be calibrated from a
+        mapping.
         """
+        for layer in self.layers().values():
+            partial_affine = getattr(layer, "focal_plane_partial_affine", None)
+            if partial_affine is not None:
+                return partial_affine
         return None
 
     @contextmanager
@@ -632,50 +691,26 @@ class SLMFourierLensModel(OpticalSystem):
                 f"{type(self).__name__} has no focal-plane partial affine to calibrate "
                 "from a mapping."
             )
-        self._check_output_plane(mapping)
+        if self[-1].pixel_size_out is not None:
+            mapping.check_output_plane(*self.output_plane)
         partial_affine.set(mapping.partial_affine)
 
-    def _check_output_plane(self, mapping: CameraMapping) -> None:
-        """Raise when ``mapping`` records an output plane other than this model's.
+    @property
+    def output_plane(self) -> tuple[tuple[float, float], tuple[int, int]]:
+        """The pitch ``(y, x)`` in metres and the resolution ``(height, width)`` of the
+        plane the model outputs, read from its last module. The camera mappers map the
+        camera against this plane.
 
-        The point pairs of a mapping are pixels of the output plane it was measured
-        against, so on another plane they name other positions. A mapping that records
-        no plane, or a model that has not run yet, is not checked.
-
-        Args:
-            mapping: The camera mapping to compare.
-
-        Raises:
-            ValueError: The recorded pitch or resolution differs from the model's.
+        The model has to have run once, since its modules size their planes on the
+        first forward pass.
         """
         output = self[-1]
-        if mapping.output_pixel_size is None or output.pixel_size_out is None:
-            return
         pixel_size = tuple(
             float(size)
             for size in torch.as_tensor(output.pixel_size_out).reshape(-1, 2)[0]
         )
         resolution = tuple(int(size) for size in output.resolution_out)
-        recorded_pixel_size = tuple(float(size) for size in mapping.output_pixel_size)
-        recorded_resolution = (
-            resolution
-            if mapping.output_resolution is None
-            else tuple(int(size) for size in mapping.output_resolution)
-        )
-        same_pitch = all(
-            math.isclose(recorded, own, rel_tol=1e-6)
-            for recorded, own in zip(recorded_pixel_size, pixel_size)
-        )
-        if same_pitch and recorded_resolution == resolution:
-            return
-        raise ValueError(
-            f"The mapping was measured against a {recorded_resolution[0]} x "
-            f"{recorded_resolution[1]} output plane at a pitch of "
-            f"{recorded_pixel_size[0] * 1e6:.3f} x {recorded_pixel_size[1] * 1e6:.3f} "
-            f"um, and this model's output plane is {resolution[0]} x {resolution[1]} "
-            f"at {pixel_size[0] * 1e6:.3f} x {pixel_size[1] * 1e6:.3f} um. Measure the "
-            "mapping on this model."
-        )
+        return pixel_size, resolution
 
     @property
     def focal_length(self) -> float:
@@ -758,6 +793,29 @@ class SLMFourierLensModel(OpticalSystem):
             tuple(float(pitch) for pitch in pixel_size),
             float(field.wavelength.reshape(-1)[0]),
             self.focal_length,
+        )
+
+    def steering_phase(self, tilt: tuple[float, float]) -> Tensor:
+        """The linear phase on the SLM's grid that moves the focal spot by ``tilt``.
+
+        Args:
+            tilt: The displacement ``(x, y)`` of the spot in the focal plane, in metres.
+
+        Returns:
+            Tensor: The phase in radians in double precision, in the shape of the SLM
+            and on its device.
+        """
+        geometry = self.input_geometry
+        grid = get_spatial_grid(
+            geometry.resolution,
+            geometry.pixel_size.reshape(-1, 2)[0].double(),
+            geometry.wavelength.device,
+        )
+        return linear_phase(
+            *grid,
+            *tilt,
+            wavenumber=2 * torch.pi / float(geometry.wavelength),
+            focal_length=self.focal_length,
         )
 
     def incident_power(self) -> float:

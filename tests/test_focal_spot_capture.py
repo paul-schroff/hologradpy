@@ -18,16 +18,15 @@ from hologradpy.calibration.camera_mapping import (
     CameraMapping,
     FocalSpotFit,
 )
-from hologradpy.calibration.spot_detection import (
+from hologradpy.calibration.wavefront.speckle_calibration import (
     capture_focal_spot,
-    tilt_to_sensor_center,
 )
 from hologradpy.geometry import PartialAffineTransform
 from hologradpy.grids import pixel_frame_angle, pixel_frame_vector, plane_center
 from hologradpy.hardware import SimulatedCameraTorch, SimulatedSLMTorch
 from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
-from hologradpy.optics.systems import SLMFFTAffine
+from hologradpy.optics.systems import SLMFFT, SLMFFTAffine
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
 from hologradpy.roi import ROI
 from tests.native_camera_fakes import CroppingCamera
@@ -66,7 +65,6 @@ def _mapping(
         transform=transform.as_matrix(homogeneous=False),
         detected_points=detected.tolist(),
         calculated_points=transform.transform_points(detected).tolist(),
-        zeroth_order_position=zeroth_order_position,
         spot_fit=FocalSpotFit(waist=CAMERA_PIXEL_SIZE[0] * 2),
         output_pixel_size=output_pixel_size,
         output_resolution=CAMERA_RESOLUTION,
@@ -95,18 +93,18 @@ def test_a_centered_zeroth_order_needs_no_steering() -> None:
     """
     center = (CAMERA_RESOLUTION[1] / 2, CAMERA_RESOLUTION[0] / 2)
 
-    tilt = tilt_to_sensor_center(_FakeCamera(), _mapping(center))
+    tilt = _mapping(center).tilt_to_sensor_center(_FakeCamera())
 
     assert tilt == pytest.approx((0.0, 0.0), abs=1e-15)
 
 
 def test_the_tilt_carries_the_beam_from_the_zeroth_order_to_the_middle() -> None:
     """With an identity mapping the tilt is the camera-plane displacement in metres,
-    (x, y), from a zeroth order stored (column, row).
+    (x, y), from a zeroth order at (column, row).
     """
     zeroth = (70.0, 20.0)  # (column, row)
 
-    tilt = tilt_to_sensor_center(_FakeCamera(), _mapping(zeroth))
+    tilt = _mapping(zeroth).tilt_to_sensor_center(_FakeCamera())
 
     # The displacement runs in (column, row) pixels, and the tilt is physical.
     expected_x, expected_y = pixel_frame_vector(
@@ -126,11 +124,11 @@ def test_the_tilt_is_taken_through_the_mapping_not_along_the_sensor() -> None:
     zeroth = (70.0, 20.0)
     camera = _FakeCamera()
 
-    straight = tilt_to_sensor_center(camera, _mapping(zeroth))
+    straight = _mapping(zeroth).tilt_to_sensor_center(camera)
     # The mapping turns pixels, so its angle is the physical quarter turn in the pixel
     # frame.
-    rotated = tilt_to_sensor_center(
-        camera, _mapping(zeroth, angle=pixel_frame_angle(90.0))
+    rotated = _mapping(zeroth, angle=pixel_frame_angle(90.0)).tilt_to_sensor_center(
+        camera
     )
 
     # A quarter turn sends (x, y) to (-y, x). The partial affine is fitted from the
@@ -146,10 +144,10 @@ def test_a_model_plane_sampled_finer_than_the_sensor_gives_the_same_tilt() -> No
     camera = _FakeCamera()
     half_pitch = (CAMERA_PIXEL_SIZE[0] / 2, CAMERA_PIXEL_SIZE[1] / 2)
 
-    unit = tilt_to_sensor_center(camera, _mapping(zeroth))
-    finer = tilt_to_sensor_center(
-        camera, _mapping(zeroth, scale=2.0, output_pixel_size=half_pitch)
-    )
+    unit = _mapping(zeroth).tilt_to_sensor_center(camera)
+    finer = _mapping(
+        zeroth, scale=2.0, output_pixel_size=half_pitch
+    ).tilt_to_sensor_center(camera)
 
     assert finer == pytest.approx(unit)
 
@@ -161,16 +159,16 @@ def test_a_demagnified_focal_plane_doubles_the_tilt() -> None:
     zeroth = (70.0, 20.0)
     camera = _FakeCamera()
 
-    unit = tilt_to_sensor_center(camera, _mapping(zeroth))
-    doubled = tilt_to_sensor_center(camera, _mapping(zeroth, scale=2.0))
+    unit = _mapping(zeroth).tilt_to_sensor_center(camera)
+    doubled = _mapping(zeroth, scale=2.0).tilt_to_sensor_center(camera)
 
     assert doubled == pytest.approx((2 * unit[0], 2 * unit[1]))
 
 
 def test_a_mapping_without_an_output_plane_is_refused() -> None:
     with pytest.raises(ValueError, match="no output plane"):
-        tilt_to_sensor_center(
-            _FakeCamera(), _mapping((70.0, 20.0), output_pixel_size=None)
+        _mapping((70.0, 20.0), output_pixel_size=None).tilt_to_sensor_center(
+            _FakeCamera()
         )
 
 
@@ -216,13 +214,18 @@ def _build_hardware(camera_shift):
     return slm, camera
 
 
+def _model(slm) -> SLMFFT:
+    """An ideal model of the bench, which gives the steering phase."""
+    return SLMFFT.from_slm(slm, FOCAL_LENGTH, CAMERA_PIXEL_SIZE, DEVICE)
+
+
 def _zeroth_order_position(slm, camera) -> tuple[float, float]:
     """Where a flat pattern actually puts the spot, in camera pixels
     ``(column, row)``.
 
-    Metered first and taken as a centroid rather than an argmax. At the bench's default
-    exposure the spot saturates over hundreds of pixels, and the argmax of a flat top is
-    whichever pixel the scan reaches first, which is not the spot.
+    Autoexposed first and taken as a centroid. At the bench's default exposure the spot
+    saturates over hundreds of pixels, and the argmax of a flat top is whichever pixel
+    the scan reaches first, which is not the spot.
     """
     slm.set_phase(np.zeros(tuple(slm.resolution)))
     camera.autoexpose(set_fraction=0.6)
@@ -250,7 +253,7 @@ def test_the_captured_spot_lands_in_the_middle_of_the_kernel(camera_shift) -> No
     kernel_size = 21
 
     kernel = capture_focal_spot(
-        slm, camera, _mapping(zeroth), FOCAL_LENGTH, kernel_size
+        slm, camera, _mapping(zeroth), _model(slm), kernel_size
     )
 
     assert kernel.shape == (kernel_size, kernel_size)
@@ -272,12 +275,12 @@ def test_capture_ignores_a_window_left_on_the_camera() -> None:
     slm, camera = _build_hardware((18.0, -12.0))
     zeroth = _zeroth_order_position(slm, camera)
     exposure = camera.get_exposure()
-    expected = capture_focal_spot(slm, camera, _mapping(zeroth), FOCAL_LENGTH, 21)
+    expected = capture_focal_spot(slm, camera, _mapping(zeroth), _model(slm), 21)
     assert camera.get_exposure() == exposure
 
     window = ROI(0, 0, 30, 40)
     camera.set_roi(window)
-    kernel = capture_focal_spot(slm, camera, _mapping(zeroth), FOCAL_LENGTH, 21)
+    kernel = capture_focal_spot(slm, camera, _mapping(zeroth), _model(slm), 21)
 
     np.testing.assert_array_equal(kernel, expected)
     assert camera.roi == window
@@ -302,5 +305,5 @@ def test_a_spot_that_never_arrives_is_reported(
     # wrong way, which is exactly the case that must not pass silently.
     with pytest.raises(RuntimeError, match="No focal spot found"):
         capture_focal_spot(
-            slm, camera, _mapping((zeroth[0], zeroth[1])), FOCAL_LENGTH, 21
+            slm, camera, _mapping((zeroth[0], zeroth[1])), _model(slm), 21
         )

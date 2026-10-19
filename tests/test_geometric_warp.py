@@ -38,7 +38,7 @@ def test_matrix_matches_the_partial_affine_value_object():
         resolution, PIXEL_SIZE, scale_factor=(1.2, 1.2), shift=(3.0, -2.0), angle=17.0
     )
     warp(ComplexAmplitude(_random_plane(resolution), WAVELENGTH, PIXEL_SIZE))
-    center = (warp.rotation_center + warp.rotation_center_shift)[0]
+    center = warp.rotation_center[0]
     shift = warp.shift_center[0] + torch.tensor(
         pixel_frame_vector((3.0, -2.0)), dtype=torch.float64
     )
@@ -75,6 +75,22 @@ def test_the_input_centre_lands_on_the_output_centre():
     )
 
 
+def test_the_centre_of_a_non_square_input_lands_on_the_centre_of_the_output():
+    """Without a shift, the warp carries the centre pixel of the input plane onto the
+    centre pixel of the output plane, also for a non-square input at a pitch ratio
+    other than one.
+    """
+    data = torch.zeros((4, 8), dtype=torch.complex128)
+    data[2, 4] = 1.0  # the centre (column, row) = (4, 2) of a 4 x 8 plane
+    warp = GeometricWarp((16, 16), PIXEL_SIZE)
+    coarse_pitch = (2 * PIXEL_SIZE[0], 2 * PIXEL_SIZE[1])
+
+    output = warp(ComplexAmplitude(data, WAVELENGTH, coarse_pitch)).as_tensor()
+
+    row, column = np.unravel_index(int(output.abs().argmax()), (16, 16))
+    assert (row, column) == (8, 8)
+
+
 def test_default_warp_returns_the_field():
     data = _random_plane((31, 45))
     torch.testing.assert_close(_warped(data), data, rtol=0.0, atol=1e-12)
@@ -103,14 +119,20 @@ def test_quarter_turn_about_the_center_matches_rot90():
 
 def test_an_image_warps_as_the_real_part_of_a_field():
     """warp_image takes the field warp's matrix and resampling, with no field around the
-    image.
+    image. The pitches differ between the planes and between the axes, so the two
+    agree only if both read the ``(y, x)`` pitches in the same order.
     """
     generator = torch.Generator().manual_seed(2)
     image = torch.rand((29, 37), generator=generator, dtype=torch.float64)
-    warp = GeometricWarp((41, 33), (5e-6, 5e-6), shift=(1.3, -0.7), angle=12.0)
-    field = warp(ComplexAmplitude(image.to(torch.complex128), WAVELENGTH, (7e-6, 7e-6)))
+    pixel_size_in, pixel_size_out = (7e-6, 9e-6), (5e-6, 4e-6)
+    warp = GeometricWarp((41, 33), pixel_size_out, shift=(1.3, -0.7), angle=12.0)
+    field = warp(
+        ComplexAmplitude(image.to(torch.complex128), WAVELENGTH, pixel_size_in)
+    )
 
-    warped = warp_image(image, (7e-6, 7e-6), (41, 33), (5e-6, 5e-6), (1.3, -0.7), 12.0)
+    warped = warp_image(
+        image, pixel_size_in, (41, 33), pixel_size_out, (1.3, -0.7), 12.0
+    )
 
     torch.testing.assert_close(
         warped, field.as_tensor().reshape(41, 33).real, rtol=0.0, atol=1e-12

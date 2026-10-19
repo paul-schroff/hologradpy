@@ -1,6 +1,5 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from datetime import datetime
 
 import numpy as np
 import torch
@@ -10,7 +9,6 @@ from scipy.optimize import linear_sum_assignment
 from ....geometry import AffineTransform
 
 from ....hardware import Camera, SLM
-from ....hardware.camera import CameraData
 
 from ....optics.systems import SLMFourierLensModel
 from ....grids import metres_to_pixel, pixel_to_metres, plane_center
@@ -23,14 +21,14 @@ from ....holography.phase_retrieval import LinearSuperpositionPhaseRetriever
 from ....profiles.masks import disc_mask
 
 from ...spot_detection import (
-    _WINDOW_SPOT_RADII,
+    DETECTION_HALF_WIDTH_RADII,
     background_noise,
     zeroth_order_mask_radius,
 )
 from ..coarse_mapping.coarse_mapper import CoarseMapper
 
-from ..abstract import CameraMapper, CameraMapping
-from ..mapping import FocalSpotFit, MappingFit
+from ..abstract import CameraMapper
+from ..mapping import CameraMapping, FocalSpotFit
 from ..visualizer import CameraMappingVisualizationData
 
 # Minimum correspondences for an affine fit
@@ -55,8 +53,9 @@ _ADDRESSABLE_MARGIN = 0.9
 
 @dataclass
 class _SpotDetections:
-    """Fitted spots from :meth:`SpotArrayMapper._detect_and_fit`: pixel positions with
-    their Gaussian fits (parallel lists), and the peaks whose fit was rejected.
+    """The spots fitted by :meth:`SpotArrayMapper._detect_and_fit`, as parallel lists
+    of ``(column, row)`` pixel positions and Gaussian fits. The peaks with a rejected
+    fit are listed separately.
     """
 
     points: list[tuple[float, float]]
@@ -66,19 +65,20 @@ class _SpotDetections:
 
 class SpotArrayMapper(CameraMapper):
     """Map the model's output coordinates to the camera sensor using a random spot
-    array. Similar to slmsuite's
+    array, similar to slmsuite's
     :meth:`~slmsuite.hardware.cameraslms.FourierSLM.fourier_calibrate`.
 
     A linear-superposition hologram (:class:`LinearSuperpositionPhaseRetriever`)
-    diffracts ``number_of_spots`` focal spots to random positions (separated by at 
-    least ``minimum_separation``) in the focal plane. The spots are
-    ``minimum_separation``). The targets are sampled to fill the sensor via the coarse 
-    transform (built internally if not supplied), so the array lands on the actual 
-    sensor whatever its rotation / flip / offset.
+    diffracts ``number_of_spots`` focal spots to random positions in the focal plane,
+    at least ``minimum_separation`` apart. The targets are sampled to fill the sensor
+    inside a detection-window border. They are placed through the coarse mapping, so
+    the array lands on the sensor whatever its rotation, mirroring or offset.
 
-    The spots are detected directly in the camera image and the model's output, and
-    fitted with 2D Gaussians. An affine transform is fitted between the two sets.
+    The spots are detected in the camera image and in the model's output, and each is
+    fitted with a 2D Gaussian. An affine transform is fitted between the two sets.
     """
+
+    mapping_name = "spot_array"
 
     def __init__(
         self,
@@ -102,10 +102,9 @@ class SpotArrayMapper(CameraMapper):
     ) -> CameraMapping:
         """Calibrate the camera from a random spot array.
 
-        The mapping is measured with the model's focal-plane affine at identity (see
-        :meth:`~hologradpy.optics.systems.SLMFourierLensModel.bypass_partial_affine`),
-        so it describes the camera against the model without its partial affine. The
-        geometry of the simulated image is read from the model's output layer. The
+        The mapping is measured with the model's focal-plane partial affine at identity
+        (:meth:`~hologradpy.optics.systems.SLMFourierLensModel.bypass_partial_affine`).
+        The geometry of the simulated image is read from the model's output layer. The
         whole sensor is read out while the camera is mapped, and its exposure, gain and
         region of interest are put back afterwards
         (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_gain_and_roi`).
@@ -115,36 +114,30 @@ class SpotArrayMapper(CameraMapper):
             minimum_separation: Minimum distance between any two spots in metres.
                 Defaults to a few focal-spot radii.
             roi_size: Side length in camera pixels of the per-spot fit window.
-                Defaults to ~ ``minimum_separation`` in camera pixels.
-            exposure_time: Camera exposure in seconds for the array capture. If None 
-                (default), an exposure loop targets the camera's dynamic range on the
+                Defaults to about ``minimum_separation`` in camera pixels.
+            exposure_time: Camera exposure in seconds for the array capture. If None,
+                an exposure loop targets the camera's dynamic range on the
                 zeroth-order-masked image.
             snr_threshold: Spots are detected and accepted only above this multiple of
                 the background noise sigma, so the transform excludes any fit that
                 converged on empty background.
-            seed: Seed for the random spot positions / phases (reproducibility).
+            seed: Seed for the random spot positions and phases.
             randomize_phases: Give each spot a random phase to suppress ghost orders in
                 the superposition hologram.
-            coarse_mapping: Result of :meth:`CoarseMapper.map_camera`. If None
-                (default), a :class:`CoarseMapper` is built and run internally. The
-                array targets are sampled to fill the sensor (inset by a
-                detection-window border) and mapped back through the coarse transform,
-                so every spot lands on the actual (rotated, flipped, shifted or
-                off-axis) sensor. A spot may land on the zeroth order (it is masked out
-                only during detection).
+            coarse_mapping: Result of :meth:`CoarseMapper.map_camera`. If None, a
+                :class:`CoarseMapper` is built and run internally. A spot may land on
+                the zeroth order, which is masked out only during detection.
 
         Returns:
-            CameraMapping with the affine transform, the per-spot Gaussian fits and the
-            uncertainty-weighted average waist.
+            CameraMapping: The mapping with the affine transform, the per-spot Gaussian
+            fits and the uncertainty-weighted average waist.
         """
         with (
             self.camera.preserve_exposure_gain_and_roi(full_sensor=True),
             self.slm_camera_model.bypass_partial_affine(),
         ):
-            pixel_size_out, resolution_out = self._model_output_geometry()
-            focal_length = self.slm_camera_model.focal_length
             pitch = np.asarray(self.camera.pixel_size, dtype=float)  # (y, x) metres
-            camera_shape = tuple(self.camera.resolution)        # (height, width)
+            camera_shape = tuple(self.camera.resolution)  # (height, width)
 
             if coarse_mapping is None:
                 coarse_mapping = CoarseMapper(
@@ -153,131 +146,38 @@ class SpotArrayMapper(CameraMapper):
             else:
                 coarse_mapping.check_camera(self.camera)
 
-            aperture_radius = 0.5 * min(self.slm.aperture_extent)
-            diffraction_limit = get_focal_spot_radius(
-                beam_radius=aperture_radius,
-                wavelength=self.slm.wavelength,
-                focal_length=focal_length,
-            )
-            focal_spot_radius = float(
-                np.clip(
-                    abs(coarse_mapping.spot_fit.waist),
-                    diffraction_limit,
-                    _MAX_SPOT_RADIUS_FACTOR * diffraction_limit,
-                )
+            focal_spot_radius = self._focal_spot_radius(coarse_mapping)
+
+            # The disc around the zeroth order that the detection leaves out.
+            zeroth_mask = coarse_mapping.zeroth_order_mask(
+                camera_shape, zeroth_order_mask_radius(focal_spot_radius, pitch)
             )
 
-            # The zeroth-order pixel (column, row) and the disc around it that the
-            # detection leaves out.
-            zeroth_pixel = coarse_mapping.zeroth_order_position
-            mask_radius = zeroth_order_mask_radius(focal_spot_radius, pitch)
-            zeroth_mask = disc_mask(camera_shape, zeroth_pixel, mask_radius)
-
-            # Camera pixels per focal-plane metre from the coarse transform.
-            transform = np.asarray(coarse_mapping.transform, dtype=np.float64)
-            inverse = np.asarray(coarse_mapping.inverse_transform, dtype=np.float64)
-            scale_linear = inverse[:, :2] @ np.diag(
-                [1.0 / pixel_size_out[1], 1.0 / pixel_size_out[0]]
+            generator = torch.Generator(device=self.device)
+            if seed is not None:
+                generator.manual_seed(seed)
+            target_positions, minimum_separation = self._sample_targets(
+                coarse_mapping,
+                number_of_spots,
+                minimum_separation,
+                focal_spot_radius,
+                generator,
             )
-            camera_scale = float(np.sqrt(abs(np.linalg.det(scale_linear))))
-
-            border_pixels = _WINDOW_SPOT_RADII * focal_spot_radius * camera_scale
-            box_pixels = (
-                camera_shape[1] - 2.0 * border_pixels,
-                camera_shape[0] - 2.0 * border_pixels,
-            )
-            if box_pixels[0] <= 0 or box_pixels[1] <= 0:
-                raise ValueError(
-                    "The sensor is smaller than twice the detection-window border. "
-                    "There is no room for the spot array."
-                )
-
-            if minimum_separation is None:
-                box_metres = (
-                    box_pixels[0] / camera_scale, box_pixels[1] / camera_scale
-                )
-                # Hex-packing separation (cell area sqrt(3)/2 * d^2), with headroom so
-                # rejection sampling can still place every spot.
-                feasible = 0.7 * float(
-                    np.sqrt(
-                        2.0 
-                        * box_metres[0] 
-                        * box_metres[1] 
-                        / (np.sqrt(3.0) * number_of_spots)
-                    )
-                )
-                minimum_separation = min(
-                    _MAX_SEPARATION_RADII * focal_spot_radius,
-                    max(feasible, _MIN_SEPARATION_RADII * focal_spot_radius),
-                )
             if roi_size is None:
                 roi_size = max(
                     int(round(minimum_separation / pitch.min())), _MIN_ROI_SIZE_PX
                 )
 
-            generator = torch.Generator(device=self.device)
-            if seed is not None:
-                generator.manual_seed(seed)
-            # Centered camera-pixel samples -> sensor center -> focal-plane metres.
-            sampled_pixels = self._sample_positions(
-                number_of_spots,
-                box_pixels,
-                minimum_separation * camera_scale,
-                generator,
-            )
-            sampled_pixels = sampled_pixels + torch.tensor(
-                [camera_shape[1] / 2.0, camera_shape[0] / 2.0],
-                device=self.device, dtype=sampled_pixels.dtype,
-            )
-            model_pixels = AffineTransform.from_matrix(transform).transform_points(
-                sampled_pixels.cpu().numpy()
-            )
-            metres = np.column_stack(
-                pixel_to_metres(
-                    (model_pixels[:, 0], model_pixels[:, 1]),
-                    pixel_size_out,
-                    resolution_out,
-                )
-            )
-            # Drop targets the SLM cannot reach (beyond its Nyquist deflection).
-            addressable = self.slm_camera_model.addressable_half_extent()
-            reachable = (
-                np.abs(metres[:, 0]) <= _ADDRESSABLE_MARGIN * addressable[0]
-            ) & (np.abs(metres[:, 1]) <= _ADDRESSABLE_MARGIN * addressable[1])
-            metres = metres[reachable]
-            # Need a small margin above the affine minimum to fit robustly.
-            if len(metres) < 4:
-                raise RuntimeError(
-                    "Fewer than 4 spot targets fall within the SLM's addressable "
-                    "range; the sensor may lie largely outside it."
-                )
-            target_positions = torch.tensor(
-                metres, device=self.device, dtype=torch.float64
-            )
-
             if randomize_phases:
                 target_phases = 2 * torch.pi * torch.rand(
-                    len(metres), generator=generator, device=self.device
+                    len(target_positions), generator=generator, device=self.device
                 )
             else:
-                target_phases = torch.zeros(len(metres), device=self.device)
+                target_phases = torch.zeros(len(target_positions), device=self.device)
 
-            # Superposition hologram for the spot array.
-            slm_phase = LinearSuperpositionPhaseRetriever(
-                self.slm_camera_model, target_positions, target_phases=target_phases
-            ).retrieve_phase()
-
-            # Simulated image (for the record / visualizer).
-            self.slm_camera_model.virtual_slm.set_phase(slm_phase)
-            simulated_image = gpu_to_numpy(as_image(self.slm_camera_model().intensity))
-
-            # Display the array and expose for it.
-            self.slm.set_phase(gpu_to_numpy(slm_phase))
-            if exposure_time is None:
-                self._expose_for_array(zeroth_mask)
-            else:
-                self.camera.set_exposure(exposure_time)
-            camera_image = self.camera.get_image()
+            camera_image, simulated_image = self._capture_array(
+                target_positions, target_phases, exposure_time, zeroth_mask
+            )
             masked_image = camera_image * (~zeroth_mask)
 
             # Detect + fit the spots in the camera image (brightest first).
@@ -291,198 +191,342 @@ class SpotArrayMapper(CameraMapper):
                     "on the camera. Need at least 3 for an affine transform. Increase "
                     "exposure / number_of_spots, or check the array is on the sensor."
                 )
-
-            # Repeat for the simulated image. Its pitch is (y, x), as the camera's is.
-            simulated_pitch = np.asarray(pixel_size_out, dtype=float)
-            simulated_zod = plane_center(resolution_out)
-            # Simulated DC is a clean point, so a few focal-spot radii suffice.
-            simulated_mask_radius = max(
-                int(round(3.0 * focal_spot_radius / simulated_pitch.min())), 3
-            )
-            simulated_masked = simulated_image * (
-                ~disc_mask(
-                    tuple(simulated_image.shape), simulated_zod, simulated_mask_radius
-                )
-            )
-            simulated_roi_size = max(
-                int(round(minimum_separation / simulated_pitch.min())), _MIN_ROI_SIZE_PX
-            )
-            simulated_spots = self._detect_and_fit(
-                simulated_masked, simulated_pitch, simulated_roi_size,
-                focal_spot_radius, snr_threshold, number_of_peaks=number_of_spots,
-            )
-            if len(simulated_spots.points) < _MIN_AFFINE_POINTS:
-                raise RuntimeError(
-                    f"Only {len(simulated_spots.points)} spots were detected and "
-                    "fitted in the simulated image; need at least 3 for an affine "
-                    "transform."
-                )
-
-            targets = gpu_to_numpy(target_positions).astype(np.float64)
-            target_pixels = np.column_stack(
-                metres_to_pixel(
-                    (targets[:, 0], targets[:, 1]), pixel_size_out, resolution_out
-                )
-            )
-            predicted_camera = coarse_mapping.affine.inverse().transform_points(
-                target_pixels
+            simulated_spots = self._detect_and_fit_simulated(
+                simulated_image,
+                focal_spot_radius,
+                minimum_separation,
+                snr_threshold,
+                number_of_spots,
             )
 
-            camera_indices, camera_targets = self._match_targets(
-                np.asarray(camera_spots.points, dtype=np.float64),
-                targets,
-                expected_scale=camera_scale,
-                predicted=predicted_camera,
-                tolerance=(
-                    _MATCH_TOLERANCE_FRACTION * minimum_separation / float(pitch.min())
-                ),
+            camera_indices, simulated_indices = self._pair_spots(
+                camera_spots,
+                simulated_spots,
+                gpu_to_numpy(target_positions).astype(np.float64),
+                coarse_mapping,
+                minimum_separation,
+                simulated_image.shape,
             )
-            simulated_indices, simulated_targets = self._match_targets(
-                np.asarray(simulated_spots.points, dtype=np.float64),
-                targets,
-                expected_scale=float(1.0 / simulated_pitch.mean()),
-                predicted=np.column_stack(
-                    metres_to_pixel(
-                        (targets[:, 0], targets[:, 1]),
-                        pixel_size_out,
-                        simulated_image.shape,
-                    )
-                ),
-                tolerance=(
-                    _MATCH_TOLERANCE_FRACTION
-                    * minimum_separation
-                    / float(simulated_pitch.min())
-                ),
+
+            affine, inliers = AffineTransform.fit_robust(
+                [camera_spots.points[i] for i in camera_indices],
+                [simulated_spots.points[i] for i in simulated_indices],
             )
-            camera_by_target = dict(zip(camera_targets, camera_indices))
-            simulated_by_target = dict(zip(simulated_targets, simulated_indices))
-            common_targets = sorted(set(camera_by_target) & set(simulated_by_target))
-            if len(common_targets) < _MIN_AFFINE_POINTS:
-                raise RuntimeError(
-                    f"Only {len(common_targets)} spots could be matched to targets in "
-                    "both the camera and the simulated image; need at least 3 for an "
-                    "affine transform."
-                )
-
-            detected_points = [
-                camera_spots.points[camera_by_target[t]] for t in common_targets
-            ]
-            calculated_points = [
-                simulated_spots.points[simulated_by_target[t]] for t in common_targets
-            ]
-            fits = [camera_spots.fits[camera_by_target[t]] for t in common_targets]
-
-            detected = np.asarray(detected_points, dtype=np.float64)
-            calculated = np.asarray(calculated_points, dtype=np.float64)
-
-            # Robust affine: least squares with iterative median-based outlier
-            # rejection.
-            inliers = np.ones(len(detected), dtype=bool)
-            affine = AffineTransform.fit(detected, calculated, robust=False)
-            for _ in range(3):
-                affine = AffineTransform.fit(
-                    detected[inliers], calculated[inliers], robust=False
-                )
-                residuals = np.linalg.norm(
-                    affine.transform_points(detected) - calculated, axis=1
-                )
-                threshold = max(5.0 * float(np.median(residuals[inliers])), 1.0)
-                new_inliers = residuals <= threshold
-                if np.array_equal(new_inliers, inliers):
-                    break
-                inliers = new_inliers
             if inliers.sum() < _MIN_AFFINE_POINTS:
                 raise RuntimeError(
-                    f"Only {int(inliers.sum())} of {len(detected_points)} matched "
-                    "spots are consistent with an affine transform. Need at least 3."
+                    f"Only {int(inliers.sum())} of {len(camera_indices)} "
+                    "matched spots are consistent with an affine transform. Need at "
+                    "least 3."
                 )
-            transform = affine.as_matrix(homogeneous=False)
-
-            detected = detected[inliers]
-            calculated = calculated[inliers]
-            detected_points = [p for p, keep in zip(detected_points, inliers) if keep]
-            calculated_points = [
-                p for p, keep in zip(calculated_points, inliers) if keep
+            camera_inliers = [i for i, keep in zip(camera_indices, inliers) if keep]
+            simulated_inliers = [
+                i for i, keep in zip(simulated_indices, inliers) if keep
             ]
-            fits = [fit for fit, keep in zip(fits, inliers) if keep]
+            fits = [camera_spots.fits[i] for i in camera_inliers]
             waists = [fit.beam.mean_radius for fit in fits]
             waist_variances = [
                 standard_deviation(fit, lambda fit: fit.beam.mean_radius) ** 2
                 for fit in fits
             ]
-
-            # Camera detections that did not make it into the transform, kept so none
-            # disappears from a plot without explanation.
-            used_camera = {
-                camera_by_target[t]
-                for t, keep in zip(common_targets, inliers)
-                if keep
-            }
-            excluded_points = list(camera_spots.rejected_peaks)
-            excluded_points.extend(
-                point
-                for index, point in enumerate(camera_spots.points)
-                if index not in used_camera
-            )
-
-            reprojection_errors, reprojection_rms = self.calculate_reprojection_error(
-                detected, calculated, transform
-            )
-
-            zeroth_order_position = CameraMapping.zeroth_order_from(
-                AffineTransform.from_matrix(transform), resolution_out
-            )
-
             average_waist, average_waist_uncertainty = self._weighted_average(
                 np.asarray(waists), np.asarray(waist_variances)
             )
 
-            return CameraMapping(
-                timestamp=datetime.now(),
-                name="spot_array",
-                transform=transform,
-                detected_points=detected_points,
-                calculated_points=calculated_points,
-                zeroth_order_position=zeroth_order_position,
-                spot_fit=FocalSpotFit(
+            # Camera detections that did not make it into the transform, kept so none
+            # disappears from a plot without explanation.
+            excluded_points = list(camera_spots.rejected_peaks)
+            excluded_points.extend(
+                point
+                for index, point in enumerate(camera_spots.points)
+                if index not in camera_inliers
+            )
+
+            return self._record(
+                affine,
+                [camera_spots.points[i] for i in camera_inliers],
+                [simulated_spots.points[i] for i in simulated_inliers],
+                FocalSpotFit(
                     waist=average_waist,
                     waist_uncertainty=average_waist_uncertainty,
                     fits=fits,
                 ),
-                fit=MappingFit(
-                    reprojection_errors=reprojection_errors,
-                    reprojection_rms=reprojection_rms,
-                    excluded_points=excluded_points,
-                ),
-                camera_data=CameraData.from_camera(self.camera),
-                output_pixel_size=(
-                    float(pixel_size_out[0]),
-                    float(pixel_size_out[1]),
-                ),
-                output_resolution=(int(resolution_out[0]), int(resolution_out[1])),
-                visualization_data=CameraMappingVisualizationData(
+                CameraMappingVisualizationData(
                     camera_image=masked_image,
                     simulated_image=simulated_image,
                     zeroth_order_mask=zeroth_mask,
                 ),
+                excluded_points=excluded_points,
             )
 
-    def _model_output_geometry(self) -> tuple[list[float], tuple[int, int]]:
-        """The pixel size and the resolution of the simulated image, read from the
-        model's output layer.
+    def _focal_spot_radius(self, coarse_mapping: CameraMapping) -> float:
+        """The waist of the coarse mapping, held between the diffraction limit of the
+        SLM aperture and ``_MAX_SPOT_RADIUS_FACTOR`` times it.
+        """
+        diffraction_limit = get_focal_spot_radius(
+            beam_radius=0.5 * min(self.slm.aperture_extent),
+            wavelength=self.slm.wavelength,
+            focal_length=self.slm_camera_model.focal_length,
+        )
+        return float(
+            np.clip(
+                abs(coarse_mapping.spot_fit.waist),
+                diffraction_limit,
+                _MAX_SPOT_RADIUS_FACTOR * diffraction_limit,
+            )
+        )
 
-        On an :class:`~hologradpy.optics.systems.SLMFFTAffine` the output layer is the
-        warp onto the camera grid, while its Fourier lens samples the padded focal
-        plane.
+    def _sample_targets(
+        self,
+        coarse_mapping: CameraMapping,
+        number_of_spots: int,
+        minimum_separation: float | None,
+        focal_spot_radius: float,
+        generator: torch.Generator,
+    ) -> tuple[torch.Tensor, float]:
+        """Random focal-plane targets with spots that fill the sensor inside a
+        detection-window border.
+
+        The targets are sampled on the sensor and carried into the focal plane through
+        the full affine of ``coarse_mapping``, so the array fills the sensor of a
+        mapping with unequal scales or a shear. Those beyond ``_ADDRESSABLE_MARGIN`` of
+        the field the SLM addresses are dropped.
+
+        Args:
+            coarse_mapping: The coarse mapping that places the targets on the sensor.
+            number_of_spots: The number of targets to sample.
+            minimum_separation: The smallest distance between two targets in metres,
+                or None for a separation that packs the targets into the sensor.
+            focal_spot_radius: The focal-spot radius in metres.
+            generator: The random generator of the positions.
 
         Returns:
-            tuple[list[float], tuple[int, int]]: The pixel size ``(y, x)`` in metres and
-                the resolution ``(height, width)``.
+            tuple[torch.Tensor, float]: The ``(N, 2)`` target positions ``(x, y)`` in
+            metres, and the minimum separation in metres.
+
+        Raises:
+            ValueError: The sensor leaves no room inside the detection-window border.
+            RuntimeError: Fewer than 4 targets lie inside the addressable field.
         """
-        output_module = self.slm_camera_model[-1]
-        pixel_size_out = output_module.pixel_size_out.tolist()[0]
-        resolution_out = tuple(output_module.resolution_out)
-        return pixel_size_out, resolution_out
+        camera_shape = tuple(self.camera.resolution)  # (height, width)
+
+        # Camera pixels per focal-plane metre from the coarse mapping.
+        camera_scale = float(
+            np.sqrt(abs(np.linalg.det(coarse_mapping.sensor_pixels_per_metre)))
+        )
+
+        border_pixels = DETECTION_HALF_WIDTH_RADII * focal_spot_radius * camera_scale
+        box_pixels = (
+            camera_shape[1] - 2.0 * border_pixels,
+            camera_shape[0] - 2.0 * border_pixels,
+        )
+        if box_pixels[0] <= 0 or box_pixels[1] <= 0:
+            raise ValueError(
+                "The sensor is smaller than twice the detection-window border. "
+                "There is no room for the spot array."
+            )
+
+        if minimum_separation is None:
+            box_metres = (box_pixels[0] / camera_scale, box_pixels[1] / camera_scale)
+            # Hex-packing separation (cell area sqrt(3)/2 * d^2), with headroom so
+            # rejection sampling can still place every spot.
+            feasible = 0.7 * float(
+                np.sqrt(
+                    2.0
+                    * box_metres[0]
+                    * box_metres[1]
+                    / (np.sqrt(3.0) * number_of_spots)
+                )
+            )
+            minimum_separation = min(
+                _MAX_SEPARATION_RADII * focal_spot_radius,
+                max(feasible, _MIN_SEPARATION_RADII * focal_spot_radius),
+            )
+
+        # Centred camera-pixel samples -> sensor centre -> focal-plane metres.
+        sampled_pixels = self._sample_positions(
+            number_of_spots,
+            box_pixels,
+            minimum_separation * camera_scale,
+            generator,
+        )
+        sampled_pixels = sampled_pixels + torch.tensor(
+            [camera_shape[1] / 2.0, camera_shape[0] / 2.0],
+            device=self.device, dtype=sampled_pixels.dtype,
+        )
+        pixel_size_out, resolution_out = self.slm_camera_model.output_plane
+        model_pixels = coarse_mapping.affine.transform_points(
+            sampled_pixels.cpu().numpy()
+        )
+        metres = np.column_stack(
+            pixel_to_metres(
+                (model_pixels[:, 0], model_pixels[:, 1]), pixel_size_out, resolution_out
+            )
+        )
+        addressable = self.slm_camera_model.addressable_half_extent()
+        reachable = (
+            np.abs(metres[:, 0]) <= _ADDRESSABLE_MARGIN * addressable[0]
+        ) & (np.abs(metres[:, 1]) <= _ADDRESSABLE_MARGIN * addressable[1])
+        metres = metres[reachable]
+        # One target more than the affine minimum, to fit robustly.
+        if len(metres) < 4:
+            raise RuntimeError(
+                "Fewer than 4 spot targets fall within the SLM's addressable "
+                "range. The sensor may lie largely outside it."
+            )
+        return (
+            torch.tensor(metres, device=self.device, dtype=torch.float64),
+            minimum_separation,
+        )
+
+    def _capture_array(
+        self,
+        target_positions: torch.Tensor,
+        target_phases: torch.Tensor,
+        exposure_time: float | None,
+        zeroth_order_mask: NDArray[np.bool_],
+    ) -> tuple[NDArray, NDArray]:
+        """Render the superposition hologram of the targets in the model, then display
+        it on the SLM and capture it.
+
+        Args:
+            target_positions: The ``(N, 2)`` target positions ``(x, y)`` in metres.
+            target_phases: The phase of each spot.
+            exposure_time: The exposure in seconds, or None to expose for the array
+                with the zeroth order masked (:meth:`_expose_for_array`).
+            zeroth_order_mask: True over the disc around the zeroth order.
+
+        Returns:
+            tuple[NDArray, NDArray]: The camera frame and the model's image.
+        """
+        slm_phase = LinearSuperpositionPhaseRetriever(
+            self.slm_camera_model, target_positions, target_phases=target_phases
+        ).retrieve_phase()
+
+        # Simulated image (for the record / visualizer).
+        self.slm_camera_model.virtual_slm.set_phase(slm_phase)
+        simulated_image = gpu_to_numpy(as_image(self.slm_camera_model().intensity))
+
+        self.slm.set_phase(gpu_to_numpy(slm_phase))
+        if exposure_time is None:
+            self._expose_for_array(zeroth_order_mask)
+        else:
+            self.camera.set_exposure(exposure_time)
+        return self.camera.get_image(), simulated_image
+
+    def _detect_and_fit_simulated(
+        self,
+        simulated_image: NDArray,
+        focal_spot_radius: float,
+        minimum_separation: float,
+        snr_threshold: float,
+        number_of_spots: int,
+    ) -> _SpotDetections:
+        """Detect and fit the spots of the model's image, with the zeroth order at the
+        centre of the plane masked out (:meth:`_detect_and_fit`).
+
+        Raises:
+            RuntimeError: Fewer spots than an affine transform needs were fitted.
+        """
+        pixel_size_out, resolution_out = self.slm_camera_model.output_plane
+        # The pitch is (y, x), as the camera's is.
+        simulated_pitch = np.asarray(pixel_size_out, dtype=float)
+        simulated_zod = plane_center(resolution_out)
+        # Simulated DC is a clean point, so a few focal-spot radii suffice.
+        simulated_mask_radius = max(
+            int(round(3.0 * focal_spot_radius / simulated_pitch.min())), 3
+        )
+        simulated_masked = simulated_image * (
+            ~disc_mask(
+                tuple(simulated_image.shape), simulated_zod, simulated_mask_radius
+            )
+        )
+        simulated_roi_size = max(
+            int(round(minimum_separation / simulated_pitch.min())), _MIN_ROI_SIZE_PX
+        )
+        simulated_spots = self._detect_and_fit(
+            simulated_masked, simulated_pitch, simulated_roi_size,
+            focal_spot_radius, snr_threshold, number_of_peaks=number_of_spots,
+        )
+        if len(simulated_spots.points) < _MIN_AFFINE_POINTS:
+            raise RuntimeError(
+                f"Only {len(simulated_spots.points)} spots were detected and "
+                "fitted in the simulated image. Need at least 3 for an affine "
+                "transform."
+            )
+        return simulated_spots
+
+    def _pair_spots(
+        self,
+        camera_spots: _SpotDetections,
+        simulated_spots: _SpotDetections,
+        targets: NDArray,
+        coarse_mapping: CameraMapping,
+        minimum_separation: float,
+        simulated_shape: tuple[int, int],
+    ) -> tuple[list[int], list[int]]:
+        """The indices of the camera and model spots that match the same targets.
+
+        The model spots are matched to where the targets lie in the model's image, and
+        the camera spots to where the inverse of the full affine of ``coarse_mapping``
+        carries those pixels onto the sensor (:meth:`_match_targets`). A target matched
+        in both gives a pair.
+
+        Args:
+            camera_spots: The spots fitted on the camera.
+            simulated_spots: The spots fitted in the model's image.
+            targets: The ``(N, 2)`` target positions ``(x, y)`` in metres.
+            coarse_mapping: The coarse mapping that placed the targets.
+            minimum_separation: The smallest distance between two targets in metres,
+                which sets the match tolerance.
+            simulated_shape: The ``(height, width)`` of the model's image.
+
+        Returns:
+            tuple[list[int], list[int]]: The indices into the camera spots and into the
+            model spots, one pair for each target matched in both.
+
+        Raises:
+            RuntimeError: Fewer targets than an affine transform needs were matched in
+                both.
+        """
+        pixel_size_out, _ = self.slm_camera_model.output_plane
+        pitch = np.asarray(self.camera.pixel_size, dtype=float)
+        target_pixels = np.column_stack(
+            metres_to_pixel(
+                (targets[:, 0], targets[:, 1]), pixel_size_out, simulated_shape
+            )
+        )
+        camera_indices, camera_targets = self._match_targets(
+            coarse_mapping.affine.inverse().transform_points(target_pixels),
+            targets,
+            np.asarray(camera_spots.points, dtype=np.float64),
+            tolerance=(
+                _MATCH_TOLERANCE_FRACTION * minimum_separation / float(pitch.min())
+            ),
+        )
+        simulated_indices, simulated_targets = self._match_targets(
+            target_pixels,
+            targets,
+            np.asarray(simulated_spots.points, dtype=np.float64),
+            tolerance=(
+                _MATCH_TOLERANCE_FRACTION
+                * minimum_separation
+                / float(np.min(pixel_size_out))
+            ),
+        )
+        camera_by_target = dict(zip(camera_targets, camera_indices))
+        simulated_by_target = dict(zip(simulated_targets, simulated_indices))
+        common_targets = sorted(set(camera_by_target) & set(simulated_by_target))
+        if len(common_targets) < _MIN_AFFINE_POINTS:
+            raise RuntimeError(
+                f"Only {len(common_targets)} spots could be matched to targets in "
+                "both the camera and the simulated image. Need at least 3 for an "
+                "affine transform."
+            )
+
+        return (
+            [camera_by_target[target] for target in common_targets],
+            [simulated_by_target[target] for target in common_targets],
+        )
 
     def _sample_positions(
         self,
@@ -549,8 +593,8 @@ class SpotArrayMapper(CameraMapper):
         threshold: float,
     ) -> list[tuple[float, float]]:
         """Iteratively pick the brightest pixel and blank a disc around it, so each spot
-        yields exactly one peak. Stops once the remaining maximum falls to the 
-        background ``threshold``. Returns (column, row) pixel positions, brightest
+        yields exactly one peak. Stops once the remaining maximum falls to the
+        background ``threshold``. Returns ``(column, row)`` pixel positions, brightest
         first.
         """
         working = np.array(image, dtype=float, copy=True)
@@ -574,8 +618,8 @@ class SpotArrayMapper(CameraMapper):
         number_of_peaks: int,
     ) -> _SpotDetections:
         """Detect up to ``number_of_peaks`` bright spots in ``image`` and fit a 2D
-        Gaussian to each. Returns the fitted (column, row) pixel positions, the
-        per-spot Gaussian fits, and the peaks whose fit was rejected.
+        Gaussian to each. Returns the fitted ``(column, row)`` pixel positions, the
+        Gaussian fits, and the peaks with a rejected fit.
         """
         noise_std = background_noise(image)
         peaks = self._detect_peaks(
@@ -603,131 +647,30 @@ class SpotArrayMapper(CameraMapper):
         return _SpotDetections(points, fits, rejected_peaks)
 
     @staticmethod
-    def _similarity_from_pair(
-        source: NDArray, destination: NDArray, chirality: int
-    ) -> tuple[NDArray, NDArray]:
-        """Similarity transform (isotropic scale + rotation + translation, with a
-        reflection first when ``chirality`` is -1) mapping two source points onto two
-        destination points. Returns ``(matrix, translation)`` such that
-        ``mapped = points @ matrix.T + translation``.
-        """
-        flip = np.array([[1.0, 0.0], [0.0, float(chirality)]])
-        source_vector = flip @ (source[1] - source[0])
-        destination_vector = destination[1] - destination[0]
-        scale = np.linalg.norm(destination_vector) / np.linalg.norm(source_vector)
-        angle = np.arctan2(destination_vector[1], destination_vector[0]) - np.arctan2(
-            source_vector[1], source_vector[0]
-        )
-        rotation = np.array(
-            [[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]]
-        )
-        matrix = scale * rotation @ flip
-        translation = destination[0] - matrix @ source[0]
-        return matrix, translation
-
-    @classmethod
     def _match_targets(
-        cls,
-        detected: NDArray,
-        targets: NDArray,
-        expected_scale: float,
-        tolerance: float,
-        predicted: NDArray | None = None,
-        scale_tolerance: float = 0.3,
+        predicted: NDArray, targets: NDArray, detected: NDArray, tolerance: float
     ) -> tuple[NDArray, NDArray]:
-        """Match detected camera peaks (pixels) to target positions (metres).
+        """Pair each target with a detected spot, starting from the ``predicted``
+        landing positions of the targets.
 
-        Given ``predicted``, the caller already knows where each target lands and the
-        pairing is solved directly. Without it the orientation is unknown and has to be
-        searched for: similarity hypotheses are generated from widely separated point
-        pairs, trying every target pair of compatible length in both orderings and both
-        handedness options, and the one mapping the most targets onto detected points
-        within ``tolerance`` wins.
+        The pairing is refined twice, since a rigid starting guess captures neither
+        shear nor a field-dependent warp. Aberrations displace each spot by its local
+        wavefront tilt. In each refinement, an affine is fitted to the current pairs and
+        every target is reassigned, so spots that only miss the rigid guess still match.
 
         Args:
-            detected: Detected spot centers in camera pixels, shape (M, 2).
+            predicted: Where each target is expected to land, in the pixels of
+                ``detected``, shape (N, 2).
             targets: Target positions in focal-plane metres, shape (N, 2).
-            expected_scale: Rough pixels-per-metre scale, used only to prune
-                implausible target pairs (within ``scale_tolerance``).
-            tolerance: Match radius in pixels; half the minimum spot separation
-                makes the assignment unambiguous.
-            predicted: Where each target is expected to land, in the same pixels as
-                ``detected``, shape (N, 2). Skips the search entirely.
-            scale_tolerance: Allowed fractional deviation from ``expected_scale``.
+            detected: Detected spot centres in pixels, shape (M, 2).
+            tolerance: Match radius in pixels. Half the minimum spot separation makes
+                the assignment unambiguous.
 
         Returns:
-            ``(detected_indices, target_indices)`` of the matched pairs.
+            tuple[NDArray, NDArray]: The ``(detected_indices, target_indices)`` of the
+            matched pairs.
         """
-        if predicted is not None:
-            return cls._assign(
-                np.asarray(predicted, dtype=np.float64), targets, detected, tolerance
-            )
-
-        # The few most separated detected pairs anchor the hypotheses; more than one in
-        # case the single most separated pair involves a spurious detection.
-        separations = np.linalg.norm(
-            detected[:, None, :] - detected[None, :, :], axis=-1
-        )
-        pair_rows, pair_columns = np.triu_indices(detected.shape[0], k=1)
-        by_separation = np.argsort(separations[pair_rows, pair_columns])[::-1][:3]
-        anchor_pairs = list(zip(pair_rows[by_separation], pair_columns[by_separation]))
-
-        target_separations = np.linalg.norm(
-            targets[:, None, :] - targets[None, :, :], axis=-1
-        )
-        target_rows, target_columns = np.triu_indices(targets.shape[0], k=1)
-
-        best_transform = None
-        best_inliers = 0
-        for i, j in anchor_pairs:
-            detected_pair = detected[[i, j]]
-            length = separations[i, j]
-            compatible = (
-                np.abs(
-                    target_separations[target_rows, target_columns] * expected_scale
-                    - length
-                )
-                <= scale_tolerance * length
-            )
-            candidate_pairs = zip(target_rows[compatible], target_columns[compatible])
-            for first, second in candidate_pairs:
-                for a, b in ((first, second), (second, first)):
-                    for handedness in (1, -1):
-                        matrix, translation = cls._similarity_from_pair(
-                            targets[[a, b]], detected_pair, handedness
-                        )
-                        mapped = targets @ matrix.T + translation
-                        distances = np.linalg.norm(
-                            mapped[:, None, :] - detected[None, :, :], axis=-1
-                        )
-                        inliers = int((distances.min(axis=1) < tolerance).sum())
-                        if inliers > best_inliers:
-                            best_inliers = inliers
-                            best_transform = (matrix, translation)
-
-        if best_transform is None or best_inliers < 3:
-            raise RuntimeError(
-                "Could not establish a correspondence between the detected spots "
-                "and the targets. Check that the array is on the sensor and well "
-                "exposed, or increase number_of_spots."
-            )
-
-        matrix, translation = best_transform
-        mapped = targets @ matrix.T + translation
-        return cls._assign(mapped, targets, detected, tolerance)
-
-    @staticmethod
-    def _assign(
-        mapped: NDArray, targets: NDArray, detected: NDArray, tolerance: float
-    ) -> tuple[NDArray, NDArray]:
-        """Pair each target with a detected spot, starting from where ``mapped`` says
-        the targets land.
-
-        Refined twice: a rigid starting guess captures neither shear nor a
-        field-dependent warp (aberrations displace each spot by its local wavefront
-        tilt), so an affine is fitted to the current pairs and everything is reassigned,
-        letting spots that only miss the rigid guess still match.
-        """
+        mapped = np.asarray(predicted, dtype=np.float64)
         cost = np.linalg.norm(mapped[:, None, :] - detected[None, :, :], axis=-1)
         target_indices, detected_indices = linear_sum_assignment(cost)
         matched = cost[target_indices, detected_indices] < tolerance
@@ -738,7 +681,6 @@ class SpotArrayMapper(CameraMapper):
             matching_affine = AffineTransform.fit(
                 targets[target_indices[matched]],
                 detected[detected_indices[matched]],
-                robust=False,
             )
             mapped = matching_affine.transform_points(targets)
             cost = np.linalg.norm(mapped[:, None, :] - detected[None, :, :], axis=-1)
@@ -756,17 +698,15 @@ class SpotArrayMapper(CameraMapper):
         pitch: NDArray,
         amplitude_threshold: float,
     ) -> GaussianFit | None:
-        """Fit a 2D Gaussian to the ROI around a detected peak. Return the fit, or
-        ``None`` if the fit is missing / poor (amplitude at or below
-        ``amplitude_threshold`` counts as background, not a spot).
+        """Fit a 2D Gaussian to the ROI around a detected peak.
+
+        Returns the fit, or None when the fit fails or is poor. An amplitude at or below
+        ``amplitude_threshold`` counts as background, not a spot.
         """
-        rows, cols = image.shape
         half = roi_size // 2
-        top = int(np.clip(round(peak[1]) - half, 0, rows - 1))
-        bottom = int(np.clip(round(peak[1]) + half, top + 1, rows))
-        left = int(np.clip(round(peak[0]) - half, 0, cols - 1))
-        right = int(np.clip(round(peak[0]) + half, left + 1, cols))
-        roi = ROI.from_bounds(top, bottom, left, right)
+        roi = ROI.centered(
+            (round(peak[0]), round(peak[1])), (2 * half, 2 * half)
+        ).trimmed_to(image.shape)
 
         # Blur only seeds the centroid guess. Scale it to the spot size (in camera
         # pixels), not the large default that would flatten a small per-spot ROI.

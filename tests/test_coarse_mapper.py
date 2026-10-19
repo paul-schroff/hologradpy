@@ -35,6 +35,7 @@ from hologradpy.profiles.phase import (
 )
 from hologradpy.fourier_optics import get_focal_spot_radius
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
+from hologradpy.profiles.masks import disc_mask
 from hologradpy.roi import ROI
 from hologradpy.calibration.camera_mapping import (
     CameraMapping,
@@ -48,8 +49,8 @@ from hologradpy.calibration.camera_mapping.coarse_mapping.coarse_mapper import (
     _PROBE_SPACING_FRACTION,
 )
 from hologradpy.calibration.spot_detection import (
-    _WINDOW_SPOT_RADII,
-    _brightest_pixel,
+    DETECTION_HALF_WIDTH_RADII,
+    brightest_pixel,
     background_noise,
     detect_spot,
     get_diffraction_spot_position,
@@ -151,7 +152,7 @@ def test_the_zeroth_order_is_located_through_an_overexposed_camera():
     assert np.asarray(camera.get_image()).max() >= camera.max_pixel_value
     slm.set_phase(flat)
 
-    located = mapper._locate_zeroth_order(focal_length=0.25, spot_radius=spot_radius)
+    located = mapper._locate_zeroth_order(spot_radius=spot_radius)
 
     assert located == pytest.approx(ALIGNED_ZEROTH_ORDER, abs=1.0)
 
@@ -246,7 +247,6 @@ def _mapping_with_transform(linear: np.ndarray) -> CameraMapping:
         transform=transform,
         detected_points=[],
         calculated_points=[],
-        zeroth_order_position=(0.0, 0.0),
         spot_fit=FocalSpotFit(waist=1.0),
     )
 
@@ -407,8 +407,10 @@ def test_the_brightest_pixel_leaves_out_the_disc_it_is_given():
         (60, 100), (25, 40), amplitude=500.0, sigma_px=2.0, background=0.0
     )
 
-    assert _brightest_pixel(frame) == (70, 20)
-    assert _brightest_pixel(frame, exclude=(70, 20), exclude_radius=10.0) == (25, 40)
+    assert brightest_pixel(frame) == (70, 20)
+    assert brightest_pixel(
+        frame, mask=~disc_mask(frame.shape, (70, 20), 10.0)
+    ) == (25, 40)
 
 
 def test_detect_spot_rejects_pure_noise():
@@ -489,7 +491,7 @@ def test_map_camera_suggests_camera_orientation():
     mounting it unflipped, which is what set_orientation takes.
     """
     slm, camera, model = _build_setup(fliplr=True)  # mirrored camera
-    shape_before, transform_before = camera.shape, camera.transform
+    shape_before, transform_before = camera.sensor_resolution, camera.transform
     coarse = CoarseMapper(slm, camera, model).map_camera(
         find_camera_orientation=True
     )
@@ -500,7 +502,7 @@ def test_map_camera_suggests_camera_orientation():
     assert not residual.is_mirrored
     assert residual.rotation_degrees == pytest.approx(0.0, abs=0.5)
     # Suggest-only: the camera orientation is untouched.
-    assert camera.shape == shape_before
+    assert camera.sensor_resolution == shape_before
     assert camera.transform is transform_before
 
 
@@ -556,7 +558,7 @@ def test_camera_mapping_records_the_camera_and_the_output_plane(tmp_path):
     path = str(tmp_path / "coarse_mapping.asdf")
     coarse.save(path)
     loaded = CameraMapping.load(path)
-    assert loaded.camera_data.resolution == tuple(camera.shape)
+    assert loaded.camera_data.resolution == tuple(camera.sensor_resolution)
     assert loaded.output_pixel_size == coarse.output_pixel_size
     assert loaded.output_resolution == coarse.output_resolution
 
@@ -656,13 +658,13 @@ def test_a_diffraction_spot_that_misses_the_sensor_raises_after_autoexposure():
             counts = self._noise.normal(10.0, 2.0, self.sensor_resolution)
             return np.clip(np.rint(counts), 0, 255).astype(np.uint16)
 
-    slm, _, _ = _build_setup()
+    slm, _, model = _build_setup()
     camera = _DarkCamera()
 
     with pytest.warns(UserWarning, match="railed"):
         with pytest.raises(RuntimeError, match="No spot on the sensor"):
             get_diffraction_spot_position(
-                slm, camera, (0.0, 0.0), focal_length=0.25, verbose=False
+                slm, camera, (0.0, 0.0), slm_camera_model=model, verbose=False
             )
 
 
@@ -722,8 +724,8 @@ def test_coarse_mapping_with_zeroth_order_off_sensor():
 
     assert coarse.rotation_degrees == pytest.approx(-10.0, abs=0.5)
     assert coarse.fit.reprojection_rms < 1.0
-    zeroth_x, zeroth_y = coarse.zeroth_order_position
-    on_sensor = 0 <= zeroth_x < 160 and 0 <= zeroth_y < 120
+    zeroth_column, zeroth_row = coarse.zeroth_order_position
+    on_sensor = 0 <= zeroth_column < 160 and 0 <= zeroth_row < 120
     assert not on_sensor
 
     # The fine mapper, seeded with the coarse mapping, places the array on the
@@ -809,8 +811,8 @@ def test_coarse_mapping_survives_background_scatter():
 
 
 def _calibration_args(slm, resolution):
-    """(focal_length, half_extent, search_step, spot_radius) for
-    _calibrate_exposure, mirroring how map_camera derives them.
+    """(half_extent, search_step, spot_radius) for _calibrate_exposure, derived as
+    map_camera derives them.
     """
     slm = as_slm(slm)  # the mapper works on the native (adapter) interface
     focal_length = 0.25
@@ -829,9 +831,9 @@ def _calibration_args(slm, resolution):
     field_of_view = (resolution[1] * 30e-6, resolution[0] * 30e-6)
     search_step = (
         _PROBE_SPACING_FRACTION * min(field_of_view)
-        - 2.0 * _WINDOW_SPOT_RADII * spot_radius
+        - 2.0 * DETECTION_HALF_WIDTH_RADII * spot_radius
     )
-    return focal_length, half_extent, search_step, spot_radius
+    return half_extent, search_step, spot_radius
 
 
 def test_calibrate_exposure_uses_visible_array():
@@ -858,14 +860,14 @@ def test_a_speckle_grain_is_not_taken_for_the_zeroth_order():
         background_scatter_power=2e-8, background_scatter_grain_radius=60e-6,
     )
     mapper = CoarseMapper(slm, camera, model)
-    focal_length, _, _, spot_radius = _calibration_args(slm, (120, 160))
+    _, _, spot_radius = _calibration_args(slm, (120, 160))
     # Precondition: the raw zero-tilt probe does find a spurious (speckle) spot.
     assert (
-        mapper._spot_on_sensor((0.0, 0.0), focal_length, None, spot_radius)
+        mapper._spot_on_sensor((0.0, 0.0), None, spot_radius)
         is not None
     )
 
-    assert mapper._locate_zeroth_order(focal_length, spot_radius) is None
+    assert mapper._locate_zeroth_order(spot_radius) is None
 
 
 def test_calibrate_exposure_warns_and_clamps_below_hardware_bound():
@@ -908,7 +910,7 @@ def test_the_main_order_is_found_by_its_equivalent_exposure(monkeypatch):
     settings = {tilt: (0.1, 30.0), (-tilt[0], -tilt[1]): (0.1, 10.0)}
     displayed = []
 
-    def display(tilt, focal_length):
+    def display(tilt):
         displayed.append(tilt)
 
     def autoexpose(**options):
@@ -920,7 +922,7 @@ def test_the_main_order_is_found_by_its_equivalent_exposure(monkeypatch):
     monkeypatch.setattr(mapper, "_display_tilt", display)
     monkeypatch.setattr(camera, "autoexpose", autoexpose)
 
-    assert mapper._prefer_main_order(tilt, focal_length=0.25) == (-1e-3, -0.0)
+    assert mapper._prefer_main_order(tilt) == (-1e-3, -0.0)
 
 
 def test_the_probes_run_at_the_gain_of_their_exposure(monkeypatch):

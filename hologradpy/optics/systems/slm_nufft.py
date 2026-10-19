@@ -1,17 +1,12 @@
 from __future__ import annotations
 
-from ..modules.learnable_partial_affine import LearnablePartialAffine
+from ...grids import metres_to_pixels
 from ..modules.propagators import FourierLensNUFFT
 from ..modules.slm_fields import SLMField
 from ..modules.virtual_slms.abstract import VirtualSLM
 from ..complex_amplitude import FieldGeometry
 
-from .abstract import (
-    SLMFourierLensModel,
-    camera_shift_pixels,
-    slm_stages,
-    upscaled_padding,
-)
+from .abstract import SLMFourierLensModel, slm_stages
 from ..modules.abstract import capture_init
 
 
@@ -33,7 +28,6 @@ class SLMNUFFT(SLMFourierLensModel):
         slm_field: SLMField,
         camera_angle: float = 0.0,
         camera_shift: tuple[float, float] = (0.0, 0.0),
-        padded_resolution: tuple[int, int] | None = None,
         power_normalized: bool = True,
         nufft_kwargs: dict | None = None,
         pointing_focal_shift_std: float | tuple[float, float] | None = None,
@@ -50,15 +44,10 @@ class SLMNUFFT(SLMFourierLensModel):
                 focal_length,
                 resolution_out=camera_resolution,
                 pixel_size_out=camera_pixel_size,
-                shift=camera_shift_pixels(camera_shift, camera_pixel_size),
+                shift=metres_to_pixels(camera_shift, camera_pixel_size),
                 angle=camera_angle,
                 learnable=True,
                 power_normalized=power_normalized,
-                padded_resolution=upscaled_padding(padded_resolution, virtual_slm),
                 nufft_kwargs={} if nufft_kwargs is None else nufft_kwargs,
             ),
         )
-
-    @property
-    def focal_plane_partial_affine(self) -> LearnablePartialAffine:
-        return self.fourier_lens.focal_plane_partial_affine

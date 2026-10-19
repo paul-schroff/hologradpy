@@ -20,7 +20,7 @@ from ...utils import as_image
 if TYPE_CHECKING:
     # Imported for type annotations only.
     from ...calibration.wavefront.abstract import WavefrontCalibrationData
-    from ...optics.complex_amplitude import ComplexAmplitude, FieldGeometry
+    from ...optics.complex_amplitude import ComplexAmplitude
 
     WavefrontSource: TypeAlias = (
         WavefrontCalibrationData | ComplexAmplitude | NDArray | torch.Tensor
@@ -205,17 +205,17 @@ class SLM(ABC):
 
     @property
     def _vendor_phase(self) -> NDArray:
-        """The vendor correction as a phase in radians, ``-2 pi V / 2**bitdepth`` for
-        ``V`` levels.
+        """The vendor correction as a phase in radians on the nominal scale,
+        ``-2 pi V / 2**bitdepth`` for ``V`` levels.
 
-        It is read on the nominal scale, where ``2**bitdepth`` levels make one cycle.
         A higher level gives a more negative phase, as in a phase response.
 
         Raises:
             ValueError: No vendor correction is loaded, or the SLM reports no bit depth.
         """
-        levels = np.asarray(self._required_correction("vendor"), dtype=np.float64)
-        return -phase_levels.TWO_PI * levels / 2**self._required_bitdepth
+        levels = self._required_correction("vendor")
+        one_cycle = phase_levels.LinearResponse(bitdepth=self._required_bitdepth)
+        return one_cycle.to_phase(levels)
 
     def load_phase_correction(self, correction: WavefrontSource) -> None:
         """Take a per-pixel phase correction, in the sense it will be displayed in.
@@ -415,23 +415,6 @@ class SLM(ABC):
             device: The torch device for the grid, or None for the CPU.
         """
         return _spatial_grid(self.resolution, self.pixel_size, device=device)
-
-    def to_field_geometry(
-        self, device: torch.device | None = None, dtype: torch.dtype = torch.float32
-    ) -> FieldGeometry:
-        """The geometry of a field on the SLM.
-
-        Args:
-            device: The torch device for the geometry, or None for the CPU.
-            dtype: The dtype of the pixel size and the wavelength.
-        """
-        from ...optics.complex_amplitude import FieldGeometry
-
-        return FieldGeometry(
-            resolution=tuple(self.resolution),
-            pixel_size=torch.tensor(self.pixel_size, dtype=dtype, device=device),
-            wavelength=torch.tensor(self.wavelength, dtype=dtype, device=device),
-        )
 
 
 @record_type("slm_data")

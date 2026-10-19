@@ -9,9 +9,11 @@ from torch import Tensor
 
 from ...profiles.gaussian import GaussianFit
 from ...geometry import AffineTransform, PartialAffineTransform
-from ...grids import metres_to_pixel, pixel_frame_angle, pixel_to_metres, plane_center
+from ...grids import metres_to_pixel, pixel_frame_angle, pixel_to_metres
+from ...profiles.masks import disc_mask
 from ...serialization import SaveableRecord, record_type
 from ...visualizer import VisualizationData
+from ...hardware import as_camera
 from ...hardware.camera import Camera, CameraData, CameraOrientation
 
 @record_type("focal_spot_fit")
@@ -51,9 +53,6 @@ class CameraMapping(SaveableRecord):
     """The coordinate mapping between camera pixels and the output plane of the model
     without its focal-plane partial affine. The camera mappers measure in this frame
     (see :meth:`~hologradpy.optics.systems.SLMFourierLensModel.bypass_partial_affine`).
-
-    ``zeroth_order_position`` is where the undiffracted spot lands on the sensor, as
-    ``(column, row)`` camera pixels.
     """
 
     timestamp: datetime
@@ -61,7 +60,6 @@ class CameraMapping(SaveableRecord):
     transform: NDArray | Tensor
     detected_points: list[tuple[float, float]]
     calculated_points: list[tuple[float, float]]
-    zeroth_order_position: tuple[float, float]
     spot_fit: FocalSpotFit
     fit: MappingFit | None = None
     orientation: OrientationSuggestion | None = None
@@ -100,37 +98,77 @@ class CameraMapping(SaveableRecord):
             self.detected_points, self.calculated_points
         )
 
-    @classmethod
-    def _migrate(cls, version: int, stored: dict) -> dict:
-        """Convert a mapping saved by an older version.
+    @property
+    def placement_affine(self) -> AffineTransform:
+        """The camera -> model transform that :meth:`image_plane_to_sensor`,
+        :meth:`sensor_to_image_plane`, :meth:`sensor_crop_to_model` and
+        :attr:`zeroth_order_position` run through.
 
-        Version 1 kept the zeroth order as ``(row, column)``. It is swapped into
-        ``(column, row)``.
+        It is :attr:`partial_affine`, which a model is calibrated from. The mapping
+        places a point where the calibrated model puts it. A partial affine describes no
+        mirror, so a mirrored mapping places points through :attr:`affine`. No model is
+        calibrated from a mirrored mapping.
         """
-        if version < 2:
-            row, column = stored["zeroth_order_position"]
-            stored["zeroth_order_position"] = (column, row)
-        return stored
+        return self.affine if self.is_mirrored else self.partial_affine
 
-    @staticmethod
-    def zeroth_order_from(
-        affine: AffineTransform, resolution_out: tuple[int, int]
-    ) -> tuple[float, float]:
-        """Where the undiffracted spot lands on the sensor, as ``(column, row)``.
+    @property
+    def zeroth_order_position(self) -> tuple[float, float]:
+        """Where a model calibrated from this mapping puts the undiffracted spot on the
+        sensor, as ``(column, row)`` camera pixels. It is the image-plane origin carried
+        onto the sensor by :meth:`image_plane_to_sensor`.
 
-        Without its partial affine, the model has its zeroth order at the centre of its
-        output plane, and the inverse of ``affine`` carries that point onto the sensor.
+        Raises:
+            ValueError: The mapping records no output plane.
         """
-        center = plane_center(resolution_out)
-        column, row = affine.inverse().transform_points([center])[0]
+        column, row = self.image_plane_to_sensor([(0.0, 0.0)])[0]
         return (float(column), float(row))
+
+    def zeroth_order_mask(
+        self, shape: tuple[int, int], radius: float
+    ) -> NDArray[np.bool_]:
+        """True inside a disc around the zeroth order.
+
+        Args:
+            shape: The ``(height, width)`` of the whole sensor.
+            radius: The radius of the disc in sensor pixels.
+
+        Raises:
+            ValueError: The mapping records no output plane.
+        """
+        return disc_mask(shape, self.zeroth_order_position, radius)
+
+    def tilt_to_sensor_center(self, camera: Camera) -> tuple[float, float]:
+        """The tilt that steers a spot to the centre of the sensor of ``camera``. It is
+        the image-plane position of the sensor centre, measured from the zeroth order
+        (:meth:`sensor_to_image_plane`).
+
+        Args:
+            camera: The camera, for its sensor resolution, or a driver that
+                :func:`~hologradpy.hardware.as_native.as_camera` wraps. The tilt aims at
+                the middle of the whole sensor, whatever region of interest is set.
+
+        Returns:
+            tuple[float, float]: ``(tilt_x, tilt_y)`` in metres, ready for
+            :meth:`~hologradpy.optics.systems.SLMFourierLensModel.steering_phase`.
+
+        Raises:
+            ValueError: The mapping records no output plane, or was measured on a
+                camera with another sensor, pitch or orientation.
+        """
+        camera = as_camera(camera)
+        self.check_camera(camera)
+        sensor_height, sensor_width = tuple(camera.sensor_resolution)
+        tilt_x, tilt_y = self.sensor_to_image_plane(
+            [(sensor_width / 2.0, sensor_height / 2.0)]
+        )[0]
+        return (float(tilt_x), float(tilt_y))
 
     def image_plane_to_sensor(self, points: ArrayLike) -> NDArray[np.float64]:
         """Image-plane positions ``(x, y)`` in metres from the zeroth order, as sensor
         ``(column, row)`` pixels.
 
         :func:`~hologradpy.grids.metres_to_pixel` puts a position on its output-plane
-        pixel. The inverse of :attr:`partial_affine` carries that pixel onto the
+        pixel. The inverse of :attr:`placement_affine` carries that pixel onto the
         sensor, as it does in a model calibrated from this mapping.
 
         Args:
@@ -148,7 +186,7 @@ class CameraMapping(SaveableRecord):
             metres_to_pixel((points[:, 0], points[:, 1]), pixel_size, resolution),
             axis=1,
         )
-        return self.partial_affine.inverse().transform_points(model_pixels)
+        return self.placement_affine.inverse().transform_points(model_pixels)
 
     def sensor_to_image_plane(self, pixels: ArrayLike) -> NDArray[np.float64]:
         """Sensor ``(column, row)`` pixels as image-plane positions ``(x, y)`` in metres
@@ -165,7 +203,7 @@ class CameraMapping(SaveableRecord):
         """
         pixel_size, resolution = self._output_plane()
         pixels = np.atleast_2d(np.asarray(pixels, dtype=np.float64))
-        model_pixels = self.partial_affine.transform_points(pixels)
+        model_pixels = self.placement_affine.transform_points(pixels)
         return np.stack(
             pixel_to_metres(
                 (model_pixels[:, 0], model_pixels[:, 1]), pixel_size, resolution
@@ -179,19 +217,36 @@ class CameraMapping(SaveableRecord):
 
         Args:
             crop: The ``(height, width)`` crop, such as
-                :func:`~hologradpy.calibration.spot_detection.capture_focal_spot`
+                :func:`~hologradpy.calibration.wavefront.speckle_calibration.capture_focal_spot`
                 returns.
 
         Returns:
             NDArray: The resampled crop, shaped like ``crop``. Pixels that map outside
             ``crop`` are 0.
         """
-        linear = self.partial_affine.matrix[:2, :2]
+        linear = self.placement_affine.matrix[:2, :2]
         # affine_transform indexes (row, column), and the mapping (column, row).
         swap = np.array([[0.0, 1.0], [1.0, 0.0]])
         matrix = swap @ np.linalg.inv(linear) @ swap
         center = np.array([crop.shape[0] // 2, crop.shape[1] // 2], dtype=np.float64)
         return affine_transform(crop, matrix, offset=center - matrix @ center, order=1)
+
+    @property
+    def sensor_pixels_per_metre(self) -> NDArray[np.float64]:
+        """The linear part of :meth:`image_plane_to_sensor`, in sensor pixels per
+        image-plane metre.
+
+        Returns:
+            NDArray: The ``(2, 2)`` matrix. Its rows are the sensor ``(column, row)``,
+            and its columns are the change of each along the image-plane x and y.
+
+        Raises:
+            ValueError: The mapping records no output plane.
+        """
+        origin, along_x, along_y = self.image_plane_to_sensor(
+            [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)]
+        )
+        return np.stack([along_x - origin, along_y - origin], axis=1)
 
     def _output_plane(self) -> tuple[tuple[float, float], tuple[int, int]]:
         """The recorded pitch ``(y, x)`` in metres and the ``(height, width)`` of the
@@ -282,3 +337,41 @@ class CameraMapping(SaveableRecord):
             )
         if differences:
             raise ValueError(" ".join(differences) + " Map the camera again.")
+
+    def check_output_plane(
+        self, pixel_size: tuple[float, float], resolution: tuple[int, int]
+    ) -> None:
+        """Raise unless the mapping was measured against an output plane of
+        ``pixel_size`` and ``resolution``.
+
+        The point pairs of a mapping are pixels of the output plane it was measured
+        against. On another plane, they correspond to other positions. A mapping that
+        records no plane, such as one built by hand, is not checked.
+
+        Args:
+            pixel_size: The pitch ``(y, x)`` of the output plane in metres.
+            resolution: The ``(height, width)`` of the output plane.
+
+        Raises:
+            ValueError: The recorded pitch or resolution differs.
+        """
+        if self.output_pixel_size is None:
+            return
+        resolution = tuple(int(size) for size in resolution)
+        recorded_pixel_size = tuple(float(size) for size in self.output_pixel_size)
+        recorded_resolution = (
+            resolution
+            if self.output_resolution is None
+            else tuple(int(size) for size in self.output_resolution)
+        )
+        same_pitch = np.allclose(recorded_pixel_size, pixel_size, rtol=1e-6, atol=0.0)
+        if same_pitch and recorded_resolution == resolution:
+            return
+        raise ValueError(
+            f"The mapping was measured against a {recorded_resolution[0]} x "
+            f"{recorded_resolution[1]} output plane at a pitch of "
+            f"{recorded_pixel_size[0] * 1e6:.3f} x {recorded_pixel_size[1] * 1e6:.3f} "
+            f"um, and the model's output plane is {resolution[0]} x {resolution[1]} "
+            f"at {pixel_size[0] * 1e6:.3f} x {pixel_size[1] * 1e6:.3f} um. Measure the "
+            "mapping on this model."
+        )

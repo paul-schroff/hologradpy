@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import numbers
 import sys
 import time
 from os import PathLike
-from typing import Iterable, TypeVar
+from typing import Iterable, Sequence, TypeVar
 
 import numpy as np
 import torch
@@ -74,6 +75,53 @@ def _canvas_margins(length: int, target: int) -> tuple[int, int]:
     """
     before = target // 2 - length // 2
     return (before, target - length - before)
+
+
+def resolve_padded_resolution(
+    padded_resolution: tuple[int, int] | None, resolution: tuple[int, int]
+) -> tuple[int, int]:
+    """The canvas a field of ``resolution`` is padded onto before a transform.
+
+    Args:
+        padded_resolution: The ``(height, width)`` asked for, or None for twice
+            ``resolution``.
+        resolution: The ``(height, width)`` of the field.
+
+    Returns:
+        tuple[int, int]: The padded resolution.
+
+    Raises:
+        ValueError: ``padded_resolution`` is smaller than ``resolution`` along an axis,
+            or odd.
+    """
+    if padded_resolution is None:
+        return tuple(2 * int(length) for length in resolution)
+    padded_resolution = tuple(int(length) for length in padded_resolution)
+    if any(padded < length for padded, length in zip(padded_resolution, resolution)):
+        raise ValueError(
+            f"The padded resolution {padded_resolution} has to be at least the input "
+            f"resolution {tuple(resolution)} along each axis."
+        )
+    if any(length % 2 for length in padded_resolution):
+        raise ValueError(
+            f"The padded resolution {padded_resolution} has to be even along each axis."
+        )
+    return padded_resolution
+
+
+def as_pair(value: float | Sequence[float]) -> tuple[float, float]:
+    """``value`` as a pair of floats.
+
+    Args:
+        value: One number for both entries, or a pair of numbers.
+
+    Returns:
+        tuple[float, float]: The pair, in the order given.
+    """
+    if isinstance(value, numbers.Real):
+        return float(value), float(value)
+    first, second = value
+    return float(first), float(second)
 
 
 def get_device(verbose: bool = False) -> torch.device:
@@ -199,6 +247,56 @@ def unsqueeze_to(input: torch.Tensor, max_dim: int, dim: int = 0) -> torch.Tenso
     while input.dim() < max_dim:
         input = input.unsqueeze(dim)
     return input
+
+
+def as_real_vector(
+    tensors: Sequence[torch.Tensor],
+) -> tuple[torch.Tensor, list[slice]]:
+    """One real vector holding every value of ``tensors``. A complex tensor is stored
+    as its real and imaginary parts.
+
+    Args:
+        tensors: The tensors, real or complex, of one real dtype.
+
+    Returns:
+        tuple[torch.Tensor, list[slice]]: The vector, detached, and the slice of it
+        each tensor takes.
+    """
+    pieces = []
+    blocks = []
+    offset = 0
+    for tensor in tensors:
+        values = tensor.detach()
+        if values.is_complex():
+            values = torch.view_as_real(values)
+        pieces.append(values.reshape(-1))
+        blocks.append(slice(offset, offset + values.numel()))
+        offset += values.numel()
+    return torch.cat(pieces), blocks
+
+
+def from_real_vector(
+    vector: torch.Tensor, like: Sequence[torch.Tensor], blocks: Sequence[slice]
+) -> list[torch.Tensor]:
+    """The tensors that :func:`as_real_vector` put into ``vector``, differentiable in
+    ``vector``.
+
+    Args:
+        vector: The real vector.
+        like: The tensors whose shapes and complex types to give the slices.
+        blocks: The slice of ``vector`` each tensor of ``like`` takes.
+
+    Returns:
+        list[torch.Tensor]: One tensor per entry of ``like``.
+    """
+    tensors = []
+    for tensor, block in zip(like, blocks):
+        values = vector[block]
+        if tensor.is_complex():
+            tensors.append(torch.view_as_complex(values.reshape(*tensor.shape, 2)))
+        else:
+            tensors.append(values.reshape(tensor.shape))
+    return tensors
 
 
 def progress(

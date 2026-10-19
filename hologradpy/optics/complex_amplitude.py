@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 from torch import Tensor
@@ -21,6 +21,9 @@ from numpy.typing import NDArray
 from jaxtyping import Float
 
 from ..grids import get_spatial_grid, pixel_frame_vector
+
+if TYPE_CHECKING:
+    from ..hardware.slm import SLM
 
 
 # The two reserved axes. A field is always ``(*batch, component, wavelength, H, W)``.
@@ -416,6 +419,28 @@ class FieldGeometry:
             resolution=(number_of_planes, width),
             origin=origin,
             rotation=rotation,
+        )
+
+    @classmethod
+    def from_slm(
+        cls,
+        slm: SLM,
+        device: torch.device | None = None,
+        dtype: torch.dtype = torch.float32,
+    ) -> FieldGeometry:
+        """The geometry of a field on an SLM, at its resolution, pixel pitch and
+        wavelength.
+
+        Args:
+            slm: The SLM, as :func:`~hologradpy.hardware.factory.open_slm` or
+                :func:`~hologradpy.hardware.as_native.as_slm` returns it.
+            device: The torch device for the geometry, or None for the CPU.
+            dtype: The dtype of the pixel size and the wavelength.
+        """
+        return cls(
+            resolution=tuple(slm.resolution),
+            pixel_size=torch.tensor(slm.pixel_size, dtype=dtype, device=device),
+            wavelength=torch.tensor(slm.wavelength, dtype=dtype, device=device),
         )
 
 

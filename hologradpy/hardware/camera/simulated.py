@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import os
-import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -21,7 +20,7 @@ from ...optics.modules.pixel_crosstalk import ConvolutionalCrosstalk
 from ...optics.modules.slm_fields import PixelwiseSLMField
 from ...utils import gpu_to_numpy
 from ...roi import ROI
-from .abstract import Camera, CameraOrientation, reorient_pixels
+from .abstract import Camera, CameraOrientation, gain_in_db, linear_gain
 
 
 @dataclass
@@ -119,16 +118,15 @@ class SimulatedCameraTorch(Camera):
                 "Could not infer camera pixel size from the final optical "
                 "module. Set output pixel size in the model configuration."
             )
-        # Pixel pitch (y, x) in SI, taken directly from the model (no unit round-trip).
-        self._pixel_size = (
+        # Pixel pitch (y, x) of the raw sensor in metres.
+        self._raw_pixel_size = (
             torch.as_tensor(pixel_size_out).detach().cpu().numpy().astype(np.float64)
         )
 
         # Raw sensor resolution (rows, cols), before the orientation is applied.
-        self._raw_shape: tuple[int, int] = tuple(
-            int(size) for size in output_module.resolution_out
-        )
-        self.set_orientation(orientation)
+        raw_shape = tuple(int(size) for size in output_module.resolution_out)
+        self._set_orientation(orientation, raw_shape)
+        self.set_roi(None)
 
         self.name = str(name)
         self._exposure_bounds = (
@@ -236,7 +234,7 @@ class SimulatedCameraTorch(Camera):
             )
 
         # Mount the lazy modules, so their weights are in the state dict to be saved.
-        _ = self.slm_camera_model()
+        self.slm_camera_model.build()
 
         spec = self.get_checkpoint_spec()
         # The sensor is rebuilt at its current gain, which set_gain can have changed.
@@ -299,11 +297,11 @@ class SimulatedCameraTorch(Camera):
         spec = dict(checkpoint.spec)
         spec.update(kwargs)
 
-        _ = model()
+        model.build()
 
         camera = cls.from_checkpoint_spec(spec, model)
 
-        _ = camera.slm_camera_model()
+        camera.slm_camera_model.build()
         camera.slm_camera_model.load_state_dict(checkpoint.state_dict)
 
         camera.set_exposure(checkpoint.exposure)
@@ -314,19 +312,8 @@ class SimulatedCameraTorch(Camera):
 
     @property
     def pixel_size(self) -> NDArray[np.float64]:
-        """Pixel pitch ``(y, x)`` of the displayed frame in metres.
-
-        A 90-degree rotation exchanges the sensor's axes in the displayed frame, so the 
-        pitch is exchanged with them.
-        """
-        if self._transform_swaps_axes:
-            return self._pixel_size[::-1].copy()
+        """Pixel pitch ``(y, x)`` of the displayed frame in metres."""
         return self._pixel_size
-
-    @property
-    def _transform_swaps_axes(self) -> bool:
-        """True when the frame transform exchanges height and width."""
-        return np.shape(self.transform(np.zeros((3, 5)))) == (5, 3)
 
     @property
     def bitdepth(self) -> int:
@@ -393,83 +380,30 @@ class SimulatedCameraTorch(Camera):
             return None
         return crosstalk.kernel().detach().cpu().numpy()
 
-    def set_orientation(self, orientation: CameraOrientation) -> None:
-        """Remount the sensor, reorienting every frame from here on.
-
-        The region of interest returns to the whole frame, since a crop is given in the
-        coordinates of the previous frame. The excluded pixels follow the sensor into
-        the new frame (:func:`~hologradpy.hardware.camera.reorient_pixels`), and the
-        pixel pitch is exchanged under a quarter turn.
-
-        Args:
-            orientation: The orientation to mount the sensor in.
-
-        Raises:
-            NotImplementedError: Excluded pixels are set while the frame transform is
-                not one of the eight orientations, so they cannot be remapped.
+    def _set_orientation(
+        self, orientation: CameraOrientation, raw_shape: tuple[int, int]
+    ) -> None:
+        """Remount the sensor, exchanging the displayed height and width and the pixel
+        pitch under a quarter turn.
         """
-        raw_shape = self._raw_shape
-        displayed_shape = (
-            (raw_shape[1], raw_shape[0]) if orientation.swaps_axes() else raw_shape
-        )
-        excluded = self.excluded_pixels
-        if excluded:
-            current = self.orientation
-            if current is None:
-                raise NotImplementedError(
-                    f"{type(self).__name__} applies a frame transform that is not one "
-                    "of the eight orientations, so its excluded pixels cannot follow "
-                    "the sensor into a new one. Clear excluded_pixels first."
-                )
-            excluded = reorient_pixels(excluded, raw_shape, current, orientation)
-        self._sensor_resolution: tuple[int, int] = displayed_shape
-        # shape names the displayed frame, as in slmsuite.
-        self.shape: tuple[int, int] = displayed_shape
+        if orientation.swaps_axes():
+            self._sensor_resolution: tuple[int, int] = (raw_shape[1], raw_shape[0])
+            self._pixel_size = self._raw_pixel_size[::-1].copy()
+        else:
+            self._sensor_resolution = (raw_shape[0], raw_shape[1])
+            self._pixel_size = self._raw_pixel_size
         self.transform = orientation.transformation()
-        self.set_roi(None)
-        self.excluded_pixels = excluded
 
-    def set_roi(self, roi: ROI | None) -> None:
-        """Set the region of interest, or return to the whole frame with None.
-
-        Args:
-            roi: The region in displayed ``(row, col)`` coordinates, or None.
-
-        Raises:
-            ValueError: ``roi`` is empty or reaches off the displayed frame. The region
-                is then left as it was.
-        """
-        height, width = self._sensor_resolution
-        if roi is None:
-            self._roi = ROI(0, 0, height, width)
-            return
-        if not roi.lies_inside((height, width)):
-            raise ValueError(f"{roi} does not lie inside the {height} x {width} frame.")
-        self._roi = roi
+    def _set_roi(self, roi: ROI | None) -> None:
+        """Crop every frame to ``roi``, or to the whole frame for None."""
+        self._roi = ROI(0, 0, *self._sensor_resolution) if roi is None else roi
 
     def get_exposure(self) -> float:
         """The current exposure time in seconds."""
         return float(self.exposure)
 
-    def set_exposure(self, exposure_s: float) -> None:
-        """Set the exposure time in seconds.
-
-        An exposure outside :attr:`exposure_bounds` is clipped into them with a
-        warning, as slmsuite's cameras do.
-
-        Args:
-            exposure_s: The exposure in seconds.
-        """
-        exposure = float(exposure_s)
-        bounds = self._exposure_bounds
-        if bounds is not None and not bounds[0] <= exposure <= bounds[1]:
-            clipped = min(max(exposure, bounds[0]), bounds[1])
-            warnings.warn(
-                f"An exposure of {exposure} s is outside the camera's bounds {bounds} "
-                f"s, so {clipped} s is applied.",
-                stacklevel=2,
-            )
-            exposure = clipped
+    def _set_exposure(self, exposure: float) -> None:
+        """Set the exposure time in seconds, which drives the sensor's exposure."""
         self.exposure = exposure
 
     @property
@@ -481,35 +415,16 @@ class SimulatedCameraTorch(Camera):
 
     def get_gain(self) -> float:
         """The gain in dB, ``20 * log10`` of the sensor's linear ``gain``."""
-        return 20.0 * float(np.log10(self.sensor.gain))
+        return gain_in_db(self.sensor.gain)
 
-    def set_gain(self, gain: float) -> None:
+    def _set_gain(self, gain: float) -> None:
         """Set the gain in dB, which sets the sensor's linear ``gain`` to
         ``10 ** (gain / 20)``.
 
-        A gain outside :attr:`gain_bounds` is clipped into them with a warning.
-
         Args:
             gain: The gain in dB.
-
-        Raises:
-            NotImplementedError: The camera was built without gain bounds.
         """
-        bounds = self._gain_bounds
-        if bounds is None:
-            raise NotImplementedError(
-                f"{self.name} was built without gain_bounds, so its gain stays fixed."
-            )
-        gain = float(gain)
-        if not bounds[0] <= gain <= bounds[1]:
-            clipped = min(max(gain, bounds[0]), bounds[1])
-            warnings.warn(
-                f"A gain of {gain} dB is outside the camera's gain range {bounds} dB, "
-                f"so {clipped} dB is applied.",
-                stacklevel=2,
-            )
-            gain = clipped
-        self.sensor.gain = 10.0 ** (gain / 20.0)
+        self.sensor.gain = linear_gain(gain)
 
     # Capture
 
@@ -523,62 +438,12 @@ class SimulatedCameraTorch(Camera):
         self.sensor.exposure_time = float(self.exposure)
         return self.slm_camera_model()  # CameraSensor returns pixel values
 
-    def _get_image(
-        self, exposure: float | None = None, averaging: int = 1
-    ) -> NDArray:
-        """Capture a frame as a ``(height, width)`` array of digital counts.
-
-        ``exposure`` sets the exposure first when given. ``averaging`` sums that many
-        fresh frames in float64, and the sum is not divided, as in slmsuite. The frame
-        is then reoriented via :attr:`transform` and cropped to :attr:`roi` on the
-        model's tensors, as in :meth:`get_image_tensor`. The result is copied to the
-        CPU.
+    def _get_image(self) -> NDArray:
+        """One frame of digital counts, reoriented via :attr:`transform` and cropped to
+        :attr:`roi` on the model's tensors, then copied to the CPU.
         """
-        return gpu_to_numpy(self._capture_image_tensor(exposure, averaging))
-
-    def get_image_tensor(
-        self,
-        exposure: float | None = None,
-        averaging: int = 1,
-        mask: NDArray[np.bool_] | None = None,
-    ) -> torch.Tensor:
-        """Capture a frame as :meth:`get_image` does, as a tensor on the model's device.
-
-        The whole pipeline (averaging, orientation, region of interest) runs on the
-        model's tensors. The frame stays on their device, which saves the copy to the
-        CPU. :attr:`overexposed` is recorded as for :meth:`get_image`.
-
-        Args:
-            exposure: The exposure in seconds, set before the capture when given.
-            averaging: The number of fresh frames to sum.
-            mask: True at the pixels to check for overexposure, in the shape of the
-                frame, or None to check every pixel.
-
-        Returns:
-            torch.Tensor: One frame, or the float64 sum of ``averaging`` frames.
-
-        Raises:
-            ValueError: ``mask`` does not have the shape of the frame.
-        """
-        image = self._capture_image_tensor(exposure, averaging)
-        self._overexposed = self._is_overexposed(image, averaging, mask)
-        return image
-
-    def _capture_image_tensor(
-        self, exposure: float | None, averaging: int
-    ) -> torch.Tensor:
-        """Capture ``averaging`` frames on the model's device and sum them, then
-        reorient the sum and crop it to :attr:`roi`.
-        """
-        if exposure is not None:
-            self.set_exposure(exposure)
-        averaging = max(1, int(averaging))
-        if averaging > 1:
-            frames = [self._capture_frame() for _ in range(averaging)]
-            image = torch.stack(frames).to(torch.float64).sum(dim=0)
-        else:
-            image = self._capture_frame()
-        return self._roi.crop(self.transform(image))
+        return gpu_to_numpy(self._roi.crop(self.transform(self._capture_frame())))
 
     def close(self) -> None:
+        """Release the memory that the model's device holds in its cache."""
         torch.cuda.empty_cache()

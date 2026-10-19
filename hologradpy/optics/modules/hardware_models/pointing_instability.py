@@ -7,6 +7,7 @@ from ..abstract import OpticsModule
 from ...complex_amplitude import ComplexAmplitude, broadcast_wavelength_operand
 from ....grids import get_spatial_grid
 from ....profiles.phase import linear_phase, tilt_to_angle
+from ....utils import as_pair
 
 
 class PointingInstability(OpticsModule):
@@ -36,7 +37,7 @@ class PointingInstability(OpticsModule):
                 reproducible sampling; otherwise the global RNG is used.
         """
         super().__init__()
-        self.tilt_std = self._as_pair(tilt_std)
+        self.tilt_std = as_pair(tilt_std)
         self.seed = seed
         # Built lazily on the field's device in lazy_init (None -> global RNG).
         self._generator: torch.Generator | None = None
@@ -60,7 +61,7 @@ class PointingInstability(OpticsModule):
         ``linear_phase(tilt_units="metres")``), so ``focal_length`` is the focal
         length of the downstream Fourier lens.
         """
-        std_x, std_y = cls._as_pair(focal_shift_std)
+        std_x, std_y = as_pair(focal_shift_std)
         return cls(
             (
                 tilt_to_angle(std_x, "metres", focal_length=focal_length),
@@ -68,12 +69,6 @@ class PointingInstability(OpticsModule):
             ),
             seed=seed,
         )
-
-    @staticmethod
-    def _as_pair(value: float | tuple[float, float]) -> tuple[float, float]:
-        if isinstance(value, (tuple, list)):
-            return (float(value[0]), float(value[1]))
-        return (float(value), float(value))
 
     @property
     def is_stochastic(self) -> bool:

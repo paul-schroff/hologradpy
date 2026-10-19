@@ -14,6 +14,7 @@ The spot-seeking steps are ``expose_until_spot``, the main-order check of
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
@@ -29,19 +30,23 @@ from hologradpy.calibration.camera_mapping import (
     CoarseMapper,
     FocalSpotFit,
 )
-from hologradpy.calibration import spot_detection
-from hologradpy.calibration.exposure import expose_until_spot
+from hologradpy.calibration.exposure import (
+    capture_autoexposed_frame,
+    expose_until_spot,
+)
 from hologradpy.calibration.speckle import DatasetGenerator
 from hologradpy.calibration.spot_detection import (
-    capture_focal_spot,
     detect_spot,
     get_diffraction_spot_position,
     has_prominent_peak,
-    tilt_to_sensor_center,
 )
 from hologradpy.calibration.wavefront.raster_calibration import RasterCalibrator
 from hologradpy.calibration.wavefront.speckle_calibration import (
     PSFSpeckleCalibrator,
+    capture_focal_spot,
+)
+from hologradpy.calibration.wavefront.speckle_calibration.speckle_calibrator import (
+    psf_calibrator,
 )
 from hologradpy.geometry import PartialAffineTransform
 from hologradpy.grids import metres_to_pixel, pixel_to_metres, plane_center
@@ -61,6 +66,7 @@ from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.optics.systems import SLMCZT, SLMFFT
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
 from hologradpy.profiles.masks import disc_mask
+from hologradpy.profiles.phase import linear_phase
 from hologradpy.roi import ROI
 from tests.native_camera_fakes import CroppingCamera, StrictSimulatedCamera
 from tests.test_device_interface import _RawSlm
@@ -72,9 +78,9 @@ pytestmark = [
 
 # --- Raw slmsuite devices ------------------------------------------------------------
 
-# The raw camera's sensor, and the position (row, col) of the spot in its scene.
+# The raw camera's sensor, and the position (column, row) of the spot in its scene.
 RAW_SENSOR_RESOLUTION = (48, 64)
-RAW_SPOT_CENTER = (32, 24)  # (column, row)
+RAW_SPOT_CENTER = (32, 24)
 RAW_PIXEL_PITCH = 3.45e-6
 # The Gaussian spot of the scene has a standard deviation of 1.5 pixels, so its 1/e^2
 # radius, the waist, is 3 pixels.
@@ -181,7 +187,6 @@ def _mapping_centered_on(
         transform=truth.as_matrix(homogeneous=False),
         detected_points=detected.tolist(),
         calculated_points=truth.transform_points(detected).tolist(),
-        zeroth_order_position=zeroth_order_position,
         spot_fit=FocalSpotFit(waist=waist),
         output_pixel_size=(pixel_pitch, pixel_pitch),
         output_resolution=sensor_resolution,
@@ -197,7 +202,12 @@ def _raw_mapping() -> CameraMapping:
     )
 
 
-def _model_for(slm: SLM, sensor_resolution: tuple[int, int], pitch: float) -> SLMCZT:
+def _model_for(
+    slm: SLM,
+    sensor_resolution: tuple[int, int],
+    pitch: float,
+    focal_length: float,
+) -> SLMCZT:
     """A model of the native ``slm`` in front of a sensor of ``sensor_resolution``."""
     dtype = torch.get_default_dtype()
     geometry = FieldGeometry(
@@ -210,13 +220,15 @@ def _model_for(slm: SLM, sensor_resolution: tuple[int, int], pitch: float) -> SL
         virtual_slm=VirtualSLM.from_slm(slm),
         camera_resolution=sensor_resolution,
         camera_pixel_size=(pitch, pitch),
-        focal_length=RAW_FOCAL_LENGTH,
+        focal_length=focal_length,
         slm_field=PixelwiseSLMField(),
     )
 
 
 def _raw_model(raw_slm: _RawSlm) -> SLMCZT:
-    return _model_for(as_slm(raw_slm), RAW_SENSOR_RESOLUTION, RAW_PIXEL_PITCH)
+    return _model_for(
+        as_slm(raw_slm), RAW_SENSOR_RESOLUTION, RAW_PIXEL_PITCH, RAW_FOCAL_LENGTH
+    )
 
 
 def _holds_native_devices(consumer: object) -> None:
@@ -235,7 +247,7 @@ def _has_prominent_peak(raw_slm, raw_camera, tmp_path) -> None:
 
 
 def _tilt_to_sensor_center(raw_slm, raw_camera, tmp_path) -> None:
-    tilt = tilt_to_sensor_center(raw_camera, _raw_mapping())
+    tilt = _raw_mapping().tilt_to_sensor_center(raw_camera)
     assert tilt == pytest.approx((0.0, 0.0), abs=1e-15)
 
 
@@ -246,7 +258,9 @@ def _expose_until_spot(raw_slm, raw_camera, tmp_path) -> None:
 
 
 def _capture_focal_spot(raw_slm, raw_camera, tmp_path) -> None:
-    kernel = capture_focal_spot(raw_slm, raw_camera, _raw_mapping(), 0.1, 15)
+    kernel = capture_focal_spot(
+        raw_slm, raw_camera, _raw_mapping(), _raw_model(raw_slm), 15
+    )
     assert np.unravel_index(int(np.argmax(kernel)), kernel.shape) == (7, 7)
 
 
@@ -255,7 +269,7 @@ def _dataset_generator(raw_slm, raw_camera, tmp_path) -> None:
         raw_slm,
         raw_camera,
         _raw_mapping(),
-        RAW_FOCAL_LENGTH,
+        _raw_model(raw_slm),
         tmp_path / "dataset.asdf",
     )
     _holds_native_devices(generator)
@@ -325,10 +339,10 @@ def _mapping_of_another_camera(raw_camera) -> CameraMapping:
 
 MAPPING_CONSUMERS: dict[str, Callable[..., object]] = {
     "tilt_to_sensor_center": lambda slm, camera, mapping, tmp_path: (
-        tilt_to_sensor_center(camera, mapping)
+        mapping.tilt_to_sensor_center(camera)
     ),
     "DatasetGenerator": lambda slm, camera, mapping, tmp_path: DatasetGenerator(
-        slm, camera, mapping, RAW_FOCAL_LENGTH, tmp_path / "dataset.asdf"
+        slm, camera, mapping, _raw_model(slm), tmp_path / "dataset.asdf"
     ),
     "SimpleFeedbackCorrector": lambda slm, camera, mapping, tmp_path: (
         SimpleFeedbackCorrector(
@@ -399,8 +413,8 @@ class _SpotCamera(CroppingCamera):
     It records every requested exposure and the exposure of every rendered frame.
 
     Args:
-        scene: A function returning the counts per second at each pixel, called for
-            every frame, so the scene can follow what an SLM shows.
+        scene: A function returning the counts per second at each pixel. It is called
+            for every frame, so the scene can follow what an SLM shows.
         exposure_bounds: The ``(min, max)`` exposure stated by the camera.
         exposure_s: The starting exposure in seconds.
         strict: Refuse an exposure outside the camera's limits with ``ValueError``. A
@@ -408,6 +422,8 @@ class _SpotCamera(CroppingCamera):
         exposure_step_s: Round every exposure up to a whole number of these steps,
             or None to apply exposures as asked.
         sensor_resolution: The ``(height, width)`` of the sensor.
+        gain_bounds: The ``(min, max)`` gain in dB, or None for a camera that cannot
+            set its gain.
     """
 
     def __init__(
@@ -419,9 +435,13 @@ class _SpotCamera(CroppingCamera):
         strict: bool = False,
         exposure_step_s: float | None = None,
         sensor_resolution: tuple[int, int] = SPOT_SENSOR_RESOLUTION,
+        gain_bounds: tuple[float, float] | None = None,
     ) -> None:
         super().__init__(
-            sensor_resolution, exposure_bounds=exposure_bounds, exposure_s=exposure_s
+            sensor_resolution,
+            exposure_bounds=exposure_bounds,
+            exposure_s=exposure_s,
+            gain_bounds=gain_bounds,
         )
         self._scene = scene
         self._strict = strict
@@ -448,7 +468,7 @@ class _SpotCamera(CroppingCamera):
 
     def render_sensor_frame(self) -> NDArray[np.uint16]:
         self.frame_exposures.append(self.get_exposure())
-        counts = np.floor(self._scene() * self.get_exposure())
+        counts = np.floor(self._scene() * self.get_equivalent_exposure())
         return np.clip(counts, 0, self.max_pixel_value).astype(np.uint16)
 
 
@@ -537,6 +557,40 @@ def test_expose_until_spot_sets_only_an_exposure_it_captures_at() -> None:
     assert camera.get_exposure() == camera.frame_exposures[-1]
 
 
+def test_expose_until_spot_leaves_out_the_excluded_pixels() -> None:
+    """A stuck pixel at full scale is an excluded pixel, so a frame dark but for it
+    counts as dark. The exposure then rises.
+    """
+
+    def scene() -> NDArray:
+        rates = np.zeros(SPOT_SENSOR_RESOLUTION)
+        rates[10, 20] = 1e12
+        return rates
+
+    camera = _SpotCamera(scene, exposure_s=1e-3)
+    camera.excluded_pixels = [(10, 20)]
+
+    assert expose_until_spot(camera, 1e-4, max_steps=2) is None
+
+    assert camera.frame_exposures == pytest.approx([1e-3, 2e-2])
+
+
+def test_expose_until_spot_raises_the_gain_beyond_the_gain_onset() -> None:
+    """The steps follow the equivalent exposure, so a step beyond the gain onset raises
+    the gain. The exposure takes up what the largest gain leaves.
+    """
+    camera = _SpotCamera(
+        lambda: np.zeros(SPOT_SENSOR_RESOLUTION),
+        exposure_s=0.08,
+        gain_bounds=(0.0, 24.0),
+    )
+
+    assert expose_until_spot(camera, 1e-4, max_steps=2) is None
+
+    assert camera.get_gain() == 24.0
+    assert camera.get_equivalent_exposure() == pytest.approx(0.08 / 0.05)
+
+
 # --- The main order of CoarseMapper --------------------------------------------------
 
 FOUND_TILT = (1e-3, 5e-4)
@@ -566,7 +620,7 @@ def _main_order_mapper(
     )
     mapper = CoarseMapper(_RecordingSlm(), camera, model)
     monkeypatch.setattr(
-        mapper, "_display_tilt", lambda tilt, focal_length: shown.append(tilt)
+        mapper, "_display_tilt", lambda tilt: shown.append(tilt)
     )
     return mapper, camera
 
@@ -606,7 +660,7 @@ def test_prefer_main_order_restores_the_exposure_either_way(
         {FOUND_TILT: found_scene, MIRRORED_TILT: mirrored_scene}, monkeypatch
     )
 
-    tilt = mapper._prefer_main_order(FOUND_TILT, focal_length=0.25)
+    tilt = mapper._prefer_main_order(FOUND_TILT)
 
     assert tilt == preferred
     assert min(camera.requested_exposures, default=1e-2) >= 1e-4
@@ -634,12 +688,19 @@ def _position_in_pixels(position: tuple[float, float]) -> tuple[float, float]:
     return row, column
 
 
+def _spot_model(slm: SLM) -> SLMCZT:
+    return _model_for(
+        slm, SPOT_SENSOR_RESOLUTION, SPOT_PIXEL_PITCH, SPOT_FOCAL_LENGTH
+    )
+
+
 def _locate(camera: _SpotCamera, **options) -> tuple[tuple[float, float], ROI]:
+    slm = _RecordingSlm()
     position, _, _, roi = get_diffraction_spot_position(
-        _RecordingSlm(),
+        slm,
         camera,
         (0.0, 0.0),
-        SPOT_FOCAL_LENGTH,
+        _spot_model(slm),
         verbose=False,
         **options,
     )
@@ -683,11 +744,12 @@ def test_a_spot_beside_the_mask_is_fitted_at_its_own_peak(gap: float) -> None:
         SPOT_SENSOR_RESOLUTION, (zeroth_order[1], zeroth_order[0]), mask_radius
     )
 
+    slm = _WideRecordingSlm()
     position, _, _, _ = get_diffraction_spot_position(
-        _WideRecordingSlm(),
+        slm,
         _SpotCamera(lambda: scene),
         (0.0, 0.0),
-        SPOT_FOCAL_LENGTH,
+        _spot_model(slm),
         verbose=False,
         mask=kept,
     )
@@ -718,11 +780,12 @@ def test_diffraction_spot_takes_a_mask_and_a_search_region_together() -> None:
     search = ROI(10, 10, 44, 70)
     camera = _SpotCamera(_probe_and_zeroth_order)
 
+    slm = _RecordingSlm()
     position, _, cropped, roi = get_diffraction_spot_position(
-        _RecordingSlm(),
+        slm,
         camera,
         (0.0, 0.0),
-        SPOT_FOCAL_LENGTH,
+        _spot_model(slm),
         verbose=False,
         mask=~_zeroth_order_disc(),
         search_roi=search,
@@ -770,8 +833,9 @@ def test_autoexposure_converges_when_the_overexposure_cut_passes_the_lower_bound
         strict=True,
     )
 
+    slm = _RecordingSlm()
     position, _, cropped, _ = get_diffraction_spot_position(
-        _RecordingSlm(), camera, (0.0, 0.0), SPOT_FOCAL_LENGTH, verbose=False
+        slm, camera, (0.0, 0.0), _spot_model(slm), verbose=False
     )
 
     assert float(np.max(cropped)) == pytest.approx(0.8 * 255, abs=0.05 * 255)
@@ -882,13 +946,13 @@ def _aligned_bench_mapping() -> CameraMapping:
 
 def _locate_the_probe(bench: _Bench, tmp_path) -> None:
     get_diffraction_spot_position(
-        bench.slm, bench.camera, BENCH_PROBE_TILT, BENCH_FOCAL_LENGTH, verbose=False
+        bench.slm, bench.camera, BENCH_PROBE_TILT, bench.mapping_model(), verbose=False
     )
 
 
 def _capture_the_focal_spot(bench: _Bench, tmp_path) -> None:
     capture_focal_spot(
-        bench.slm, bench.camera, _aligned_bench_mapping(), BENCH_FOCAL_LENGTH, 15
+        bench.slm, bench.camera, _aligned_bench_mapping(), bench.mapping_model(), 15
     )
 
 
@@ -901,19 +965,30 @@ def _capture_speckle(bench: _Bench, tmp_path) -> None:
         bench.slm,
         bench.camera,
         _aligned_bench_mapping(),
-        BENCH_FOCAL_LENGTH,
+        bench.mapping_model(),
         tmp_path / "dataset.asdf",
         number_of_random_patterns=2,
     ).generate_dataset((1.5e-3, 1.5e-3), seed=0)
 
 
 def _run_camera_feedback(bench: _Bench, tmp_path) -> None:
+    # A grating that steers the light onto the target, since the absolute cost of the
+    # loop needs light inside the target's patch to descend from.
+    target_position = (1.5e-3, 0.0)
+    steering = linear_phase(
+        *bench.slm.get_spatial_grid(),
+        tilt_x=target_position[0],
+        tilt_y=target_position[1],
+        wavenumber=2 * np.pi / bench.slm.wavelength,
+        focal_length=BENCH_FOCAL_LENGTH,
+    )
     SimpleFeedbackCorrector(
         slm=bench.slm,
         camera=bench.camera,
         slm_camera_model=bench.sensor_model(),
         target=torch.ones(8, 8),
-        target_position=(1.5e-3, 0.0),
+        target_position=target_position,
+        init_slm_phase=steering,
         camera_mapping=_aligned_bench_mapping(),
     ).run(retriever_iterations=[3], averages=1, verbose=False)
 
@@ -954,12 +1029,12 @@ def test_get_diffraction_spot_position_leaves_the_camera_as_it_found_it() -> Non
     bench = _Bench(add_noise=False)
     bench.camera.set_exposure(PRESET_EXPOSURE)
     expected = get_diffraction_spot_position(
-        bench.slm, bench.camera, BENCH_PROBE_TILT, BENCH_FOCAL_LENGTH, verbose=False
+        bench.slm, bench.camera, BENCH_PROBE_TILT, bench.mapping_model(), verbose=False
     )[0]
     bench.camera.set_roi(PRESET_REGION)
 
     position = get_diffraction_spot_position(
-        bench.slm, bench.camera, BENCH_PROBE_TILT, BENCH_FOCAL_LENGTH, verbose=False
+        bench.slm, bench.camera, BENCH_PROBE_TILT, bench.mapping_model(), verbose=False
     )[0]
 
     assert position == pytest.approx(expected, rel=1e-9)
@@ -990,7 +1065,7 @@ def test_exposure_requests_stay_inside_the_cameras_bounds() -> None:
         bench.slm,
         bench.camera,
         tilt,
-        BENCH_FOCAL_LENGTH,
+        model,
         units="pixels",
         verbose=False,
     )[0]
@@ -1007,7 +1082,7 @@ def test_the_focal_spot_is_captured_with_a_region_preset() -> None:
     bench.camera.set_roi(ROI(0, 0, 60, 80))
 
     kernel = capture_focal_spot(
-        bench.slm, bench.camera, _aligned_bench_mapping(), BENCH_FOCAL_LENGTH, 15
+        bench.slm, bench.camera, _aligned_bench_mapping(), bench.mapping_model(), 15
     )
 
     assert np.unravel_index(int(np.argmax(kernel)), kernel.shape) == (7, 7)
@@ -1023,7 +1098,7 @@ def test_a_spot_steered_off_the_search_window_is_found_on_the_sensor(
 
     The window is made to show no spot, as a larger error of the mapping would
     leave it. The whole sensor is then searched without a disc around the zeroth
-    order. The frame is metered again on the spot, and the kernel holds the spot
+    order. The frame is autoexposed again on the spot, and the kernel holds the spot
     in its middle.
     """
     bench = _Bench(camera_shift=(-60, -30))
@@ -1041,14 +1116,164 @@ def test_a_spot_steered_off_the_search_window_is_found_on_the_sensor(
         return len(windows) > 1 and has_prominent_peak(image, camera, **options)
 
     monkeypatch.setattr(
-        spot_detection, "has_prominent_peak", the_first_window_shows_no_spot
+        psf_calibrator, "has_prominent_peak", the_first_window_shows_no_spot
     )
 
     with pytest.warns(UserWarning, match="whole sensor was searched"):
         kernel = capture_focal_spot(
-            bench.slm, bench.camera, mapping, BENCH_FOCAL_LENGTH, 15
+            bench.slm, bench.camera, mapping, bench.mapping_model(), 15
         )
 
+    assert np.unravel_index(int(np.argmax(kernel)), kernel.shape) == (7, 7)
+
+
+def _record_autoexposed_windows(monkeypatch) -> list[ROI]:
+    """The windows that ``capture_focal_spot`` autoexposes on, appended as it runs."""
+    windows: list[ROI] = []
+
+    def capture_and_record_the_window(camera, roi, set_fraction):
+        windows.append(roi)
+        return capture_autoexposed_frame(camera, roi, set_fraction)
+
+    monkeypatch.setattr(
+        psf_calibrator, "capture_autoexposed_frame", capture_and_record_the_window
+    )
+    return windows
+
+
+def _holds_pixel(window: ROI, pixel: tuple[int, int]) -> bool:
+    """True if ``window`` holds the camera pixel at ``pixel``, ``(column, row)``."""
+    column, row = pixel
+    return (
+        window.left_column <= column < window.left_column + window.width
+        and window.top_row <= row < window.top_row + window.height
+    )
+
+
+def test_a_spot_off_the_middle_of_the_search_window_is_found_in_the_window(
+    monkeypatch,
+) -> None:
+    """The zeroth order of the shifted bench sits at column 100 and row 150. The
+    mapping has it there, at 1.6 times the bench's scale, so the steered spot lands at
+    column 196 and row 102, 36 columns right of the sensor centre and 18 rows above it.
+
+    A search window six kernels wide holds the spot, and the frame is autoexposed on
+    that window. The spot is found at its brightest pixel in the window without a
+    search of the whole sensor, and the kernel holds the spot in its middle.
+    """
+    bench = _Bench(camera_shift=(-60, -30))
+    mapping = _mapping_centered_on(
+        (100.0, 150.0),
+        2 * BENCH_PIXEL_PITCH,
+        BENCH_PIXEL_PITCH,
+        BENCH_SENSOR_RESOLUTION,
+        scale=1.6,
+    )
+    autoexposed_windows = _record_autoexposed_windows(monkeypatch)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        kernel = capture_focal_spot(
+            bench.slm,
+            bench.camera,
+            mapping,
+            bench.mapping_model(),
+            15,
+            search_factor=6.0,
+        )
+
+    assert not any(
+        "whole sensor was searched" in str(entry.message) for entry in caught
+    )
+    assert _holds_pixel(autoexposed_windows[0], (196, 102))
+    assert np.unravel_index(int(np.argmax(kernel)), kernel.shape) == (7, 7)
+
+
+# The undiffracted spot added by _ZerothOrderCamera. The steered spot of the bench
+# peaks at 2.7e10 counts per second at 0 dB, so this one is 3.7 times brighter.
+BENCH_ZEROTH_ORDER_PEAK_RATE = 1e11
+BENCH_ZEROTH_ORDER_SIGMA_PX = 1.5
+
+
+class _ZerothOrderCamera(StrictSimulatedCamera):
+    """The bench's camera, with an undiffracted spot added to each frame. The bench's
+    simulated SLM puts almost no light into the zeroth order of a steering phase.
+
+    The spot is a Gaussian of ``BENCH_ZEROTH_ORDER_PEAK_RATE`` counts per second at its
+    peak, with a standard deviation of ``BENCH_ZEROTH_ORDER_SIGMA_PX`` pixels. Its
+    counts follow the equivalent exposure.
+
+    Args:
+        *args: Passed on to :class:`StrictSimulatedCamera`.
+        zeroth_order_position: The ``(column, row)`` of the spot on the sensor.
+        **kwargs: Passed on to :class:`StrictSimulatedCamera`.
+    """
+
+    def __init__(
+        self, *args, zeroth_order_position: tuple[float, float], **kwargs
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        height, width = self.sensor_resolution
+        rows, columns = np.mgrid[0:height, 0:width]
+        squared_distance = (columns - zeroth_order_position[0]) ** 2 + (
+            rows - zeroth_order_position[1]
+        ) ** 2
+        # The counts per second of the spot at each pixel of the sensor.
+        self.zeroth_order_scene = torch.as_tensor(
+            BENCH_ZEROTH_ORDER_PEAK_RATE
+            * np.exp(-squared_distance / (2 * BENCH_ZEROTH_ORDER_SIGMA_PX**2))
+        )
+
+    def _capture_frame(self) -> torch.Tensor:
+        frame = super()._capture_frame()
+        zeroth_order_counts = self.get_equivalent_exposure() * self.zeroth_order_scene
+        return frame + zeroth_order_counts.to(frame)
+
+
+def test_a_brighter_zeroth_order_is_left_out_of_the_search_of_the_whole_sensor(
+    monkeypatch,
+) -> None:
+    """The zeroth order of this bench sits at column 120 and row 160, and the camera
+    adds an undiffracted spot there, 3.7 times brighter than the steered spot. The
+    mapping has the zeroth order there, at 1.6 times the bench's scale, so the steered
+    spot lands at column 184 and row 96, beside the search window.
+
+    The window is made to show no spot. The whole sensor is then searched outside a
+    disc around the zeroth order, with a radius of half its distance from the sensor
+    centre (28 pixels). The frame is autoexposed again on a window holding the steered
+    spot, and the kernel holds the spot in its middle.
+    """
+    zeroth_order = (120.0, 160.0)
+    bench = _Bench(
+        camera_type=_ZerothOrderCamera,
+        camera_shift=(-40, -40),
+        zeroth_order_position=zeroth_order,
+    )
+    mapping = _mapping_centered_on(
+        zeroth_order,
+        2 * BENCH_PIXEL_PITCH,
+        BENCH_PIXEL_PITCH,
+        BENCH_SENSOR_RESOLUTION,
+        scale=1.6,
+    )
+    checked_crops = []
+
+    def the_first_window_shows_no_spot(image, camera, **options) -> bool:
+        checked_crops.append(image.shape)
+        return len(checked_crops) > 1 and has_prominent_peak(image, camera, **options)
+
+    monkeypatch.setattr(
+        psf_calibrator, "has_prominent_peak", the_first_window_shows_no_spot
+    )
+    autoexposed_windows = _record_autoexposed_windows(monkeypatch)
+
+    with pytest.warns(UserWarning, match="whole sensor was searched"):
+        kernel = capture_focal_spot(
+            bench.slm, bench.camera, mapping, bench.mapping_model(), 15
+        )
+
+    # The frame is autoexposed again on a window holding the steered spot.
+    assert _holds_pixel(autoexposed_windows[1], (184, 96))
     assert np.unravel_index(int(np.argmax(kernel)), kernel.shape) == (7, 7)
 
 
@@ -1063,11 +1288,11 @@ def test_integer_frames_flow_through_the_consumers() -> None:
             bench.slm,
             bench.camera,
             BENCH_PROBE_TILT,
-            BENCH_FOCAL_LENGTH,
+            bench.mapping_model(),
             verbose=False,
         )
         kernel = capture_focal_spot(
-            bench.slm, bench.camera, _aligned_bench_mapping(), BENCH_FOCAL_LENGTH, 15
+            bench.slm, bench.camera, _aligned_bench_mapping(), bench.mapping_model(), 15
         )
         results.append((position, radius, kernel))
 

@@ -17,6 +17,7 @@ order of ``(x, y)``. Coordinates ``(x, y)`` are physical. :func:`pixel_frame_vec
 
 from __future__ import annotations
 
+import math
 from typing import TypeVar
 
 import torch
@@ -61,6 +62,26 @@ def pixel_frame_angle(angle_degrees: T) -> T:
     return -angle_degrees
 
 
+def centered_indices(
+    length: int,
+    device: torch.device | None = None,
+    dtype: torch.dtype | None = None,
+) -> Tensor:
+    """The centred indices ``i - length // 2`` of an axis of ``length`` samples.
+
+    The indices are pixel-frame offsets, so along the rows they grow down the screen,
+    towards -y. :func:`get_pixel_grid` converts them to ``(x, y)`` pixels.
+
+    Args:
+        length: The number of samples.
+        device: Where to build the indices, the CPU for None.
+        dtype: Dtype of the indices. Defaults to the integer one ``arange`` picks.
+    """
+    return torch.arange(
+        -(length // 2), length - length // 2, device=resolve_device(device), dtype=dtype
+    )
+
+
 def get_pixel_grid(
     resolution: tuple[int, int],
     device: torch.device | None = None,
@@ -77,17 +98,14 @@ def get_pixel_grid(
     Returns:
         tuple[Tensor, Tensor]: The ``x`` and ``y`` grids.
     """
-    device = resolve_device(device)
     height, width = resolution
-
-    columns = torch.arange(
-        -(width // 2), width - width // 2, device=device, dtype=dtype
+    return pixel_frame_vector(
+        torch.meshgrid(
+            centered_indices(width, device, dtype),
+            centered_indices(height, device, dtype),
+            indexing="xy",
+        )
     )
-    rows = torch.arange(
-        -(height // 2), height - height // 2, device=device, dtype=dtype
-    )
-
-    return pixel_frame_vector(torch.meshgrid(columns, rows, indexing="xy"))
 
 
 def get_spatial_grid(
@@ -134,6 +152,21 @@ def plane_center(resolution: tuple[int, int]) -> tuple[int, int]:
     return (width // 2, height // 2)
 
 
+def odd_sample_count(extent: float, pitch: float) -> int:
+    """The number of samples at ``pitch`` that cover ``extent``, rounded up to an odd
+    number of at least 3, so the grid has a centre sample.
+
+    Args:
+        extent: The length to cover, in the units of ``pitch``.
+        pitch: The sample spacing.
+
+    Returns:
+        int: The odd sample count.
+    """
+    count = math.ceil(extent / pitch)
+    return max(3, count + 1 - count % 2)
+
+
 def metres_to_pixel(
     position: tuple[float, float],
     pixel_size: tuple[float, float],
@@ -150,6 +183,25 @@ def metres_to_pixel(
         (position[0] / pixel_size[1], position[1] / pixel_size[0])
     )
     return column + center_column, row + center_row
+
+
+def metres_to_pixels(
+    shift: tuple[float, float],
+    pixel_size: tuple[float, float],
+) -> tuple[float, float]:
+    """A shift ``(x, y)`` in metres as a shift ``(x, y)`` in pixels.
+
+    ``pixel_size`` is ``(y, x)`` metres, so x is divided by the width pitch and y by
+    the height pitch. The result stays a physical ``(x, y)`` shift with y pointing up,
+    as a
+    :class:`~hologradpy.optics.modules.learnable_partial_affine.LearnablePartialAffine`
+    takes its ``shift``. :func:`metres_to_pixel` converts a position to the pixel
+    ``(column, row)``.
+    """
+    return (
+        float(shift[0]) / float(pixel_size[1]),
+        float(shift[1]) / float(pixel_size[0]),
+    )
 
 
 def pixel_to_metres(

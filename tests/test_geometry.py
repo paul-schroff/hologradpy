@@ -101,6 +101,21 @@ def test_fit_recovers_affine_with_shear():
     np.testing.assert_allclose(fitted.matrix, truth.matrix, atol=1e-4)
 
 
+def test_a_robust_fit_leaves_out_a_pair_the_transform_does_not_describe():
+    source = np.random.default_rng(2).uniform(-50, 50, size=(20, 2))
+    truth = AffineTransform.from_components(
+        scale=(1.2, 0.9), angle_deg=20.0, shift=(3.0, -2.0), shear=0.1
+    )
+    destination = truth.transform_points(source)
+    destination[3] += (40.0, -25.0)
+
+    fitted, inliers = AffineTransform.fit_robust(source, destination)
+
+    assert not inliers[3]
+    assert inliers.sum() == len(source) - 1
+    np.testing.assert_allclose(fitted.matrix, truth.matrix, atol=1e-9)
+
+
 def test_reprojection_error():
     transform = AffineTransform.from_components(shift=(1.0, 0.0))
     destination = POINTS + np.array([1.0, 0.0])  # exactly the mapped points

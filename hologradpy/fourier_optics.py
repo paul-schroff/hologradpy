@@ -76,6 +76,25 @@ def fourier_lens_resolution(
     return wavelength * focal_length / (pixel_size_in * pixel_size_out)
 
 
+def central_lobe_width(
+    wavelength: Tensor | float,
+    focal_length: float,
+    aperture_width: Tensor | float,
+) -> Tensor | float:
+    """The zero-to-zero width of the central lobe of the sinc^2 that a uniformly lit
+    rectangular aperture forms in the focal plane of a Fourier lens.
+
+    Args:
+        wavelength: Wavelength in metres.
+        focal_length: Focal length in metres.
+        aperture_width: The width of the aperture along the same axis, in metres.
+
+    Returns:
+        The width ``2 * wavelength * focal_length / aperture_width``, in metres.
+    """
+    return 2 * wavelength * focal_length / aperture_width
+
+
 def fourier_lens_power_prefactor(
     pixel_area_in: Tensor | float,
     wavelength: Tensor | float,

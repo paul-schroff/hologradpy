@@ -24,6 +24,7 @@ from hologradpy.hardware.camera.abstract import (
     Camera,
     CameraData,
 )
+from hologradpy.hardware.camera.stuck_pixels import stuck_pixel_mask
 from hologradpy.roi import ROI
 from tests.native_camera_fakes import CroppingCamera
 
@@ -134,12 +135,14 @@ class _ResponsiveCamera(CroppingCamera):
         self.frame_gains: list[float] = []
         self.written_regions: list[ROI | None] = []
 
-    def set_exposure(self, exposure_s: float) -> None:
-        self.requested_exposures.append(float(exposure_s))
-        applied = float(exposure_s)
-        for limits in (self._exposure_bounds, self._hidden_limits):
-            if limits is not None:
-                applied = min(max(applied, limits[0]), limits[1])
+    def set_exposure(self, exposure: float) -> None:
+        self.requested_exposures.append(float(exposure))
+        super().set_exposure(exposure)
+
+    def _set_exposure(self, exposure: float) -> None:
+        applied = float(exposure)
+        if self._hidden_limits is not None:
+            applied = min(max(applied, self._hidden_limits[0]), self._hidden_limits[1])
         if self._whole_microseconds:
             applied = int(applied * 1e6) / 1e6
         self._exposure_s = applied
@@ -311,7 +314,7 @@ def test_autoexpose_settles_on_the_bound_when_told_not_to_raise() -> None:
 
 def test_autoexpose_measures_the_whole_sensor_under_a_preset_region() -> None:
     """The preset region holds only a dim background, and the one bright pixel lies
-    outside it. The exposure is metered on the whole sensor, so the bright pixel ends
+    outside it. The autoexposure measures the whole sensor, so the bright pixel ends
     at the target.
     """
     rate = np.full(SENSOR_RESOLUTION, 1e3)
@@ -659,11 +662,11 @@ def test_autoexpose_leaves_the_camera_as_it_was_when_the_setup_fails(
     assert camera.get_exposure() == 2e-3
 
 
-def test_autoexpose_meters_the_part_of_a_roi_on_the_frame() -> None:
-    """A region overhanging the far corner meters its pixels on the frame. A region
-    with a negative corner meters the covered part of the frame. A plain slice with a
-    negative start wraps round to the far corner, and the metering leaves that corner
-    out.
+def test_autoexpose_measures_the_part_of_a_roi_on_the_frame() -> None:
+    """For a region overhanging the far corner, the autoexposure measures its pixels on
+    the frame. For a region with a negative corner, it measures the covered part of the
+    frame. A plain slice with a negative start wraps round to the far corner, and the
+    autoexposure leaves that corner out.
     """
     scene = np.full(SENSOR_RESOLUTION, 0.05)
     scene[14, 22] = 1.0
@@ -1016,10 +1019,13 @@ def test_default_sweep_keeps_a_dim_working_pixel() -> None:
 
     frames, exposures = camera._capture_exposure_sweep()
     decades = [0, 2, 4, 6]
-    flagged = camera._detect_stuck_pixels(
-        frames[decades], [exposures[index] for index in decades]
+    flagged = stuck_pixel_mask(
+        frames[decades],
+        [exposures[index] for index in decades],
+        camera.max_pixel_value,
+        camera.saturation_level,
     )
-    assert flagged == [dim_pixel]
+    assert [tuple(pixel) for pixel in np.argwhere(flagged).tolist()] == [dim_pixel]
 
 
 def test_capture_exposure_sweep_defaults_to_half_decades() -> None:

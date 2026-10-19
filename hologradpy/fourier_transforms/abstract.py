@@ -14,7 +14,6 @@ class FourierBase(nn.Module):
         self,
         resolution: tuple[int, int],
         frequencies: Tensor,
-        is_gridded: bool,
         resolution_out: tuple[int, int] | None = None,
         device: torch.device | None = None,
     ) -> None:
@@ -22,7 +21,6 @@ class FourierBase(nn.Module):
         self.resolution = resolution
         self.resolution_out = resolution if resolution_out is None else resolution_out
         self._frequencies = frequencies
-        self.is_gridded = is_gridded
         self.device = resolve_device(device)
 
     @property

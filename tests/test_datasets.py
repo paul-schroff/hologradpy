@@ -12,13 +12,11 @@ from dataclasses import dataclass
 
 import numpy as np
 import pytest
-import torch
 
 from hologradpy.datasets import (
     SAMPLE_DTYPE,
     CaptureStore,
     RetrievalStepStore,
-    SampleDataset,
 )
 from hologradpy.serialization import SaveableRecord, record_type
 
@@ -306,61 +304,3 @@ def test_appending_to_a_reader_raises(tmp_path) -> None:
     with CaptureStore.open(path) as store:
         with pytest.raises(RuntimeError, match="not open for appending"):
             store.append(np.zeros((6, 8)))
-
-
-# --- The torch dataset -------------------------------------------------------------
-
-
-def test_dataset_length_and_indexing(tmp_path) -> None:
-    path = tmp_path / "capture.asdf"
-    frames = _frames(3)
-    _capture(path, frames)
-
-    with CaptureStore.open(path) as store:
-        dataset = SampleDataset(store)
-        assert len(dataset) == 3
-        assert np.allclose(dataset[2]["camera_image"], frames[2], atol=1e-3)
-        # A DataLoader hands the index over as a tensor.
-        assert np.allclose(
-            dataset[torch.tensor(1)]["camera_image"], frames[1], atol=1e-3
-        )
-
-
-def test_dataset_reads_a_retrieval_too(tmp_path) -> None:
-    """It only asks a store for its length and its samples, so either kind will do."""
-    path = tmp_path / "retrieval_steps.asdf"
-    fractions = _steps(path, 2)
-
-    with RetrievalStepStore.open(path) as store:
-        dataset = SampleDataset(store)
-        assert len(dataset) == 2
-        assert np.allclose(dataset[1]["slm_fraction"], fractions[1], atol=1e-6)
-
-
-def test_dataset_applies_the_transform(tmp_path) -> None:
-    path = tmp_path / "capture.asdf"
-    _capture(path, _frames(2))
-
-    with CaptureStore.open(path) as store:
-        dataset = SampleDataset(
-            store,
-            transform=lambda sample: {
-                **sample, "camera_image": sample["camera_image"] * 0
-            },
-        )
-        assert not dataset[0]["camera_image"].any()
-
-
-def test_dataset_caches_when_asked(tmp_path) -> None:
-    """Rereading every epoch is what the cache exists to avoid, so it has to be the same
-    object rather than an equal one.
-    """
-    path = tmp_path / "capture.asdf"
-    _capture(path, _frames(1))
-
-    with CaptureStore.open(path) as store:
-        cached = SampleDataset(store, cache=True)
-        assert cached[0] is cached[0]
-
-        uncached = SampleDataset(store, cache=False)
-        assert uncached[0] is not uncached[0]

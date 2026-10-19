@@ -1,15 +1,14 @@
 from __future__ import annotations
 
+from ...grids import metres_to_pixels
 from ..modules.propagators import FourierLensFFT
 from ..modules.slm_fields import SLMField
 from ..modules.geometric_transforms import GeometricWarp
-from ..modules.learnable_partial_affine import LearnablePartialAffine
 from ..modules.virtual_slms.abstract import VirtualSLM
 from ..complex_amplitude import FieldGeometry
 
 from .abstract import (
     SLMFourierLensModel,
-    camera_shift_pixels,
     slm_stages,
     upscaled_padding,
 )
@@ -60,11 +59,7 @@ class SLMFFTAffine(SLMFourierLensModel):
             affine_transform=GeometricWarp(
                 resolution_out=camera_resolution,
                 pixel_size_out=camera_pixel_size,
-                shift=camera_shift_pixels(camera_shift, camera_pixel_size),
+                shift=metres_to_pixels(camera_shift, camera_pixel_size),
                 angle=camera_angle,
             ),
         )
-
-    @property
-    def focal_plane_partial_affine(self) -> LearnablePartialAffine:
-        return self.affine_transform.focal_plane_partial_affine

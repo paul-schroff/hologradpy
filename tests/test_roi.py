@@ -124,3 +124,14 @@ def test_detect_bounds_only_the_pixels_the_mask_keeps() -> None:
 def test_a_region_outside_the_bounds_is_refused(region: ROI) -> None:
     with pytest.raises(ValueError, match="No part of"):
         region.trimmed_to(BOUNDS)
+
+
+def test_enclosing_bounds_both_regions() -> None:
+    main = ROI(10, 20, 30, 40)
+    second = ROI(25, 5, 30, 10)
+
+    window = main.enclosing(second)
+
+    assert window == ROI(10, 5, 45, 55)
+    assert window == second.enclosing(main)
+    assert main.relative_to(window) == ROI(0, 15, 30, 40)

@@ -8,9 +8,9 @@ from numpy.typing import ArrayLike
 from .abstract import PhaseRetrieverBase
 from .recorder import RetrievalRun
 
+from ...fourier_optics import focal_field_adjoint
 from ...optics.systems import SLMFourierLensModel
 
-from ...profiles.phase import linear_phase
 from ...utils import ProgressBar
 
 
@@ -18,8 +18,10 @@ class LinearSuperpositionPhaseRetriever(PhaseRetrieverBase):
     """Superposes one blazed grating per focal spot, without iterating.
 
     Each grating sends light to one position, with the amplitude for its intensity and
-    its own phase. Gratings to a regular array with equal phases add up symmetrically
-    and make ghost spots, which random phases avoid.
+    its own phase. The superposition is the field that the spots send back to the SLM
+    (:func:`~hologradpy.fourier_optics.focal_field_adjoint`). Gratings to a regular
+    array with equal phases add up symmetrically and make ghost spots. Random phases
+    prevent them.
     """
 
     def __init__(
@@ -116,29 +118,17 @@ class LinearSuperpositionPhaseRetriever(PhaseRetrieverBase):
             if geometry.wavelength.dtype == torch.float64
             else torch.complex64
         )
-        grid_x, grid_y = geometry.get_spatial_grid()
-        
-        wavenumber = geometry.wavenumber.reshape(())
-
-        field_superposition = torch.zeros(
-            *geometry.resolution,
-            dtype=complex_dtype,
-            device=self.device,
+        spot_field = self.target_intensities.sqrt() * torch.exp(
+            1j * self.target_phases
         )
-
-        for i in range(self.number_of_positions):
-            blazed_grating = linear_phase(
-                grid_x,
-                grid_y,
-                self.target_positions[i, 0],
-                self.target_positions[i, 1],
-                wavenumber=wavenumber,
-                focal_length=self.slm_camera_model.focal_length,
-            )
-
-            field_superposition += self.target_intensities[i].sqrt() * torch.exp(
-                1j * (blazed_grating + self.target_phases[i])
-            )
+        field_superposition = focal_field_adjoint(
+            spot_field.to(complex_dtype),
+            self.target_positions,
+            tuple(geometry.resolution),
+            tuple(geometry.pixel_size.reshape(-1, 2)[0].tolist()),
+            float(geometry.wavelength.reshape(-1)[0]),
+            self.slm_camera_model.focal_length,
+        )
 
         virtual_slm = self.slm_camera_model.virtual_slm
         virtual_slm.set_phase(field_superposition.angle().to(torch.float32))

@@ -143,9 +143,9 @@ def test_asm_forward_is_the_padded_fft_with_the_analytic_transfer_function() -> 
 
     padded_resolution = (2 * H, 2 * W)
     frequency_x, frequency_y = get_frequency_grid(
-        padded_resolution, field.pixel_size[0], field.device
+        padded_resolution, field.pixel_size[0].to(torch.float64), field.device
     )
-    wavenumber = field.wavenumber.reshape(-1, 1, 1)
+    wavenumber = field.wavenumber.reshape(-1, 1, 1).to(torch.float64)
     argument = (
         wavenumber**2
         - frequency_x.unsqueeze(0) ** 2
@@ -158,6 +158,37 @@ def test_asm_forward_is_the_padded_fft_with_the_analytic_transfer_function() -> 
     expected = to_canvas(ifft_2d(spectrum * transfer, norm="ortho"), (H, W))._data
 
     torch.testing.assert_close(out, expected)
+
+
+def test_asm_keeps_the_phase_of_a_long_propagation_in_single_precision() -> None:
+    """Over 250 mm at 1039 nm the transfer phase reaches about 1.5e6 rad, which single
+    precision resolves to about 0.1 rad. A field of many plane waves propagated in
+    single precision matches the same field propagated in double precision. The
+    single-precision field holds its wavelength in single precision, which shifts the
+    carrier ``k z`` of every wave alike. The two fields are therefore compared up to a
+    global phase.
+    """
+    resolution = (64, 64)
+    pixel_size = (12.5e-6, 12.5e-6)
+    generator = torch.Generator().manual_seed(0)
+    data = torch.exp(
+        2j * math.pi * torch.rand(resolution, generator=generator, dtype=torch.float64)
+    )
+    single = ComplexAmplitude(data.to(torch.complex64), 1039e-9, pixel_size)
+    double = ComplexAmplitude(
+        data,
+        torch.tensor(1039e-9, dtype=torch.float64),
+        torch.tensor(pixel_size, dtype=torch.float64),
+    )
+
+    propagated_single = AngularSpectrumMethod(0.25)(single)._data
+    propagated_double = AngularSpectrumMethod(0.25)(double)._data
+
+    assert propagated_double.dtype == torch.complex128
+    widened = propagated_single.to(torch.complex128)
+    global_phase = torch.angle((propagated_double.conj() * widened).sum())
+    error = (widened * torch.exp(-1j * global_phase) - propagated_double).abs().max()
+    assert float(error / propagated_double.abs().max()) < 1e-4
 
 
 def _focal_spot_polar_angle(intensity: torch.Tensor) -> float:
@@ -202,14 +233,12 @@ def _tilted_beam(resolution, pixel_in, wavelength):
 @requires_nufft
 @pytest.mark.parametrize("angle", [5.0, 20.0, -30.0])
 def test_camera_angle_turns_the_focal_plane_the_same_way_in_both_lenses(angle) -> None:
-    """A positive camera angle has to mean one rotation, whichever lens is used.
+    """A positive camera angle means one rotation, whichever lens is used.
 
-    The two get there by opposite routes: the chirp-z lens turns the input field,
-    while the NUFFT turns its sampling trajectory, and those have opposite senses.
-    The NUFFT negates its angle to compensate. Both agree at zero regardless, which
-    is where the orientation check above looks, so this needs a non-zero angle to
-    have any teeth. Before the sign was fixed the two spots rotated opposite ways
-    and the frames decorrelated completely by two degrees.
+    Both lenses sample a window turned in one sense
+    (:func:`~hologradpy.fourier_transforms.rotated_zoom_trajectory`). The orientation
+    check above runs at an angle of zero, where the two agree regardless. This test
+    therefore turns the window by non-zero angles.
     """
     resolution = (128, 128)
     pixel_in = (12.5e-6, 12.5e-6)

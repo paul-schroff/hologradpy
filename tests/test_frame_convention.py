@@ -5,11 +5,13 @@ Positions, displacements and angles are physical. Arrays are indexed
 :mod:`hologradpy.grids` converts between the two.
 
 The consistency tests hold whichever way y points. Each way of putting light at a
-position has to agree with the model's output grid: a linear phase and the weighted
-Gerchberg-Saxton retriever put a spot on the pixel of its position. The
-conjugate-gradient retriever is left out, since it optimises the image on that grid
-itself. The vortex detector reads a vortex with the handedness that
-:func:`~hologradpy.profiles.phase.vortex_phase` gives it, so its anti-vortex cancels it.
+position has to agree with the model's output grid. A linear phase, the linear
+superposition retriever and the weighted Gerchberg-Saxton retriever put a spot on the
+pixel of its position. The linear superposition of several spots takes the phase of the
+sum of their gratings. The conjugate-gradient retriever is left out, since it optimizes
+the image on that grid itself. The vortex detector reads a vortex with the handedness
+that :func:`~hologradpy.profiles.phase.vortex_phase` gives it, so its anti-vortex
+cancels it.
 
 The orientation tests define the physical frame: x points right and y points up on a
 screen that draws row 0 at the top, and a positive angle turns counterclockwise.
@@ -18,7 +20,7 @@ screen that draws row 0 at the top, and a positive angle turns counterclockwise.
 from __future__ import annotations
 
 import math
-from dataclasses import replace
+from dataclasses import dataclass, fields, replace
 from datetime import datetime
 
 import numpy as np
@@ -35,9 +37,11 @@ from hologradpy.grids import (
     coordinates_to_indices,
     get_spatial_grid,
     metres_to_pixel,
+    pixel_to_metres,
     plane_center,
 )
 from hologradpy.holography.phase_retrieval import (
+    LinearSuperpositionPhaseRetriever,
     PixelwisePhaseRetriever,
     WeightedGerchbergSaxtonPhaseRetriever,
 )
@@ -56,6 +60,7 @@ from hologradpy.profiles.amplitude import gaussian_beam_intensity
 from hologradpy.profiles.gaussian import GaussianBeam
 from hologradpy.profiles.gaussian_zernike import GaussianZernikeBeam
 from hologradpy.profiles.phase import linear_phase, vortex_field, vortex_phase
+from hologradpy.serialization import registered_as
 from hologradpy.utils import as_image
 
 from .registry import requires_nufft
@@ -73,11 +78,15 @@ VORTEX_RESOLUTION = (32, 32)
 CAMERA_SYSTEMS = [SLMCZT, SLMFFTAffine, pytest.param(SLMNUFFT, marks=requires_nufft)]
 
 
-def _model(system_class=SLMFFT, **camera) -> SLMFourierLensModel:
+def _model(
+    system_class=SLMFFT, padded_resolution=PADDED, **camera
+) -> SLMFourierLensModel:
     """A Gaussian beam on a small SLM, focused by the lens of ``system_class``.
 
-    The systems with a camera image one pixel of the FFT plane on each camera pixel.
-    ``camera`` holds their ``camera_angle`` and ``camera_shift``.
+    SLMFFT and SLMFFTAffine pad the SLM to ``padded_resolution``. The systems with a
+    camera image one pixel of the FFT plane padded to ``PADDED`` on each camera pixel.
+    ``camera`` holds their ``camera_angle`` and ``camera_shift``, and can give them
+    another ``camera_resolution`` and ``camera_pixel_size``.
     """
     geometry = FieldGeometry(
         resolution=SLM_RESOLUTION,
@@ -95,16 +104,16 @@ def _model(system_class=SLMFFT, **camera) -> SLMFourierLensModel:
         "focal_length": FOCAL_LENGTH,
     }
     if system_class is SLMFFT:
-        model = SLMFFT(**stages, padded_resolution=PADDED)
+        model = SLMFFT(**stages, padded_resolution=padded_resolution)
     else:
-        if system_class is SLMFFTAffine:
-            camera["padded_resolution"] = PADDED
-        model = system_class(
-            **stages,
-            camera_resolution=PADDED,
-            camera_pixel_size=(FOCAL_PITCH, FOCAL_PITCH),
+        camera = {
+            "camera_resolution": PADDED,
+            "camera_pixel_size": (FOCAL_PITCH, FOCAL_PITCH),
             **camera,
-        )
+        }
+        if system_class is SLMFFTAffine:
+            camera["padded_resolution"] = padded_resolution
+        model = system_class(**stages, **camera)
     model()  # Builds the parameters of the virtual SLM.
     return model
 
@@ -117,13 +126,18 @@ def _peak(model: SLMFourierLensModel) -> tuple[int, int]:
     return int(row), int(column)
 
 
-def _spot(model: SLMFourierLensModel) -> tuple[float, float]:
-    """The ``(row, column)`` centroid of the pixels within 5 of the brightest one."""
+def _spot(model: SLMFourierLensModel, half_width: int = 5) -> tuple[float, float]:
+    """The ``(row, column)`` centroid of the pixels within ``half_width`` of the
+    brightest one.
+    """
     with torch.no_grad():
         intensity = as_image(model().intensity).to(torch.float64)
     row, column = _peak(model)
-    window = intensity[row - 5 : row + 6, column - 5 : column + 6]
-    offsets = torch.arange(-5, 6, dtype=torch.float64)
+    window = intensity[
+        row - half_width : row + half_width + 1,
+        column - half_width : column + half_width + 1,
+    ]
+    offsets = torch.arange(-half_width, half_width + 1, dtype=torch.float64)
     total = window.sum()
     return (
         row + float((window * offsets[:, None]).sum() / total),
@@ -160,6 +174,10 @@ def _linear_phase(model: SLMFFT) -> None:
     _tilt(model, POSITION)
 
 
+def _linear_superposition(model: SLMFFT) -> None:
+    LinearSuperpositionPhaseRetriever(model, np.array([POSITION])).retrieve_phase()
+
+
 def _weighted_gerchberg_saxton(model: SLMFFT) -> None:
     WeightedGerchbergSaxtonPhaseRetriever(
         model, np.array([POSITION]), np.array([1.0])
@@ -168,8 +186,8 @@ def _weighted_gerchberg_saxton(model: SLMFFT) -> None:
 
 @pytest.mark.parametrize(
     "place",
-    [_linear_phase, _weighted_gerchberg_saxton],
-    ids=["linear phase", "weighted Gerchberg-Saxton"],
+    [_linear_phase, _linear_superposition, _weighted_gerchberg_saxton],
+    ids=["linear phase", "linear superposition", "weighted Gerchberg-Saxton"],
 )
 def test_each_way_of_placing_a_spot_puts_it_on_the_pixel_of_its_position(place):
     model = _model()
@@ -177,6 +195,72 @@ def test_each_way_of_placing_a_spot_puts_it_on_the_pixel_of_its_position(place):
     place(model)
 
     assert _peak(model) == _pixel_of(model, POSITION)
+
+
+GRATING_RESOLUTION = (24, 32)
+# The (y, x) pitch of the SLM. The two differ, so a pitch read in the wrong order
+# misses the gratings.
+GRATING_PITCH = (10e-6, 12.5e-6)
+GRATING_POSITIONS = np.array([[-6.0e-4, 2.5e-4], [1.5e-4, -4.0e-4], [3.0e-4, 3.5e-4]])
+GRATING_INTENSITIES = np.array([1.0, 2.0, 0.5])
+GRATING_PHASES = np.array([0.3, -1.2, 2.0])
+
+
+def _flat_beam_model() -> SLMFFT:
+    """A flat beam on a ``GRATING_RESOLUTION`` SLM with a pitch of ``GRATING_PITCH``,
+    focused by an FFT lens.
+    """
+    geometry = FieldGeometry(
+        resolution=GRATING_RESOLUTION,
+        pixel_size=torch.tensor(GRATING_PITCH),
+        wavelength=torch.tensor(WAVELENGTH),
+    )
+    beam = ComplexAmplitude(
+        torch.ones(GRATING_RESOLUTION, dtype=torch.complex64),
+        wavelength=geometry.wavelength,
+        pixel_size=geometry.pixel_size,
+    )
+    return SLMFFT(
+        input_geometry=geometry,
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
+        slm_field=PixelwiseSLMField(beam),
+        focal_length=FOCAL_LENGTH,
+    )
+
+
+def test_the_linear_superposition_is_the_sum_of_its_gratings():
+    model = _flat_beam_model()
+    retriever = LinearSuperpositionPhaseRetriever(
+        model, GRATING_POSITIONS, GRATING_INTENSITIES, GRATING_PHASES
+    )
+
+    phase = retriever.retrieve_phase().double().cpu()
+
+    grid_x, grid_y = model.input_geometry.get_spatial_grid()
+    gratings = sum(
+        np.sqrt(intensity)
+        * torch.exp(
+            1j
+            * (
+                linear_phase(
+                    grid_x.double(),
+                    grid_y.double(),
+                    float(x),
+                    float(y),
+                    wavenumber=2 * np.pi / WAVELENGTH,
+                    focal_length=FOCAL_LENGTH,
+                )
+                + target_phase
+            )
+        )
+        for (x, y), intensity, target_phase in zip(
+            GRATING_POSITIONS, GRATING_INTENSITIES, GRATING_PHASES
+        )
+    )
+    expected = torch.remainder(gratings.angle(), 2 * torch.pi)
+    error = torch.remainder(phase - expected + torch.pi, 2 * torch.pi) - torch.pi
+    # The SLM holds the phase in float32.
+    assert float(error.abs().max()) < 1e-5
 
 
 def test_a_cg_search_that_goes_non_finite_keeps_its_last_finite_levels():
@@ -284,6 +368,84 @@ def test_a_camera_shift_towards_plus_y_moves_the_image_up(system_class):
     assert _spot(model) == pytest.approx((center_row - 10, center_column), abs=0.5)
 
 
+# Each camera window turns by 25 degrees, zooms along the camera's x and y and shifts
+# by 5 camera pixels along x and 3 along -y. A window is (scale_factor,
+# camera_pixel_size, camera_resolution, padded_resolution), and SLMFFTAffine pads the
+# SLM to padded_resolution. The FFT plane of the non-square pitch case, 256 x 320
+# pixels, has a (y, x) pitch of (31.25, 25) um, so both planes of the warp have
+# non-square pitches.
+TURNED_WINDOWS = {
+    "anisotropic zoom": ((1.3, 0.8), (FOCAL_PITCH, FOCAL_PITCH), PADDED, PADDED),
+    "non-square pitch": (
+        (1.2, 1.2),
+        (1.5 * FOCAL_PITCH, FOCAL_PITCH),
+        (192, 256),
+        (256, 320),
+    ),
+}
+
+
+def _steered_model(
+    system_class: type[SLMFourierLensModel],
+    scale_factor: tuple[float, float],
+    camera_pixel_size: tuple[float, float],
+    camera_resolution: tuple[int, int],
+    padded_resolution: tuple[int, int],
+) -> SLMFourierLensModel:
+    """A model with its camera window turned by 25 degrees, zoomed by ``scale_factor``
+    and shifted by 5 camera pixels along x and 3 along -y, and the beam steered to
+    ``POSITION``.
+    """
+    model = _model(
+        system_class,
+        padded_resolution=padded_resolution,
+        camera_angle=25.0,
+        camera_shift=(5 * camera_pixel_size[1], -3 * camera_pixel_size[0]),
+        camera_pixel_size=camera_pixel_size,
+        camera_resolution=camera_resolution,
+    )
+    with torch.no_grad():
+        model.focal_plane_partial_affine.scale_factor.copy_(torch.tensor(scale_factor))
+    _tilt(model, POSITION)
+    return model
+
+
+@pytest.mark.parametrize("window", TURNED_WINDOWS.values(), ids=list(TURNED_WINDOWS))
+@pytest.mark.parametrize("system_class", CAMERA_SYSTEMS)
+def test_a_spot_through_a_turned_zoomed_window_maps_back_to_its_position(
+    system_class, window
+):
+    """The window turns, then zooms along the camera's x and y, then shifts.
+    ``focal_plane_positions`` undoes the three in reverse order, so it carries the
+    centroid of the spot back to the position the beam was steered to.
+    """
+    _, camera_pixel_size, camera_resolution, _ = window
+    model = _steered_model(system_class, *window)
+    row, column = _spot(model, half_width=8)
+
+    x, y = pixel_to_metres((column, row), camera_pixel_size, camera_resolution)
+    focal_x, focal_y = model.focal_plane_positions(
+        torch.tensor(x, dtype=torch.float64), torch.tensor(y, dtype=torch.float64)
+    )
+
+    assert (float(focal_x), float(focal_y)) == pytest.approx(
+        POSITION, abs=0.05 * FOCAL_PITCH
+    )
+
+
+@pytest.mark.parametrize("window", TURNED_WINDOWS.values(), ids=list(TURNED_WINDOWS))
+def test_the_warp_and_the_chirp_z_lens_put_a_spot_on_the_same_pixel(window):
+    """SLMFFTAffine applies the partial affine in ``GeometricWarp``, and SLMCZT in the
+    window its chirp-z lens samples. Both turn before they zoom.
+    """
+    peaks = [
+        _peak(_steered_model(system_class, *window))
+        for system_class in (SLMFFTAffine, SLMCZT)
+    ]
+
+    assert peaks[0] == peaks[1]
+
+
 def test_a_gaussian_turned_by_45_degrees_is_brighter_up_right_than_down_right():
     resolution = (33, 33)
     center_column, center_row = plane_center(resolution)
@@ -315,14 +477,13 @@ def _mapping(
     """A camera mapping fitted to ``(column, row)`` point pairs, with its output plane
     at one pitch per pixel.
     """
-    transform = AffineTransform.fit(camera_points, model_points, robust=False)
+    transform = AffineTransform.fit(camera_points, model_points)
     return CameraMapping(
         timestamp=datetime.now(),
         name="frame convention",
         transform=transform.as_matrix(homogeneous=False),
         detected_points=[tuple(point) for point in camera_points.tolist()],
         calculated_points=[tuple(point) for point in model_points.tolist()],
-        zeroth_order_position=plane_center(output_resolution),
         spot_fit=FocalSpotFit(waist=PITCH),
         output_pixel_size=(PITCH, PITCH),
         output_resolution=output_resolution,
@@ -485,49 +646,89 @@ def test_a_version_2_calibration_keeps_its_y(tmp_path, monkeypatch):
     )
 
 
-def _version_1_mapping() -> CameraMapping:
-    """A mapping whose zeroth order is row 3 and column 7, stored ``(row, column)`` as
-    version 1 kept it.
+@dataclass
+class _Version1Mapping(CameraMapping):
+    """A camera mapping saved at version 1 with no zeroth order stored."""
+
+    RECORD_VERSION = 1
+
+
+@dataclass
+class _Version1MappingWithZerothOrder(_Version1Mapping):
+    """A camera mapping saved at version 1 with its zeroth order stored as
+    ``(row, column)``.
+    """
+
+    zeroth_order_position: tuple[float, float] = (0.0, 0.0)
+
+
+# The zeroth order a version 1 file stores, as ``(row, column)``, or None for a file
+# that stores none. The stored one is the origin, away from the zeroth order of the
+# point pairs read in either order.
+VERSION_1_ZEROTH_ORDERS = {"none stored": None, "stored": (0.0, 0.0)}
+
+
+def _version_1_mapping(
+    stored_zeroth_order: tuple[float, float] | None,
+) -> _Version1Mapping:
+    """A mapping with its zeroth order at column 3 and row 5, saved at version 1 with
+    ``stored_zeroth_order``.
     """
     points = np.array([[1.0, 2.0], [6.0, 1.0], [3.0, 5.0], [7.0, 4.0]])
-    return replace(_mapping(points, points, (8, 10)), zeroth_order_position=(3.0, 7.0))
+    mapping = _mapping(points, points + (2.0, -1.0), (8, 10))
+    values = {entry.name: getattr(mapping, entry.name) for entry in fields(mapping)}
+    if stored_zeroth_order is None:
+        return _Version1Mapping(**values)
+    return _Version1MappingWithZerothOrder(
+        **values, zeroth_order_position=stored_zeroth_order
+    )
 
 
-def test_a_version_1_camera_mapping_loads_with_its_zeroth_order_swapped(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize(
+    "stored_zeroth_order",
+    VERSION_1_ZEROTH_ORDERS.values(),
+    ids=list(VERSION_1_ZEROTH_ORDERS),
+)
+def test_a_version_1_camera_mapping_loads_with_its_zeroth_order_derived(
+    tmp_path, stored_zeroth_order
 ):
-    """Version 1 kept the zeroth order as ``(row, column)``. It loads as
-    ``(column, row)``.
+    """Version 1 stored the zeroth order as ``(row, column)``, or stored none. Both
+    load, and the zeroth order is derived from the point pairs as ``(column, row)``.
     """
+    mapping = _version_1_mapping(stored_zeroth_order)
     path = tmp_path / "mapping.asdf"
-    with monkeypatch.context() as patch:
-        patch.setattr(CameraMapping, "RECORD_VERSION", 1)
-        _version_1_mapping().save(path)
+    with registered_as("camera_mapping", type(mapping)):
+        mapping.save(path)
 
-    assert CameraMapping.load(path).zeroth_order_position == (7.0, 3.0)
+    assert CameraMapping.load(path).zeroth_order_position == pytest.approx((3.0, 5.0))
 
 
-def test_a_camera_feedback_run_with_a_version_1_mapping_loads_it_swapped(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize(
+    "stored_zeroth_order",
+    VERSION_1_ZEROTH_ORDERS.values(),
+    ids=list(VERSION_1_ZEROTH_ORDERS),
+)
+def test_a_camera_feedback_run_with_a_version_1_mapping_loads_it(
+    tmp_path, stored_zeroth_order
 ):
-    """The run nests the mapping as its own tagged record, so the mapping converts as
-    it loads.
+    """The run nests the mapping as its own tagged record, so the mapping loads in
+    either layout of version 1, with its zeroth order derived.
     """
+    mapping = _version_1_mapping(stored_zeroth_order)
     run = CameraFeedbackData(
         timestamp=datetime(2026, 10, 1),
         name="frame convention",
         target=np.zeros((2, 2)),
         signal_region=np.ones((2, 2), dtype=bool),
-        camera_mapping=_version_1_mapping(),
+        camera_mapping=mapping,
     )
     path = tmp_path / "run.asdf"
-    with monkeypatch.context() as patch:
-        patch.setattr(CameraMapping, "RECORD_VERSION", 1)
+    with registered_as("camera_mapping", type(mapping)):
         run.save(path)
 
     loaded = CameraFeedbackData.load(path)
 
-    assert loaded.camera_mapping.zeroth_order_position == (7.0, 3.0)
+    assert loaded.camera_mapping.zeroth_order_position == pytest.approx((3.0, 5.0))
 
 
 def _loaded_at_version_1(data, monkeypatch, tmp_path):

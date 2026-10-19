@@ -226,8 +226,10 @@ def test_zeroth_order_clears_board_footprint(checkerboard_mapping):
         np.hypot(np.ptp(detected[:, 0]), np.ptp(detected[:, 1]))
     )
     # zeroth_order_position is (column, row) in camera pixels.
-    zeroth_x, zeroth_y = mapping.zeroth_order_position
-    distance = float(np.hypot(zeroth_x - board_center[0], zeroth_y - board_center[1]))
+    zeroth_column, zeroth_row = mapping.zeroth_order_position
+    distance = float(
+        np.hypot(zeroth_column - board_center[0], zeroth_row - board_center[1])
+    )
     assert distance > half_diagonal
 
 
@@ -256,19 +258,15 @@ def test_auto_square_size_within_quarter_nyquist(mapper, coarse_mapping):
     """The auto square size keeps the board width within a quarter of the SLM's
     Nyquist-rectangle width on both axes.
     """
-    lens = mapper.slm_camera_model.fourier_lens
-    pixel_size_out = lens.pixel_size_out.tolist()[0]  # (y, x) metres
-    resolution_out = tuple(lens.resolution_out)
-    focal_length = float(lens.focal_length)
+    pixel_size_out, _ = mapper.slm_camera_model.output_plane  # (y, x) metres
     camera_shape = tuple(mapper.camera.resolution)
 
     _, square_size, _ = mapper._place_checkerboard(
         NUMBER_OF_SQUARES,
         None,
         coarse_mapping,
-        focal_length,
+        mapper._magnification(coarse_mapping, pixel_size_out),
         pixel_size_out,
-        resolution_out,
         camera_shape,
     )
     rows, columns = NUMBER_OF_SQUARES

@@ -6,11 +6,11 @@ from typing import Iterable
 
 import torch
 
-from ...speckle.fitter import SpeckleFitter
+from ...model_fit import ModelFitter
 from ....optics.modules.pixel_crosstalk import PixelCrosstalk
 
 
-class CrosstalkFitter(SpeckleFitter):
+class CrosstalkFitter(ModelFitter):
     """Recover the fringing-field kernel by fitting it to captured camera frames."""
 
     description = "Fitting pixel crosstalk"

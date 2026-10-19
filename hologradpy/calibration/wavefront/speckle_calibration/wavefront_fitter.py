@@ -6,12 +6,12 @@ from typing import Iterable
 
 import torch
 
-from ....calibration.speckle.fitter import SpeckleFitter
+from ...model_fit import ModelFitter
 
 __all__ = ["WavefrontFitter"]
 
 
-class WavefrontFitter(SpeckleFitter):
+class WavefrontFitter(ModelFitter):
     """Recover the SLM-plane field by fitting it to captured camera frames."""
 
     description = "Fitting wavefront"
