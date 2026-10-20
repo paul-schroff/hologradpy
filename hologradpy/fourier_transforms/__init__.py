@@ -1,12 +1,17 @@
 from .fft import fft_2d, ifft_2d, FastFourierTransform
 from .abstract import FourierBase
 from .sampling import (
+    get_zoom_frequency_axes,
     get_zoom_frequency_grid,
     rotated_zoom_trajectory,
     window_offset_from_pixels,
 )
 from .nufft import NUFFTPartialAffine
-from .shear import fft_shear, padded_resolution_for_rotation
+from .shear import (
+    fft_shear,
+    windowed_fft_shear,
+    windowed_shift_half_width,
+)
 from .translate import (
     cross_correlation_peak,
     fft_translate,
@@ -18,6 +23,7 @@ from .czt import ChirpZPartialAffine
 from .saft import SemiAnalyticalFourierTransform, transformed_curvature
 
 __all__ = [
+    "get_zoom_frequency_axes",
     "get_zoom_frequency_grid",
     "rotated_zoom_trajectory",
     "window_offset_from_pixels",
@@ -26,8 +32,9 @@ __all__ = [
     "FourierBase",
     "FastFourierTransform",
     "NUFFTPartialAffine",
-    "padded_resolution_for_rotation",
     "fft_shear",
+    "windowed_fft_shear",
+    "windowed_shift_half_width",
     "cross_correlation_peak",
     "fft_translate",
     "translate_intensity",

@@ -15,10 +15,13 @@ import torch
 import hologradpy.fourier_transforms.czt as chirp_z_module
 from hologradpy.optics.complex_amplitude import ComplexAmplitude
 from hologradpy.optics.modules.propagators import FourierLensCZT
+from hologradpy.optics.modules.propagators.fourier_lens_czt import (
+    padded_resolution_for_rotation,
+)
 from hologradpy.fourier_transforms import (
     fft_2d,
     fft_shear,
-    padded_resolution_for_rotation,
+    windowed_fft_shear,
 )
 
 
@@ -131,7 +134,12 @@ def test_a_frozen_partial_affine_runs_the_lens_of_a_fixed_one(monkeypatch) -> No
         shears.append(args)
         return fft_shear(*args)
 
+    def counted_windowed_shear(*args):
+        shears.append(args)
+        return windowed_fft_shear(*args)
+
     monkeypatch.setattr(chirp_z_module, "fft_shear", counted_shear)
+    monkeypatch.setattr(chirp_z_module, "windowed_fft_shear", counted_windowed_shear)
     field = make_field(RESOLUTION, 1, seed=3)
     frozen = FourierLensCZT(FOCAL_LENGTH, RESOLUTION, (5e-6, 8e-6))
     frozen.focal_plane_partial_affine.requires_grad_(False)

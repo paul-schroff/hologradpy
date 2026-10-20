@@ -19,6 +19,78 @@ if TYPE_CHECKING:
     from ..roi import ROI
 
 
+def get_zoom_frequency_axes(
+    resolution: tuple[int, int],
+    resolution_out: tuple[int, int],
+    magnification: tuple[float | Tensor, float | Tensor],
+    shift: tuple[float | Tensor, float | Tensor] = (0.0, 0.0),
+    device: torch.device | None = None,
+    output_roi: ROI | None = None,
+) -> tuple[tuple[Tensor, Tensor], tuple[Tensor, Tensor]]:
+    """The first k-space sample point and the step along each axis of a zoomed and
+    shifted output window, in rad/sample and in double precision.
+
+    The native DFT bin spacing of an axis of ``N`` samples is ``2 * pi / N``. The window
+    samples ``resolution_out`` points at that spacing divided by the magnification, so a
+    magnification above one zooms in. The points are centred on the offset ``shift``.
+    Point ``k`` of an axis is ``first + k * step``, and
+    :func:`get_zoom_frequency_grid` gives the points themselves.
+
+    Args:
+        resolution: The ``(height, width)`` of the grid being transformed.
+        resolution_out: The ``(height, width)`` of the window.
+        magnification: The zoom ``(column, row)``.
+        shift: The offset ``(column, row)`` of the window in rad/sample.
+        device: Where to build the values, the CPU for None.
+        output_roi: The rectangle of the window to sample, or None for all of it.
+
+    Returns:
+        tuple[tuple[Tensor, Tensor], tuple[Tensor, Tensor]]: ``(first, step)`` along
+        the columns and along the rows, in float64. For an ``(n_wl,)`` magnification or
+        shift, each has a trailing axis of length 1 after the wavelength axis.
+
+    Raises:
+        ValueError: ``output_roi`` reaches outside the window or spans fewer than 2
+            pixels along an axis.
+    """
+    device = resolve_device(device)
+    if output_roi is not None and (
+        not output_roi.lies_inside(resolution_out)
+        or min(output_roi.height, output_roi.width) < 2
+    ):
+        raise ValueError(
+            f"The output region of interest {output_roi} has to lie inside the "
+            f"{tuple(resolution_out)} output grid and span at least 2 pixels "
+            "along each axis."
+        )
+
+    def axis(
+        length_in: int,
+        length_out: int,
+        mag: float | Tensor,
+        offset: float | Tensor,
+        first_index: int,
+    ) -> tuple[Tensor, Tensor]:
+        mag = torch.as_tensor(mag, dtype=torch.float64, device=device)
+        offset = torch.as_tensor(offset, dtype=torch.float64, device=device)
+        step = (2 * torch.pi / length_in) / mag
+        if step.ndim > 0:
+            step = step.unsqueeze(-1)
+        if offset.ndim > 0:
+            offset = offset.unsqueeze(-1)
+        index = centered_indices(length_out, device)[first_index]
+        return index * step + offset, step
+
+    first_column = 0 if output_roi is None else output_roi.left_column
+    first_row = 0 if output_roi is None else output_roi.top_row
+    return (
+        axis(
+            resolution[1], resolution_out[1], magnification[0], shift[0], first_column
+        ),
+        axis(resolution[0], resolution_out[0], magnification[1], shift[1], first_row),
+    )
+
+
 def get_zoom_frequency_grid(
     resolution: tuple[int, int],
     resolution_out: tuple[int, int],
@@ -30,9 +102,8 @@ def get_zoom_frequency_grid(
     """The k-space sample points along each axis of a zoomed and shifted output window,
     in rad/sample.
 
-    The native DFT bin spacing of an axis of ``N`` samples is ``2 * pi / N``. The window
-    samples ``resolution_out`` points at that spacing divided by the magnification, so a
-    magnification above one zooms in. The points are centred on the offset ``shift``.
+    The points are those of :func:`get_zoom_frequency_axes`, in the default dtype, or in
+    the dtype of a floating-point magnification or shift tensor that is wider.
 
     Args:
         resolution: The ``(height, width)`` of the grid being transformed.
@@ -51,31 +122,24 @@ def get_zoom_frequency_grid(
         ValueError: ``output_roi`` reaches outside the window or spans fewer than 2
             pixels along an axis.
     """
-    device = resolve_device(device)
+    (first_x, step_x), (first_y, step_y) = get_zoom_frequency_axes(
+        resolution, resolution_out, magnification, shift, device, output_roi
+    )
+    height, width = (
+        resolution_out
+        if output_roi is None
+        else (output_roi.height, output_roi.width)
+    )
+    dtype = torch.get_default_dtype()
+    for value in (*magnification, *shift):
+        if torch.is_tensor(value) and value.is_floating_point():
+            dtype = torch.promote_types(dtype, value.dtype)
 
-    def axis(
-        length_in: int, length_out: int, mag: float | Tensor, offset: float | Tensor
-    ) -> Tensor:
-        step = (2 * torch.pi / length_in) / mag
-        if torch.is_tensor(step) and step.ndim > 0:
-            step = step.unsqueeze(-1)
-        if torch.is_tensor(offset) and offset.ndim > 0:
-            offset = offset.unsqueeze(-1)
-        return centered_indices(length_out, device) * step + offset
+    def points(first: Tensor, step: Tensor, count: int) -> Tensor:
+        index = torch.arange(count, dtype=torch.float64, device=first.device)
+        return (first + index * step).to(dtype)
 
-    omega_x = axis(resolution[1], resolution_out[1], magnification[0], shift[0])
-    omega_y = axis(resolution[0], resolution_out[0], magnification[1], shift[1])
-    if output_roi is None:
-        return omega_x, omega_y
-    if not output_roi.lies_inside(resolution_out) or min(
-        output_roi.height, output_roi.width
-    ) < 2:
-        raise ValueError(
-            f"The output region of interest {output_roi} has to lie inside the "
-            f"{tuple(resolution_out)} output grid and span at least 2 pixels "
-            "along each axis."
-        )
-    return omega_x[..., output_roi.columns], omega_y[..., output_roi.rows]
+    return points(first_x, step_x, width), points(first_y, step_y, height)
 
 
 def rotated_zoom_trajectory(

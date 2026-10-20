@@ -5,14 +5,32 @@ import math
 import torch
 from torch import Tensor
 
-from ....fourier_transforms import (
-    ChirpZPartialAffine,
-    padded_resolution_for_rotation,
-)
+from ....fourier_transforms import ChirpZPartialAffine
 
 from ....utils import to_canvas
 from .partial_affine_fourier_lens import PartialAffineFourierLens
 from ...complex_amplitude import ComplexAmplitude
+
+
+def padded_resolution_for_rotation(
+    resolution: tuple[int, int], angle_degrees: float
+) -> tuple[int, int]:
+    """The frame a rotation of ``angle_degrees`` needs to keep every input sample.
+
+    A rotation carries the corners of a frame outside it, so a field that fills its
+    frame loses them unless the frame grows. Deliberately generous, since the shear
+    reaches further than the final rotation does.
+
+    Args:
+        resolution: The unpadded ``(height, width)``.
+        angle_degrees: Rotation to be applied.
+
+    Returns:
+        tuple[int, int]: The ``(height, width)`` to rotate into.
+    """
+    reach = max(resolution) * abs(math.sin(math.radians(angle_degrees)))
+    margin = math.floor(reach) + 1
+    return (resolution[0] + 2 * margin, resolution[1] + 2 * margin)
 
 
 class FourierLensCZT(PartialAffineFourierLens):

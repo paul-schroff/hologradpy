@@ -254,6 +254,99 @@ def _rotation_matches_the_rotated_sample_grid() -> None:
         assert _relative_error(transform.forward(field), expected) < 1e-10, degrees
 
 
+@pytest.fixture
+def float64_default():
+    """Double precision for the field and for the frequency grids, which are built in
+    the default dtype.
+    """
+    previous = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float64)
+    yield
+    torch.set_default_dtype(previous)
+
+
+def _random_phase_field(n: int, seed: int = 0) -> torch.Tensor:
+    """A unit field with a random phase on every sample. It fills its frame and holds
+    the Nyquist frequency, where the shear of a rotation spreads a field furthest.
+    """
+    generator = torch.Generator().manual_seed(seed)
+    return torch.exp(2j * math.pi * torch.rand(n, n, generator=generator))
+
+
+def _direct_sum(transform: ChirpZPartialAffine, field: torch.Tensor) -> torch.Tensor:
+    """The DFT of ``field`` at the points the transform samples, as
+    ``(H_out * W_out,)``.
+    """
+    rows = torch.arange(field.shape[-2]) - field.shape[-2] // 2
+    columns = torch.arange(field.shape[-1]) - field.shape[-1] // 2
+    omega = transform.frequencies
+    along_columns = torch.exp(-1j * omega[0][:, None] * columns[None, :])
+    along_rows = torch.exp(-1j * omega[1][:, None] * rows[None, :])
+    return torch.einsum("kc,kr,rc->k", along_columns, along_rows, field)
+
+
+@pytest.mark.parametrize("degrees", [0.5, 3.0, -20.0])
+def test_rotation_of_a_field_that_fills_its_frame_is_exact(
+    float64_default, degrees: float
+) -> None:
+    """The window covers part of the order, so the shear is windowed to the row
+    frequencies the transform samples, and the transform matches a direct sum over
+    its points.
+    """
+    field = _random_phase_field(64)
+    transform = ChirpZPartialAffine(
+        (64, 64), (48, 48), (1.7, 1.7), (0.21, -0.13), math.radians(degrees)
+    )
+    expected = _direct_sum(transform, field).reshape(48, 48)
+
+    assert _relative_error(transform.forward(field), expected) < 1e-10
+
+
+def test_the_windowed_rotation_keeps_the_adjoint_its_transpose(float64_default) -> None:
+    generator = torch.Generator().manual_seed(1)
+    field = _random_phase_field(48)
+    samples = torch.randn(40, 40, generator=generator) + 1j * torch.randn(
+        40, 40, generator=generator
+    )
+    transform = ChirpZPartialAffine(
+        (48, 48), (40, 40), (1.5, 1.5), (0.3, -0.2), math.radians(12.0)
+    )
+
+    forward_inner = (transform.forward(field) * samples.conj()).sum()
+    adjoint_inner = (field * transform.adjoint(samples).conj()).sum()
+
+    assert abs(complex(forward_inner - adjoint_inner)) < 1e-12 * abs(
+        complex(forward_inner)
+    )
+
+
+@pytest.mark.parametrize("angle", [0.0, 0.05, -0.3])
+def test_windowed_rotation_angle_gradient_matches_finite_differences(
+    float64_default, angle: float
+) -> None:
+    """The window is set from the angle without a gradient. It is one at every row
+    frequency the transform samples, so the gradient through the shifts is exact.
+    """
+    field = _random_phase_field(32)
+    generator = torch.Generator().manual_seed(2)
+    weight = torch.randn(24, 24, generator=generator) + 1j * torch.randn(
+        24, 24, generator=generator
+    )
+
+    def loss(value: torch.Tensor) -> torch.Tensor:
+        transform = ChirpZPartialAffine((32, 32), (24, 24), (1.7, 1.7), angle=value)
+        return (transform.forward(field) * weight).real.sum()
+
+    parameter = torch.tensor(angle, requires_grad=True)
+    loss(parameter).backward()
+    step = 1e-5
+    numeric = (
+        loss(torch.tensor(angle + step)) - loss(torch.tensor(angle - step))
+    ) / (2 * step)
+
+    torch.testing.assert_close(parameter.grad, numeric.detach(), rtol=1e-6, atol=1e-9)
+
+
 # %% An output region of interest
 def test_an_output_roi_samples_the_whole_grid_there() -> None:
     """The rectangle is a slice of the uniformly spaced output frequencies, so it holds
