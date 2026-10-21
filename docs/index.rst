@@ -64,8 +64,8 @@ HoloGradPy Documentation
       :link: conventions
       :link-type: doc
 
-      The physical and pixel frames, the order of positions and sizes, and how saved
-      records convert as they load.
+      The physical and pixel coordinate frames, and how saved records convert as they
+      load.
 
    .. grid-item-card:: :octicon:`book` API reference
       :link: autoapi/hologradpy/index

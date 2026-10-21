@@ -35,6 +35,7 @@ extensions = [
     "myst_parser",
     "sphinx_design",
     "sphinx_copybutton",
+    "matplotlib.sphinxext.plot_directive",
 ]
 
 # ---- Code blocks ---------------------------------------------------------------------
@@ -51,6 +52,13 @@ inheritance_node_attrs = {
     "height": 0.25,
     "style": "rounded",
 }
+
+# ---- Figures -------------------------------------------------------------------------
+# The scripts in docs/figures draw their figures with matplotlib as the docs build. The
+# HTML shows the SVG, and the PDF build includes the PDF copy.
+plot_formats = ["svg", "pdf"]
+plot_html_show_formats = False
+plot_html_show_source_link = False
 
 # The README is included into index.rst below an RST title, so its headings start at
 # H2 by design. MyST flags that on any fragment it parses, which is a false positive

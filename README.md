@@ -105,14 +105,10 @@ For questions or suggestions, email
 
 Please cite whichever is relevant to what you used.
 
-**Phase retrieval with camera feedback using pixel crosstalk modelling**
-
 > P. Schroff, A. La Rooij, E. Haller and S. Kuhr,
 > *Accurate holographic light potentials using pixel crosstalk modelling*,
 > Sci. Rep. **13**, 3252 (2023).
 > [https://doi.org/10.1038/s41598-023-30296-6](https://doi.org/10.1038/s41598-023-30296-6)
-
-**Speckle calibration and pixel crosstalk optimization**
 
 > P. Schroff, E. Haller, S. Kuhr and A. La Rooij,
 > *Rapid stochastic spatial light modulator calibration and pixel crosstalk optimization*,

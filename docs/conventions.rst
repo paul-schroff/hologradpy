@@ -7,6 +7,15 @@ HoloGradPy describes a plane in two frames. Positions, displacements and angles 
 interfaces are physical. Arrays are stored and indexed in the pixel frame. Only
 :mod:`hologradpy.grids` converts between the two.
 
+.. plot:: figures/coordinate_frames.py
+   :alt: The pixel frame and the physical frame on a plane of 4 by 6 pixels
+
+   A plane of 4 by 6 pixels in the two frames. The pixel frame counts columns to the
+   right and rows down from the top-left pixel. The physical frame has its origin at
+   the pixel ``(width // 2, height // 2)``, here ``(3, 2)``, with x to the right and y
+   up. The highlighted pixel, ``(column, row) = (1, 3)``, lies at ``(x, y) = (-2, -1)``
+   pitches. The positions are those of :func:`~hologradpy.grids.get_spatial_grid`.
+
 The physical frame
 ------------------
 
@@ -160,6 +169,39 @@ A camera turned counterclockwise by an angle against the model plane reports min
 that angle as ``CameraMapping.rotation_degrees``. The mapping runs from the camera back
 to the model.
 
+The SLM phase
+-------------
+
+A phase displayed on the SLM multiplies the field by ``exp(1j * phase)``, both in
+:class:`~hologradpy.optics.modules.virtual_slms.abstract.VirtualSLM` and through
+:meth:`SLM.set_phase <hologradpy.hardware.slm.abstract.SLM.set_phase>`. A positive
+phase is a phase delay, as in slmsuite, since a plane wave propagated downstream by
+``z`` gains ``exp(1j * k_z * z)``
+(:class:`~hologradpy.optics.modules.propagators.angular_spectrum_method.AngularSpectrumMethod`)
+and a converging lens has the phase ``-k * r**2 / (2 * f)``
+(:func:`~hologradpy.profiles.phase.lens_phase`).
+
+- A phase rising along +x steers the light towards +x in the focal plane, and a phase
+  rising along +y steers it towards +y. :func:`~hologradpy.profiles.phase.linear_phase`
+  and :meth:`~hologradpy.optics.systems.abstract.SLMFourierLensModel.steering_phase`
+  give this ramp for a displacement ``(x, y)`` of the spot.
+- The gray level falls as the phase rises, since most liquid-crystal SLMs shorten the
+  phase delay as the voltage rises. Zero phase is level 0, and a small positive phase
+  is one of the highest levels.
+- slmsuite negates the phase in the same way
+  (:meth:`slmsuite.hardware.slms.slm.SLM.set_phase`). It shows each phase one level
+  lower, so its zero phase is the highest level. The two differ by a constant phase.
+- A :class:`~hologradpy.phase_levels.PhaseResponse` holds this mapping for a device,
+  and ``full_scale_cycles`` is the phase range from level 0 to full scale, in cycles.
+  :meth:`~hologradpy.phase_levels.LookupResponse.from_phase_delays` takes a curve
+  rising with level, as a vendor table or a measurement gives it, and stores its
+  negative.
+
+The slmsuite adapter,
+:class:`~hologradpy.hardware.slmsuite.adapter.SLMSuiteSLMAdapter`, converts the phase to
+levels in HoloGradPy and passes whole levels to slmsuite. slmsuite displays integer data
+as given, without negating it.
+
 Along the beam
 --------------
 
@@ -180,7 +222,8 @@ have the sign of ``defocus``.
 Saved records
 -------------
 
-Records are saved as ASDF files. Each record type has a name and a version, which
+Records are saved as `ASDF <https://www.asdf-format.org/>`_ files. Each record type
+has a name and a version, which
 :func:`~hologradpy.serialization.record_type` sets.
 
 A change that old files need help with raises the version. The class then gains a
