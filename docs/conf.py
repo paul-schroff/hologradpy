@@ -3,6 +3,7 @@
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
+import importlib.metadata
 import os
 import pathlib
 import sys
@@ -14,7 +15,7 @@ import warnings
 project = "HoloGradPy"
 copyright = "2026, Paul Schroff, Department of Physics, University of Strathclyde"
 author = "Paul Schroff"
-release = "0.2.0.dev0"
+release = importlib.metadata.version("hologradpy")
 
 
 paths = [".."]

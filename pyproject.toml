@@ -1,0 +1,6 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+# setup.py holds the metadata. setuptools-scm sets the version from the git tags.
+[tool.setuptools_scm]
