@@ -61,11 +61,11 @@ HoloGradPy Documentation
       calibration against a camera.
 
    .. grid-item-card:: :octicon:`location` Conventions
-      :link: conventions
+      :link: conventions/index
       :link-type: doc
 
-      The physical and pixel coordinate frames, and how saved records convert as they
-      load.
+      The coordinate frames, the transforms between the focal plane and the camera, the
+      sign of the SLM phase and how saved records convert as they load.
 
    .. grid-item-card:: :octicon:`book` API reference
       :link: autoapi/hologradpy/index
@@ -107,7 +107,7 @@ HoloGradPy Documentation
 
    install
    examples
-   conventions
+   conventions/index
    API Reference <autoapi/hologradpy/index>
 
 .. toctree::

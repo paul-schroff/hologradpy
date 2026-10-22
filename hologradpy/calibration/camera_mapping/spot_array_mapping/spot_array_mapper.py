@@ -64,7 +64,7 @@ class _SpotDetections:
 
 
 class SpotArrayMapper(CameraMapper):
-    """Map the model's output coordinates to the camera sensor using a random spot
+    """Fit the map from camera pixels to the model's output pixels with a random spot
     array, similar to slmsuite's
     :meth:`~slmsuite.hardware.cameraslms.FourierSLM.fourier_calibrate`.
 
@@ -72,7 +72,10 @@ class SpotArrayMapper(CameraMapper):
     diffracts ``number_of_spots`` focal spots to random positions in the focal plane,
     at least ``minimum_separation`` apart. The targets are sampled to fill the sensor
     inside a detection-window border. They are placed through the coarse mapping, so
-    the array lands on the sensor whatever its rotation, mirroring or offset.
+    the array lands on the sensor whatever its rotation, mirroring or offset. The spots
+    are placed on the sensor through the full fit of the coarse mapping
+    (:attr:`~.CameraMapping.affine`) and sized through its similarity
+    (:attr:`~.CameraMapping.sensor_pixels_per_metre`).
 
     The spots are detected in the camera image and in the model's output, and each is
     fitted with a 2D Gaussian. An affine transform is fitted between the two sets.
@@ -163,6 +166,8 @@ class SpotArrayMapper(CameraMapper):
                 focal_spot_radius,
                 generator,
             )
+            # minimum_separation is a focal-plane length, taken here at the camera's
+            # pitch. The two agree at a camera_zoom of 1.
             if roi_size is None:
                 roi_size = max(
                     int(round(minimum_separation / pitch.min())), _MIN_ROI_SIZE_PX
@@ -261,6 +266,9 @@ class SpotArrayMapper(CameraMapper):
     def _focal_spot_radius(self, coarse_mapping: CameraMapping) -> float:
         """The waist of the coarse mapping, held between the diffraction limit of the
         SLM aperture and ``_MAX_SPOT_RADIUS_FACTOR`` times it.
+
+        The waist is fitted on the camera in camera-plane metres and is held here
+        against a focal-plane limit. The two lengths agree at a camera_zoom of 1.
         """
         diffraction_limit = get_focal_spot_radius(
             beam_radius=0.5 * min(self.slm.aperture_extent),
@@ -342,7 +350,7 @@ class SpotArrayMapper(CameraMapper):
                 max(feasible, _MIN_SEPARATION_RADII * focal_spot_radius),
             )
 
-        # Centred camera-pixel samples -> sensor centre -> focal-plane metres.
+        # Centred camera-pixel samples -> sensor centre pixel -> focal-plane metres.
         sampled_pixels = self._sample_positions(
             number_of_spots,
             box_pixels,
@@ -350,8 +358,7 @@ class SpotArrayMapper(CameraMapper):
             generator,
         )
         sampled_pixels = sampled_pixels + torch.tensor(
-            [camera_shape[1] / 2.0, camera_shape[0] / 2.0],
-            device=self.device, dtype=sampled_pixels.dtype,
+            plane_center(camera_shape), device=self.device, dtype=sampled_pixels.dtype
         )
         pixel_size_out, resolution_out = self.slm_camera_model.output_plane
         model_pixels = coarse_mapping.affine.transform_points(

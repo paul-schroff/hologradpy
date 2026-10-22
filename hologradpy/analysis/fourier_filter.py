@@ -34,7 +34,7 @@ def intensity_band_mask(
     Args:
         slm_camera_model: The model, for the wavelength, the focal length and the SLM
             aperture.
-        camera_mapping: How the camera sits relative to the model's image plane.
+        camera_mapping: The map from camera pixels to the model's output pixels.
         sensor_shape: ``(height, width)`` of the frames.
 
     Returns:

@@ -628,12 +628,13 @@ class SLMFourierLensModel(OpticalSystem):
 
     @property
     def focal_plane_partial_affine(self) -> LearnablePartialAffine | None:
-        """The learnable partial affine that maps the output plane onto the camera, or
-        None for a model without one.
+        """The learnable partial affine that places the focal plane on the output plane,
+        the camera grid, or None for a model without one.
 
-        It is the partial affine of the first layer that holds one, the Fourier lens or
-        the field warp. A plain FFT model has none and cannot be calibrated from a
-        mapping.
+        It runs from the model to the camera, and ``camera_angle`` and ``camera_shift``
+        seed it. It is the partial affine of the first layer that holds one, the Fourier
+        lens or the field warp. A plain FFT model has none and cannot be calibrated from
+        a mapping.
         """
         for layer in self.layers().values():
             partial_affine = getattr(layer, "focal_plane_partial_affine", None)
@@ -670,12 +671,16 @@ class SLMFourierLensModel(OpticalSystem):
     def calibrate_from_mapping(self, mapping: CameraMapping) -> None:
         """Calibrate the focal-plane partial affine from a fitted camera ``mapping``.
 
-        The mapping runs from camera pixels to the output plane of the model without
-        its partial affine. Its :attr:`~.CameraMapping.partial_affine` (camera ->
-        model similarity) is inverted into :attr:`focal_plane_partial_affine`, starting
-        from identity. The previous values are discarded, including the
-        ``camera_angle`` and ``camera_shift`` seeds. The result depends on the mapping
-        alone, so a repeat with the same mapping sets the same values.
+        The mapping runs from camera pixels to the output plane of the model with its
+        partial affine held at identity. Its :attr:`~.CameraMapping.partial_affine`, the
+        camera -> model similarity, is inverted into :attr:`focal_plane_partial_affine`,
+        the model -> camera partial affine, starting from identity. On a model with the
+        whole sensor as its output plane, the partial affine then holds the mapping's
+        :attr:`~.CameraMapping.camera_angle`, its :attr:`~.CameraMapping.camera_shift`
+        in output pixels and its :attr:`~.CameraMapping.camera_zoom`. The previous
+        values are discarded, including the ``camera_angle`` and ``camera_shift`` seeds.
+        The result depends on the mapping alone, so a repeat with the same mapping sets
+        the same values.
 
         Args:
             mapping: The camera mapping to calibrate from.
@@ -739,9 +744,12 @@ class SLMFourierLensModel(OpticalSystem):
         metres from the zeroth order.
 
         ``x`` and ``y`` are in the output plane's own coordinates, as
-        ``get_spatial_grid_output`` gives them. The method subtracts the focal-plane
-        partial affine's shift, in metres. It divides the result by the zoom and turns
-        it by minus the angle. A positive angle rotates counterclockwise.
+        ``get_spatial_grid_output`` gives them. The method runs the model's current
+        focal-plane partial affine backwards. It subtracts the shift, in metres, divides
+        the result by the zoom and turns it by minus the angle. A positive angle rotates
+        counterclockwise. Right after :meth:`calibrate_from_mapping`, on a model with
+        the whole sensor as its output plane, the positions agree with
+        :meth:`~.CameraMapping.sensor_to_image_plane` of the same mapping.
 
         - If the model has no focal-plane partial affine, return ``x`` and ``y``.
         """
@@ -799,7 +807,10 @@ class SLMFourierLensModel(OpticalSystem):
         """The linear phase on the SLM's grid that moves the focal spot by ``tilt``.
 
         Args:
-            tilt: The displacement ``(x, y)`` of the spot in the focal plane, in metres.
+            tilt: The displacement ``(x, y)`` of the spot in the focal plane, in metres
+                from the zeroth order, before the focal-plane partial affine places it
+                on the camera. :meth:`~.CameraMapping.tilt_to_sensor_center` gives the
+                tilt to the sensor's centre pixel.
 
         Returns:
             Tensor: The phase in radians in double precision, in the shape of the SLM

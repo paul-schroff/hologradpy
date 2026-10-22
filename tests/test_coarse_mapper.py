@@ -99,8 +99,8 @@ def _build_setup(
         focal_length=0.25,
         slm_field=PixelwiseSLMField(beam),
         camera_angle=camera_angle,
-        # The tests place the sensor in pixels, which reads more directly for a
-        # sensor; the systems take the shift in focal-plane metres.
+        # The tests give the zeroth order's position on the sensor in camera pixels,
+        # and the systems take it in metres at the camera's pitch.
         camera_shift=tuple(
             s * p for s, p in zip(camera_shift, (30e-6, 30e-6))
         ),
@@ -186,17 +186,17 @@ def _add_unmodulated_light(slm: SimulatedSLMTorch, fraction: float) -> None:
 
 
 @pytest.mark.parametrize(
-    ("bench", "mirrored", "rotation_degrees"),
+    ("bench", "mirrored", "camera_angle"),
     [
         ({}, False, 0.0),
-        ({"camera_angle": 10.0, "camera_shift": (20, -10)}, False, -10.0),
+        ({"camera_angle": 10.0, "camera_shift": (20, -10)}, False, 10.0),
         ({"rot": "90"}, False, 90.0),
         ({"fliplr": True}, True, None),
     ],
     ids=["aligned", "rotated-and-shifted", "quarter-turn", "mirrored"],
 )
 def test_a_zeroth_order_brighter_than_the_probes_is_masked(
-    bench: dict, mirrored: bool, rotation_degrees: float | None
+    bench: dict, mirrored: bool, camera_angle: float | None
 ) -> None:
     """The SLM leaves more light in the zeroth order than in a probe. The zeroth order
     is located and masked, so every probe is fitted at its own position.
@@ -207,10 +207,8 @@ def test_a_zeroth_order_brighter_than_the_probes_is_masked(
     coarse = CoarseMapper(slm, camera, model).map_camera()
 
     assert coarse.is_mirrored == mirrored
-    if rotation_degrees is not None:
-        assert abs(coarse.rotation_degrees) == pytest.approx(
-            abs(rotation_degrees), abs=0.5
-        )
+    if camera_angle is not None:
+        assert coarse.camera_angle == pytest.approx(camera_angle, abs=0.5)
     assert coarse.fit.reprojection_rms < 1.0
 
 
@@ -259,26 +257,26 @@ def _rotation(angle_degrees: float) -> np.ndarray:
 
 
 def test_orientation_properties_pure_rotation():
-    # The transform turns pixels by 35 degrees from +column towards +row, which is
-    # clockwise on screen, -35 degrees with y pointing up.
+    # The camera -> model affine turns +column towards +row by 35 degrees, clockwise
+    # on screen.
     mapping = _mapping_with_transform(2.0 * _rotation(35.0))
     assert not mapping.is_mirrored
-    assert mapping.rotation_degrees == pytest.approx(-35.0)
-    assert mapping.scales == pytest.approx((2.0, 2.0))
+    assert mapping.affine.rotation_degrees == pytest.approx(35.0)
+    assert mapping.affine.scales == pytest.approx((2.0, 2.0))
 
 
 def test_orientation_properties_mirrored():
     mirror = np.array([[1.0, 0.0], [0.0, -1.0]])
     mapping = _mapping_with_transform(1.5 * _rotation(-20.0) @ mirror)
     assert mapping.is_mirrored
-    assert mapping.scales == pytest.approx((1.5, 1.5))
+    assert mapping.affine.scales == pytest.approx((1.5, 1.5))
 
 
 def test_orientation_properties_anisotropic_scale():
     mapping = _mapping_with_transform(np.diag([3.0, 1.0]))
     assert not mapping.is_mirrored
-    assert mapping.rotation_degrees == pytest.approx(0.0)
-    assert mapping.scales == pytest.approx((3.0, 1.0))
+    assert mapping.affine.rotation_degrees == pytest.approx(0.0)
+    assert mapping.affine.scales == pytest.approx((3.0, 1.0))
 
 
 def test_addressable_half_extent_is_nyquist_deflection():
@@ -461,10 +459,9 @@ def test_coarse_mapping_recovers_rotated_camera():
 
     assert coarse.name == "coarse"
     assert not coarse.is_mirrored
-    assert coarse.rotation_degrees == pytest.approx(-10.0, abs=0.3)
-    # Camera pitch (30 um) over simulated pixel size (24.6 um).
-    assert coarse.scales[0] == pytest.approx(1.219, abs=0.02)
-    assert coarse.scales[1] == pytest.approx(1.219, abs=0.02)
+    assert coarse.camera_angle == pytest.approx(10.0, abs=0.3)
+    # The camera pitch (30 um) and the reference's pitch (24.6 um) cancel in the zoom.
+    assert coarse.camera_zoom == pytest.approx(1.0, abs=0.02)
     assert coarse.fit.reprojection_rms < 1.0
 
 
@@ -479,7 +476,7 @@ def test_coarse_mapping_detects_rot90():
     slm, camera, model = _build_setup(rot="90")
     coarse = CoarseMapper(slm, camera, model).map_camera()
     assert not coarse.is_mirrored
-    assert abs(coarse.rotation_degrees) == pytest.approx(90.0, abs=0.3)
+    assert coarse.camera_angle == pytest.approx(90.0, abs=0.3)
     assert coarse.fit.reprojection_rms < 1.0
 
 
@@ -500,7 +497,7 @@ def test_map_camera_suggests_camera_orientation():
         np.asarray(coarse.orientation.residual_transform)[:, :2]
     )
     assert not residual.is_mirrored
-    assert residual.rotation_degrees == pytest.approx(0.0, abs=0.5)
+    assert residual.affine.rotation_degrees == pytest.approx(0.0, abs=0.5)
     # Suggest-only: the camera orientation is untouched.
     assert camera.sensor_resolution == shape_before
     assert camera.transform is transform_before
@@ -532,7 +529,7 @@ def test_map_camera_suggests_rot90_orientation():
     residual = _mapping_with_transform(
         np.asarray(coarse.orientation.residual_transform)[:, :2]
     )
-    assert residual.rotation_degrees == pytest.approx(0.0, abs=0.5)
+    assert residual.affine.rotation_degrees == pytest.approx(0.0, abs=0.5)
 
 
 def test_map_camera_orientation_off_by_default():
@@ -684,7 +681,7 @@ def test_map_camera_leaves_the_camera_as_it_found_it():
     assert camera.roi == window
     assert camera.get_exposure() == 2e-3
     assert coarse.camera_data.roi == ROI(0, 0, 120, 160)
-    assert coarse.rotation_degrees == pytest.approx(-10.0, abs=0.5)
+    assert coarse.camera_angle == pytest.approx(10.0, abs=0.5)
     assert coarse.fit.reprojection_rms < 1.0
 
 
@@ -722,7 +719,7 @@ def test_coarse_mapping_with_zeroth_order_off_sensor():
     )
     coarse = CoarseMapper(slm, camera, model).map_camera()
 
-    assert coarse.rotation_degrees == pytest.approx(-10.0, abs=0.5)
+    assert coarse.camera_angle == pytest.approx(10.0, abs=0.5)
     assert coarse.fit.reprojection_rms < 1.0
     zeroth_column, zeroth_row = coarse.zeroth_order_position
     on_sensor = 0 <= zeroth_column < 160 and 0 <= zeroth_row < 120
@@ -760,7 +757,7 @@ def test_coarse_mapping_starts_clear_of_the_sensor_edge(
     )
     coarse = CoarseMapper(slm, camera, model).map_camera()
 
-    assert coarse.rotation_degrees == pytest.approx(-camera_angle, abs=0.5)
+    assert coarse.camera_angle == pytest.approx(camera_angle, abs=0.5)
     assert coarse.fit.reprojection_rms < 1.0
 
 
@@ -776,8 +773,8 @@ def test_coarse_mapping_survives_pointing_instability():
     coarse = CoarseMapper(slm, camera, model).map_camera()
 
     assert not coarse.is_mirrored
-    assert coarse.rotation_degrees == pytest.approx(-10.0, abs=1.0)
-    assert coarse.scales[0] == pytest.approx(1.219, abs=0.05)
+    assert coarse.camera_angle == pytest.approx(10.0, abs=1.0)
+    assert coarse.camera_zoom == pytest.approx(1.0, abs=0.02)
     assert coarse.fit.reprojection_rms < 2.0
 
     # The seeded fine mapper still matches almost all its spots (a common
@@ -803,7 +800,7 @@ def test_coarse_mapping_survives_background_scatter():
 
     coarse = CoarseMapper(slm, camera, model).map_camera()
     assert not coarse.is_mirrored
-    assert coarse.rotation_degrees == pytest.approx(-10.0, abs=0.5)
+    assert coarse.camera_angle == pytest.approx(10.0, abs=0.5)
     assert coarse.fit.reprojection_rms < 1.0
 
 
@@ -965,7 +962,7 @@ def test_the_probes_run_at_the_gain_of_their_exposure(monkeypatch):
     coarse = mapper.map_camera()
 
     assert gains["probes"] == gains["calibrated"]
-    assert coarse.rotation_degrees == pytest.approx(-10.0, abs=0.5)
+    assert coarse.camera_angle == pytest.approx(10.0, abs=0.5)
     assert camera.get_gain() == 0.0
 
 
@@ -979,7 +976,7 @@ def test_map_camera_falls_back_to_ladder_when_calibration_returns_none(monkeypat
     mapper = CoarseMapper(slm, camera, model)
     monkeypatch.setattr(mapper, "_calibrate_exposure", lambda *a, **k: None)
     coarse = mapper.map_camera()
-    assert coarse.rotation_degrees == pytest.approx(-10.0, abs=0.5)
+    assert coarse.camera_angle == pytest.approx(10.0, abs=0.5)
     assert coarse.fit.reprojection_rms < 1.0
 
 

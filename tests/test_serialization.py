@@ -138,7 +138,9 @@ def test_a_real_record_survives(tmp_path) -> None:
 
     assert np.array_equal(reloaded.transform, mapping.transform)
     assert reloaded.detected_points == mapping.detected_points
-    assert reloaded.rotation_degrees == pytest.approx(mapping.rotation_degrees)
+    assert reloaded.affine.rotation_degrees == pytest.approx(
+        mapping.affine.rotation_degrees
+    )
 
 
 def test_the_yaml_half_is_readable(tmp_path) -> None:

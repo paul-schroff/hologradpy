@@ -27,12 +27,15 @@ class PartialAffineFourierLens(OpticsModule):
 
     The partial affine is :attr:`focal_plane_partial_affine`, a
     :class:`~hologradpy.optics.modules.learnable_partial_affine.LearnablePartialAffine`.
-    Its zoom, shift and rotation set the window of the focal plane the transform
-    samples. With ``learnable`` set, they can be calibrated by gradient descent. The
-    shift, in output pixels along ``(x, y)``, and the angle, from +x towards +y, are
-    physical, and :meth:`_sampled_window` converts both to the pixel frame of the
-    transforms. The transforms turn the window in radians per sample of the SLM grid,
-    so the turn acts in metres for square SLM pixels.
+    Its zoom, shift and rotation place the focal plane on the output plane, from the
+    model to the camera, and the transform samples the window of the focal plane that
+    lands there. The window therefore moves the opposite way to the shift and turns by
+    minus the angle. With ``learnable`` set, the parameters can be calibrated by
+    gradient descent. The shift, in output pixels along ``(x, y)``, and the angle, from
+    +x towards +y, are physical, and :meth:`_sampled_window` converts both to the pixel
+    frame of the transforms. The transforms turn in radians per sample of the SLM grid,
+    so the turn acts in metres for square SLM pixels. The lens takes the magnitude of
+    the zoom.
 
     The transform runs on a grid of ``N`` samples, with a base magnification of
     ``lambda * f / (pixel_in * N * pixel_out)`` per wavelength. With the parameters at
@@ -59,10 +62,11 @@ class PartialAffineFourierLens(OpticsModule):
             focal_length: The focal length in metres.
             resolution_out: The ``(height, width)`` of the focal plane in pixels.
             pixel_size_out: The ``(height, width)`` pitch of the focal plane in metres.
-            shift: The starting translation of the partial affine, in output pixels
-                along ``(x, y)``.
-            angle: The starting rotation of the partial affine, in degrees from +x
-                towards +y.
+            shift: The starting shift of the focal plane on the output plane, in output
+                pixels along ``(x, y)``. The zeroth order lands this far from the centre
+                pixel.
+            angle: The starting turn of the focal plane on the output plane, in degrees
+                from +x towards +y.
             learnable: Whether the parameters of the partial affine require a gradient.
             power_normalized: Whether the output carries the optical power of the
                 input, through the prefactor ``(du * dv) / (lambda * f)``.

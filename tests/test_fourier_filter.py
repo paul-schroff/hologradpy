@@ -22,7 +22,7 @@ from hologradpy.analysis.fourier_filter import (
     white_noise_rms,
 )
 from hologradpy.calibration.camera_mapping import CameraMapping, FocalSpotFit
-from hologradpy.grids import pixel_frame_vector
+from hologradpy.grids import pixel_frame_angle, pixel_frame_vector
 from hologradpy.optics.complex_amplitude import FieldGeometry
 
 SLM_RESOLUTION = (64, 64)
@@ -146,7 +146,7 @@ def test_the_band_of_a_wide_slm_turns_with_the_camera(angle_degrees: float) -> N
             (rows - height // 2) / (height * CAMERA_PIXEL_SIZE),
         )
     )
-    angle = math.radians(mapping.rotation_degrees)
+    angle = math.radians(pixel_frame_angle(mapping.affine.rotation_degrees))
     frequency_x = (
         math.cos(angle) * camera_frequency_x - math.sin(angle) * camera_frequency_y
     )

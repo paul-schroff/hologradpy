@@ -48,7 +48,12 @@ from hologradpy.calibration.camera_mapping import (
     FocalSpotFit,
 )
 from hologradpy.geometry import AffineTransform, PartialAffineTransform
-from hologradpy.grids import pixel_frame_angle, pixel_frame_vector, plane_center
+from hologradpy.grids import (
+    metres_to_pixels,
+    pixel_frame_angle,
+    pixel_frame_vector,
+    plane_center,
+)
 from hologradpy.utils import as_image
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
@@ -110,7 +115,7 @@ def test_partial_affine_refits_similarity_from_correspondences():
     refit = mapping.partial_affine
     assert isinstance(refit, PartialAffineTransform)
     assert refit.scale == pytest.approx(1.4, rel=1e-4)
-    assert refit.angle_degrees == pytest.approx(18.0, abs=1e-3)
+    assert refit.rotation_degrees == pytest.approx(18.0, abs=1e-3)
     np.testing.assert_allclose(refit.translation, [6.0, -3.0], atol=1e-3)
 
 
@@ -587,9 +592,9 @@ def test_mapping_a_calibrated_model_gives_the_same_mapping():
     second = CoarseMapper(slm, camera, reference).map_camera()
 
     _assert_affine_equal(reference, calibrated)
-    assert second.rotation_degrees == pytest.approx(-TRUTH_ANGLE, abs=0.3)
-    assert second.rotation_degrees == pytest.approx(first.rotation_degrees, abs=0.05)
-    np.testing.assert_allclose(second.scales, first.scales, atol=1e-3)
+    assert second.camera_angle == pytest.approx(TRUTH_ANGLE, abs=0.3)
+    assert second.camera_angle == pytest.approx(first.camera_angle, abs=0.05)
+    assert second.camera_zoom == pytest.approx(first.camera_zoom, rel=1e-3)
     np.testing.assert_allclose(
         second.zeroth_order_position, first.zeroth_order_position, atol=0.5
     )
@@ -618,3 +623,215 @@ def test_the_calibration_survives_save_and_load(build, tmp_path):
     loaded.calibrate_from_mapping(loaded_mapping)
 
     _assert_affine_equal(loaded, calibrated)
+
+
+# --- The camera's numbers read back as written -------------------------------------
+
+READ_BACK_ANGLE = 15.0
+READ_BACK_SHIFT = (20.0, -10.0)  # camera pitches
+READ_BACK_ZOOM = 1.1
+
+
+def _zoomed_truth_camera(build):
+    """The SLM and a camera watching a truth at the read-back angle, shift and zoom."""
+    geometry, slm, beam = _geometry_and_beam()
+    truth = build(geometry, beam, slm.virtual_slm, READ_BACK_ANGLE, READ_BACK_SHIFT)
+    with torch.no_grad():
+        truth.focal_plane_partial_affine.scale_factor.fill_(READ_BACK_ZOOM)
+    camera = SimulatedCameraTorch(truth, orientation=CameraOrientation())
+    camera.set_exposure(1e-3)
+    camera.get_image()
+    return geometry, slm, beam, camera
+
+
+@pytest.mark.parametrize("build", list(BUILDERS.values()), ids=list(BUILDERS))
+def test_a_simulated_camera_reads_back_its_camera_angle_shift_and_zoom(build):
+    """A camera simulated with a camera_angle, a camera_shift and a zoom maps back to
+    the same three numbers. The calibration writes them into the reference, and a model
+    built from them shows the calibrated model's image.
+    """
+    geometry, slm, beam, camera = _zoomed_truth_camera(build)
+    reference = _reference(build)
+    shift = tuple(s * p for s, p in zip(READ_BACK_SHIFT, CAM_PIX))
+
+    mapping = CoarseMapper(slm, camera, reference).map_camera()
+
+    assert mapping.camera_angle == pytest.approx(READ_BACK_ANGLE, abs=0.05)
+    np.testing.assert_allclose(mapping.camera_shift, shift, atol=0.1 * CAM_PIX[0])
+    assert mapping.camera_zoom == pytest.approx(READ_BACK_ZOOM, rel=1e-3)
+
+    reference.calibrate_from_mapping(mapping)
+    partial_affine = reference.focal_plane_partial_affine
+    assert float(partial_affine.angle) == pytest.approx(mapping.camera_angle, abs=1e-5)
+    np.testing.assert_allclose(
+        partial_affine.shift.tolist(),
+        metres_to_pixels(mapping.camera_shift, CAM_PIX),
+        atol=1e-5,
+    )
+    np.testing.assert_allclose(
+        partial_affine.scale_factor.tolist(), (mapping.camera_zoom,) * 2, rtol=1e-6
+    )
+
+    rebuilt = build(
+        geometry,
+        beam,
+        VirtualSLM(full_scale_cycles=1.0),
+        mapping.camera_angle,
+        metres_to_pixels(mapping.camera_shift, CAM_PIX),
+    )
+    with torch.no_grad():
+        rebuilt.focal_plane_partial_affine.scale_factor.fill_(mapping.camera_zoom)
+        rebuilt()
+        phase = reference.steering_phase((300e-6, -200e-6))
+        reference.virtual_slm.set_phase(phase.to(reference.device))
+        rebuilt.virtual_slm.set_phase(phase.to(rebuilt.device))
+        expected = reference().intensity.squeeze()
+        actual = rebuilt().intensity.squeeze()
+    assert float((actual - expected).abs().max()) <= 1e-5 * float(expected.max())
+
+
+def test_a_mapping_against_an_slmfft_reads_back_the_same_camera():
+    """The same camera mapped against an SLMFFT reads back the same three numbers,
+    while the scales of the pixel fit hold the ratio of the two pitches.
+    """
+    _, slm, _, camera = _zoomed_truth_camera(_czt)
+    reference = _slm_fft()
+    reference()
+    shift = tuple(s * p for s, p in zip(READ_BACK_SHIFT, CAM_PIX))
+
+    mapping = CoarseMapper(slm, camera, reference).map_camera()
+
+    assert mapping.camera_angle == pytest.approx(READ_BACK_ANGLE, abs=0.05)
+    np.testing.assert_allclose(mapping.camera_shift, shift, atol=0.1 * CAM_PIX[0])
+    assert mapping.camera_zoom == pytest.approx(READ_BACK_ZOOM, rel=1e-3)
+    assert mapping.affine.scales[0] == pytest.approx(1.108, abs=0.005)
+
+
+def test_a_mapping_on_pixels_that_are_not_square_gives_no_camera_angle():
+    """A mapping measured against an output plane of 24.6 x 19.7 um pixels gives no
+    camera angle, shift or zoom.
+    """
+    geometry, slm, beam, camera = _zoomed_truth_camera(_czt)
+    reference = SLMFFT(
+        input_geometry=geometry,
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
+        slm_field=PixelwiseSLMField(beam),
+        focal_length=FOCAL,
+        padded_resolution=(512, 640),
+    )
+    reference()
+
+    mapping = CoarseMapper(slm, camera, reference).map_camera()
+
+    for name in ("camera_angle", "camera_shift", "camera_zoom"):
+        with pytest.raises(ValueError, match="square"):
+            getattr(mapping, name)
+
+
+def test_a_mirrored_mapping_gives_no_camera_angle():
+    """A camera mounted mirrored maps to a mirrored mapping, which gives no camera
+    angle.
+    """
+    geometry, slm, beam = _geometry_and_beam()
+    truth = _czt(geometry, beam, slm.virtual_slm, 0.0, (0.0, 0.0))
+    camera = SimulatedCameraTorch(truth, orientation=CameraOrientation(fliplr=True))
+    camera.set_exposure(1e-3)
+    camera.get_image()
+    reference = _reference(_czt)
+
+    mapping = CoarseMapper(slm, camera, reference).map_camera()
+
+    assert mapping.is_mirrored
+    with pytest.raises(ValueError, match="mirrored"):
+        mapping.camera_angle
+
+
+def test_a_mapping_without_a_camera_gives_no_camera_angle():
+    """A mapping that records no camera gives no camera angle."""
+    mapping = _synthetic_mapping(PartialAffineTransform.from_components())
+    with pytest.raises(ValueError, match="records no camera"):
+        mapping.camera_angle
+
+
+@pytest.mark.parametrize(
+    ("rot", "expected_angle", "expected_shift"),
+    [
+        ("90", 90.0, (0.0, 1.0)),
+        ("180", 180.0, (-1.0, 1.0)),
+        ("270", -90.0, (-1.0, 0.0)),
+    ],
+)
+def test_a_turned_mounting_reads_its_turn_as_the_camera_angle(
+    rot, expected_angle, expected_shift
+):
+    """A camera mounted with ``rot`` shows the unturned focal plane turned, and the
+    mapping reads the turn as its camera_angle. On the even sensor, the centre pixel
+    moves by one pitch along each reversed axis.
+    """
+    geometry, slm, beam = _geometry_and_beam()
+    truth = _czt(geometry, beam, slm.virtual_slm, 0.0, (0.0, 0.0))
+    camera = SimulatedCameraTorch(truth, orientation=CameraOrientation(rot=rot))
+    camera.set_exposure(1e-3)
+    camera.get_image()
+    reference = SLMCZT(
+        input_geometry=geometry,
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
+        camera_resolution=tuple(camera.sensor_resolution),
+        camera_pixel_size=CAM_PIX,
+        focal_length=FOCAL,
+        slm_field=PixelwiseSLMField(beam),
+    )
+    reference()
+
+    mapping = CoarseMapper(slm, camera, reference).map_camera()
+
+    # The reading at the half turn can take either sign, so the angle is compared
+    # wrapped.
+    wrapped = (mapping.camera_angle - expected_angle + 180.0) % 360.0 - 180.0
+    assert wrapped == pytest.approx(0.0, abs=0.05)
+    np.testing.assert_allclose(
+        [s / CAM_PIX[0] for s in mapping.camera_shift], expected_shift, atol=0.05
+    )
+
+
+def test_the_tilt_to_the_centre_pixel_undoes_the_camera_angle_shift_and_zoom():
+    """The tilt to the sensor's centre pixel is minus camera_shift, turned by minus
+    camera_angle and divided by camera_zoom.
+    """
+    _, slm, _, camera = _zoomed_truth_camera(_czt)
+    reference = _reference(_czt)
+    mapping = CoarseMapper(slm, camera, reference).map_camera()
+
+    angle = np.radians(mapping.camera_angle)
+    turn_back = np.array(
+        [[np.cos(angle), np.sin(angle)], [-np.sin(angle), np.cos(angle)]]
+    )
+    expected = -turn_back @ np.asarray(mapping.camera_shift) / mapping.camera_zoom
+
+    tilt = mapping.tilt_to_sensor_center(camera)
+    np.testing.assert_allclose(tilt, expected, rtol=0.0, atol=1e-15)
+
+
+def test_the_model_and_its_mapping_place_points_alike_after_calibration():
+    """Right after the calibration, the model's focal_plane_positions and the
+    mapping's sensor_to_image_plane put the same pixels at the same focal-plane
+    positions.
+    """
+    _, slm, _, camera = _zoomed_truth_camera(_czt)
+    reference = _reference(_czt)
+    mapping = CoarseMapper(slm, camera, reference).map_camera()
+    reference.calibrate_from_mapping(mapping)
+
+    grid_x, grid_y = reference[-1].get_spatial_grid_output()
+    model_x, model_y = reference.focal_plane_positions(grid_x, grid_y)
+    pixels = [(0, 0), (319, 239), (100, 50), (160, 120)]  # (column, row)
+    from_model = np.array(
+        [
+            [float(model_x[row, column]), float(model_y[row, column])]
+            for column, row in pixels
+        ]
+    )
+    from_mapping = mapping.sensor_to_image_plane(pixels)
+    np.testing.assert_allclose(
+        from_model, from_mapping, rtol=0.0, atol=1e-4 * CAM_PIX[0]
+    )

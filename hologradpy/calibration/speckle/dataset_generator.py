@@ -58,8 +58,8 @@ class DatasetGenerator:
                 :func:`~hologradpy.hardware.as_native.as_slm` wraps.
             camera: The camera capturing the speckle, or a driver that
                 :func:`~hologradpy.hardware.as_native.as_camera` wraps.
-            camera_mapping: How the camera sits relative to the model. It places the
-                zeroth order on the sensor, and is checked against ``camera``
+            camera_mapping: The map from camera pixels to the model's output pixels. It
+                places the zeroth order on the sensor, and is checked against ``camera``
                 (:meth:`~hologradpy.calibration.camera_mapping.CameraMapping.check_camera`).
             slm_camera_model: The model of the setup, which gives the focal length and
                 the steering phase.

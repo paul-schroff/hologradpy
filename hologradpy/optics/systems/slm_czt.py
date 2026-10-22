@@ -17,10 +17,12 @@ from ..modules.abstract import capture_init
 class SLMCZT(SLMFourierLensModel):
     """SLM -> exact chirp-z Fourier lens with learnable focal-plane geometry.
 
-    The :attr:`focal_plane_partial_affine` of the :class:`FourierLensCZT` is applied
-    inside the exact, power-correct lens, which maps directly onto the camera
-    resolution at the camera pixel size. ``camera_angle`` (degrees) and
-    ``camera_shift`` (``(x, y)`` metres) seed it.
+    The :attr:`~.SLMFourierLensModel.focal_plane_partial_affine` of the
+    :class:`~.FourierLensCZT` places the focal plane on the output plane, the camera
+    grid of ``camera_resolution`` at ``camera_pixel_size``, inside the exact,
+    power-correct lens. ``camera_angle`` and ``camera_shift`` seed it, from the model
+    to the camera, and :class:`~.CameraMapping` reports a measured camera as the same
+    two numbers.
 
     ``padded_resolution`` pins the padding of the lens. Left at None, the padding
     follows the angle of the partial affine, so a calibrated rotation keeps the corners
@@ -48,6 +50,38 @@ class SLMCZT(SLMFourierLensModel):
         pointing_seed: int | None = None,
         grid_cache: bool = False,
     ) -> None:
+        """
+        Args:
+            input_geometry: The sampling of the SLM plane.
+            virtual_slm: The SLM stage.
+            camera_resolution: The ``(height, width)`` of the output plane, the camera's
+                whole sensor in its mounting or a window of it.
+            camera_pixel_size: The ``(y, x)`` pitch of the output plane in metres.
+            focal_length: The focal length of the Fourier lens in metres.
+            slm_field: The SLM-plane beam.
+            camera_angle: The turn of the focal plane as the camera shows it, in degrees
+                from +x towards +y. A positive angle turns the displayed image
+                counterclockwise. The chirp-z lens turns in radians per SLM sample, so
+                the turn acts in metres for square SLM pixels, and it takes angles
+                within 60 degrees of 0 or 180.
+            camera_shift: Where the zeroth order lands on the camera, as ``(x, y)``
+                metres from the centre pixel of the output plane,
+                :func:`~hologradpy.grids.plane_center` of ``camera_resolution``. A
+                positive y lies above the centre pixel.
+                :func:`~hologradpy.grids.metres_to_pixels` converts it at
+                ``camera_pixel_size`` for the partial affine.
+            padded_resolution: The ``(height, width)`` in SLM pixels that the field is
+                padded to before the transform, grown by the sub-pixel factor of the SLM
+                stage, or None for the padding that the angle of the partial affine
+                needs.
+            power_normalized: Whether the output carries the optical power of the input.
+            pointing_focal_shift_std: The standard deviation of the beam-pointing shift
+                in the focal plane, for
+                :meth:`~.PointingInstability.from_focal_shift`, or None for a steady
+                beam.
+            pointing_seed: The seed of the pointing samples.
+            grid_cache: Hold the resampled beam (:func:`~.slm_stages`).
+        """
         super().__init__(
             input_geometry=input_geometry,
             focal_length=focal_length,

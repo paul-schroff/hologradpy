@@ -427,8 +427,8 @@ def test_a_swapped_layer_survives_save_and_load(tmp_path) -> None:
 def _czt_window(
     camera_shift: tuple[float, float], camera_angle: float = 0.0
 ) -> SLMCZT:
-    """An SLMCZT whose window moves by ``camera_shift`` and turns by ``camera_angle``,
-    run once.
+    """An SLMCZT with the focal plane moved by ``camera_shift`` and turned by
+    ``camera_angle`` on the camera, run once.
     """
     model = SLMCZT(
         input_geometry=_input_geometry(),

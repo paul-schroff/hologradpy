@@ -42,7 +42,8 @@ REGULARIZATION = 1e-3
 
 
 def _model(camera_shift: tuple[float, float] = (0.0, 0.0)) -> SLMCZT:
-    """A small model, whose output window moves by ``camera_shift``.
+    """A small model, with its zeroth order at ``camera_shift`` from the centre of the
+    output window.
 
     The camera pitch is set independently of the SLM's, so the lattice the transport
     needs cannot be the model's own grid and has to be built.
@@ -233,7 +234,8 @@ def test_the_light_lands_on_the_target_through_the_camera_mapping():
 
 
 def _turned_model(camera_pixel_size: tuple[float, float]) -> SLMCZT:
-    """A model with its camera turned by 20 degrees and moved 3 pixels along y.
+    """A model with the focal plane turned by 20 degrees on the camera and moved 3
+    pixels along y.
 
     The camera is 48 pixels high and 96 wide, so its centre lies at column 48 and row
     24, and its column and row differ. The light lands on the L only when the

@@ -128,8 +128,10 @@ class PSFSLMField(SLMField):
 
         The kernel's extent and the Gaussian seed both come from the waist of the
         mapping's spot fit, ``camera_mapping.spot_fit.waist``. The waist is measured on
-        the camera and includes the aberration, so a worse wavefront gives a larger
-        kernel. The camera is not read here.
+        the camera in camera-plane metres, and the kernel takes it as a focal-plane
+        length. The two agree at a ``camera_mapping.camera_zoom`` of 1. The waist
+        includes the aberration, so a worse wavefront gives a larger kernel. The camera
+        is not read here.
 
         A given ``init_psf_kernel`` seeds the kernel unchanged.
         :class:`~hologradpy.calibration.wavefront.speckle_calibration.PSFSpeckleCalibrator`
@@ -142,7 +144,7 @@ class PSFSLMField(SLMField):
         Args:
             camera_mapping: The fitted mapping, for the waist of its spot fit.
             focal_length: Fourier lens focal length in metres.
-            extent_in_waists: The width of the image plane the kernel spans, in waists.
+            extent_in_waists: The width of the focal plane the kernel spans, in waists.
             init_psf_kernel: A measured focal spot in amplitude, in the model's
                 orientation. It overrides the Gaussian seed.
             init_psf_kernel_pixel_size: The ``(y, x)`` pitch of ``init_psf_kernel`` in

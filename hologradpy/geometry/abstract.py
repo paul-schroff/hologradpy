@@ -1,7 +1,9 @@
 """The base class for 2D geometric-transform value objects.
 
-One convention throughout: points are ``(x, y)``. A transform maps source-plane points
-to destination-plane points and is represented by a 3x3 homogeneous matrix. Value
+A transform maps source-plane points to destination-plane points and is represented by
+a 3x3 homogeneous matrix. The points are pairs in the frame the caller passes,
+``(x, y)`` positions or ``(column, row)`` pixels, and an angle turns the first
+coordinate towards the second. The camera mappings pass ``(column, row)`` pixels. Value
 objects are immutable, so operations return new instances.
 """
 

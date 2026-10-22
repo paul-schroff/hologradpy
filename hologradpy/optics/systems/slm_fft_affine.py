@@ -18,9 +18,12 @@ from ..modules.abstract import capture_init
 class SLMFFTAffine(SLMFourierLensModel):
     """SLM -> padded-FFT Fourier lens -> affine warp onto the camera.
 
-    A :class:`FourierLensFFT` maps onto the padded focal plane and a learnable
-    :class:`GeometricWarp` maps it onto the camera. ``camera_angle`` (degrees)
-    / ``camera_shift`` (``(x, y)`` metres) seed the warp.
+    A :class:`~.FourierLensFFT` maps onto the padded focal plane, and a
+    :class:`~.GeometricWarp` resamples it onto the output plane, the camera grid of
+    ``camera_resolution`` at ``camera_pixel_size``. The warp holds the
+    :attr:`~.SLMFourierLensModel.focal_plane_partial_affine` without a gradient.
+    ``camera_angle`` and ``camera_shift`` seed it, from the model to the camera, and
+    :meth:`~.SLMFourierLensModel.calibrate_from_mapping` sets it from a camera mapping.
     """
 
     virtual_slm: VirtualSLM
@@ -45,6 +48,34 @@ class SLMFFTAffine(SLMFourierLensModel):
         pointing_seed: int | None = None,
         grid_cache: bool = False,
     ) -> None:
+        """
+        Args:
+            input_geometry: The sampling of the SLM plane.
+            virtual_slm: The SLM stage.
+            camera_resolution: The ``(height, width)`` of the output plane, the camera's
+                whole sensor in its mounting or a window of it.
+            camera_pixel_size: The ``(y, x)`` pitch of the output plane in metres.
+            focal_length: The focal length of the Fourier lens in metres.
+            slm_field: The SLM-plane beam.
+            padded_resolution: The ``(height, width)`` of the FFT plane in SLM pixels,
+                grown by the sub-pixel factor of the SLM stage.
+            camera_angle: The turn of the focal plane as the camera shows it, in degrees
+                from +x towards +y. A positive angle turns the displayed image
+                counterclockwise. The warp turns in metres.
+            camera_shift: Where the zeroth order lands on the camera, as ``(x, y)``
+                metres from the centre pixel of the output plane,
+                :func:`~hologradpy.grids.plane_center` of ``camera_resolution``. A
+                positive y lies above the centre pixel.
+                :func:`~hologradpy.grids.metres_to_pixels` converts it at
+                ``camera_pixel_size`` for the partial affine.
+            power_normalized: Whether the output carries the optical power of the input.
+            pointing_focal_shift_std: The standard deviation of the beam-pointing shift
+                in the focal plane, for
+                :meth:`~.PointingInstability.from_focal_shift`, or None for a steady
+                beam.
+            pointing_seed: The seed of the pointing samples.
+            grid_cache: Hold the resampled beam (:func:`~.slm_stages`).
+        """
         super().__init__(
             input_geometry=input_geometry,
             focal_length=focal_length,

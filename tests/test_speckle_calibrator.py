@@ -568,9 +568,8 @@ def test_a_spot_array_mapping_is_run_when_none_is_supplied(tmp_path) -> None:
     assert isinstance(calibrator.camera_mapping, CameraMapping)
     assert calibrator.camera_mapping.name == "spot_array"
     # It recovered the rotation the simulated camera was built with, so the mapping is a
-    # real measurement and not an identity placeholder. Negated because the mapping runs
-    # camera -> model, the opposite of the angle the camera was built with.
-    assert calibrator.camera_mapping.rotation_degrees == pytest.approx(-4.0, abs=0.5)
+    # real measurement and not an identity placeholder.
+    assert calibrator.camera_mapping.camera_angle == pytest.approx(4.0, abs=0.5)
     # And the zeroth order landed somewhere on the sensor.
     column, row = calibrator.camera_mapping.zeroth_order_position
     assert 0 <= row < camera.resolution[0] and 0 <= column < camera.resolution[1]

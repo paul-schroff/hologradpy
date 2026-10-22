@@ -10,11 +10,15 @@ from .matrices import homogeneous_matrix, rotation_matrix_from_angle
 
 
 class PartialAffineTransform(AffineTransform):
-    """A 4-DOF partial-affine (similarity) transform: uniform scale + rotation +
+    """A 4-DOF partial-affine (similarity) transform, a uniform scale, a rotation and a
     translation, with no shear or mirror.
 
-    Fitted with ``cv2.estimateAffinePartial2D``. This is the ``(scale, angle, shift)``
-    parameterization the differentiable field warp and the Fourier lenses use.
+    :meth:`fit` runs ``cv2.estimateAffinePartial2D`` with its defaults, a RANSAC fit
+    with a threshold of 3 destination units followed by a Levenberg-Marquardt
+    refinement, so it leaves out the pairs it does not describe. A camera mapping fits
+    one from camera to model pixels (:attr:`~.CameraMapping.partial_affine`). The field
+    warp and the Fourier lenses hold its inverse, in the physical frame
+    (:meth:`~hologradpy.optics.modules.learnable_partial_affine.LearnablePartialAffine.set`).
     """
 
     @property
@@ -61,11 +65,6 @@ class PartialAffineTransform(AffineTransform):
         """The uniform scale factor."""
         return float(np.sqrt(abs(np.linalg.det(self.linear))))
 
-    @property
-    def angle_degrees(self) -> float:
-        """The rotation angle in degrees."""
-        return self.rotation_degrees
-
     def components(
         self, center: tuple[float, float] = (0.0, 0.0)
     ) -> tuple[float, float, tuple[float, float]]:
@@ -74,7 +73,9 @@ class PartialAffineTransform(AffineTransform):
 
         The centre and the shift are in the frame of the points the transform maps.
         For a similarity fitted by the camera mappers, the points are ``(column, row)``
-        pixels, and the angle turns +column towards +row.
+        pixels, and the angle turns +column towards +row. The parameters of a model come
+        from the inverse of such a similarity
+        (:meth:`~hologradpy.optics.modules.learnable_partial_affine.LearnablePartialAffine.set`).
 
         Args:
             center: The point that the scale and the rotation keep fixed.
@@ -85,4 +86,4 @@ class PartialAffineTransform(AffineTransform):
         """
         center = np.asarray(center, dtype=np.float64)
         shift = self.translation - (center - self.linear @ center)
-        return self.scale, self.angle_degrees, (float(shift[0]), float(shift[1]))
+        return self.scale, self.rotation_degrees, (float(shift[0]), float(shift[1]))

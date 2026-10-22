@@ -11,16 +11,23 @@ from ...grids import pixel_frame_angle, pixel_frame_vector, plane_center
 
 
 class LearnablePartialAffine(nn.Module):
-    """A learnable partial affine of an output plane, applied by the module that owns
-    it.
+    """A learnable partial affine that places the focal plane on an output plane,
+    applied by the module that owns it.
 
-    ``scale_factor`` is the zoom along ``(x, y)``, ``shift`` the translation in output
-    pixels along ``(x, y)``, and ``angle`` the rotation in degrees from +x towards +y.
-    All three are physical. The plane is turned by ``angle`` and then zoomed by
-    ``scale_factor`` along the output x and y, both about the centre of the output
-    plane, and then shifted by ``shift``. A Fourier lens or a field warp holds one,
-    reads its parameters in the forward pass and converts them to the pixel frame. The
-    camera-aware optical systems calibrate it from a camera mapping through :meth:`set`.
+    It runs from the model to the camera. The focal plane is turned by ``angle`` and
+    then zoomed by ``scale_factor`` along the output x and y, both about the centre
+    pixel of the output plane (:func:`~hologradpy.grids.plane_center`), and then moved
+    by ``shift``. The zeroth order therefore lands ``shift`` output pixels from the
+    centre pixel. ``scale_factor`` is the zoom along ``(x, y)``, ``shift`` is in output
+    pixels along ``(x, y)``, and ``angle`` is in degrees from +x towards +y. All three
+    are physical. A Fourier lens or a field warp holds one, reads its parameters in the
+    forward pass and converts them to the pixel frame. The field warp applies a
+    negative ``scale_factor`` as a mirror, and the chirp-z and NUFFT lenses take its
+    magnitude.
+
+    The camera-aware optical systems seed ``angle`` from ``camera_angle`` and ``shift``
+    from ``camera_shift``, converted by :func:`~hologradpy.grids.metres_to_pixels`. They
+    calibrate all three from a camera mapping through :meth:`set`.
 
     The parameters are made in float64 on the CPU. The owning module moves them to the
     device and the dtype of its field when it is first run.
@@ -39,8 +46,9 @@ class LearnablePartialAffine(nn.Module):
             resolution_out: The ``(height, width)`` of the output plane. The zoom and
                 the rotation keep its centre fixed.
             scale_factor: The starting zoom along ``(x, y)``.
-            shift: The starting translation in output pixels along ``(x, y)``.
-            angle: The starting rotation in degrees from +x towards +y.
+            shift: The starting shift of the focal plane in output pixels along
+                ``(x, y)``. The zeroth order lands this far from the centre pixel.
+            angle: The starting turn of the focal plane in degrees from +x towards +y.
             learnable: Whether the parameters require a gradient.
         """
         super().__init__()
@@ -56,14 +64,17 @@ class LearnablePartialAffine(nn.Module):
         )
 
     def set(self, transform: PartialAffineTransform) -> None:
-        """Set the parameters to the inverse of a fitted camera -> model similarity,
-        starting from identity.
+        """Set the parameters to the inverse of a camera -> model similarity, starting
+        from identity.
 
-        The similarity maps camera pixels to model pixels. Its inverse is converted to
-        the physical frame of the parameters.
+        The similarity carries camera ``(column, row)`` pixels to model
+        ``(column, row)`` pixels, as :attr:`~.CameraMapping.partial_affine` fits it.
+        Its inverse runs from the model to the camera, the direction of the parameters.
+        The inverse is decomposed about the centre pixel of the output plane and
+        converted to the physical frame.
 
         Args:
-            transform: The camera -> model similarity fitted by the camera mappers.
+            transform: The camera -> model similarity.
         """
         scale, angle_degrees, shift = transform.inverse().components(self.center)
         with torch.no_grad():

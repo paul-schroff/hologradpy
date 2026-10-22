@@ -15,8 +15,8 @@ from .mapping import CameraMapping, FocalSpotFit, MappingFit, OrientationSuggest
 
 
 class CameraMapper:
-    """A class to determine the coordinate transform between the camera pixels
-    and the pixels of the simulated image.
+    """Measures a :class:`~.CameraMapping`, the map from camera pixels to the pixels of
+    the output plane of a model with its focal-plane partial affine held at identity.
     """
 
     # The name of the mappings this mapper measures.

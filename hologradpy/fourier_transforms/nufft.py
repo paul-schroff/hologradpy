@@ -52,7 +52,9 @@ class NUFFTPartialAffine(FourierBase):
     :func:`rotated_zoom_trajectory`, the points the chirp-z zoom samples. The NUFFT
     evaluates arbitrary k-space points, so the rotation needs no shear of the field.
     ``magnification`` and ``shift`` may carry a leading wavelength axis ``(n_wl, 2)``,
-    giving one trajectory per wavelength. ``angle`` is a scalar in radians. The NUFFT
+    giving one trajectory per wavelength. ``angle`` is a scalar in radians, in the pixel
+    frame from +column towards +row, as for
+    :class:`~hologradpy.fourier_transforms.czt.ChirpZPartialAffine`. The NUFFT
     interpolates, so the amplitude matches the exact DFT sum to within the requested
     ``eps``. FINUFFT defaults ``eps`` to ``1e-6``.
 

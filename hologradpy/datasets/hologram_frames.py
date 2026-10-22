@@ -90,7 +90,7 @@ class HologramFrames(Dataset):
             slm_camera_model: The model the frames are fitted with, which sets the
                 device and the real dtype of the set.
             roi_mask: True at the pixels of the whole sensor that a fit compares.
-            camera_mapping: How the camera sits relative to the model's image plane,
+            camera_mapping: The map from camera pixels to the model's output pixels,
                 which sets the band, or None for no band.
             background: The counts subtracted from every frame, in any form
                 :func:`~hologradpy.hardware.camera.background_at` takes, or None to

@@ -101,6 +101,13 @@ def _czt_adjoint_last(
 class ChirpZPartialAffine(FourierBase):
     """The exact DFT sampled on a partial affine of the spectrum.
 
+    ``magnification`` and ``shift`` are ``(column, row)`` pairs, and the shift is the
+    window offset in radians per sample that
+    :func:`~.sampling.window_offset_from_pixels` gives. ``angle`` is in radians in the
+    pixel frame, from +column towards +row, so a positive angle turns the image
+    clockwise on a screen with row 0 at the top
+    (:func:`~.sampling.rotated_zoom_trajectory`).
+
     With ``output_roi``, only that rectangle of the ``resolution_out`` grid is
     evaluated.
     """

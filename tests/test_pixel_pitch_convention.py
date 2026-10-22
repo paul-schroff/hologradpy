@@ -60,7 +60,8 @@ def _build(camera_angle=0.0, camera_shift=(0.0, 0.0)):
         focal_length=FOCAL,
         slm_field=PixelwiseSLMField(beam),
         camera_angle=camera_angle,
-        # The test places the sensor in pixels; the systems take focal-plane metres.
+        # The test gives the zeroth order's position in camera pixels, and the systems
+        # take it in metres.
         camera_shift=(
             camera_shift[0] * CAMERA_PIXEL_SIZE[1],
             camera_shift[1] * CAMERA_PIXEL_SIZE[0],
@@ -98,5 +99,6 @@ def test_coarse_mapper_recovers_anisotropic_scales_nonsquare_camera():
 
     # pitch_um (x, y) = (20, 30) um over the ~24.6 um square model pixel.
     expected = sorted((20e-6 / MODEL_PIXEL, 30e-6 / MODEL_PIXEL), reverse=True)
-    assert sorted(coarse.scales, reverse=True) == pytest.approx(expected, rel=0.03)
+    scales = sorted(coarse.affine.scales, reverse=True)
+    assert scales == pytest.approx(expected, rel=0.03)
     assert coarse.fit.reprojection_rms < 1.0

@@ -125,8 +125,8 @@ class CameraMapperVisualizer(BaseVisualizer):
                 residual_vectors[:, 0],
                 residual_vectors[:, 1],
                 scale=1.0 / magnification,
-                xlabel="x [simulated px]",
-                ylabel="y [simulated px]",
+                xlabel="output-plane column [px]",
+                ylabel="output-plane row [px]",
                 title=(
                     f"Reprojection residuals (RMS = {rms:.2f} px, "
                     f"arrows x{magnification:.0f})"

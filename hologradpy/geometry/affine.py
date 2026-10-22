@@ -104,7 +104,9 @@ class AffineTransform(GeometricTransform):
 
     @property
     def translation(self) -> NDArray:
-        """The ``(x, y)`` translation part."""
+        """The translation part, in the frame and the units of the points the transform
+        maps.
+        """
         return self._matrix[:2, 2].copy()
 
     @property
@@ -122,8 +124,14 @@ class AffineTransform(GeometricTransform):
 
     @property
     def rotation_degrees(self) -> float:
-        """Rotation of the destination axes relative to the source, in degrees, with
-        any reflection factored out.
+        """The angle by which the transform turns its source points, in degrees from the
+        first coordinate axis towards the second, with any mirror factored out.
+
+        On ``(column, row)`` pixels a positive angle turns clockwise on the displayed
+        frame, and on ``(x, y)`` positions it turns counterclockwise. A mirror is
+        factored out along the minor singular axis. With two equal scales that axis is
+        set by the noise in the matrix, so the angle of a mirrored transform with equal
+        scales varies from fit to fit.
         """
         left, _, right = np.linalg.svd(self.linear)
         if np.linalg.det(left @ right) < 0:

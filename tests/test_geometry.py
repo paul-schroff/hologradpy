@@ -41,7 +41,7 @@ def test_partial_affine_components_roundtrip():
         scale=1.3, angle_deg=25.0, shift=(3.0, -2.0)
     )
     assert transform.scale == pytest.approx(1.3)
-    assert transform.angle_degrees == pytest.approx(25.0)
+    assert transform.rotation_degrees == pytest.approx(25.0)
     np.testing.assert_allclose(transform.translation, [3.0, -2.0])
     assert transform.is_mirrored is False
 

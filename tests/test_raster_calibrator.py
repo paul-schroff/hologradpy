@@ -274,8 +274,8 @@ def test_auto_tilt_lands_spot_on_target(camera_angle):
         verbose=False,
     )
     # The recovered camera rotation matches the injected angle.
-    assert calibrator.camera_mapping.rotation_degrees == pytest.approx(
-        -camera_angle, abs=1.5
+    assert calibrator.camera_mapping.camera_angle == pytest.approx(
+        camera_angle, abs=1.5
     )
     # The spot lands at the placement target (a few pixels of detection precision).
     assert np.hypot(spot_x - target[0], spot_y - target[1]) < 6.0

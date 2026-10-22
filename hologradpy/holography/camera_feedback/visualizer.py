@@ -41,7 +41,7 @@ class TargetPlacementData(VisualizationData):
 
     All pixel positions are ``(column, row)`` on the sensor, and ``patch_shape`` is
     ``(height, width)``. ``target_position`` is the request that produced them, as
-    ``(x, y)`` metres in the optical plane.
+    ``(x, y)`` metres in the focal plane.
     """
 
     target: NDArray
@@ -127,9 +127,9 @@ class TargetPlacementVisualizer(BaseVisualizer):
             zeroth_column, zeroth_row, "o", markerfacecolor="none",
             color="tab:red", markersize=9, label="zeroth order",
         )
-        # A rectangle rather than a circle: the x and y grating frequencies are limited
-        # independently, so the corners are reachable too. Rotated, because it is a
-        # rectangle in the optical plane rather than on the sensor.
+        # A rectangle, since the x and y grating frequencies are limited independently
+        # and the corners are reachable too. It is a rectangle in the focal plane, so it
+        # is turned on the sensor.
         axs.add_patch(
             Polygon(
                 np.asarray(data.addressable_corners),

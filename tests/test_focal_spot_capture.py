@@ -45,12 +45,13 @@ def _mapping(
     scale: float = 1.0,
     angle: float = 0.0,
     output_pixel_size: tuple[float, float] | None = CAMERA_PIXEL_SIZE,
+    resolution: tuple[int, int] = CAMERA_RESOLUTION,
 ):
     """A camera mapping whose similarity sends the zeroth order at
     ``zeroth_order_position``, ``(column, row)``, to the centre of an output plane
-    of the camera's size, at ``output_pixel_size``.
+    of ``resolution``, at ``output_pixel_size``.
     """
-    center = np.asarray(plane_center(CAMERA_RESOLUTION), dtype=float)
+    center = np.asarray(plane_center(resolution), dtype=float)
     zeroth = np.asarray(zeroth_order_position, dtype=float)
     turned = PartialAffineTransform.from_components(scale=scale, angle_deg=angle)
     transform = PartialAffineTransform.from_components(
@@ -67,7 +68,7 @@ def _mapping(
         calculated_points=transform.transform_points(detected).tolist(),
         spot_fit=FocalSpotFit(waist=CAMERA_PIXEL_SIZE[0] * 2),
         output_pixel_size=output_pixel_size,
-        output_resolution=CAMERA_RESOLUTION,
+        output_resolution=resolution,
     )
 
 
@@ -76,8 +77,8 @@ class _FakeCamera(CroppingCamera):
     so the camera never captures a frame.
     """
 
-    def __init__(self) -> None:
-        super().__init__(CAMERA_RESOLUTION)
+    def __init__(self, resolution: tuple[int, int] = CAMERA_RESOLUTION) -> None:
+        super().__init__(resolution)
 
     @property
     def pixel_size(self) -> np.ndarray:
@@ -170,6 +171,18 @@ def test_a_mapping_without_an_output_plane_is_refused() -> None:
         _mapping((70.0, 20.0), output_pixel_size=None).tilt_to_sensor_center(
             _FakeCamera()
         )
+
+
+@pytest.mark.parametrize("resolution", [(96, 96), (95, 97)])
+def test_the_tilt_aims_at_the_centre_pixel_of_an_odd_sensor(resolution) -> None:
+    """A zeroth order on the sensor's centre pixel needs no tilt, on an odd sensor as
+    on an even one.
+    """
+    mapping = _mapping(plane_center(resolution), resolution=resolution)
+
+    tilt = mapping.tilt_to_sensor_center(_FakeCamera(resolution))
+
+    assert tilt == pytest.approx((0.0, 0.0), abs=1e-15)
 
 
 def _build_hardware(camera_shift):

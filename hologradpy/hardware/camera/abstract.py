@@ -1325,7 +1325,22 @@ class Camera(ABC):
 @record_type("camera_orientation")
 @dataclass(frozen=True)
 class CameraOrientation:
-    """How a sensor is mounted, as the rotate and flip flags a device takes."""
+    """How a sensor is mounted, as the rotate and flip flags a device takes.
+
+    The flags carry the raw frame to the displayed frame, with the rotation before the
+    flips. Each quarter turn of ``rot`` is one :func:`numpy.rot90`, which turns the
+    displayed image counterclockwise. A camera that shows the focal plane unturned in
+    its raw frame therefore reads a :attr:`~.CameraMapping.camera_angle` of 90 once it
+    is mounted with ``rot="90"``. ``fliplr`` reverses the columns and ``flipud`` the
+    rows.
+
+    A turn or a flip reverses the pixel array about its middle, ``((width - 1) / 2,
+    (height - 1) / 2)``. The centre pixel, :func:`~hologradpy.grids.plane_center`, lies
+    half a pixel past the middle along an axis of even length. The pixel at the centre
+    of the raw frame therefore lands one pixel from the centre pixel of the displayed
+    frame along each reversed axis of even length, and the
+    :attr:`~.CameraMapping.camera_shift` of a mapping moves by one pitch along it.
+    """
 
     rot: str = "0"
     fliplr: bool = False
@@ -1353,6 +1368,15 @@ class CameraOrientation:
         return self.rot in ("90", "270", 1, 3)
 
     def compose(self, other: CameraOrientation) -> CameraOrientation:
+        """The orientation that applies ``other`` first and then this one.
+
+        Args:
+            other: The orientation applied first.
+
+        Returns:
+            CameraOrientation: The combined orientation, one of the eight.
+        """
+
         def combined(image: NDArray) -> NDArray:
             return self.transformation()(other.transformation()(image))
 

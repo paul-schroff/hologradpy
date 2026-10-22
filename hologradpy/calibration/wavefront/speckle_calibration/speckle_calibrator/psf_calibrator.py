@@ -13,7 +13,7 @@ from ....camera_mapping import CameraMapping
 from ....exposure import capture_autoexposed_frame
 from ....model_fit import ModelFitter
 from ....spot_detection import brightest_pixel, has_prominent_peak
-from .....grids import odd_sample_count
+from .....grids import odd_sample_count, plane_center
 from .....hardware import Camera, SLM, as_camera, as_slm
 from .....optics import SLMFourierLensModel
 from .....roi import ROI
@@ -216,7 +216,7 @@ def capture_focal_spot(
 
     with camera.preserve_exposure_gain_and_roi(full_sensor=True):
         sensor = tuple(camera.sensor_resolution)
-        center = (sensor[1] / 2.0, sensor[0] / 2.0)  # (column, row)
+        center = plane_center(sensor)  # (column, row), the origin of camera_shift
 
         tilt = camera_mapping.tilt_to_sensor_center(camera)
         # The tilt is displayed over the full aperture, since the seed is the point

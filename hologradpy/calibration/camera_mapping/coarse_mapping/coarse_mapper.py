@@ -15,7 +15,6 @@ from ....optics.systems import SLMFourierLensModel
 from ....profiles.phase import binary_phase_grating
 from ....grids import (
     metres_to_pixel,
-    pixel_frame_angle,
     pixel_frame_vector,
     pixel_to_metres,
 )
@@ -76,13 +75,14 @@ class CoarseMapper(CameraMapper):
     sensor, the focal plane is searched along an outward spiral of probe spots until
     one lands on the sensor. The spiral stays within the model's field of view. The
     probe pattern is placed around the tilt of that spot. The mapping then places the
-    zeroth order off the sensor (:attr:`CameraMapping.zeroth_order_position`).
+    zeroth order off the sensor (:attr:`~.CameraMapping.zeroth_order_position`).
 
-    The result gives the position of the sensor relative to the zeroth order and its
-    orientation (:attr:`CameraMapping.rotation_degrees`,
-    :attr:`CameraMapping.is_mirrored` and :attr:`CameraMapping.scales`). It can seed
-    :meth:`SpotArrayMapper.map_camera`, so the fine spot array is placed entirely on
-    the sensor.
+    The result gives the turn, the zeroth order and the zoom of the focal plane as the
+    camera shows it (:attr:`~.CameraMapping.camera_angle`,
+    :attr:`~.CameraMapping.camera_shift` and :attr:`~.CameraMapping.camera_zoom`), and
+    whether the camera shows it mirrored (:attr:`~.CameraMapping.is_mirrored`). It
+    can seed :meth:`SpotArrayMapper.map_camera`, so the fine spot array is placed
+    entirely on the sensor.
     """
 
     mapping_name = "coarse"
@@ -142,7 +142,7 @@ class CoarseMapper(CameraMapper):
                 the sensor seeds the centre search at zero tilt, and ``initial_tilt``
                 is then not used.
             find_camera_orientation: If True, suggest the discrete camera orientation
-                that aligns the camera best with the model plane. The suggestion and
+                that aligns the camera best with the output plane. The suggestion and
                 its near-identity residual are recorded on the result as
                 ``orientation``. The camera is not modified. Apply the suggestion
                 yourself with ``camera.set_orientation(mapping.orientation.suggested)``
@@ -402,21 +402,10 @@ class CoarseMapper(CameraMapper):
                 stacklevel=3,
             )
 
-    @staticmethod
-    def _linear_rotation_degrees(linear: NDArray) -> float:
-        """Rotation [deg] of a 2x2 pixel-frame linear map (reflection factored out),
-        in the physical frame, matching CameraMapping.rotation_degrees.
-        """
-        return pixel_frame_angle(
-            AffineTransform.from_matrix(
-                np.column_stack([linear, [0.0, 0.0]])
-            ).rotation_degrees
-        )
-
     def _suggest_camera_orientation(
         self, transform: NDArray, camera_shape: tuple[int, int]
     ) -> OrientationSuggestion:
-        """The mounting that would align the camera with the model plane, up to a
+        """The mounting that aligns the camera with the output plane, up to a
         residual affine transform.
 
         Enumerates the 8 dihedral orientations. For each, ``D`` is the orientation's
@@ -446,7 +435,12 @@ class CoarseMapper(CameraMapper):
             if np.linalg.det(residual_linear) <= 0:
                 continue  # this orientation leaves a mirror in the residual
             residual_offset = offset - residual_linear @ pixel[:, 2]
-            angle = abs(self._linear_rotation_degrees(residual_linear))
+            # The size of the residual turn, the same in both frames.
+            angle = abs(
+                AffineTransform.from_matrix(
+                    np.column_stack([residual_linear, [0.0, 0.0]])
+                ).rotation_degrees
+            )
             if best is None or angle < best[0]:
                 best = (
                     angle,

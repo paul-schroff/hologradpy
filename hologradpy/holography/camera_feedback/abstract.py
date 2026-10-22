@@ -149,18 +149,19 @@ class FeedbackCorrectorBase(ABC):
                 :func:`~hologradpy.hardware.as_native.as_camera` wraps.
             target: The target intensity to produce, on the camera grid.
             signal_region: Where the target is optimized.
-            target_position: Where to place the target, as ``(x, y)`` metres in
-                the Nyquist plane. The position is measured from the zeroth order. The
-                camera's rotation and scale are applied, so this is a position in the
-                image plane and not in sensor pixels.
+            target_position: Where to place the target, as ``(x, y)`` metres in the
+                focal plane from the zeroth order. The mapping applies the camera's turn
+                and zoom, so this is a focal-plane position and not a sensor position.
+                :meth:`~.CameraMapping.tilt_to_sensor_center` gives the focal-plane
+                position of the sensor's centre pixel.
             slm_camera_model: The model simulating the propagation of light from the SLM
                 to the camera. Required unless ``phase_retriever`` is given. The model
                 is then taken from the retriever.
             init_slm_phase: Starting phase for the retriever.
             phase_retriever: An existing phase retriever. One is built when None.
-            camera_mapping: How the camera sits relative to the model, checked against
-                ``camera``. The model is calibrated from it before the loop starts.
-                When None,
+            camera_mapping: The map from camera pixels to the model's output pixels,
+                checked against ``camera``. The model is calibrated from it before the
+                loop starts. When None,
                 :meth:`apply_camera_mapping` measures one with a
                 :class:`~hologradpy.calibration.camera_mapping.SpotArrayMapper`.
             loss_scale: Slope of the cost function of the default retriever.
@@ -237,14 +238,13 @@ class FeedbackCorrectorBase(ABC):
     def target_center_pixels(self) -> tuple[float, float]:
         """Where :attr:`target_position` lands on the sensor, as ``(column, row)``.
 
-        ``target_position`` is ``(x, y)`` metres in the Nyquist plane, measured from the
-        zeroth order. The sign convention follows the rest of the package: on an
-        unrotated sensor, x increases with the column index and y with decreasing row
-        index, so positive y is upward on a displayed image.
-
-        The camera's rotation and scale are applied, so a request of ``(+500e-6, 0)``
-        means half a millimetre along the *optical* x axis, wherever that falls on a
-        rotated sensor.
+        ``target_position`` is ``(x, y)`` metres in the focal plane, measured from the
+        zeroth order, and :meth:`~.CameraMapping.image_plane_to_sensor` carries it onto
+        the sensor. On an unturned sensor, x increases with the column index and y with
+        decreasing row index, so positive y is upward on a displayed image. On a turned
+        sensor, a request of ``(+500e-6, 0)`` is half a millimetre along the x axis of
+        the focal plane, turned on the sensor by the mapping's
+        :attr:`~.CameraMapping.camera_angle`.
         """
         column, row = self._mapping.image_plane_to_sensor(
             np.asarray([self.target_position])
@@ -267,9 +267,10 @@ class FeedbackCorrectorBase(ABC):
     def place_target(self) -> None:
         """Build the full-frame target from the patch and hand it to the retriever.
 
-        Called by :meth:`run` after the mapping is known. The patch is *not* rotated to
-        match the camera. On a rotated camera, the potential is tilted by the same angle
-        in the optical plane, matching the camera's rotation.
+        Called by :meth:`run` after the mapping is known. The patch is pasted with its
+        axes along the sensor's columns and rows, centred on
+        :meth:`target_center_pixels`. On a turned camera the target is therefore turned
+        in the focal plane by minus the mapping's :attr:`~.CameraMapping.camera_angle`.
         """
         device = self.slm_camera_model.device
 
@@ -460,8 +461,8 @@ class FeedbackCorrectorBase(ABC):
         mapping is measured with a
         :class:`~hologradpy.calibration.camera_mapping.SpotArrayMapper`.
 
-        The mapping is kept for :meth:`target_center_pixels`. It describes how the
-        camera sits relative to the optical plane. The mappers measure against the
+        The mapping is kept for :meth:`target_center_pixels`. It describes the focal
+        plane as the camera shows it. The mappers measure against the
         model without its partial affine, so the mapping is the same whatever values
         the affine held before. The calibration follows from the mapping alone, so a
         repeated call sets the same values.

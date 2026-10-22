@@ -1,8 +1,8 @@
 """Backend-agnostic 2D geometric-transform value objects.
 
-One convention throughout: points are ``(x, y)`` and a transform maps source-plane
-points to destination-plane points via a 3x3 homogeneous matrix. The hierarchy is a
-chain of increasing generality:
+A transform maps source-plane points to destination-plane points via a 3x3 homogeneous
+matrix, in the frame the caller passes, ``(x, y)`` positions or ``(column, row)``
+pixels. The hierarchy is a chain of increasing generality:
 
     PartialAffineTransform (4 DOF)  <  AffineTransform (6 DOF)
 

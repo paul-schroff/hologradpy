@@ -1070,7 +1070,7 @@ def test_exposure_requests_stay_inside_the_cameras_bounds() -> None:
         verbose=False,
     )[0]
 
-    assert mapping.rotation_degrees == pytest.approx(-10.0, abs=0.5)
+    assert mapping.camera_angle == pytest.approx(10.0, abs=0.5)
     assert (column, row) == pytest.approx((80, 60), abs=2)
 
 

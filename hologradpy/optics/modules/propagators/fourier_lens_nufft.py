@@ -32,10 +32,11 @@ class FourierLensNUFFT(PartialAffineFourierLens):
             focal_length: The focal length in metres.
             resolution_out: The ``(height, width)`` of the focal plane in pixels.
             pixel_size_out: The ``(height, width)`` pitch of the focal plane in metres.
-            shift: The starting translation of the partial affine, in output pixels
-                along ``(x, y)``.
-            angle: The starting rotation of the partial affine, in degrees from +x
-                towards +y.
+            shift: The starting shift of the focal plane on the output plane, in output
+                pixels along ``(x, y)``. The zeroth order lands this far from the centre
+                pixel.
+            angle: The starting turn of the focal plane on the output plane, in degrees
+                from +x towards +y.
             learnable: Whether the parameters of the partial affine require a gradient.
             nufft_kwargs: Keyword arguments for FINUFFT, such as ``eps``.
             power_normalized: Whether the output carries the optical power of the

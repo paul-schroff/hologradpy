@@ -368,12 +368,12 @@ def test_a_camera_shift_towards_plus_y_moves_the_image_up(system_class):
     assert _spot(model) == pytest.approx((center_row - 10, center_column), abs=0.5)
 
 
-# Each camera window turns by 25 degrees, zooms along the camera's x and y and shifts
-# by 5 camera pixels along x and 3 along -y. A window is (scale_factor,
-# camera_pixel_size, camera_resolution, padded_resolution), and SLMFFTAffine pads the
-# SLM to padded_resolution. The FFT plane of the non-square pitch case, 256 x 320
-# pixels, has a (y, x) pitch of (31.25, 25) um, so both planes of the warp have
-# non-square pitches.
+# Each model turns the focal plane by 25 degrees on the camera, zooms it along the
+# camera's x and y and moves it by 5 camera pixels along x and 3 along -y. A window is
+# (scale_factor, camera_pixel_size, camera_resolution, padded_resolution), and
+# SLMFFTAffine pads the SLM to padded_resolution. The FFT plane of the non-square pitch
+# case, 256 x 320 pixels, has a (y, x) pitch of (31.25, 25) um, so both planes of the
+# warp have non-square pitches.
 TURNED_WINDOWS = {
     "anisotropic zoom": ((1.3, 0.8), (FOCAL_PITCH, FOCAL_PITCH), PADDED, PADDED),
     "non-square pitch": (
@@ -392,9 +392,9 @@ def _steered_model(
     camera_resolution: tuple[int, int],
     padded_resolution: tuple[int, int],
 ) -> SLMFourierLensModel:
-    """A model with its camera window turned by 25 degrees, zoomed by ``scale_factor``
-    and shifted by 5 camera pixels along x and 3 along -y, and the beam steered to
-    ``POSITION``.
+    """A model with the focal plane turned by 25 degrees on the camera, zoomed by
+    ``scale_factor`` and moved by 5 camera pixels along x and 3 along -y, and the beam
+    steered to ``POSITION``.
     """
     model = _model(
         system_class,
@@ -490,10 +490,10 @@ def _mapping(
     )
 
 
-def test_a_camera_turned_counterclockwise_reports_minus_its_angle():
-    """``numpy.rot90`` turns an image a quarter turn counterclockwise. A camera that
-    sees the model plane turned that way maps back to it with a quarter turn clockwise,
-    -90 degrees.
+def test_a_rot90_camera_maps_back_with_a_clockwise_quarter_turn():
+    """``numpy.rot90`` turns an image a quarter turn counterclockwise. The camera ->
+    model affine of such a camera turns +column towards +row by 90 degrees, clockwise on
+    screen. Its camera_angle of 90 is pinned in tests/test_affine_calibration.py.
     """
     height, width = 6, 8
     model_points = np.array([[1.0, 2.0], [6.0, 1.0], [3.0, 5.0], [7.0, 4.0]])
@@ -505,7 +505,7 @@ def test_a_camera_turned_counterclockwise_reports_minus_its_angle():
 
     mapping = _mapping(camera_points, model_points, (height, width))
 
-    assert mapping.rotation_degrees == pytest.approx(-90.0)
+    assert mapping.affine.rotation_degrees == pytest.approx(90.0)
 
 
 def test_an_identity_mapping_puts_plus_y_above_the_centre():

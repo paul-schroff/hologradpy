@@ -249,7 +249,7 @@ def get_diffraction_spot_position(
         slm: Instance of your SLM subclass.
         camera: Instance of your camera subclass.
         linear_phase_tilt: The displacement ``(x, y)`` of the spot in the focal plane,
-            in metres.
+            in metres from the zeroth order, before the focal-plane partial affine.
         slm_camera_model: The model of the setup, which gives the steering phase and
             the focal length.
         exposure_time: Exposure time in seconds. If None, the camera autoexposes on the
@@ -257,9 +257,9 @@ def get_diffraction_spot_position(
             even at the shortest exposure.
         slm_mask_diameter: Diameter of the circular aperture in metres. If None, the
             diameter is set to the size of the SLM.
-        units: Units of the returned spot position, "metres" for the (x, y)
-            coordinates in the camera plane or "pixels" for the integer camera pixel
-            ``(column, row)``.
+        units: The units of the returned spot position. "metres" gives ``(x, y)`` in
+            the camera plane, from the sensor's centre pixel at the camera's pitch.
+            "pixels" gives the camera pixel ``(column, row)``, truncated to integers.
         roi_pad: Padding in pixels added around the detected spot when cropping the
             camera image before the fit (passed to ROI.detect).
         roi_threshold: Fraction of the peak intensity used to detect the spot region of

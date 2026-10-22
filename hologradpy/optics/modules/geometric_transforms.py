@@ -31,6 +31,18 @@ class GeometricWarp(OpticsModule):
         shift: tuple[float, float] = (0, 0),
         angle: float = 0.0,
     ) -> None:
+        """
+        Args:
+            resolution_out: The ``(height, width)`` of the output plane, the camera
+                grid.
+            pixel_size_out: The ``(y, x)`` pitch of the output plane in metres.
+            scale_factor: The zoom of the input plane along the output ``(x, y)``. A
+                negative zoom mirrors the plane along that axis.
+            shift: The shift of the input plane on the output plane, in output pixels
+                along ``(x, y)``. The centre of the input plane lands this far from the
+                centre pixel of the output plane.
+            angle: The turn of the input plane, in degrees from +x towards +y.
+        """
         super().__init__(pixel_size_out, resolution_out)
 
         self.focal_plane_partial_affine = LearnablePartialAffine(
