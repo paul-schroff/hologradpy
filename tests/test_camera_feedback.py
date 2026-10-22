@@ -944,6 +944,35 @@ def test_no_model_and_no_retriever_raises() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("options", "fraction"), [({}, 1.0), ({"target_efficiency": 0.5}, 0.5)]
+)
+def test_the_absolute_target_holds_the_target_efficiency(
+    options: dict, fraction: float
+) -> None:
+    """The scaled target holds ``target_efficiency`` of the power entering the lens,
+    all of it by default.
+    """
+    feedback = _feedback(**options)
+    model = feedback.slm_camera_model
+    target = torch.rand(16, 16, generator=torch.Generator().manual_seed(0))
+    region = torch.zeros(16, 16)
+    region[4:12, 4:12] = 1.0
+
+    cost = feedback._absolute_intensity_cost(target, region)
+
+    held = float(cost.target_intensity.sum()) * float(model.output_pixel_area())
+    assert held == pytest.approx(fraction * model.incident_power(), rel=1e-5)
+
+
+@pytest.mark.parametrize("target_efficiency", [0.0, 1.5])
+def test_a_target_efficiency_outside_zero_to_one_raises(
+    target_efficiency: float,
+) -> None:
+    with pytest.raises(ValueError, match="target efficiency"):
+        _feedback(target_efficiency=target_efficiency)
+
+
 # --- The retargeting contract ------------------------------------------------------
 
 

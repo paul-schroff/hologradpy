@@ -117,7 +117,9 @@ class FeedbackCorrectorBase(ABC):
     target's patch with its margin. The retriever compares the intensity over the whole
     box with the target in absolute units
     (:class:`~hologradpy.loss_functions.LossAbsoluteIntensityMSE`). The target is scaled
-    to hold all the power that enters the Fourier lens.
+    to hold a set fraction of the power that enters the Fourier lens,
+    ``target_efficiency``. Below 1, the retriever can send the remaining light outside
+    the box.
 
     The frames of every measurement are registered before they are averaged. The
     translation of each frame is fitted with a pattern, the target or the model's
@@ -137,6 +139,7 @@ class FeedbackCorrectorBase(ABC):
         phase_retriever: GradientPhaseRetriever | None = None,
         camera_mapping: CameraMapping | None = None,
         loss_scale: float | None = None,
+        target_efficiency: float = 1.0,
     ) -> None:
         """
         Args:
@@ -161,6 +164,9 @@ class FeedbackCorrectorBase(ABC):
                 :meth:`apply_camera_mapping` measures one with a
                 :class:`~hologradpy.calibration.camera_mapping.SpotArrayMapper`.
             loss_scale: Slope of the cost function of the default retriever.
+            target_efficiency: The fraction of the power entering the Fourier lens
+                held by the target in the absolute intensity cost, above 0 and at
+                most 1.
         """
         self.slm = as_slm(slm)
         self.camera = as_camera(camera)
@@ -168,6 +174,12 @@ class FeedbackCorrectorBase(ABC):
             camera_mapping.check_camera(self.camera)
         self.camera_mapping = camera_mapping
         self.target_position = target_position
+        if not 0.0 < target_efficiency <= 1.0:
+            raise ValueError(
+                f"The target efficiency {target_efficiency} has to lie above 0 and at "
+                "most 1, as it is a fraction of the power entering the Fourier lens."
+            )
+        self.target_efficiency = float(target_efficiency)
 
         if target is None:
             target = getattr(phase_retriever, "target", None)
@@ -423,12 +435,15 @@ class FeedbackCorrectorBase(ABC):
         self, target: torch.Tensor, signal_region: torch.Tensor
     ) -> LossAbsoluteIntensityMSE:
         """The absolute intensity cost of ``target`` over ``signal_region``, with the
-        target scaled to hold the power entering the Fourier lens.
+        target scaled to hold ``target_efficiency`` of the power entering the Fourier
+        lens.
         """
         model = self.slm_camera_model
         weighted = target * signal_region
-        power_per_unit = model.incident_power() / (
-            model.output_pixel_area() * float(weighted.sum())
+        power_per_unit = (
+            self.target_efficiency
+            * model.incident_power()
+            / (model.output_pixel_area() * float(weighted.sum()))
         )
         scaled = target * power_per_unit
         total = float((scaled * signal_region).sum())
