@@ -83,7 +83,7 @@ HoloGradPy Documentation
    :end-before: <!-- about-start -->
 
 .. seealso::
-   For spot array specific algorithms, have a look at
+   For spot-array-specific algorithms, check out
    `slmsuite <https://slmsuite.readthedocs.io/en/latest/>`_.
 
 .. include:: ../README.md

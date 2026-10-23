@@ -92,9 +92,10 @@ gas microscopes.
 
 I now maintain it in Prof. Jonathan Pritchard's
 [SQuAre](https://umqt.phys.strath.ac.uk/ryd-projects/scalable-qubit-arrays/) lab, where
-its algorithms are used for top-hat beam shaping. Many thanks to Daniel Walker, who
-turned some of my PhD spaghetti code into something modular and easy to use for our atom
-array experiments. Much of what I learned from him has fed back into this package.
+it generates our tweezer arrays, shapes top-hat beams for Rydberg addressing, and
+creates spot arrays for local light shifts. Many thanks to Daniel Walker, who turned
+some of my PhD spaghetti code into something modular and easy to use for our atom array
+experiments. Much of what I learned from him has fed back into this package.
 
 <!-- contact-start -->
 For questions or suggestions, email
