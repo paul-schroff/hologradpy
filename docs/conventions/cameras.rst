@@ -149,7 +149,8 @@ warp of optimal transport follow this order.
 ``CameraMapping.partial_affine``, the similarity that a model is calibrated from, so
 the mapping places a point where the calibrated model puts it. A similarity holds no
 mirror, so a mirrored mapping places points through its full fit,
-``CameraMapping.affine``. The zeroth-order masks follow ``zeroth_order_position``.
+``CameraMapping.affine``, and calibrates no model. The zeroth-order masks follow
+``zeroth_order_position``.
 
 :class:`~hologradpy.optics.modules.slm_fields.psf.PSFSLMField` maps its image-plane
 kernel to the SLM grid through an inverse chirp-z transform, a chirp-z with a negative

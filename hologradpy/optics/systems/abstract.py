@@ -687,7 +687,8 @@ class SLMFourierLensModel(OpticalSystem):
 
         Raises:
             TypeError: If the model has no focal-plane partial affine.
-            ValueError: If the mapping records an output plane other than this
+            ValueError: If the mapping is mirrored, since a partial affine holds no
+                mirror. Also if the mapping records an output plane other than this
                 model's, since it was then measured against another model.
         """
         partial_affine = self.focal_plane_partial_affine
@@ -695,6 +696,12 @@ class SLMFourierLensModel(OpticalSystem):
             raise TypeError(
                 f"{type(self).__name__} has no focal-plane partial affine to calibrate "
                 "from a mapping."
+            )
+        if mapping.is_mirrored:
+            raise ValueError(
+                "The camera mapping is mirrored, and a focal-plane partial affine "
+                "holds no mirror. Mount the camera as "
+                "map_camera(find_camera_orientation=True) suggests, and map it again."
             )
         if self[-1].pixel_size_out is not None:
             mapping.check_output_plane(*self.output_plane)

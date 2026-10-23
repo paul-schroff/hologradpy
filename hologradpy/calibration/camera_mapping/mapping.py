@@ -148,7 +148,8 @@ class CameraMapping(SaveableRecord):
 
         It is :attr:`partial_affine`, which a model is calibrated from, so the mapping
         places a point where the calibrated model puts it. A similarity holds no mirror,
-        so a mirrored mapping places points through :attr:`affine`.
+        so a mirrored mapping places points through :attr:`affine`, and
+        :meth:`~.SLMFourierLensModel.calibrate_from_mapping` refuses it.
         """
         return self.affine if self.is_mirrored else self.partial_affine
 
@@ -433,7 +434,7 @@ class CameraMapping(SaveableRecord):
     def is_mirrored(self) -> bool:
         """True when the camera shows the focal plane mirrored, a negative determinant
         of :attr:`transform`. A mirrored mapping gives no :attr:`camera_angle`,
-        :attr:`camera_shift` or :attr:`camera_zoom`.
+        :attr:`camera_shift` or :attr:`camera_zoom`, and calibrates no model.
         """
         return self.affine.is_mirrored
 

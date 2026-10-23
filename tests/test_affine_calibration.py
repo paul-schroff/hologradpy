@@ -728,9 +728,9 @@ def test_a_mapping_on_pixels_that_are_not_square_gives_no_camera_angle():
             getattr(mapping, name)
 
 
-def test_a_mirrored_mapping_gives_no_camera_angle():
+def test_a_mirrored_mapping_gives_no_camera_angle_and_calibrates_no_model():
     """A camera mounted mirrored maps to a mirrored mapping, which gives no camera
-    angle.
+    angle and leaves the model's partial affine as it was.
     """
     geometry, slm, beam = _geometry_and_beam()
     truth = _czt(geometry, beam, slm.virtual_slm, 0.0, (0.0, 0.0))
@@ -744,6 +744,10 @@ def test_a_mirrored_mapping_gives_no_camera_angle():
     assert mapping.is_mirrored
     with pytest.raises(ValueError, match="mirrored"):
         mapping.camera_angle
+    held = _affine_state(reference)
+    with pytest.raises(ValueError, match="mirrored"):
+        reference.calibrate_from_mapping(mapping)
+    _assert_affine_equal(reference, held)
 
 
 def test_a_mapping_without_a_camera_gives_no_camera_angle():
