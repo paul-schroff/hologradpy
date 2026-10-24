@@ -269,25 +269,17 @@ class PSFSLMField(SLMField):
         device: torch.device,
     ) -> ChirpZPartialAffine:
         """The chirp-z transform through the Fourier lens, from an image-plane grid of
-        ``shape`` and ``(y, x)`` ``pitch`` to the SLM grid. The image-plane grid is
-        centred on the optical axis.
+        ``shape`` and ``(y, x)`` ``pitch`` to the SLM grid
+        (:func:`image_plane_to_slm_chirp_z`).
         """
-        # Negative, so the chirp-z is the inverse transform (see get_transmission).
-        magnification = (
-            -fourier_lens_magnification(
-                wavelength, self.focal_length, pitch[1], shape[1], slm_pitch[1]
-            ),
-            -fourier_lens_magnification(
-                wavelength, self.focal_length, pitch[0], shape[0], slm_pitch[0]
-            ),
-        )
-        return ChirpZPartialAffine(
+        return image_plane_to_slm_chirp_z(
             shape,
+            pitch,
             self.resolution_in,
-            magnification=magnification,
-            shift=(0.0, 0.0),
-            angle=0.0,
-            device=device,
+            slm_pitch,
+            wavelength,
+            self.focal_length,
+            device,
         )
 
     def _fitted_kernel(self: PSFSLMField, wavefront: Tensor) -> tuple[Tensor, float]:
@@ -353,6 +345,52 @@ class PSFSLMField(SLMField):
     def get_wavefront(self: PSFSLMField) -> Tensor:
         """The recovered SLM-plane complex field, on the SLM grid."""
         return self.get_transmission().squeeze(0)
+
+
+def image_plane_to_slm_chirp_z(
+    shape: tuple[int, int],
+    pitch: tuple[float, float],
+    slm_resolution: tuple[int, int],
+    slm_pitch: tuple[float, float],
+    wavelength: float,
+    focal_length: float,
+    device: torch.device,
+) -> ChirpZPartialAffine:
+    """The chirp-z transform through a Fourier lens, from an image-plane grid to the SLM
+    grid.
+
+    The image-plane grid is centred on the optical axis. The magnification is negative,
+    so the chirp-z is the inverse transform, and the lens then images a field on the
+    image-plane grid upright (:meth:`PSFSLMField.get_transmission`).
+
+    Args:
+        shape: The ``(rows, columns)`` of the image-plane grid.
+        pitch: Its ``(y, x)`` pitch in metres.
+        slm_resolution: The ``(height, width)`` of the SLM grid.
+        slm_pitch: Its ``(y, x)`` pitch in metres.
+        wavelength: The wavelength in metres.
+        focal_length: The focal length of the lens in metres.
+        device: The device the transform runs on.
+
+    Returns:
+        ChirpZPartialAffine: The transform from the image-plane grid to the SLM grid.
+    """
+    magnification = (
+        -fourier_lens_magnification(
+            wavelength, focal_length, pitch[1], shape[1], slm_pitch[1]
+        ),
+        -fourier_lens_magnification(
+            wavelength, focal_length, pitch[0], shape[0], slm_pitch[0]
+        ),
+    )
+    return ChirpZPartialAffine(
+        shape,
+        slm_resolution,
+        magnification=magnification,
+        shift=(0.0, 0.0),
+        angle=0.0,
+        device=device,
+    )
 
 
 def _single_wavefront(complex_amplitude: ComplexAmplitude) -> Tensor:
