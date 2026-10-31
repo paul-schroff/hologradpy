@@ -11,7 +11,7 @@ from ...hardware.camera import CameraData
 from ...optics import SLMFourierLensModel
 from ...visualizer import VisualizationData
 
-from .mapping import CameraMapping, FocalSpotFit, MappingFit, OrientationSuggestion
+from .mapping import CameraMapping, FocalSpotFit, MappingFit
 
 
 class CameraMapper:
@@ -45,7 +45,6 @@ class CameraMapper:
         spot_fit: FocalSpotFit,
         visualization_data: VisualizationData,
         excluded_points: list[tuple[float, float]] | None = None,
-        orientation: OrientationSuggestion | None = None,
     ) -> CameraMapping:
         """The mapping of a measurement, with its reprojection error, the time, the
         camera and the output plane of the model.
@@ -59,7 +58,6 @@ class CameraMapper:
             spot_fit: The fitted focal spot.
             visualization_data: The frames of the measurement.
             excluded_points: The camera detections left out of the fit.
-            orientation: The camera orientation suggested by the measurement.
         """
         reprojection_errors, reprojection_rms = affine.reprojection_error(
             detected_points, calculated_points
@@ -77,7 +75,6 @@ class CameraMapper:
                 reprojection_rms=reprojection_rms,
                 excluded_points=excluded_points,
             ),
-            orientation=orientation,
             camera_data=CameraData.from_camera(self.camera),
             output_pixel_size=pixel_size_out,
             output_resolution=resolution_out,

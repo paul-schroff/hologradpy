@@ -52,7 +52,8 @@ class MappingFit:
 @dataclass(frozen=True)
 class OrientationSuggestion:
     """The mounting that aligns the sensor with the output plane, as
-    :meth:`~.CoarseMapper.map_camera` suggests it with ``find_camera_orientation=True``.
+    :meth:`CameraMapping.suggest_orientation` suggests it.
+    :meth:`~.CoarseMapper.map_camera` records it with ``find_camera_orientation=True``.
 
     ``suggested`` is the whole mounting, the correction composed onto the mounting the
     camera was mapped in, ready for
@@ -177,13 +178,7 @@ class CameraMapping(SaveableRecord):
                 plane, or the pixels of the sensor or of the output plane are not
                 square.
         """
-        if self.is_mirrored:
-            raise ValueError(
-                "The camera shows the focal plane mirrored, and a similarity holds no "
-                "mirror, so the mapping gives no camera angle, shift or zoom. Mount "
-                "the camera as map_camera(find_camera_orientation=True) suggests, and "
-                "map it again."
-            )
+        self.check_unmirrored()
         if self.camera_data is None:
             raise ValueError(
                 "The camera mapping records no camera, so the sensor's pitch and its "
@@ -436,6 +431,77 @@ class CameraMapping(SaveableRecord):
         :attr:`camera_shift` or :attr:`camera_zoom`.
         """
         return self.affine.is_mirrored
+
+    def check_unmirrored(self) -> None:
+        """Raise unless the camera shows the focal plane unmirrored.
+
+        A similarity holds no mirror. A mirrored mapping therefore gives no camera
+        angle, shift or zoom, and no model can be calibrated from it. The message names
+        the orientation that unmirrors the camera (:meth:`suggest_orientation`).
+
+        Raises:
+            ValueError: The mapping is mirrored (:attr:`is_mirrored`).
+        """
+        if not self.is_mirrored:
+            return
+        suggestion = self.suggest_orientation()
+        orientation = (
+            "as CoarseMapper.map_camera(find_camera_orientation=True) suggests"
+            if suggestion is None
+            else f"to {suggestion.suggested}"
+        )
+        raise ValueError(
+            "The camera shows the focal plane mirrored. A similarity holds no mirror, "
+            "so the mapping gives no camera angle, shift or zoom, and no model can be "
+            f"calibrated from it. Set the camera's orientation {orientation}, and map "
+            "the camera again."
+        )
+
+    def suggest_orientation(self) -> OrientationSuggestion | None:
+        """The mounting that aligns the camera with the output plane, up to a residual
+        affine transform.
+
+        Each of the eight orientations is tried as a correction on top of the mounting
+        in :attr:`camera_data`. ``D`` and ``d`` are the linear part and the offset of
+        the correction's pixel-space affine. The residual is ``L' = L @ inv(D)`` and
+        ``t' = t - L' @ d``, with ``L`` and ``t`` from :attr:`transform`. The
+        suggestion is the unmirrored residual (``det > 0``) with the smallest turn.
+
+        - If the mapping records no camera, return None.
+        - If the camera was mounted with a frame transform outside the eight, return
+          None.
+        """
+        if self.camera_data is None:
+            return None
+        current = self.camera_data.orientation_flags
+        if current is None:
+            return None
+        camera_shape = tuple(int(size) for size in self.camera_data.sensor_resolution)
+        matrix = np.asarray(self.transform, dtype=np.float64)
+        linear, offset = matrix[:, :2], matrix[:, 2]
+
+        best = None
+        for correction in CameraOrientation.dihedral():
+            pixel = correction.matrix(camera_shape)
+            residual_linear = linear @ np.linalg.inv(pixel[:, :2])
+            if np.linalg.det(residual_linear) <= 0:
+                continue  # this orientation leaves a mirror in the residual
+            residual_offset = offset - residual_linear @ pixel[:, 2]
+            # The size of the residual turn, the same in both frames.
+            angle = abs(
+                AffineTransform.from_matrix(
+                    np.column_stack([residual_linear, [0.0, 0.0]])
+                ).rotation_degrees
+            )
+            if best is None or angle < best[0]:
+                best = (
+                    angle,
+                    OrientationSuggestion(
+                        correction.compose(current),
+                        np.column_stack([residual_linear, residual_offset]),
+                    ),
+                )
+        return best[1]
 
     def lean(self) -> CameraMapping:
         """A copy without the frames it was fit from, ready to embed in another

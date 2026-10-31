@@ -1,6 +1,6 @@
 from __future__ import annotations
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 from numpy.typing import NDArray
@@ -35,10 +35,8 @@ from ...spot_detection import (
 )
 from ...exposure import expose_until_spot
 
-from ....hardware.camera import CameraOrientation
-
 from ..abstract import CameraMapper
-from ..mapping import CameraMapping, FocalSpotFit, OrientationSuggestion
+from ..mapping import CameraMapping, FocalSpotFit
 from .visualizer import CoarseVisualizationData
 
 
@@ -286,18 +284,23 @@ class CoarseMapper(CameraMapper):
                 np.asarray(probes.simulated_points, dtype=np.float64),
             )
 
-            orientation = None
-            if find_camera_orientation:
-                orientation = self._suggest_camera_orientation(transform, camera_shape)
-
-            return self._record(
+            mapping = self._record(
                 affine,
                 probes.camera_points,
                 probes.simulated_points,
                 FocalSpotFit(waist=probes.focal_spot_radius),
                 visualization_data,
-                orientation=orientation,
             )
+            if not find_camera_orientation:
+                return mapping
+            orientation = mapping.suggest_orientation()
+            if orientation is None:
+                raise ValueError(
+                    f"{type(self.camera).__name__} applies a frame transform that is "
+                    "not one of the eight orientations, so there is no mounting to "
+                    "suggest. Map it with find_camera_orientation=False."
+                )
+            return replace(mapping, orientation=orientation)
 
     def _tilt_on_sensor(
         self,
@@ -401,56 +404,6 @@ class CoarseMapper(CameraMapper):
                 "Focal spots cannot be placed there.",
                 stacklevel=3,
             )
-
-    def _suggest_camera_orientation(
-        self, transform: NDArray, camera_shape: tuple[int, int]
-    ) -> OrientationSuggestion:
-        """The mounting that aligns the camera with the output plane, up to a
-        residual affine transform.
-
-        Enumerates the 8 dihedral orientations. For each, ``D`` is the orientation's
-        pixel-space linear map and the residual is ``L' = L @ inv(D)``, ``t' = t - L' @
-        d``. Picks the non-mirrored residual (``det > 0``) with the smallest residual
-        rotation.
-
-        Raises:
-            ValueError: The camera applies a frame transform outside the eight, leaving
-                nothing to compose onto.
-        """
-        current = self.camera.orientation
-        if current is None:
-            raise ValueError(
-                f"{type(self.camera).__name__} applies a frame transform that is not "
-                "one of the eight orientations, so there is no mounting to suggest. "
-                "Map it with find_camera_orientation=False."
-            )
-
-        matrix = np.asarray(transform, dtype=np.float64)
-        linear, offset = matrix[:, :2], matrix[:, 2]
-
-        best = None
-        for correction in CameraOrientation.dihedral():
-            pixel = correction.matrix(camera_shape)
-            residual_linear = linear @ np.linalg.inv(pixel[:, :2])
-            if np.linalg.det(residual_linear) <= 0:
-                continue  # this orientation leaves a mirror in the residual
-            residual_offset = offset - residual_linear @ pixel[:, 2]
-            # The size of the residual turn, the same in both frames.
-            angle = abs(
-                AffineTransform.from_matrix(
-                    np.column_stack([residual_linear, [0.0, 0.0]])
-                ).rotation_degrees
-            )
-            if best is None or angle < best[0]:
-                best = (
-                    angle,
-                    OrientationSuggestion(
-                        correction.compose(current),
-                        np.column_stack([residual_linear, residual_offset]),
-                    ),
-                )
-
-        return best[1]
 
     def _build_visualization_data(
         self,

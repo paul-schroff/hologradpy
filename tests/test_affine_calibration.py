@@ -15,6 +15,7 @@ the same calibrated affine.
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from datetime import datetime
 
@@ -267,6 +268,30 @@ def test_calibrate_from_mapping_rejects_system_without_focal_plane_partial_affin
     mapping = _synthetic_mapping(PartialAffineTransform.from_components())
     with pytest.raises(TypeError, match="no focal-plane partial affine"):
         model.calibrate_from_mapping(mapping)
+
+
+def test_a_mirrored_mapping_is_refused():
+    """A partial affine holds no mirror, so a model refuses a mirrored mapping and its
+    partial affine stays at identity. The mapping records no camera, so the refusal
+    points to the coarse mapper's suggestion.
+    """
+    geometry, _, beam = _geometry_and_beam()
+    model = _czt(geometry, beam, VirtualSLM(full_scale_cycles=1.0), 0.0, (0.0, 0.0))
+    model()
+    mirrored = AffineTransform.from_components(scale=1.01, mirror=True)
+    detected = np.random.default_rng(0).uniform(0.0, 64.0, size=(12, 2))
+    mapping = CameraMapping(
+        timestamp=datetime.now(),
+        name="mirrored",
+        transform=mirrored.as_matrix(homogeneous=False),
+        detected_points=detected.tolist(),
+        calculated_points=mirrored.transform_points(detected).tolist(),
+        spot_fit=FocalSpotFit(waist=1.0),
+    )
+
+    with pytest.raises(ValueError, match="mirrored.*find_camera_orientation=True"):
+        model.calibrate_from_mapping(mapping)
+    _assert_at_identity(model)
 
 
 def test_a_mapping_of_another_output_plane_is_refused():
@@ -728,9 +753,11 @@ def test_a_mapping_on_pixels_that_are_not_square_gives_no_camera_angle():
             getattr(mapping, name)
 
 
-def test_a_mirrored_mapping_gives_no_camera_angle():
-    """A camera mounted mirrored maps to a mirrored mapping, which gives no camera
-    angle.
+def _mirrored_camera_mapping() -> tuple[SLMCZT, CameraMapping]:
+    """A reference model, and the coarse mapping of a camera mounted mirrored over it.
+
+    The camera's raw frames show the focal plane as the model does, so the camera
+    unmirrors with no orientation, ``CameraOrientation()``.
     """
     geometry, slm, beam = _geometry_and_beam()
     truth = _czt(geometry, beam, slm.virtual_slm, 0.0, (0.0, 0.0))
@@ -738,12 +765,29 @@ def test_a_mirrored_mapping_gives_no_camera_angle():
     camera.set_exposure(1e-3)
     camera.get_image()
     reference = _reference(_czt)
+    return reference, CoarseMapper(slm, camera, reference).map_camera()
 
-    mapping = CoarseMapper(slm, camera, reference).map_camera()
+
+def test_a_mirrored_mapping_gives_no_camera_angle():
+    """A camera mounted mirrored maps to a mirrored mapping, which gives no camera
+    angle.
+    """
+    _, mapping = _mirrored_camera_mapping()
 
     assert mapping.is_mirrored
     with pytest.raises(ValueError, match="mirrored"):
         mapping.camera_angle
+
+
+def test_the_refusal_of_a_mirrored_mapping_names_the_orientation_to_set():
+    """A mapping records how its camera is mounted, so a model's refusal names the
+    orientation that unmirrors the camera.
+    """
+    reference, mapping = _mirrored_camera_mapping()
+
+    assert mapping.suggest_orientation().suggested == CameraOrientation()
+    with pytest.raises(ValueError, match=re.escape(f"to {CameraOrientation()},")):
+        reference.calibrate_from_mapping(mapping)
 
 
 def test_a_mapping_without_a_camera_gives_no_camera_angle():
