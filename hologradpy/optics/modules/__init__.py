@@ -49,6 +49,7 @@ from .hardware_models import (
     PowerInstability,
     CameraSensor,
 )
+from .zeroth_order import ZerothOrderField
 
 __all__ = [
     "OpticsModule",
@@ -82,4 +83,5 @@ __all__ = [
     "PointingInstability",
     "PowerInstability",
     "CameraSensor",
+    "ZerothOrderField",
 ]
