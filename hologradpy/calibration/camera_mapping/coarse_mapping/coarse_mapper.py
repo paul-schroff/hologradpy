@@ -58,6 +58,8 @@ class _ProbeMeasurements:
     camera_frames: list[NDArray]
     simulated_frames: list[NDArray]
     focal_spot_radius: float
+    # The (column, row) offset of the window the simulated frames were rendered in.
+    window_offset: tuple[float, float]
 
 
 class CoarseMapper(CameraMapper):
@@ -255,10 +257,7 @@ class CoarseMapper(CameraMapper):
                 camera_pixel_size=camera_pixel_size,
                 camera_shape=camera_shape,
                 field_of_view=field_of_view,
-                model_window_offset=(
-                    center_tilt[0] / pixel_size_out[1],
-                    center_tilt[1] / pixel_size_out[0],
-                ),  # (x, y) in output pixels
+                model_window_center=center_tilt,
                 mask=probe_mask,
             )
 
@@ -280,6 +279,7 @@ class CoarseMapper(CameraMapper):
                 transform,
                 probe_composite,
                 np.maximum.reduce(probes.simulated_frames),
+                probes.window_offset,
                 np.asarray(probes.camera_points, dtype=np.float64),
                 np.asarray(probes.simulated_points, dtype=np.float64),
             )
@@ -416,13 +416,15 @@ class CoarseMapper(CameraMapper):
         transform: NDArray,
         probe_image: NDArray,
         simulated_image: NDArray,
+        simulated_image_offset: tuple[float, float],
         detected_points: NDArray,
         affine_probe_positions: NDArray,
     ) -> CoarseVisualizationData:
         """Bundle the per-stage captures and output-plane geometry recorded during
         map_camera into a self-contained CoarseVisualizationData for
         CoarseMapperVisualizer. Output-plane pixels are (column, row); pixel_size_out /
-        resolution_out are (y, x) / (height, width).
+        resolution_out are (y, x) / (height, width). The simulated image was rendered in
+        a window moved by simulated_image_offset, (column, row) output pixels.
         """
         # Spiral candidate tilts (metres) to output-plane pixels
         tilts = np.asarray(
@@ -450,6 +452,7 @@ class CoarseMapper(CameraMapper):
         return CoarseVisualizationData(
             camera_image=probe_image,
             simulated_image=simulated_image,
+            simulated_image_offset=simulated_image_offset,
             array_image=self._search_array_image,
             walk_image=walk_image,
             probe_image=probe_image,
@@ -468,7 +471,7 @@ class CoarseMapper(CameraMapper):
         camera_pixel_size: NDArray,
         camera_shape: tuple[int, int],
         field_of_view: tuple[float, float],
-        model_window_offset: tuple[float, float] = (0.0, 0.0),
+        model_window_center: tuple[float, float] = (0.0, 0.0),
         mask: NDArray[np.bool_] | None = None,
     ) -> _ProbeMeasurements:
         """Measure every probe on the camera and in the model. Raises RuntimeError when
@@ -484,10 +487,11 @@ class CoarseMapper(CameraMapper):
             camera_shape: Camera resolution ``(height, width)`` in pixels, used for
                 that conversion and to pad every cropped frame back to a full frame.
             field_of_view: Extent ``(width, height)`` of the camera sensor in metres.
-            model_window_offset: ``(x, y)`` output pixels to move the model's render
-                window by while the probes are measured, so it covers the same region
-                the camera does. Removed again from the reported model positions, which
-                stay in the plane's own frame, centered on the zeroth order.
+            model_window_center: The ``(x, y)`` focal-plane point in metres that the
+                model's window is centred on while the probes are measured, so it covers
+                the region the camera images (:meth:`_model_window_centered_on`). The
+                reported model positions stay in the plane's own frame, centred on the
+                zeroth order.
             mask: True at the sensor pixels each probe is exposed and fitted on, and
                 False over the zeroth order. Every pixel is used when None.
         """
@@ -497,25 +501,10 @@ class CoarseMapper(CameraMapper):
         simulated_frames: list[NDArray] = []
         focal_spot_radius = 0.0
 
-        # The shift of the partial affine translates the image, so subtracting the
-        # offset brings the region the camera images to the middle of the window. The
-        # centroid below adds the offset back. The partial affine is restored on exit.
-        with self.slm_camera_model.build().bypass_partial_affine():
-            partial_affine = self.slm_camera_model.focal_plane_partial_affine
-            if partial_affine is None:
-                model_window_offset = (0.0, 0.0)
-            else:
-                with torch.no_grad():
-                    partial_affine.shift.sub_(
-                        torch.tensor(
-                            model_window_offset,
-                            dtype=partial_affine.shift.dtype,
-                            device=partial_affine.shift.device,
-                        )
-                    )
-            # The centroids are (column, row) pixels, so the offset is added back in the
-            # pixel frame.
-            column_offset, row_offset = pixel_frame_vector(model_window_offset)
+        # The centroids below are found in the moved window, so the offset is added
+        # back to each.
+        with self._model_window_centered_on(model_window_center) as window_offset:
+            column_offset, row_offset = window_offset
 
             for index, probe in enumerate(probe_tilts):
                 # Camera side: display the tilt on the hardware and fit the spot.
@@ -580,6 +569,7 @@ class CoarseMapper(CameraMapper):
             camera_frames,
             simulated_frames,
             focal_spot_radius,
+            window_offset,
         )
 
     def _calibrate_exposure(

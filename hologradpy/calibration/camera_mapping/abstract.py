@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from typing import ClassVar
 
+import torch
 from numpy.typing import ArrayLike
 
 from ...geometry import AffineTransform
+from ...grids import pixel_frame_vector
 from ...hardware import Camera, SLM, as_camera, as_slm
 from ...hardware.camera import CameraData
 from ...optics import SLMFourierLensModel
@@ -36,6 +40,50 @@ class CameraMapper:
         raise NotImplementedError(
             "Each subclass should implement its own map_camera() method."
         )
+
+    @contextmanager
+    def _model_window_centered_on(
+        self, point: tuple[float, float]
+    ) -> Iterator[tuple[float, float]]:
+        """Centre the model's output window on a focal-plane point for the duration of
+        a ``with`` block.
+
+        The block holds the focal-plane partial affine at identity
+        (:meth:`~hologradpy.optics.systems.SLMFourierLensModel.bypass_partial_affine`).
+        Subtracting ``point`` from its shift moves the image, so ``point`` renders in
+        the middle of the window. The partial affine is restored on exit.
+
+        - If the model has no focal-plane partial affine, the window stays on the zeroth
+          order. A plain FFT model has none, and its window spans the whole plane.
+
+        Args:
+            point: The ``(x, y)`` focal-plane position in metres, from the zeroth order.
+
+        Yields:
+            tuple[float, float]: The ``(column, row)`` output pixels to add to a
+            position in the window. The sum is the position in the plane's own frame,
+            centred on the zeroth order.
+        """
+        with self.slm_camera_model.build().bypass_partial_affine():
+            partial_affine = self.slm_camera_model.focal_plane_partial_affine
+            if partial_affine is None:
+                yield (0.0, 0.0)
+                return
+            # The shift is (x, y) in output pixels, and the pitch is (y, x).
+            pixel_size_out, _ = self.slm_camera_model.output_plane
+            offset = (
+                float(point[0]) / pixel_size_out[1],
+                float(point[1]) / pixel_size_out[0],
+            )
+            with torch.no_grad():
+                partial_affine.shift.sub_(
+                    torch.tensor(
+                        offset,
+                        dtype=partial_affine.shift.dtype,
+                        device=partial_affine.shift.device,
+                    )
+                )
+            yield pixel_frame_vector(offset)
 
     def _record(
         self,

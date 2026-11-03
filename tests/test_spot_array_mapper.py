@@ -20,7 +20,7 @@ from hologradpy.optics.complex_amplitude import (
     ComplexAmplitude,
     FieldGeometry,
 )
-from hologradpy.optics.systems import SLMFFT, SLMFFTAffine
+from hologradpy.optics.systems import SLMCZT, SLMFFT, SLMFFTAffine
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.modules.virtual_slms import VirtualSLM
 from hologradpy.profiles.amplitude import (
@@ -47,11 +47,13 @@ pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
 DEVICE = torch.device("cpu")
 
+# How far the sensor centre of the off-axis camera lies from the zeroth order, along x,
+# in its pixels: 0.6 sensor widths.
+OFF_AXIS_SHIFT_PX = 192.0
 
-def _build_setup(
-    camera_angle: float = 0.0, model_padded_resolution: tuple[int, int] = (512, 512)
-):
-    """A small simulated SLM + camera + hologram model."""
+
+def _slm_and_beam():
+    """A small simulated SLM, its geometry and a Gaussian beam on it."""
     slm_geometry = FieldGeometry(
         resolution=(256, 320),
         pixel_size=torch.tensor([12.5e-6, 12.5e-6], device=DEVICE),
@@ -67,6 +69,14 @@ def _build_setup(
         wavelength=slm_geometry.wavelength,
         pixel_size=slm_geometry.pixel_size,
     )
+    return slm_geometry, slm, gaussian_beam
+
+
+def _build_setup(
+    camera_angle: float = 0.0, model_padded_resolution: tuple[int, int] = (512, 512)
+):
+    """A small simulated SLM + camera + hologram model."""
+    slm_geometry, slm, gaussian_beam = _slm_and_beam()
 
     simulated_camera_model = SLMFFTAffine(
         input_geometry=slm_geometry,
@@ -94,6 +104,44 @@ def _build_setup(
     return slm, camera, slm_camera_model
 
 
+def _build_off_axis_setup():
+    """A camera whose sensor centre lies ``OFF_AXIS_SHIFT_PX`` along x from the zeroth
+    order, and a model whose output plane is a window the sensor's size on the zeroth
+    order.
+
+    The zeroth order lies just off the sensor, as on a setup that images the first
+    order. A window centred on the zeroth order covers 40 % of the sensor. The whole
+    sensor lies inside the field the SLM addresses.
+    """
+    slm_geometry, slm, gaussian_beam = _slm_and_beam()
+    camera_resolution = (240, 320)
+    camera_pitch = (15e-6, 15e-6)
+
+    simulated_camera_model = SLMCZT(
+        input_geometry=slm_geometry,
+        virtual_slm=slm.virtual_slm,
+        camera_resolution=camera_resolution,
+        camera_pixel_size=camera_pitch,
+        focal_length=0.25,
+        slm_field=PixelwiseSLMField(gaussian_beam),
+        # Where the zeroth order lands, from the sensor centre.
+        camera_shift=(-OFF_AXIS_SHIFT_PX * camera_pitch[1], 0.0),
+    )
+    camera = SimulatedCameraTorch(simulated_camera_model, add_noise=False)
+    camera.set_exposure(1e-3)
+    camera.get_image()
+
+    slm_camera_model = SLMCZT(
+        input_geometry=slm_geometry,
+        virtual_slm=VirtualSLM(full_scale_cycles=1.0),
+        camera_resolution=camera_resolution,
+        camera_pixel_size=camera_pitch,
+        focal_length=0.25,
+        slm_field=PixelwiseSLMField(gaussian_beam),
+    )
+    return slm, camera, slm_camera_model
+
+
 @pytest.fixture(scope="module")
 def simulated_setup():
     return _build_setup()
@@ -115,8 +163,8 @@ def spot_array_mapping(mapper):
 
 
 def test_sample_positions_inside_extent_and_separated(mapper):
-    extent = (2.0e-3, 1.0e-3)
-    minimum_separation = 1.0e-4
+    extent = (200.0, 100.0)
+    minimum_separation = 10.0
     generator = torch.Generator(device=DEVICE).manual_seed(7)
     positions = mapper._sample_positions(12, extent, minimum_separation, generator)
 
@@ -132,8 +180,8 @@ def test_sample_positions_inside_extent_and_separated(mapper):
 
 
 def test_sample_positions_is_reproducible(mapper):
-    extent = (2.0e-3, 2.0e-3)
-    args = (10, extent, 1.0e-4)
+    extent = (200.0, 200.0)
+    args = (10, extent, 10.0)
     first = mapper._sample_positions(
         *args, torch.Generator(device=DEVICE).manual_seed(3)
     )
@@ -144,10 +192,14 @@ def test_sample_positions_is_reproducible(mapper):
 
 
 def test_sample_positions_raises_when_infeasible(mapper):
+    """100 spots 100 px apart cannot fit in a 100 x 100 px box. The message gives the
+    lengths in pixels.
+    """
     generator = torch.Generator(device=DEVICE).manual_seed(0)
-    with pytest.raises(ValueError):
-        # 100 spots each >= 1 mm apart cannot fit in a 1 mm x 1 mm box.
-        mapper._sample_positions(100, (1.0e-3, 1.0e-3), 1.0e-3, generator)
+    with pytest.raises(
+        ValueError, match=r"100 spots 100\.0 px apart in a 100 x 100 px box"
+    ):
+        mapper._sample_positions(100, (100.0, 100.0), 100.0, generator)
 
 
 # --- LinearSuperpositionPhaseRetriever (default-argument regression) ----------
@@ -266,11 +318,13 @@ def test_map_camera_returns_populated_mapping(spot_array_mapping):
 
     # The calculated points sit on the bright spots of the simulated image as
     # actually rendered (regression: they used to be analytic positions that
-    # ignored the model's phase-convention mirror and landed on the ghost).
+    # ignored the model's phase-convention mirror and landed on the ghost). The image
+    # was rendered in a window moved by simulated_image_offset.
     simulated = np.asarray(frames.simulated_image)
+    column_offset, row_offset = frames.simulated_image_offset
     threshold = 0.1 * simulated.max()
     for x, y in calculated:
-        xi, yi = int(round(x)), int(round(y))
+        xi, yi = int(round(x - column_offset)), int(round(y - row_offset))
         assert simulated[yi - 3:yi + 4, xi - 3:xi + 4].max() > threshold
 
     # The fitted affine maps detected (camera) points onto the analytic
@@ -357,9 +411,61 @@ def test_map_camera_fills_sensor_and_respects_border():
     # Spots span most of each axis (fill the sensor) ...
     assert detected[:, 0].max() - detected[:, 0].min() > 0.5 * width
     assert detected[:, 1].max() - detected[:, 1].min() > 0.5 * height
-    # ... and stay inside a border (never right at the sensor edge).
-    assert detected[:, 0].min() > 5 and detected[:, 0].max() < width - 5
-    assert detected[:, 1].min() > 5 and detected[:, 1].max() < height - 5
+    # ... and stay inside the border of 3 focal-spot radii, less a pixel for the fit.
+    border = 3.0 * mapping.spot_fit.waist / camera.pixel_size[0] - 1.0
+    assert detected[:, 0].min() > border and detected[:, 0].max() < width - border
+    assert detected[:, 1].min() > border and detected[:, 1].max() < height - border
+
+
+def test_a_large_spot_leaves_room_for_the_array():
+    """The targets keep 3 focal-spot radii from the sensor edges. At a 150 um radius,
+    5 px, a border of 12 radii would leave a 200 x 120 px box, too small for 100 spots
+    15 px apart.
+    """
+    slm, camera, model = _build_setup()
+    coarse = CoarseMapper(slm, camera, model).map_camera()
+    radius = 150e-6
+    generator = torch.Generator(device=DEVICE).manual_seed(0)
+
+    targets, _ = SpotArrayMapper(slm, camera, model)._sample_targets(
+        coarse, 100, None, radius, generator
+    )
+
+    assert len(targets) == 100
+    columns, rows = coarse.image_plane_to_sensor(targets.cpu().numpy()).T
+    border = 3.0 * radius / camera.pixel_size[0] - 1.0
+    height, width = camera.sensor_resolution
+    assert columns.min() > border and columns.max() < width - border
+    assert rows.min() > border and rows.max() < height - border
+
+
+def test_map_camera_pairs_the_spots_of_a_camera_off_the_zeroth_order():
+    """The model renders the array in a window centred on the sensor, so every spot
+    pairs. A window on the zeroth order would cover only 40 % of the sensor. The
+    mapping and the calculated points stay in the plane's own frame, centred on the
+    zeroth order.
+    """
+    slm, camera, model = _build_off_axis_setup()
+    mapping = SpotArrayMapper(slm, camera, model).map_camera(
+        number_of_spots=20, seed=1
+    )
+
+    assert len(mapping.detected_points) == 20
+    # The model and the camera share a pitch, so the camera's columns map onto the
+    # model's shifted by the sensor centre's distance from the zeroth order.
+    transform = np.asarray(mapping.transform, dtype=float)
+    np.testing.assert_allclose(transform[:, :2], np.eye(2), atol=0.01)
+    np.testing.assert_allclose(transform[:, 2], (OFF_AXIS_SHIFT_PX, 0.0), atol=0.5)
+
+    frames = mapping.visualization_data
+    column_offset, row_offset = frames.simulated_image_offset
+    assert column_offset == pytest.approx(OFF_AXIS_SHIFT_PX, abs=0.5)
+    assert row_offset == pytest.approx(0.0, abs=0.5)
+    # The calculated points, less the offset, sit on the spots of the simulated image.
+    simulated = np.asarray(frames.simulated_image)
+    for x, y in np.asarray(mapping.calculated_points, dtype=float):
+        xi, yi = int(round(x - column_offset)), int(round(y - row_offset))
+        assert simulated[yi - 3:yi + 4, xi - 3:xi + 4].max() > 0.1 * simulated.max()
 
 
 def test_map_camera_with_a_window_left_on_the_camera():
@@ -477,6 +583,26 @@ def test_visualizer_marks_excluded_detections(spot_array_mapping):
     assert len(camera_axes.lines) == 2
     assert camera_axes.get_legend() is not None
     plt.close(figure)
+
+
+def test_a_coarse_mapping_records_the_window_of_its_simulated_image():
+    """The coarse mapper renders its probes in a window centred on the sensor. Its
+    mapping records the window's offset, so the visualizer draws the calculated points
+    on the probes of the simulated image.
+    """
+    slm, camera, model = _build_off_axis_setup()
+    coarse = CoarseMapper(slm, camera, model).map_camera()
+
+    frames = coarse.visualization_data
+    column_offset, row_offset = frames.simulated_image_offset
+    # The window is centred where the centre search found the sensor centre.
+    assert column_offset == pytest.approx(OFF_AXIS_SHIFT_PX, abs=2.0)
+    assert row_offset == pytest.approx(0.0, abs=2.0)
+    simulated = np.asarray(frames.simulated_image)
+    for x, y in np.asarray(coarse.calculated_points, dtype=float):
+        xi, yi = int(round(x - column_offset)), int(round(y - row_offset))
+        assert simulated[yi - 3:yi + 4, xi - 3:xi + 4].max() > 0.1 * simulated.max()
+    plt.close(CameraMapperVisualizer(coarse).render())
 
 
 def _no_fit_mapping() -> CameraMapping:

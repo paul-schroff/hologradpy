@@ -41,6 +41,10 @@ class CameraMappingVisualizationData(VisualizationData):
     #: True over the camera pixels a mapper left out of both the exposure and the
     #: detection, None when it masked nothing.
     zeroth_order_mask: NDArray | None = None
+    #: The ``(column, row)`` output pixels to add to a pixel of the simulated image to
+    #: give the model's output pixel. A mapper that renders in a window moved onto the
+    #: sensor records the move here.
+    simulated_image_offset: tuple[float, float] = (0.0, 0.0)
 
 
 # TODO: Sanity check and tidy up
@@ -100,6 +104,9 @@ class CameraMapperVisualizer(BaseVisualizer):
         span = max(np.ptp(calculated[:, 0]), np.ptp(calculated[:, 1]), 1.0)
         magnification = 0.1 * span / max(float(residuals.max()), 1e-12)
 
+        # The simulated image may have been rendered in a moved window.
+        column_offset, row_offset = self.frames.simulated_image_offset
+
         builder = (
             PlotBuilder(self.default_layout())
             .draw_image(
@@ -116,7 +123,11 @@ class CameraMapperVisualizer(BaseVisualizer):
                 title="Simulated image + calculated spots",
             )
             .draw_points(
-                "simulated", calculated[:, 0], calculated[:, 1], color="cyan", size=5
+                "simulated",
+                calculated[:, 0] - column_offset,
+                calculated[:, 1] - row_offset,
+                color="cyan",
+                size=5,
             )
             .draw_quiver(
                 "residual",

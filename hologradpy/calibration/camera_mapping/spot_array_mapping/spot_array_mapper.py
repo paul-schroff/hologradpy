@@ -20,11 +20,7 @@ from ....roi import ROI
 from ....holography.phase_retrieval import LinearSuperpositionPhaseRetriever
 from ....profiles.masks import disc_mask
 
-from ...spot_detection import (
-    DETECTION_HALF_WIDTH_RADII,
-    background_noise,
-    zeroth_order_mask_radius,
-)
+from ...spot_detection import background_noise, zeroth_order_mask_radius
 from ..coarse_mapping.coarse_mapper import CoarseMapper
 
 from ..abstract import CameraMapper
@@ -46,6 +42,9 @@ _MAX_SPOT_RADIUS_FACTOR = 5.0
 # Spot-spacing bounds, in focal-spot radii
 _MIN_SEPARATION_RADII = 3.0
 _MAX_SEPARATION_RADII = 6.0
+
+# The border between the targets and the sensor edge, in focal-spot radii.
+_BORDER_RADII = 0.5 * _MAX_SEPARATION_RADII
 
 # Fraction of the SLM addressable half-extent used for reachable targets
 _ADDRESSABLE_MARGIN = 0.9
@@ -71,14 +70,16 @@ class SpotArrayMapper(CameraMapper):
     A linear-superposition hologram (:class:`LinearSuperpositionPhaseRetriever`)
     diffracts ``number_of_spots`` focal spots to random positions in the focal plane,
     at least ``minimum_separation`` apart. The targets are sampled to fill the sensor
-    inside a detection-window border. They are placed through the coarse mapping, so
-    the array lands on the sensor whatever its rotation, mirroring or offset. The spots
-    are placed on the sensor through the full fit of the coarse mapping
-    (:attr:`~.CameraMapping.affine`) and sized through its similarity
+    inside a border of a few focal-spot radii. They are placed through the coarse
+    mapping, so the array lands on the sensor whatever its rotation, mirroring or
+    offset. The spots are placed on the sensor through the full fit of the coarse
+    mapping (:attr:`~.CameraMapping.affine`) and sized through its similarity
     (:attr:`~.CameraMapping.sensor_pixels_per_metre`).
 
     The spots are detected in the camera image and in the model's output, and each is
-    fitted with a 2D Gaussian. An affine transform is fitted between the two sets.
+    fitted with a 2D Gaussian. The model renders the array in a window centred on the
+    sensor, so its output holds every spot the camera sees. An affine transform is
+    fitted between the two sets.
     """
 
     mapping_name = "spot_array"
@@ -180,8 +181,12 @@ class SpotArrayMapper(CameraMapper):
             else:
                 target_phases = torch.zeros(len(target_positions), device=self.device)
 
-            camera_image, simulated_image = self._capture_array(
-                target_positions, target_phases, exposure_time, zeroth_mask
+            camera_image, simulated_image, window_offset = self._capture_array(
+                target_positions,
+                target_phases,
+                exposure_time,
+                zeroth_mask,
+                coarse_mapping.tilt_to_sensor_center(self.camera),
             )
             masked_image = camera_image * (~zeroth_mask)
 
@@ -198,6 +203,7 @@ class SpotArrayMapper(CameraMapper):
                 )
             simulated_spots = self._detect_and_fit_simulated(
                 simulated_image,
+                window_offset,
                 focal_spot_radius,
                 minimum_separation,
                 snr_threshold,
@@ -259,6 +265,7 @@ class SpotArrayMapper(CameraMapper):
                     camera_image=masked_image,
                     simulated_image=simulated_image,
                     zeroth_order_mask=zeroth_mask,
+                    simulated_image_offset=window_offset,
                 ),
                 excluded_points=excluded_points,
             )
@@ -291,8 +298,8 @@ class SpotArrayMapper(CameraMapper):
         focal_spot_radius: float,
         generator: torch.Generator,
     ) -> tuple[torch.Tensor, float]:
-        """Random focal-plane targets with spots that fill the sensor inside a
-        detection-window border.
+        """Random focal-plane targets with spots that fill the sensor inside a border of
+        ``_BORDER_RADII`` focal-spot radii.
 
         The targets are sampled on the sensor and carried into the focal plane through
         the full affine of ``coarse_mapping``, so the array fills the sensor of a
@@ -312,7 +319,7 @@ class SpotArrayMapper(CameraMapper):
             metres, and the minimum separation in metres.
 
         Raises:
-            ValueError: The sensor leaves no room inside the detection-window border.
+            ValueError: The sensor leaves no room for the targets inside the border.
             RuntimeError: Fewer than 4 targets lie inside the addressable field.
         """
         camera_shape = tuple(self.camera.resolution)  # (height, width)
@@ -322,15 +329,15 @@ class SpotArrayMapper(CameraMapper):
             np.sqrt(abs(np.linalg.det(coarse_mapping.sensor_pixels_per_metre)))
         )
 
-        border_pixels = DETECTION_HALF_WIDTH_RADII * focal_spot_radius * camera_scale
+        border_pixels = _BORDER_RADII * focal_spot_radius * camera_scale
         box_pixels = (
             camera_shape[1] - 2.0 * border_pixels,
             camera_shape[0] - 2.0 * border_pixels,
         )
         if box_pixels[0] <= 0 or box_pixels[1] <= 0:
             raise ValueError(
-                "The sensor is smaller than twice the detection-window border. "
-                "There is no room for the spot array."
+                f"The sensor is smaller than twice the border of {_BORDER_RADII:g} "
+                "focal-spot radii. There is no room for the spot array."
             )
 
         if minimum_separation is None:
@@ -391,7 +398,8 @@ class SpotArrayMapper(CameraMapper):
         target_phases: torch.Tensor,
         exposure_time: float | None,
         zeroth_order_mask: NDArray[np.bool_],
-    ) -> tuple[NDArray, NDArray]:
+        window_center: tuple[float, float],
+    ) -> tuple[NDArray, NDArray, tuple[float, float]]:
         """Render the superposition hologram of the targets in the model, then display
         it on the SLM and capture it.
 
@@ -401,35 +409,45 @@ class SpotArrayMapper(CameraMapper):
             exposure_time: The exposure in seconds, or None to expose for the array
                 with the zeroth order masked (:meth:`_expose_for_array`).
             zeroth_order_mask: True over the disc around the zeroth order.
+            window_center: The ``(x, y)`` focal-plane point in metres that the model's
+                window is centred on (:meth:`_model_window_centered_on`).
 
         Returns:
-            tuple[NDArray, NDArray]: The camera frame and the model's image.
+            tuple[NDArray, NDArray, tuple[float, float]]: The camera frame, the model's
+            image, and the ``(column, row)`` offset of the window the model's image was
+            rendered in.
         """
         slm_phase = LinearSuperpositionPhaseRetriever(
             self.slm_camera_model, target_positions, target_phases=target_phases
         ).retrieve_phase()
 
-        # Simulated image (for the record / visualizer).
-        self.slm_camera_model.virtual_slm.set_phase(slm_phase)
-        simulated_image = gpu_to_numpy(as_image(self.slm_camera_model().intensity))
+        with self._model_window_centered_on(window_center) as window_offset:
+            self.slm_camera_model.virtual_slm.set_phase(slm_phase)
+            simulated_image = gpu_to_numpy(as_image(self.slm_camera_model().intensity))
 
         self.slm.set_phase(gpu_to_numpy(slm_phase))
         if exposure_time is None:
             self._expose_for_array(zeroth_order_mask)
         else:
             self.camera.set_exposure(exposure_time)
-        return self.camera.get_image(), simulated_image
+        return self.camera.get_image(), simulated_image, window_offset
 
     def _detect_and_fit_simulated(
         self,
         simulated_image: NDArray,
+        window_offset: tuple[float, float],
         focal_spot_radius: float,
         minimum_separation: float,
         snr_threshold: float,
         number_of_spots: int,
     ) -> _SpotDetections:
-        """Detect and fit the spots of the model's image, with the zeroth order at the
-        centre of the plane masked out (:meth:`_detect_and_fit`).
+        """Detect and fit the spots of the model's image, with the zeroth order masked
+        out (:meth:`_detect_and_fit`).
+
+        The image was rendered in a window moved by ``window_offset``, ``(column, row)``
+        output pixels (:meth:`_model_window_centered_on`). The zeroth order lies at the
+        centre of the plane minus the offset. The offset is added to each fitted point,
+        so the points are in the plane's own frame.
 
         Raises:
             RuntimeError: Fewer spots than an affine transform needs were fitted.
@@ -437,7 +455,9 @@ class SpotArrayMapper(CameraMapper):
         pixel_size_out, resolution_out = self.slm_camera_model.output_plane
         # The pitch is (y, x), as the camera's is.
         simulated_pitch = np.asarray(pixel_size_out, dtype=float)
-        simulated_zod = plane_center(resolution_out)
+        column_offset, row_offset = window_offset
+        center_column, center_row = plane_center(resolution_out)
+        simulated_zod = (center_column - column_offset, center_row - row_offset)
         # Simulated DC is a clean point, so a few focal-spot radii suffice.
         simulated_mask_radius = max(
             int(round(3.0 * focal_spot_radius / simulated_pitch.min())), 3
@@ -460,6 +480,10 @@ class SpotArrayMapper(CameraMapper):
                 "fitted in the simulated image. Need at least 3 for an affine "
                 "transform."
             )
+        simulated_spots.points = [
+            (column + column_offset, row + row_offset)
+            for column, row in simulated_spots.points
+        ]
         return simulated_spots
 
     def _pair_spots(
@@ -545,6 +569,12 @@ class SpotArrayMapper(CameraMapper):
     ) -> torch.Tensor:
         """Rejection-sample ``number_of_spots`` points uniformly in the box centered at
         the origin, each at least ``minimum_separation`` from the rest.
+
+        The box ``extent``, ``(width, height)``, and the separation are in camera
+        pixels.
+
+        Raises:
+            ValueError: The points do not fit in the box at that separation.
         """
         width, height = extent
         box = torch.tensor([width, height], device=self.device)
@@ -562,9 +592,9 @@ class SpotArrayMapper(CameraMapper):
                 positions = torch.cat([positions, candidate.unsqueeze(0)], dim=0)
         if positions.shape[0] < number_of_spots:
             raise ValueError(
-                f"Could not place {number_of_spots} spots with minimum separation "
-                f"{minimum_separation:.3e} m in extent {extent}. Reduce "
-                "number_of_spots / minimum_separation, or enlarge extent."
+                f"Could not place {number_of_spots} spots {minimum_separation:.1f} px "
+                f"apart in a {width:.0f} x {height:.0f} px box inside the sensor's "
+                "border. Lower number_of_spots or minimum_separation."
             )
         return positions
 
