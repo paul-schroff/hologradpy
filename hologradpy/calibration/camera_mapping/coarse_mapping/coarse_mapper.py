@@ -31,6 +31,8 @@ from ...spot_detection import (
     detect_spot,
     get_diffraction_spot_position,
     has_prominent_peak,
+    smallest_spacing,
+    subpixel_peak,
     zeroth_order_mask_radius,
 )
 from ...exposure import expose_until_spot
@@ -501,8 +503,8 @@ class CoarseMapper(CameraMapper):
         simulated_frames: list[NDArray] = []
         focal_spot_radius = 0.0
 
-        # The centroids below are found in the moved window, so the offset is added
-        # back to each.
+        # The peaks below are found in the moved window, so the offset is added back to
+        # each.
         with self._model_window_centered_on(model_window_center) as window_offset:
             column_offset, row_offset = window_offset
 
@@ -536,18 +538,20 @@ class CoarseMapper(CameraMapper):
                     self.slm_camera_model.steering_phase(probe)
                 )
                 simulated = gpu_to_numpy(as_image(self.slm_camera_model().intensity))
-                centroid = self._peak_centroid(simulated)
-                simulated_points.append(
-                    (centroid[0] + column_offset, centroid[1] + row_offset)
-                )
+                peak = subpixel_peak(simulated)
+                if peak is None:
+                    raise RuntimeError(
+                        f"The model's spot of probe {probe} lies on the edge of its "
+                        "window."
+                    )
+                _, column, row = peak
+                simulated_points.append((column + column_offset, row + row_offset))
                 simulated_frames.append(simulated)
 
         # The probe pattern must not have collapsed (e.g. every "fit" locked onto the
         # same bright artefact).
         points = np.asarray(camera_points)
-        distances = np.linalg.norm(points[:, None] - points[None, :], axis=-1)
-        distances[np.diag_indices(len(points))] = np.inf
-        if distances.min() < 2.0:
+        if smallest_spacing(points) < 2.0:
             raise RuntimeError("Probe spots collapsed onto each other.")
 
         # Affine consistency: the fourth probe tilt is a linear combination of the
@@ -1009,22 +1013,3 @@ class CoarseMapper(CameraMapper):
             image = np.asarray(self.camera.get_image())
             return image if detect_spot(image, spot_radius, self.camera) else None
         return expose_until_spot(self.camera, spot_radius)
-
-    @staticmethod
-    def _peak_centroid(
-        image: NDArray, half_window: int = 3
-    ) -> tuple[float, float]:
-        """Sub-pixel (column, row) position of the brightest spot: intensity-weighted
-        centroid of a small window around the global maximum.
-        """
-        row, column = np.unravel_index(int(np.argmax(image)), image.shape)
-        roi = ROI.centered(
-            (column, row), (2 * half_window + 1, 2 * half_window + 1)
-        ).trimmed_to(image.shape)
-        window = roi.crop(image)
-        rows, columns = np.indices(window.shape)
-        total = float(window.sum())
-        return (
-            roi.left_column + float((columns * window).sum()) / total,
-            roi.top_row + float((rows * window).sum()) / total,
-        )

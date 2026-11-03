@@ -34,6 +34,7 @@ from hologradpy.profiles.phase import (
     binary_phase_grating,
 )
 from hologradpy.fourier_optics import get_focal_spot_radius
+from hologradpy.grids import metres_to_pixel
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
 from hologradpy.profiles.masks import disc_mask
 from hologradpy.roi import ROI
@@ -56,6 +57,8 @@ from hologradpy.calibration.spot_detection import (
     get_diffraction_spot_position,
     has_prominent_peak,
     peak_prominence,
+    smallest_spacing,
+    subpixel_peak,
 )
 from tests.native_camera_fakes import CroppingCamera
 
@@ -75,6 +78,7 @@ def _build_setup(
     background_scatter_grain_radius: float = 5e-6,
     pixel_crosstalk: PixelCrosstalk | None = None,
     gain_bounds: tuple[float, float] | None = None,
+    beam_radius: float = 1e-3,
 ):
     torch.manual_seed(0)
     geometry = FieldGeometry(
@@ -85,7 +89,7 @@ def _build_setup(
     slm = SimulatedSLMTorch(
         input_geometry=geometry, bitdepth=8, pixel_crosstalk=pixel_crosstalk
     )
-    intensity = gaussian_beam_intensity(*geometry.get_spatial_grid(), 1e-3)
+    intensity = gaussian_beam_intensity(*geometry.get_spatial_grid(), beam_radius)
     beam = ComplexAmplitude(
         intensity.sqrt() + 0j,
         wavelength=geometry.wavelength,
@@ -411,6 +415,66 @@ def test_the_brightest_pixel_leaves_out_the_disc_it_is_given():
     ) == (25, 40)
 
 
+@pytest.mark.parametrize("sigma_px", [1.65, 9.5])
+def test_the_subpixel_peak_is_exact_on_a_gaussian(sigma_px):
+    """A noiseless spot between the pixels gives back its height and its centre, for a
+    narrow spot and for a wide one.
+    """
+    frame = _gaussian_frame(
+        (200, 240), (120.3, 90.6), 800.0, sigma_px, background=0.0, noise=0.0
+    )
+
+    assert subpixel_peak(frame) == pytest.approx((800.0, 120.3, 90.6), rel=1e-9)
+
+
+def test_the_subpixel_peak_searches_inside_its_mask():
+    """The brighter of two spots wins until a disc around it is left out of the mask.
+    The other spot then wins.
+    """
+    frame = _gaussian_frame(
+        (60, 100), (70.2, 20.4), 900.0, 3.0, background=0.0, noise=0.0
+    ) + _gaussian_frame((60, 100), (25.7, 40.1), 500.0, 3.0, background=0.0, noise=0.0)
+
+    assert subpixel_peak(frame)[1:] == pytest.approx((70.2, 20.4), abs=1e-3)
+    mask = ~disc_mask(frame.shape, (70, 20), 15.0)
+    assert subpixel_peak(frame, mask)[1:] == pytest.approx((25.7, 40.1), abs=1e-3)
+
+
+def test_a_maximum_without_its_four_neighbours_has_no_subpixel_peak():
+    """The maximum needs its neighbours on the frame and inside the mask."""
+    on_the_border = _gaussian_frame(
+        (60, 100), (0.0, 30.0), 800.0, 3.0, background=0.0, noise=0.0
+    )
+    assert subpixel_peak(on_the_border) is None
+
+    frame = _gaussian_frame(
+        (60, 100), (50.0, 30.0), 800.0, 3.0, background=0.0, noise=0.0
+    )
+    from_its_column = np.zeros(frame.shape, dtype=bool)
+    from_its_column[:, 50:] = True
+    from_its_row = np.zeros(frame.shape, dtype=bool)
+    from_its_row[30:, :] = True
+    assert subpixel_peak(frame, from_its_column) is None
+    assert subpixel_peak(frame, from_its_row) is None
+
+
+def test_a_maximum_among_dark_pixels_reads_no_value():
+    """The parabola takes logarithms, so a dark neighbour leaves a value of 0 at the
+    whole pixel.
+    """
+    frame = np.zeros((20, 30))
+    frame[10, 15] = 5.0
+
+    assert subpixel_peak(frame) == (0.0, 15.0, 10.0)
+
+
+def test_the_smallest_spacing_is_that_of_the_closest_two_points():
+    points = np.array([[0.0, 0.0], [3.0, 4.0], [10.0, 0.0]])
+
+    assert smallest_spacing(points) == pytest.approx(5.0)
+    assert smallest_spacing(points[:1]) == np.inf
+
+
 def test_detect_spot_rejects_pure_noise():
     rng = np.random.default_rng(1)
     frame = 5.0 + rng.normal(0.0, 1.0, (80, 120))
@@ -463,6 +527,46 @@ def test_coarse_mapping_recovers_rotated_camera():
     # The camera pitch (30 um) and the reference's pitch (24.6 um) cancel in the zoom.
     assert coarse.camera_zoom == pytest.approx(1.0, abs=0.02)
     assert coarse.fit.reprojection_rms < 1.0
+
+
+def test_the_model_side_probes_are_sub_pixel_on_wide_spots(monkeypatch):
+    """A 0.2 mm beam makes spots of 10 px waist in the model. Each probe lands where
+    its tilt says, between the pixels, so the mapping finds the camera's angle.
+    """
+    slm, camera, model = _build_setup(
+        camera_angle=10.0, camera_shift=(20, -10), beam_radius=0.2e-3
+    )
+    mapper = CoarseMapper(slm, camera, model)
+    tilts = {}
+    measure_probes = mapper._measure_probes
+
+    def record_and_measure(*arguments, **options):
+        tilts["probes"] = options["probe_tilts"]
+        return measure_probes(*arguments, **options)
+
+    monkeypatch.setattr(mapper, "_measure_probes", record_and_measure)
+
+    coarse = mapper.map_camera()
+
+    pitch, shape = model.output_plane
+    expected = [metres_to_pixel(tilt, pitch, shape) for tilt in tilts["probes"]]
+    np.testing.assert_allclose(coarse.calculated_points, expected, atol=0.01)
+    assert coarse.camera_angle == pytest.approx(10.0, abs=0.01)
+
+
+def test_a_model_spot_on_the_edge_of_its_window_is_refused(monkeypatch):
+    """A spot on the edge has no peak of its own in the window, so its position would
+    be wrong.
+    """
+    slm, camera, model = _build_setup()
+    monkeypatch.setattr(
+        "hologradpy.calibration.camera_mapping.coarse_mapping.coarse_mapper"
+        ".subpixel_peak",
+        lambda image: None,
+    )
+
+    with pytest.raises(RuntimeError, match="edge of its window"):
+        CoarseMapper(slm, camera, model).map_camera()
 
 
 def test_coarse_mapping_detects_flip():

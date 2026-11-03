@@ -10,7 +10,7 @@ from typing import Any, Sequence
 import numpy as np
 import torch
 from numpy.typing import ArrayLike, NDArray
-from scipy.ndimage import binary_erosion, gaussian_filter, map_coordinates
+from scipy.ndimage import gaussian_filter, map_coordinates
 
 from .abstract import FeedbackCorrectorBase
 
@@ -22,6 +22,7 @@ from ..phase_retrieval import (
 )
 
 from ...calibration.camera_mapping import CameraMapping
+from ...calibration.spot_detection import smallest_spacing, subpixel_peak
 from ...hardware import Camera, SLM, as_camera, as_slm
 from ...optics.systems import SLMFourierLensModel
 from ...profiles.masks import disc_mask
@@ -112,7 +113,7 @@ def measure_spot_intensities(
     waist = abs(float(camera_mapping.spot_fit.waist)) / float(
         np.min(camera.pixel_size)
     )
-    reach = min(WINDOW_WAISTS * waist, _half_smallest_spacing(sites))
+    reach = min(WINDOW_WAISTS * waist, smallest_spacing(sites) / 2)
     shape = tuple(int(size) for size in camera.sensor_resolution)
     windows = _windows(shape, sites, reach)
     inside = np.zeros(shape, dtype=bool)
@@ -132,7 +133,7 @@ def measure_spot_intensities(
     background = float(np.median(frame[~inside]))
     signal = frame - background
     smooth = gaussian_filter(signal, 1.0)
-    peaks = [_peak(smooth, window) for window in windows]
+    peaks = [subpixel_peak(region.crop(smooth), disc) for region, disc in windows]
     lost = [index for index, peak in enumerate(peaks) if peak is None]
     if lost:
         raise ValueError(
@@ -153,10 +154,12 @@ def measure_spot_intensities(
             "low.",
             stacklevel=2,
         )
+    # The peaks are in the pixels of their regions.
+    corners = [(region.left_column, region.top_row) for region, _ in windows]
     return SpotIntensities(
         intensities=intensities,
         frame=frame,
-        sensor_positions=peaks[:, 1:],
+        sensor_positions=peaks[:, 1:] + corners,
         background=background,
         exposure=equivalent_exposure,
         overexposed=overexposed,
@@ -509,7 +512,7 @@ class SpotArrayCorrector:
         """
         x, y = self._grid
         # 2 sigma^2 of b_k.
-        width = _half_smallest_spacing(self._targets) ** 2 / 2
+        width = smallest_spacing(self._targets) ** 2 / 8
         # Exponents relative to the nearest spot keep the sums from underflowing.
         nearest = torch.full_like(x, float("inf"))
         for spot_x, spot_y in self._targets:
@@ -571,18 +574,6 @@ def _correction_factors(requested: NDArray, measured: NDArray) -> NDArray:
     return (requested / requested.mean()) / (measured / measured.mean())
 
 
-def _half_smallest_spacing(points: NDArray) -> float:
-    """Half the smallest distance between two of ``points``.
-
-    - If there is one point, return infinity.
-    """
-    if len(points) < 2:
-        return float("inf")
-    spacings = np.linalg.norm(points[:, None, :] - points[None, :, :], axis=-1)
-    spacings[np.diag_indices(len(points))] = np.inf
-    return 0.5 * float(spacings.min())
-
-
 def _windows(
     shape: tuple[int, int], sites: NDArray, radius: float
 ) -> list[tuple[ROI, NDArray]]:
@@ -617,39 +608,3 @@ def _windows(
             "the sensor."
         )
     return windows
-
-
-def _peak(
-    smooth: NDArray, window: tuple[ROI, NDArray]
-) -> tuple[float, float, float] | None:
-    """The value, column and row of the maximum of ``smooth`` in ``window``, refined
-    between the pixels by a parabola in log intensity along the row and the column.
-    The parabola is exact for a Gaussian peak.
-
-    - If the maximum lies on the window's edge, return None.
-    - If the values around the maximum are not all positive, return a value of 0.
-    """
-    region, disc = window
-    box = region.crop(smooth)
-    row, column = np.unravel_index(np.argmax(np.where(disc, box, -np.inf)), box.shape)
-    if not binary_erosion(disc)[row, column]:
-        return None
-    # Three values along the row, then three along the column.
-    values = np.array(
-        [box[row, column - 1 : column + 2], box[row - 1 : row + 2, column]]
-    )
-    if (values <= 0).any():
-        return 0.0, region.left_column + column, region.top_row + row
-    logs = np.log(values)
-    slopes = (logs[:, 2] - logs[:, 0]) / 2
-    # A flat top, as on a saturated spot, keeps the pixel itself.
-    curvatures = np.minimum(
-        (logs[:, 2] + logs[:, 0]) / 2 - logs[:, 1], -np.finfo(float).tiny
-    )
-    offsets = -slopes / (2 * curvatures)
-    value = float(np.exp(logs[0, 1] - np.sum(slopes**2 / (4 * curvatures))))
-    return (
-        value,
-        region.left_column + column + offsets[0],
-        region.top_row + row + offsets[1],
-    )

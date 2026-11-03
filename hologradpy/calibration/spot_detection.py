@@ -1,5 +1,5 @@
-"""Spot-detection and spot-localization helpers, shared by the camera-mapping and the
-wavefront calibrators.
+"""Spot-detection and spot-localization helpers, shared by the camera mappers, the
+wavefront calibrators and the spot-array feedback.
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ from typing import Literal, TYPE_CHECKING
 import numpy as np
 from numpy.typing import NDArray
 from scipy.ndimage import uniform_filter
+from scipy.spatial.distance import pdist
 from scipy.stats import norm
 
 from ..hardware import Camera, SLM, as_camera, as_slm
@@ -424,3 +425,53 @@ def brightest_pixel(
         smoothed = np.where(mask, smoothed, -np.inf)
     row, column = np.unravel_index(int(np.argmax(smoothed)), image.shape)
     return (int(column), int(row))
+
+
+def subpixel_peak(
+    image: NDArray, mask: NDArray[np.bool_] | None = None
+) -> tuple[float, float, float] | None:
+    """The value, column and row of the maximum of ``image``, refined between the
+    pixels by a parabola in log intensity along the row and the column. The parabola
+    is exact for a Gaussian peak.
+
+    - If the maximum has a neighbour off the image or outside the mask, return None.
+    - If the values around the maximum are not all positive, return a value of 0.
+
+    Args:
+        image: The frame.
+        mask: True at the pixels to search, in the shape of ``image``. Every pixel is
+            searched when None.
+    """
+    searched = image if mask is None else np.where(mask, image, -np.inf)
+    row, column = np.unravel_index(int(np.argmax(searched)), image.shape)
+    height, width = image.shape
+    if not (0 < row < height - 1 and 0 < column < width - 1):
+        return None
+    if mask is not None and not (
+        mask[row, column - 1 : column + 2].all()
+        and mask[row - 1 : row + 2, column].all()
+    ):
+        return None
+    # Three values along the row, then three along the column.
+    values = np.array(
+        [image[row, column - 1 : column + 2], image[row - 1 : row + 2, column]]
+    )
+    if (values <= 0).any():
+        return 0.0, float(column), float(row)
+    logs = np.log(values)
+    slopes = (logs[:, 2] - logs[:, 0]) / 2
+    # A flat top, as on a saturated spot, keeps the pixel itself.
+    curvatures = np.minimum(
+        (logs[:, 2] + logs[:, 0]) / 2 - logs[:, 1], -np.finfo(float).tiny
+    )
+    offsets = -slopes / (2 * curvatures)
+    value = float(np.exp(logs[0, 1] - np.sum(slopes**2 / (4 * curvatures))))
+    return value, float(column + offsets[0]), float(row + offsets[1])
+
+
+def smallest_spacing(points: NDArray) -> float:
+    """The smallest distance between two of the ``(N, 2)`` ``points``.
+
+    - If there are fewer than two points, return infinity.
+    """
+    return float(pdist(points).min(initial=np.inf))

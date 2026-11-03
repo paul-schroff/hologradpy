@@ -53,7 +53,8 @@ Some examples:
 - :func:`~hologradpy.calibration.spot_detection.detect_spot` returns the
   ``(column, row)`` of a spot, and
   :func:`~hologradpy.calibration.spot_detection.brightest_pixel` that of the brightest
-  pixel.
+  pixel. :func:`~hologradpy.calibration.spot_detection.subpixel_peak` returns the value,
+  column and row of a maximum.
 - :func:`~hologradpy.profiles.masks.disc_mask` takes its centre as ``(column, row)``.
 - :func:`~hologradpy.fourier_transforms.translate.fft_translate`,
   :func:`~hologradpy.fourier_transforms.translate.translate_real` and
