@@ -32,6 +32,7 @@ from hologradpy.serialization import (
     NAMESPACE,
     RECORD_TYPES,
     ComplexAmplitudeConverter,
+    RecordConverter,
     SaveableRecord,
     record_type,
     registered_as,
@@ -213,7 +214,7 @@ def test_a_snapshot_carrying_arrays_compares_and_hashes() -> None:
     assert len({snapshot(), snapshot()}) == 1
 
 
-def _slm_record(phase_response: LookupResponse) -> SLMData:
+def _slm_record(phase_response: LinearResponse | LookupResponse) -> SLMData:
     return SLMData(
         name="slm",
         resolution=(4, 4),
@@ -236,6 +237,29 @@ def test_a_measured_response_survives_a_save(tmp_path) -> None:
     assert isinstance(phases, np.ndarray)
     assert np.array_equal(phases, original.phase_response.phases)
     assert not phases.flags.writeable
+
+
+def test_which_way_the_delay_runs_survives_a_save(tmp_path) -> None:
+    path = tmp_path / "slm.asdf"
+    response = LinearResponse(
+        bitdepth=8, full_scale_cycles=1.25, delay_rises_with_level=True
+    )
+
+    _slm_record(response).save(path)
+
+    assert SLMData.load(path).phase_response == response
+
+
+def test_a_response_saved_without_the_delays_direction_loads_as_false() -> None:
+    """A file from before the field holds no value for it."""
+    response = RecordConverter(RECORD_TYPES).from_yaml_tree(
+        {"bitdepth": 8, "full_scale_cycles": 1.25},
+        f"{NAMESPACE}/tags/linear_phase_response-1.0.0",
+        None,
+    )
+
+    assert response == LinearResponse(bitdepth=8, full_scale_cycles=1.25)
+    assert response.delay_rises_with_level is False
 
 
 # --- Drift -------------------------------------------------------------------------

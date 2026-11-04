@@ -383,6 +383,14 @@ class SLM(ABC):
         response = self.phase_response
         return 1.0 if response is None else response.full_scale_cycles
 
+    @property
+    def delay_rises_with_level(self) -> bool:
+        """Whether the real phase delay rises with the gray level, read from the
+        response.
+        """
+        response = self.phase_response
+        return False if response is None else response.delay_rises_with_level
+
     def phase_to_levels(self, phase: NDArray | torch.Tensor) -> NDArray:
         """Convert a target phase to gray levels through :attr:`phase_response`.
 

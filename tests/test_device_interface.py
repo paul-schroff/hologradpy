@@ -1821,6 +1821,23 @@ def test_a_loaded_phase_response_drives_the_levels() -> None:
     assert slm.phase_response == LinearResponse(bitdepth=8)
 
 
+def test_the_slm_reads_which_way_its_delay_runs_from_its_response() -> None:
+    """A loaded response sets it, a record keeps it, and it is False on the nominal
+    response and for a device with no bit depth.
+    """
+    slm = as_slm(_raw_slm())
+    assert slm.delay_rises_with_level is False
+
+    slm.load_phase_response(LinearResponse(bitdepth=8, delay_rises_with_level=True))
+
+    assert slm.delay_rises_with_level is True
+    assert SLMData.from_slm(slm).phase_response.delay_rises_with_level is True
+
+    slm.load_phase_response(None)
+    assert slm.delay_rises_with_level is False
+    assert _BareSlm().delay_rises_with_level is False
+
+
 def test_a_phase_response_the_slm_cannot_use_is_refused() -> None:
     for slm in (as_slm(_raw_slm()), _slm_at(8)):
         with pytest.raises(ValueError, match="12-bit"):

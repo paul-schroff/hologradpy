@@ -62,6 +62,30 @@ def test_a_table_of_a_line_displays_the_levels_the_line_does(
     assert table.full_scale_cycles == pytest.approx(full_scale_cycles, rel=1e-12)
 
 
+def test_which_way_the_delay_runs_changes_no_level() -> None:
+    """The field says how the real SLM behaves, so a phase keeps its level."""
+    phases = 2 * np.pi * CYCLES
+    table = -2 * np.pi * np.arange(256) / 200
+
+    for plain, reversed_response in (
+        (
+            LinearResponse(bitdepth=8, full_scale_cycles=1.28),
+            LinearResponse(
+                bitdepth=8, full_scale_cycles=1.28, delay_rises_with_level=True
+            ),
+        ),
+        (
+            LookupResponse(bitdepth=8, phases=table),
+            LookupResponse(bitdepth=8, phases=table, delay_rises_with_level=True),
+        ),
+    ):
+        assert not plain.delay_rises_with_level
+        assert reversed_response.delay_rises_with_level
+        np.testing.assert_array_equal(
+            plain.display_levels(phases), reversed_response.display_levels(phases)
+        )
+
+
 def test_positive_phases_wrap_onto_their_levels() -> None:
     """A phase and the same phase a cycle further on show the same level."""
     _, table = _line_and_table(8, 1.0)

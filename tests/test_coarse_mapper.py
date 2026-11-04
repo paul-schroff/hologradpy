@@ -745,6 +745,28 @@ def test_coarse_mapping_initial_tilt_without_spot_raises():
         CoarseMapper(slm, camera, model).map_camera(initial_tilt=(0.0, 0.0))
 
 
+def test_a_given_tilt_needs_no_search_and_no_exposure_from_a_spot_array(monkeypatch):
+    """With the zeroth order off the sensor, a given tilt seeds the centre search. The
+    exposure of a spot array serves only the spiral search, so it plays no part.
+    """
+    slm, camera, model = _build_setup(
+        camera_angle=10.0, camera_shift=(60, 100), camera_resolution=(120, 160)
+    )
+    tilt = CoarseMapper(slm, camera, model).map_camera().tilt_to_sensor_center(camera)
+    mapper = CoarseMapper(slm, camera, model)
+
+    def not_needed(*arguments, **options):
+        raise AssertionError("Not needed with a given tilt.")
+
+    monkeypatch.setattr(mapper, "_search_spot", not_needed)
+    monkeypatch.setattr(mapper, "_calibrate_exposure", not_needed)
+
+    coarse = mapper.map_camera(initial_tilt=(float(tilt[0]), float(tilt[1])))
+
+    assert coarse.camera_angle == pytest.approx(10.0, abs=0.5)
+    assert coarse.fit.reprojection_rms < 1.0
+
+
 def test_a_diffraction_spot_that_misses_the_sensor_raises_after_autoexposure():
     """A camera that sees only read noise rails at its longest exposure. The rail is
     not an error on its own, but the final frame holds no prominent peak.

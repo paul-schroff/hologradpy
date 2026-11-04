@@ -134,9 +134,9 @@ class ModelLearningFeedbackCorrector(FeedbackCorrectorBase):
                 focal-plane partial affine and the hologram are never fitted.
             defocus_distances: Distances along the optical axis, in metres, by which
                 every hologram is also displayed defocused after its measurement in
-                focus (:func:`~hologradpy.profiles.phase.defocus_phase`). A positive
-                distance moves the focus away from the SLM. The learning fits these
-                frames as well. The step uses the frame in focus. A start is
+                focus (:func:`~hologradpy.profiles.phase.defocus_phase`). A distance
+                has the sign of its ``defocus``. The learning fits these frames as
+                well. The step uses the frame in focus. A start is
                 half the Rayleigh range of the focal spot on either side,
                 ``(-z_R / 2, z_R / 2)``. Empty measures in focus only.
             random_diversity: Add a new smooth random phase to every defocused

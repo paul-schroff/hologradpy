@@ -28,9 +28,14 @@ class PhaseResponse(ABC):
 
     The phase decreases with increasing level. Full scale is level ``2**bitdepth``, one
     past the last level, and ``full_scale_cycles`` is the phase delay there, in cycles.
+
+    ``delay_rises_with_level`` says how the real SLM behaves. If True, its real phase
+    delay rises with the level, as on a Hamamatsu LCOS-SLM, so a displayed phase is a
+    real phase advance. It changes no level. Only a move along the beam depends on it.
     """
 
     bitdepth: int
+    delay_rises_with_level: bool
 
     @property
     @abstractmethod
@@ -87,6 +92,7 @@ class LinearResponse(PhaseResponse):
 
     bitdepth: int
     full_scale_cycles: float = 1.0
+    delay_rises_with_level: bool = False
 
     def phase_at(self, fraction: ArrayLike) -> ArrayLike:
         return -_as_float(fraction) * self.full_scale_cycles * TWO_PI
@@ -108,10 +114,12 @@ class LookupResponse(PhaseResponse):
         bitdepth: Bits per pixel, so the table has ``2**bitdepth`` entries.
         phases: The phase each level generates, in radians, monotone and falling with
             level.
+        delay_rises_with_level: Whether the real phase delay rises with the level.
     """
 
     bitdepth: int
     phases: NDArray = field(default_factory=lambda: np.zeros(0))
+    delay_rises_with_level: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(

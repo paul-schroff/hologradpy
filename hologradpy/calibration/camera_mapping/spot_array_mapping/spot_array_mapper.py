@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+import warnings
 
 import numpy as np
 import torch
@@ -68,9 +69,9 @@ class SpotArrayMapper(CameraMapper):
     :meth:`~slmsuite.hardware.cameraslms.FourierSLM.fourier_calibrate`.
 
     A linear-superposition hologram (:class:`LinearSuperpositionPhaseRetriever`)
-    diffracts ``number_of_spots`` focal spots to random positions in the focal plane,
-    at least ``minimum_separation`` apart. The targets are sampled to fill the sensor
-    inside a border of a few focal-spot radii. They are placed through the coarse
+    diffracts up to ``number_of_spots`` focal spots to random positions in the focal
+    plane, at least ``minimum_separation`` apart. The targets are sampled to fill the
+    sensor inside a border of a few focal-spot radii. They are placed through the coarse
     mapping, so the array lands on the sensor whatever its rotation, mirroring or
     offset. The spots are placed on the sensor through the full fit of the coarse
     mapping (:attr:`~.CameraMapping.affine`) and sized through its similarity
@@ -114,7 +115,8 @@ class SpotArrayMapper(CameraMapper):
         (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_gain_and_roi`).
 
         Args:
-            number_of_spots: Number of focal spots in the array.
+            number_of_spots: The most focal spots in the array. Wide spots leave room
+                for fewer, so the array can hold fewer, with a warning.
             minimum_separation: Minimum distance between any two spots in metres.
                 Defaults to a few focal-spot radii.
             roi_size: Side length in camera pixels of the per-spot fit window.
@@ -193,7 +195,7 @@ class SpotArrayMapper(CameraMapper):
             # Detect + fit the spots in the camera image (brightest first).
             camera_spots = self._detect_and_fit(
                 masked_image, pitch, roi_size, focal_spot_radius, snr_threshold,
-                number_of_peaks=number_of_spots,
+                number_of_peaks=len(target_positions),
             )
             if len(camera_spots.points) < _MIN_AFFINE_POINTS:
                 raise RuntimeError(
@@ -207,7 +209,7 @@ class SpotArrayMapper(CameraMapper):
                 focal_spot_radius,
                 minimum_separation,
                 snr_threshold,
-                number_of_spots,
+                len(target_positions),
             )
 
             camera_indices, simulated_indices = self._pair_spots(
@@ -304,11 +306,12 @@ class SpotArrayMapper(CameraMapper):
         The targets are sampled on the sensor and carried into the focal plane through
         the full affine of ``coarse_mapping``, so the array fills the sensor of a
         mapping with unequal scales or a shear. Those beyond ``_ADDRESSABLE_MARGIN`` of
-        the field the SLM addresses are dropped.
+        the field the SLM addresses are dropped. If fewer targets fit than asked for,
+        it warns.
 
         Args:
             coarse_mapping: The coarse mapping that places the targets on the sensor.
-            number_of_spots: The number of targets to sample.
+            number_of_spots: The most targets to sample.
             minimum_separation: The smallest distance between two targets in metres,
                 or None for a separation that packs the targets into the sensor.
             focal_spot_radius: The focal-spot radius in metres.
@@ -364,6 +367,14 @@ class SpotArrayMapper(CameraMapper):
             minimum_separation * camera_scale,
             generator,
         )
+        if len(sampled_pixels) < number_of_spots:
+            warnings.warn(
+                f"Placed {len(sampled_pixels)} of {number_of_spots} spots "
+                f"{minimum_separation * camera_scale:.1f} px apart in a "
+                f"{box_pixels[0]:.0f} x {box_pixels[1]:.0f} px box inside the sensor's "
+                "border.",
+                stacklevel=2,
+            )
         sampled_pixels = sampled_pixels + torch.tensor(
             plane_center(camera_shape), device=self.device, dtype=sampled_pixels.dtype
         )
@@ -565,24 +576,20 @@ class SpotArrayMapper(CameraMapper):
         extent: tuple[float, float],
         minimum_separation: float,
         generator: torch.Generator,
-        max_attempts_per_spot: int = 2000,
+        max_misses: int = 2000,
     ) -> torch.Tensor:
-        """Rejection-sample ``number_of_spots`` points uniformly in the box centered at
-        the origin, each at least ``minimum_separation`` from the rest.
+        """Rejection-sample up to ``number_of_spots`` points uniformly in the box
+        centered at the origin, each at least ``minimum_separation`` from the rest.
 
         The box ``extent``, ``(width, height)``, and the separation are in camera
-        pixels.
-
-        Raises:
-            ValueError: The points do not fit in the box at that separation.
+        pixels. The sampling stops after ``max_misses`` candidates in a row land too
+        close to the rest, so a box too small for every point gives fewer.
         """
         width, height = extent
         box = torch.tensor([width, height], device=self.device)
         positions = torch.empty((0, 2), device=self.device)
-        max_attempts = max_attempts_per_spot * number_of_spots
-        for _ in range(max_attempts):
-            if positions.shape[0] >= number_of_spots:
-                break
+        misses = 0
+        while positions.shape[0] < number_of_spots and misses < max_misses:
             candidate = (
                 torch.rand(2, generator=generator, device=self.device) - 0.5
             ) * box
@@ -590,12 +597,9 @@ class SpotArrayMapper(CameraMapper):
                 torch.linalg.norm(positions - candidate, dim=1)
             ) >= minimum_separation:
                 positions = torch.cat([positions, candidate.unsqueeze(0)], dim=0)
-        if positions.shape[0] < number_of_spots:
-            raise ValueError(
-                f"Could not place {number_of_spots} spots {minimum_separation:.1f} px "
-                f"apart in a {width:.0f} x {height:.0f} px box inside the sensor's "
-                "border. Lower number_of_spots or minimum_separation."
-            )
+                misses = 0
+            else:
+                misses += 1
         return positions
 
     def _expose_for_array(

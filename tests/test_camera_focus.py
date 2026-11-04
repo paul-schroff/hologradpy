@@ -25,6 +25,7 @@ from hologradpy.hardware import SimulatedCameraTorch, SimulatedSLMTorch
 from hologradpy.optics.complex_amplitude import ComplexAmplitude, FieldGeometry
 from hologradpy.optics.modules.slm_fields import PixelwiseSLMField
 from hologradpy.optics.systems import SLMCZT
+from hologradpy.phase_levels import LinearResponse
 from hologradpy.profiles.amplitude import gaussian_beam_intensity
 from hologradpy.profiles.gaussian import Gaussian, GaussianBeam, radius_along_beam
 from hologradpy.profiles.phase import defocus_phase, linear_phase
@@ -117,6 +118,27 @@ def test_a_camera_before_the_focus_moves_away_from_the_lens():
 
     assert focus.camera_move == pytest.approx(8e-3, abs=0.02 * RAYLEIGH_RANGE)
     assert "away from the lens before it" in focus.instruction
+
+
+def test_a_delay_that_rises_with_the_level_reverses_the_move(focus):
+    """The scan and its waists stay the same. Each lens phase then moves the focus the
+    other way along the beam, so the camera has to move the other way.
+    """
+    slm, camera = _bench(5e-3)
+    slm.load_phase_response(LinearResponse(bitdepth=8, delay_rises_with_level=True))
+
+    reversed_focus = find_camera_focus(slm, camera, FOCAL_LENGTH, TILT, verbose=False)
+
+    assert not focus.delay_rises_with_level
+    assert reversed_focus.delay_rises_with_level
+    assert reversed_focus.fit_x.waist_position == pytest.approx(
+        focus.fit_x.waist_position
+    )
+    assert reversed_focus.fit_y.waist_position == pytest.approx(
+        focus.fit_y.waist_position
+    )
+    assert reversed_focus.camera_move == pytest.approx(-focus.camera_move)
+    assert "away from the lens before it" in reversed_focus.instruction
 
 
 def test_the_fit_finds_the_beams_waist_and_rayleigh_range(focus):

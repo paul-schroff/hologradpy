@@ -139,10 +139,11 @@ class CoarseMapper(CameraMapper):
                 thresholds. Defaults to the smaller SLM dimension.
             initial_tilt: An (x, y) tilt in focal-plane metres, known to land a spot
                 on the sensor. It seeds the centre search directly, so the spiral
-                search is skipped and ``search_radius`` is ignored. A ValueError is
-                raised if no spot is detected at this tilt. A zeroth order located on
-                the sensor seeds the centre search at zero tilt, and ``initial_tilt``
-                is then not used.
+                search is skipped and ``search_radius`` is ignored. No spot array
+                calibrates the exposure, so with no ``exposure_time``, each frame adapts
+                its own. A ValueError is raised if no spot is detected at this tilt. A
+                zeroth order located on the sensor seeds the centre search at zero tilt,
+                and ``initial_tilt`` is then not used.
             find_camera_orientation: If True, suggest the discrete camera orientation
                 that aligns the camera best with the output plane. The suggestion and
                 its near-identity residual are recorded on the result as
@@ -205,10 +206,16 @@ class CoarseMapper(CameraMapper):
             # The zeroth order is located first if it hits the sensor
             zeroth_order_position = self._locate_zeroth_order(spot_radius)
 
-            # In auto-exposure mode with the zeroth order off the sensor, a spot array
-            # is generated over the entire addressable area, and the camera autoexposes
-            # on it to calibrate a fixed exposure upfront.
-            if exposure_time is None and zeroth_order_position is None:
+            # In auto-exposure mode with the zeroth order off the sensor, the spiral
+            # search holds one exposure for all its probes. A spot array is generated
+            # over the entire addressable area, and the camera autoexposes on it to
+            # calibrate that exposure upfront. A given tilt needs no search, so each
+            # frame adapts its own exposure instead.
+            if (
+                exposure_time is None
+                and zeroth_order_position is None
+                and initial_tilt is None
+            ):
                 exposure_time = self._calibrate_exposure(
                     half_extent, search_step, spot_radius
                 )

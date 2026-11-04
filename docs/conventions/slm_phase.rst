@@ -20,6 +20,12 @@ and a converging lens has the phase ``-k * r**2 / (2 * f)``
 - The gray level falls as the phase rises, since most liquid-crystal SLMs shorten the
   phase delay as the voltage rises. Zero phase is level 0, and a small positive phase
   is one of the highest levels.
+- Hamamatsu LCOS-SLMs run the other way. Their controller lowers the voltage as the
+  level rises (Hamamatsu's technical note on phase spatial light modulators, section
+  4-2), so the phase delay rises with the level, and a displayed phase is a phase
+  advance on them. In the focal plane, this turns the image by 180 degrees, which a
+  camera mapping takes up, so holograms come out as asked. Along the beam, it reverses
+  the direction.
 - slmsuite negates the phase in the same way
   (:meth:`slmsuite.hardware.slms.slm.SLM.set_phase`). It shows each phase one level
   lower, so its zero phase is the highest level. The two differ by a constant phase.
@@ -44,6 +50,14 @@ the focus.
 propagates a field downstream for a positive ``propagation_distance``. With a defocus
 ``d`` on the SLM, the image plane therefore holds the in-focus field propagated by
 ``-d``.
+
+On an SLM whose phase delay rises with its level, a positive ``defocus`` moves the
+focus towards the SLM. A model still predicts the camera's frames, because it is
+compared with the camera through the displayed phase. Only a physical move along the
+beam depends on this. A :class:`~hologradpy.phase_levels.PhaseResponse` holds it as
+``delay_rises_with_level``, and
+:func:`~hologradpy.calibration.camera_focus.find_camera_focus` reads it from the SLM
+(:attr:`~hologradpy.hardware.slm.abstract.SLM.delay_rises_with_level`).
 
 The ``defocus_distances`` that
 :class:`~hologradpy.holography.camera_feedback.model_learning_feedback.ModelLearningFeedbackCorrector`

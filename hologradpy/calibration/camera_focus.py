@@ -62,13 +62,15 @@ class CameraFocus:
     ``print`` shows the waists along x and y, and how far to move the camera.
 
     Attributes:
-        defocus: How far each lens phase moved the focus, in metres, away from the SLM
-            if positive, ``(S,)``.
+        defocus: The defocus of each lens phase, in metres, as
+            :func:`~hologradpy.profiles.phase.defocus_phase` takes it, ``(S,)``.
         spots: The crop of the camera frame fitted at each step.
         beams: The Gaussian beam fitted to each crop, in metres from the crop's centre.
         pixel_size: The ``(y, x)`` pitch of the crops, in metres.
         fit_x: The focus fitted to the radii along x.
         fit_y: The focus fitted to the radii along y.
+        delay_rises_with_level: Whether the SLM's phase delay rises with its gray level.
+            It sets the direction of :attr:`camera_move`.
     """
 
     defocus: NDArray[np.float64]
@@ -77,6 +79,7 @@ class CameraFocus:
     pixel_size: tuple[float, float]
     fit_x: FocusFit
     fit_y: FocusFit
+    delay_rises_with_level: bool = False
 
     @property
     def radii_x(self) -> NDArray[np.float64]:
@@ -93,11 +96,19 @@ class CameraFocus:
         """How far to move the camera along the beam, in metres, away from the SLM if
         positive.
 
-        A waist at a positive defocus means the focus had to move away from the SLM to
-        reach the camera, so the focus sits before the camera. The move is minus the
-        mean of the waists along x and y. It means nothing unless :attr:`focus_found`.
+        A waist at a positive defocus means a lens phase with that defocus brought the
+        focus to the camera.
+
+        - If the SLM's phase delay falls with its gray level, that lens moves the focus
+          away from the SLM. The focus sits before the camera, so the move is minus the
+          mean of the waists along x and y.
+        - If the delay rises with the gray level, that lens moves the focus towards the
+          SLM. The focus sits beyond the camera, so the move is the mean of the waists.
+
+        It means nothing unless :attr:`focus_found`.
         """
-        return -(self.fit_x.waist_position + self.fit_y.waist_position) / 2
+        waist = (self.fit_x.waist_position + self.fit_y.waist_position) / 2
+        return waist if self.delay_rises_with_level else -waist
 
     @property
     def camera_move_error(self) -> float:
@@ -202,6 +213,10 @@ def find_camera_focus(
     The SLM shows ``base_phase`` under the whole scan. The defocus counts from the focus
     the spot has with ``base_phase``, so the move puts the camera in that focus.
 
+    The SLM says which way a lens phase moves the focus
+    (:attr:`~hologradpy.hardware.slm.abstract.SLM.delay_rises_with_level`). That sets
+    the direction of the move, and the scan stays the same.
+
     The scan needs no camera mapping or model, but the spot has to land on the sensor.
     If it doesn't, the fit can fail, or it can fit another spot, such as the zeroth
     order. The lens phases don't change that spot's radius, so
@@ -286,6 +301,7 @@ def find_camera_focus(
         pixel_size=tuple(float(pitch) for pitch in camera.pixel_size),
         fit_x=fit_focus(defocus, radii_x),
         fit_y=fit_focus(defocus, radii_y),
+        delay_rises_with_level=slm.delay_rises_with_level,
     )
 
 
@@ -330,7 +346,7 @@ class CameraFocusVisualizer(BaseVisualizer):
             axs.plot(fine * 1e3, fit.radius(fine) * 1e6, color=color)
             if focus.focus_found:
                 axs.axvline(fit.waist_position * 1e3, color=color, linestyle=":")
-        axs.set_xlabel("Defocus: the focus moved away from the SLM [mm]")
+        axs.set_xlabel("Defocus of the lens phase [mm]")
         axs.set_ylabel("1/e^2 radius [um]")
         # From zero, so radii that barely change look flat.
         axs.set_ylim(bottom=0.0)

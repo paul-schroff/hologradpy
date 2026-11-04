@@ -191,15 +191,37 @@ def test_sample_positions_is_reproducible(mapper):
     assert torch.allclose(first, second)
 
 
-def test_sample_positions_raises_when_infeasible(mapper):
-    """100 spots 100 px apart cannot fit in a 100 x 100 px box. The message gives the
-    lengths in pixels.
+def test_sample_positions_returns_the_points_that_fit(mapper):
+    """100 points 40 px apart cannot fit in a 100 x 100 px box, so it returns fewer, all
+    still separated.
     """
     generator = torch.Generator(device=DEVICE).manual_seed(0)
-    with pytest.raises(
-        ValueError, match=r"100 spots 100\.0 px apart in a 100 x 100 px box"
-    ):
-        mapper._sample_positions(100, (100.0, 100.0), 100.0, generator)
+
+    positions = mapper._sample_positions(100, (100.0, 100.0), 40.0, generator)
+
+    assert 1 < len(positions) < 100
+    distances = torch.cdist(positions, positions)
+    distances.fill_diagonal_(float("inf"))
+    assert torch.all(distances >= 40.0)
+
+
+def test_a_mapping_with_more_spots_than_fit_warns_and_uses_those_that_fit():
+    """30 spots 3 mm apart don't fit on the 9.6 x 7.2 mm sensor. The mapping says how
+    many it placed, and fits the ones it placed.
+    """
+    slm, camera, model = _build_setup()
+    coarse = CoarseMapper(slm, camera, model).map_camera()
+
+    with pytest.warns(UserWarning, match=r"Placed \d+ of 30 spots 100\.0 px apart"):
+        mapping = SpotArrayMapper(slm, camera, model).map_camera(
+            number_of_spots=30,
+            minimum_separation=3e-3,
+            seed=1,
+            coarse_mapping=coarse,
+        )
+
+    assert 3 <= len(mapping.detected_points) < 30
+    assert mapping.fit.reprojection_rms < 1.0
 
 
 # --- LinearSuperpositionPhaseRetriever (default-argument regression) ----------
