@@ -188,6 +188,7 @@ def find_camera_focus(
     focal_length: float,
     tilt: tuple[float, float] = (0.0, 0.0),
     *,
+    base_phase: NDArray | None = None,
     rayleigh_ranges: float = 3.0,
     steps: int = 13,
     verbose: bool = True,
@@ -197,6 +198,9 @@ def find_camera_focus(
     Lens phases on the SLM move the focus along the beam by known distances. A Gaussian
     fitted to the spot gives the beam's radius at each distance, and
     :func:`~hologradpy.profiles.gaussian.fit_focus` fitted to the radii puts the waist.
+
+    The SLM shows ``base_phase`` under the whole scan. The defocus counts from the focus
+    the spot has with ``base_phase``, so the move puts the camera in that focus.
 
     The scan needs no camera mapping or model, but the spot has to land on the sensor.
     If it doesn't, the fit can fail, or it can fit another spot, such as the zeroth
@@ -212,7 +216,7 @@ def find_camera_focus(
     The whole sensor is read out, and the camera's exposure, gain and region of interest
     are put back afterwards
     (:meth:`~hologradpy.hardware.camera.Camera.preserve_exposure_gain_and_roi`). The SLM
-    ends on the spot without a lens.
+    ends on the spot with ``base_phase``, without a lens of the scan.
 
     Args:
         slm: The SLM.
@@ -220,6 +224,8 @@ def find_camera_focus(
         focal_length: The focal length of the Fourier lens onto the camera, in metres.
         tilt: The displacement ``(x, y)`` of the spot in the focal plane, in metres from
             the zeroth order.
+        base_phase: The phase under the scan in radians, such as a lens or a wavefront
+            correction. If None, the SLM adds no phase under the scan.
         rayleigh_ranges: How many Rayleigh ranges the scan reaches either side.
         steps: The number of lens phases. An odd number includes the spot without a
             lens.
@@ -241,6 +247,8 @@ def find_camera_focus(
     spot_phase = linear_phase(
         x, y, *tilt, wavenumber=wavenumber, focal_length=focal_length
     )
+    if base_phase is not None:
+        spot_phase = spot_phase + base_phase
     pixel = float(np.mean(camera.pixel_size))
 
     spots, beams = [], []

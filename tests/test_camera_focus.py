@@ -207,6 +207,94 @@ def test_the_slm_ends_on_the_spot_and_the_camera_is_put_back():
     assert camera.get_image().shape == (region.height, region.width)
 
 
+def _focus_with_lens(off, lens):
+    """A scan of a beam whose focus lies ``off`` before the camera, on top of a lens
+    that moves the focus by ``lens``.
+    """
+    slm, camera = _bench(off)
+    x, y = slm.get_spatial_grid()
+    return find_camera_focus(
+        slm,
+        camera,
+        FOCAL_LENGTH,
+        TILT,
+        base_phase=defocus_phase(x, y, lens, FOCAL_LENGTH, WAVENUMBER),
+        verbose=False,
+    )
+
+
+def test_a_lens_under_the_scan_moves_the_camera_onto_its_focus():
+    focus = _focus_with_lens(0.0, 8e-3)
+
+    assert focus.camera_move == pytest.approx(8e-3, abs=0.02 * RAYLEIGH_RANGE)
+    assert focus.focus_found
+    assert "away from the lens before it" in focus.instruction
+
+
+def test_a_lens_under_the_scan_counts_from_the_beams_own_focus():
+    focus = _focus_with_lens(5e-3, 8e-3)
+
+    assert focus.camera_move == pytest.approx(3e-3, abs=0.02 * RAYLEIGH_RANGE)
+    assert "away from the lens before it" in focus.instruction
+
+
+def test_a_correction_under_the_scan_cancels_the_beams_curvature():
+    """A calibration's correction is minus the wrapped phase of the field. The piston
+    wraps it inside the beam.
+    """
+    off = 5e-3
+    slm, camera = _bench(off)
+    x, y = slm.get_spatial_grid()
+    curvature = defocus_phase(x, y, -off, FOCAL_LENGTH, WAVENUMBER)
+
+    focus = find_camera_focus(
+        slm,
+        camera,
+        FOCAL_LENGTH,
+        TILT,
+        base_phase=-np.angle(np.exp(1j * (curvature + 3.0))),
+        verbose=False,
+    )
+
+    assert focus.camera_move == pytest.approx(0.0, abs=0.02 * RAYLEIGH_RANGE)
+
+
+def test_the_slm_shows_the_base_phase_at_every_step_and_ends_on_it():
+    slm, camera = _bench()
+    x, y = slm.get_spatial_grid()
+    shown = []
+    set_phase = slm.set_phase
+
+    def record(phase):
+        shown.append(phase)
+        set_phase(phase)
+
+    slm.set_phase = record
+    base_phase = defocus_phase(x, y, 8e-3, FOCAL_LENGTH, WAVENUMBER)
+
+    focus = find_camera_focus(
+        slm,
+        camera,
+        FOCAL_LENGTH,
+        TILT,
+        base_phase=base_phase,
+        steps=3,
+        verbose=False,
+    )
+
+    spot = base_phase + linear_phase(
+        x, y, *TILT, wavenumber=WAVENUMBER, focal_length=FOCAL_LENGTH
+    )
+    lenses = [
+        defocus_phase(x, y, float(distance), FOCAL_LENGTH, WAVENUMBER)
+        for distance in focus.defocus
+    ]
+    expected = [spot, *(spot + lens for lens in lenses), spot]
+    assert len(shown) == len(expected)
+    for phase, frame in zip(shown, expected):
+        np.testing.assert_allclose(phase, frame, atol=1e-5)
+
+
 def test_a_zeroth_order_alone_is_no_focus():
     """No camera mapping says where the spot lands. If it misses the sensor, the scan
     fits the zeroth order, whose radius the lens phases don't change. So it gives no
