@@ -112,6 +112,8 @@ class GridCell:
         height: Explicit cell height [inches], overriding ``aspect`` for the row
             height. Mainly for ``aspect="auto"`` line rows.
         sharex: Name of another cell whose x-axis this cell should share.
+        projection: The matplotlib projection of the cell's axes, such as ``"3d"``. The
+            axes are plain when None.
     """
 
     name: str
@@ -121,6 +123,7 @@ class GridCell:
     colorbar_label: str | None = None
     height: float | None = None
     sharex: str | None = None
+    projection: str | None = None
 
 
 class PlotLayout:
@@ -342,6 +345,7 @@ class PlotLayout:
                 self.axes[cell.name] = figure.add_axes(
                     divider.get_position(),
                     axes_locator=divider.new_locator(nx=content, ny=ny),
+                    projection=cell.projection,
                 )
                 if colorbar is not None:
                     self.colorbar_axes[cell.name] = figure.add_axes(

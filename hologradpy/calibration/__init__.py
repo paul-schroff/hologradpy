@@ -24,6 +24,7 @@ from .zeroth_order import (
     ZerothOrderVisualizer,
 )
 from .spot_detection import get_diffraction_spot_position
+from .camera_focus import CameraFocus, CameraFocusVisualizer, find_camera_focus
 from .camera_mapping import (
     CameraMapping,
     CheckerboardMapper,
@@ -52,6 +53,9 @@ __all__ = [
     "ZerothOrderCalibrationData",
     "ZerothOrderVisualizer",
     "get_diffraction_spot_position",
+    "CameraFocus",
+    "CameraFocusVisualizer",
+    "find_camera_focus",
     "CameraMapping",
     "CheckerboardMapper",
     "CoarseMapper",

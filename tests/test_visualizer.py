@@ -66,6 +66,15 @@ def test_layout_builds_named_axes():
     plt.close(figure)
 
 
+def test_a_cell_can_have_a_projection():
+    layout = PlotLayout()
+    layout.add_row([GridCell("flat"), GridCell("volume", projection="3d")])
+    figure = layout.build()
+    assert layout.axes["flat"].name == "rectilinear"
+    assert layout.axes["volume"].name == "3d"
+    plt.close(figure)
+
+
 def test_layout_colorbar_slot_gets_its_own_axes():
     layout = PlotLayout()
     layout.add_row([GridCell("img", colorbar=True)])
