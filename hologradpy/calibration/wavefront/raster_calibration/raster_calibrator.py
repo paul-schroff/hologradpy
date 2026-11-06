@@ -200,6 +200,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         camera_roi_size: tuple[int, int],
         clearance: float,
         direction: NDArray[np.float64],
+        or_farthest: bool = False,
     ) -> tuple[tuple[float, float], tuple[float, float]]:
         """The linear-phase tilt in focal-plane metres that places the pattern on the
         sensor along ``direction`` from the zeroth order.
@@ -209,6 +210,12 @@ class RasterCalibrator(WavefrontCalibratorBase):
         camera pixels. The tilt is the image-plane position of the target, measured
         from the zeroth order
         (:meth:`~hologradpy.calibration.camera_mapping.CameraMapping.sensor_to_image_plane`).
+
+        If no place along ``direction`` clears the zeroth order and fits on the sensor:
+
+        - If ``or_farthest`` is True, the pattern sits at the place that fits farthest
+          from the zeroth order, with a warning.
+        - Otherwise, the method raises a ValueError.
 
         Returns ``(tilt, target_camera_pixel)``, the pixel as ``(column, row)``.
         """
@@ -220,34 +227,45 @@ class RasterCalibrator(WavefrontCalibratorBase):
             [self.camera.pixel_size[1], self.camera.pixel_size[0]]
         )  # (x, y)
 
-        # Keep the pattern ROI, plus three focal-spot radii, inside the sensor. The
-        # margin is the same on all four sides and uses the ROI's longer side.
+        # Keep the pattern ROI, plus three focal-spot radii, inside the sensor.
         focal_spot_radius = float(abs(mapping.spot_fit.waist))
-        margin = max(camera_roi_size) / 2 + 3.0 * focal_spot_radius / camera_pitch.min()
-        if width - 1 - margin < margin or height - 1 - margin < margin:
+        roi_height, roi_width = camera_roi_size
+        margin = (
+            np.array([roi_width, roi_height]) / 2
+            + 3.0 * focal_spot_radius / camera_pitch.min()
+        )
+        low = margin
+        high = np.array([width - 1, height - 1]) - margin
+        if np.any(high < low):
             raise ValueError(
-                "The interference-pattern ROI does not fit on the sensor. Reduce "
-                "the superpixel size or camera_roi_size."
+                "The interference-pattern ROI does not fit on the sensor. Use larger "
+                "superpixels or a smaller camera_roi_size."
             )
 
-        # Farthest travel along +direction from the DC while staying inside the inset
-        # box. direction has +-1/sqrt(2) components, so there is no zero-division.
-        bound_x = width - 1 - margin if direction[0] > 0 else margin
-        bound_y = height - 1 - margin if direction[1] > 0 else margin
-        t_max = min(
-            (bound_x - zeroth[0]) / direction[0],
-            (bound_y - zeroth[1]) / direction[1],
-        )
-        if clearance > t_max:
+        # The stretch of the diagonal inside that box. direction has +-1/sqrt(2)
+        # components, so there is no zero-division.
+        crossings = np.stack([(low - zeroth) / direction, (high - zeroth) / direction])
+        t_enter = max(float(crossings.min(axis=0).max()), clearance)
+        t_exit = float(crossings.max(axis=0).min())
+        if t_enter <= t_exit:
+            # As close to the sensor center as the clearance and sensor allow.
+            t_center = float(direction @ (center - zeroth))
+            target = zeroth + float(np.clip(t_center, t_enter, t_exit)) * direction
+        elif or_farthest:
+            # Along each axis, the farther bound.
+            target = np.where(high - zeroth > zeroth - low, high, low)
+            warnings.warn(
+                f"No place on the diagonal clears the zeroth order by {clearance:.0f} "
+                "px and fits on the sensor. The pattern sits "
+                f"{np.linalg.norm(target - zeroth):.0f} px from it, as far as fits.",
+                stacklevel=3,
+            )
+        else:
             raise ValueError(
                 f"No diagonal location clears the zeroth order by {clearance:.0f} "
                 "px and still fits on the sensor. Use a larger sensor or a smaller "
                 "ROI."
             )
-        # As close to the sensor center as the clearance and sensor allow.
-        t_center = float(direction @ (center - zeroth))
-        t = float(np.clip(t_center, clearance, t_max))
-        target = zeroth + t * direction
 
         tilt = mapping.sensor_to_image_plane([target])[0]
 
@@ -267,14 +285,17 @@ class RasterCalibrator(WavefrontCalibratorBase):
         """Ensure a coarse mapping and place the main interference pattern centrally
         along the shared diagonal, clearing the zeroth order by two interference-
         pattern ROI widths (``camera_roi_size``, not the combined lattice+pattern
-        window). Returns ``(tilt, target, direction)`` so the lattice can reuse the
-        direction and the main target.
+        window). If no place on the diagonal does, the pattern sits as far from the
+        zeroth order as fits. Returns ``(tilt, target, direction)`` so the lattice can
+        reuse the direction and the main target.
         """
         if self.camera_mapping is None:
             self._ensure_camera_mapping(camera_mapping, slm_camera_model)
         direction = self._diagonal_direction()
         clearance = 2.0 * max(camera_roi_size)
-        tilt, target = self._auto_phase_tilt(camera_roi_size, clearance, direction)
+        tilt, target = self._auto_phase_tilt(
+            camera_roi_size, clearance, direction, or_farthest=True
+        )
         return tilt, target, direction
 
     def _auto_lattice_tilt(
@@ -1340,6 +1361,7 @@ class RasterCalibrator(WavefrontCalibratorBase):
         save_metadata: bool = False,
         verbose: bool = True,
         record_displayed_phases: bool = False,
+        intensity_only: bool = False,
     ) -> WavefrontCalibrationData:
         """Measure the SLM-plane intensity, then the phase, by raster scans.
 
@@ -1355,6 +1377,14 @@ class RasterCalibrator(WavefrontCalibratorBase):
 
         The phase scan uses the same grid with superpixels of half the height and
         width.
+
+        If ``intensity_only`` is True, only the intensity scan runs:
+
+        - The field has the measured amplitude and a flat phase, so the Zernike terms
+          of the fitted beam are 0.
+        - The calibration is named "Intensity Raster", and has no
+          ``visualization_data``.
+        - The arguments of the phase scan do nothing.
 
         The arguments not described here are those of :meth:`measure_intensity` and
         :meth:`measure_phase`.
@@ -1402,19 +1432,23 @@ class RasterCalibrator(WavefrontCalibratorBase):
             verbose=verbose,
         )
 
-        phase, _, _ = self.measure_phase(
-            (rows, columns),
-            (superpixel_height // 2, superpixel_width // 2),
-            linear_phase_tilt=linear_phase_tilt,
-            camera_roi_size=camera_roi_size,
-            measured_intensity=intensity,
-            compensate_pointing=compensate_pointing,
-            lattice_phase_tilt=lattice_phase_tilt,
-            lattice_superpixel_size=lattice_superpixel_size,
-            lattice_roi_size=lattice_roi_size,
-            verbose=verbose,
-            record_displayed_phases=record_displayed_phases,
-        )
+        phase = np.zeros_like(intensity)
+        visualization_data = None
+        if not intensity_only:
+            phase, _, _ = self.measure_phase(
+                (rows, columns),
+                (superpixel_height // 2, superpixel_width // 2),
+                linear_phase_tilt=linear_phase_tilt,
+                camera_roi_size=camera_roi_size,
+                measured_intensity=intensity,
+                compensate_pointing=compensate_pointing,
+                lattice_phase_tilt=lattice_phase_tilt,
+                lattice_superpixel_size=lattice_superpixel_size,
+                lattice_roi_size=lattice_roi_size,
+                verbose=verbose,
+                record_displayed_phases=record_displayed_phases,
+            )
+            visualization_data = self.visualization_data
 
         field = np.sqrt(intensity) * np.exp(1j * phase)
         complex_amplitude = ComplexAmplitude(
@@ -1423,7 +1457,8 @@ class RasterCalibrator(WavefrontCalibratorBase):
             pixel_size=torch.as_tensor(tuple(self.slm.pixel_size)),
         )
 
-        calibration_name = f"Raster Calibration - {rows}x{columns}"
+        kind = "Intensity Raster" if intensity_only else "Raster Calibration"
+        calibration_name = f"{kind} - {rows}x{columns}"
 
         if save_metadata:
             # Scan parameters, the measured intensity map, and the intensity-scan
@@ -1453,5 +1488,5 @@ class RasterCalibrator(WavefrontCalibratorBase):
             complex_amplitude=complex_amplitude,
             beam=self.fit_beam(field),
             metadata=metadata,
-            visualization_data=self.visualization_data,
+            visualization_data=visualization_data,
         )

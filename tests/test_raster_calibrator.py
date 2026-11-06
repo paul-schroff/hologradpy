@@ -42,7 +42,7 @@ from hologradpy.calibration.wavefront.raster_calibration import (
 from hologradpy.geometry import AffineTransform
 from hologradpy.grids import metres_to_pixel, pixel_frame_vector, plane_center
 from hologradpy.roi import ROI
-from hologradpy.utils import as_image
+from hologradpy.utils import as_image, gpu_to_numpy
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -251,6 +251,52 @@ def test_lattice_placement_same_diagonal_further_out():
     lattice_offset = np.asarray(lattice_target) - zeroth
     assert np.hypot(*lattice_offset) > main_distance  # further from the DC
     assert abs(abs(lattice_offset[0]) - abs(lattice_offset[1])) < 1e-6  # same diagonal
+
+
+@pytest.mark.parametrize(
+    ("zeroth", "roi"),
+    [((360.0, 140.0), (100, 120)), ((600.0, 140.0), (20, 20))],
+    ids=["window too wide", "zeroth order far off the sensor"],
+)
+def test_a_pattern_with_no_place_on_the_diagonal_sits_as_far_off_as_fits(zeroth, roi):
+    """The zeroth order lies right of the sensor, and nearer the bottom row than the top
+    one, so the farthest place is at the top left. The pattern keeps three spot radii
+    from the edges, past its own half height and half width.
+    """
+    slm, camera = _build_setup()
+    calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
+    calibrator.camera_mapping = _synthetic_mapping(zeroth=zeroth)
+
+    with pytest.warns(UserWarning, match="as far as fits"):
+        tilt, target, _ = calibrator._ensure_and_place_main(roi, None, None)
+
+    height, width = roi
+    spot_margin = 3 * 8e-6 / CAMERA_PITCH
+    assert target == pytest.approx((width / 2 + spot_margin, height / 2 + spot_margin))
+    addressable = np.asarray(calibrator._addressable_half_extent())
+    assert np.all(np.abs(tilt) <= 0.9 * addressable + 1e-9)
+
+
+def test_a_second_spot_with_no_place_on_the_diagonal_still_raises():
+    """Without ``or_farthest``, as for the lattice and the power reference, it could
+    otherwise land on the main pattern.
+    """
+    slm, camera = _build_setup()
+    calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
+    calibrator.camera_mapping = _synthetic_mapping(zeroth=(360.0, 140.0))
+    direction = calibrator._diagonal_direction()
+
+    with pytest.raises(ValueError, match="No diagonal location"):
+        calibrator._auto_phase_tilt((100, 120), 240.0, direction)
+
+
+def test_a_window_larger_than_the_sensor_still_raises():
+    slm, camera = _build_setup()
+    calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
+    calibrator.camera_mapping = _synthetic_mapping(zeroth=(360.0, 140.0))
+
+    with pytest.raises(ValueError, match="larger superpixels"):
+        calibrator._ensure_and_place_main((300, 400), None, None)
 
 
 # --- end-to-end placement (real coarse mapping) --------------------------------
@@ -586,6 +632,44 @@ def test_a_raster_calibration_records_its_beam():
     assert abs(beam.gaussian.shift_x) < 1e-4
     assert abs(beam.gaussian.shift_y) < 1e-4
     assert len(beam.zernike_coefficients) == 28
+
+
+def test_an_intensity_only_calibration_skips_the_phase_scan(monkeypatch):
+    """Its field is the measured amplitude with a flat phase, so the beam's Zernike
+    terms are 0. A scan recorded earlier on the calibrator doesn't go with it. A model
+    and without_defocus() accept the calibration.
+
+    The simulated beam is round, with a radius of 2 mm.
+    """
+    slm, camera = _build_setup()
+    calibrator = RasterCalibrator(slm, camera, focal_length=FOCAL_LENGTH)
+    calibrator.visualization_data = "a scan recorded earlier"
+
+    def no_phase_scan(*args, **kwargs):
+        raise AssertionError("The phase scan ran.")
+
+    monkeypatch.setattr(calibrator, "measure_phase", no_phase_scan)
+
+    record = calibrator.calibrate(
+        number_of_superpixels=(4, 4),
+        camera_mapping=_synthetic_mapping(),
+        save_metadata=True,
+        verbose=False,
+        intensity_only=True,
+    )
+
+    assert record.name == "Intensity Raster - 4x4"
+    assert record.visualization_data is None
+    field = gpu_to_numpy(as_image(record.complex_amplitude))
+    np.testing.assert_allclose(
+        np.abs(field) ** 2, record.metadata["intensity"], rtol=1e-5
+    )
+    assert np.all(np.angle(field) == 0)
+    assert record.beam.gaussian.mean_radius == pytest.approx(2.0e-3, rel=0.1)
+    assert record.beam.zernike_coefficients == pytest.approx([0.0] * 28, abs=1e-6)
+    PixelwiseSLMField.from_calibration_data(record)
+    removed = record.without_defocus().metadata["removed_defocus"]
+    assert removed == pytest.approx(0.0, abs=1e-6)
 
 
 def test_calibrate_records_the_scan_for_the_animation(tmp_path) -> None:
